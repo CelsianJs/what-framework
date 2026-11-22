@@ -11,7 +11,7 @@
 // A newer navigation supersedes one still preparing.
 
 import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext } from 'what-core/internal';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
@@ -802,6 +802,17 @@ function loopScreen(message) {
 // unless it is being called from here. Clearing it on a successful match
 // instead would never catch a cycle between two route components, because each
 // hop matches successfully before its component throws the next redirect.
+// A redirect loop, reported with the URLs it went through and the routes whose
+// guards sent it on (development: ERR_REDIRECT_CYCLE, a coded diagnostic).
+function redirectLoop(hops, kind) {
+  _redirectHistory.length = 0;
+  const cycle = [hops[0].from, ...hops.map((hop) => hop.to)].join(' → ');
+  const guards = [...new Set(hops.map((hop) => hop.from))].join(', ');
+  // ERROR_CODES.REDIRECT_CYCLE
+  if (__DEV__) reportDiagnostic('ERR_REDIRECT_CYCLE', { data: { kind, cycle, guards } });
+  else console.error(`[what-router] Redirect loop (${kind}): ${cycle}`);
+}
+
 function handleRedirect(target, options) {
   // A server render answers with a redirect: it has no history to push, and
   // the navigation state below is the browser tab's.
@@ -827,26 +838,23 @@ function handleRedirect(target, options) {
   // synchronously and the URL and the flag change together.
   if (_pendingUrl.peek() === target) return null;
 
-  _redirectHistory.push(target);
+  // Each hop: where the navigation was going when that route's guard sent it on.
+  _redirectHistory.push({ from: _pendingUrl.peek() ?? readUrl(), to: target });
 
   if (_redirectHistory.length > MAX_REDIRECTS) {
-    const cycle = _redirectHistory.slice(-5).join(' → ');
-    _redirectHistory.length = 0;
-    console.error(`[what-router] Redirect loop detected: ${cycle}`);
+    redirectLoop(_redirectHistory.slice(-5), 'too many redirects');
     end();
     return loopScreen('Too many redirects. Check your middleware configuration.');
   }
 
   const seen = new Set();
   let hasCycle = false;
-  for (const url of _redirectHistory) {
-    if (seen.has(url)) { hasCycle = true; break; }
-    seen.add(url);
+  for (const { to } of _redirectHistory) {
+    if (seen.has(to)) { hasCycle = true; break; }
+    seen.add(to);
   }
   if (hasCycle) {
-    const cycle = _redirectHistory.join(' → ');
-    _redirectHistory.length = 0;
-    console.error(`[what-router] Redirect cycle detected: ${cycle}`);
+    redirectLoop(_redirectHistory.slice(), 'a cycle');
     end();
     return loopScreen('Circular redirect detected. Check your middleware configuration.');
   }

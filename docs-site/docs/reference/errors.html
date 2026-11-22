@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 66 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 68 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 66 of them: 38 errors and 28 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 68 of them: 40 errors and 28 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -88,6 +88,7 @@
             <li><a href="#ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</a></li>
             <li><a href="#ERR_DUPLICATE_KEY">ERR_DUPLICATE_KEY</a></li>
             <li><a href="#ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</a></li>
+            <li><a href="#ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</a></li>
             <li><a href="#ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</a></li>
             <li><a href="#ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</a></li>
             <li><a href="#ERR_FORM_RADIO_UNTYPED">ERR_FORM_RADIO_UNTYPED</a></li>
@@ -118,6 +119,7 @@
             <li><a href="#ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</a></li>
             <li><a href="#ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</a></li>
             <li><a href="#ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</a></li>
+            <li><a href="#ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</a></li>
             <li><a href="#ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</a></li>
             <li><a href="#ERR_RUNTIME">ERR_RUNTIME</a></li>
             <li><a href="#ERR_SIGNAL_WRITE_IN_COMPUTED">ERR_SIGNAL_WRITE_IN_COMPUTED</a></li>
@@ -362,6 +364,21 @@ useEffect(() =&gt; save(count()), [count]);
 
 // Good - or let the effect track what it reads:
 useEffect(() =&gt; save(count()));</code></pre>
+
+          <h2 id="ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</h2>
+          <p class="subtitle">An async value was made by a second copy of what-core during a server render.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>The page is server-rendered by one copy of what-core, and a component made a resource, a query or another async value with a different copy: usually a library that bundled what-framework into its own build instead of declaring it as a peer dependency. A second copy never joins the render, so its value would start over on every retry of the render and never reach the client; the render fails instead. Bundle one copy: mark what-framework (and what-core) external in the library's build and list it under peerDependencies, or dedupe the install (npm ls what-core shows each copy). Effects and computeds of a second copy are still owned by the render and disposed with it.</p>
+<pre><code>// Bad — a library's vite.config.js bundles what-framework into dist/index.js:
+export default defineConfig({ build: { lib: { entry: 'src/index.js' } } });
+
+// Good — the library leaves the framework to the app (and lists it in peerDependencies):
+export default defineConfig({
+  build: {
+    lib: { entry: 'src/index.js' },
+    rollupOptions: { external: [/^what-framework/, /^what-core/] },
+  },
+});</code></pre>
 
           <h2 id="ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</h2>
           <p class="subtitle">[what] &lt;Form&gt; requires an `action` prop: a server action, its id, or a function.</p>
@@ -765,6 +782,22 @@ export async function loader() {
   return null;
 }</code></pre>
 
+          <h2 id="ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</h2>
+          <p class="subtitle">[what-router] Redirect loop (kind): cycle. Guards of: guards.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
+          <p>Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each URL in order; the guards are the routes whose middleware redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.</p>
+<pre><code>// Bad — a logged-in non-admin bounces between the two forever:
+const routes = [
+  { path: '/login', component: Login, middleware: [() =&gt; !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() =&gt; isAdmin() || '/login'] },
+];
+
+// Good — the dashboard's guard sends a logged-in non-admin somewhere that lets them in:
+const routes = [
+  { path: '/login', component: Login, middleware: [() =&gt; !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() =&gt; isAdmin() || (isLoggedIn() ? '/account' : '/login')] },
+];</code></pre>
+
           <h2 id="ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</h2>
           <p class="subtitle">[what-router] redirect to target</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
@@ -940,7 +973,7 @@ const { tools } = await client.listTools();</code></pre>
 
           <h2 id="ERR_UNSAFE_INNERHTML">ERR_UNSAFE_INNERHTML</h2>
           <p class="subtitle">innerHTML set on element without using the __html safety marker.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
           <p>Use the html tagged template literal or pass { __html: content } to mark innerHTML as intentional and reviewed.</p>
 <pre><code>// Bad — raw innerHTML (XSS risk):
 &lt;div innerHTML={userInput} /&gt;

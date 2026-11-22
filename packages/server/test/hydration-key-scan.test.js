@@ -50,7 +50,9 @@ describe('the hydration key scan', () => {
 // component given one child gets the child itself, as on the client, so a
 // component that returns its children writes no array markers around one; a
 // style object's declaration the client's CSSOM would drop (a name that is not
-// a property) is not written.
+// a property) is not written; a form field shows its value or default in its
+// one content attribute (what-server's _field: a bare `checked`, a
+// <textarea>'s value as its text, a `checked` of '' not checked).
 describe('string output is unchanged', () => {
   it('renderToString matches the previous release, renderToHydratableString the protocol, on 300 seeded random trees', () => {
     const expected = JSON.parse(readFileSync(new URL('./fixtures/string-render-hashes.json', import.meta.url), 'utf8'));

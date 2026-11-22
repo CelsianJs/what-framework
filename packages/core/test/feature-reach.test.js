@@ -55,6 +55,17 @@ describe('feature reach in production bundles', () => {
     assert.deepEqual(PULL_PHASE.filter((name) => has(code, name)), []);
   });
 
+  it('an app with an error boundary and no computed carries no pull phase', async () => {
+    const code = await bundle(`
+      import { signal, h, mount, ErrorBoundary } from ${INDEX};
+      const n = signal(0);
+      const fallback = ({ error, reset }) => h('button', { onclick: reset }, error.message);
+      mount(h(ErrorBoundary, { fallback }, h('p', {}, () => n())), document.body);
+    `);
+    assert.ok(has(code, 'createErrorBoundary'), 'the boundary renderer is there');
+    assert.deepEqual(PULL_PHASE.filter((name) => has(code, name)), []);
+  });
+
   for (const [what, source] of [
     ['a computed', `import { computed } from ${INDEX}; export const c = computed(() => 1);`],
     ['a selector', `import { signal, createSelector } from ${INDEX}; export const s = createSelector(signal(0));`],

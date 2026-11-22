@@ -9,8 +9,8 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldValue, _isFieldValue, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
-import { isEnumeratedAttr, markupName } from './markup-rules.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _keepSelection, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
@@ -1756,19 +1756,16 @@ export function setProp(el, key, value) {
         console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
       }
       el.innerHTML = html;
-    } else {
-      if (typeof console !== 'undefined' && value != null && value !== '') {
-        console.warn(
-          '[what] Plain string innerHTML is not allowed. Use { __html: "..." } or dangerouslySetInnerHTML={{ __html: "..." }} instead.'
-        );
-      }
+    } else if (__DEV__ && value != null && value !== '') {
+      // A string is refused: { __html } marks markup someone trusted.
+      report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
     }
   } else if (key === 'style') {
     // Delegate to setStyle so the object form clears stale keys (el._lastStyleObj).
     setStyle(el, value);
-  } else if (_isFieldValue(el, key)) {
-    // Before the nullish and boolean branches (dom.js _setFieldValue).
-    _setFieldValue(el, value);
+  } else if (_setFieldProp(el, key, value)) {
+    // A form field's state, before the nullish and boolean branches (dom.js
+    // Form fields).
   } else if (value == null) {
     // null / undefined — attribute must be ABSENT (React/Solid semantics), not
     // stringified to "undefined"/"null". Caught before the data-*/aria-*, SVG
@@ -1777,8 +1774,6 @@ export function setProp(el, key, value) {
     if (_writableProp(el, key)) {
       try { el[key] = ''; } catch { /* a property '' does not fit (files) */ }
     }
-    // No value prop is an uncontrolled field (dom.js _resetForm).
-    if (key === 'value') el._$value = undefined;
     el.removeAttribute(key);
   } else if (isEnumeratedAttr(key)) {
     el.setAttribute(key, value);
@@ -1789,9 +1784,6 @@ export function setProp(el, key, value) {
     el.setAttribute(key, value);
   } else if (_writableProp(el, key)) {
     el[key] = value;
-    // What a controlled field's value prop holds, which a form reset keeps
-    // (dom.js _resetForm).
-    if (key === 'value') el._$value = String(value);
   } else {
     el.setAttribute(key, value);
   }
@@ -1977,23 +1969,17 @@ export function setAttr(el, name, value) {
   else el.setAttribute(name, value);
 }
 
-// value — a controlled field's value (dom.js _setFieldValue: a <select>'s
-// options, null releasing the field, the guarded write that leaves the caret
-// of a focused input alone on an unrelated re-run).
+// value and checked — a form field's state (dom.js Form fields): a property
+// write that a default never moves, null releasing the field. On an element
+// whose value is an attribute (an <option>, a checkbox's value), setProp.
 export function setValue(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setValue);
-  _setFieldValue(el, value);
+  if (!_setFieldProp(el, 'value', value)) setProp(el, 'value', value);
 }
 
-// checked — live property write (matches bind:checked). The old generic path
-// used setAttribute('checked'), which only sets the DEFAULT-checked state and
-// stops reflecting once the user has toggled the input.
 export function setChecked(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setChecked);
-  const on = !!value;
-  if (el._$checked === on) return;
-  el._$checked = on;
-  el.checked = on;
+  if (!_setFieldProp(el, 'checked', value)) setProp(el, 'checked', value);
 }
 
 // --- delegateEvents(eventNames, root?) ---
@@ -2724,6 +2710,7 @@ function keepTemplateAttrs(el, t) {
   for (let i = 0; i < want.length; i += 3) {
     if (el.getAttribute(want[i]) !== want[i + 1]) el.setAttributeNS(want[i + 2], want[i], want[i + 1]);
   }
+  if (el.localName === 'option') _keepSelection(el);
 }
 
 // A template node's attributes as [name, value, namespace, ...], read from
@@ -2753,12 +2740,20 @@ function keepsAttr(el, key, value, current) {
   return current !== '' || !(key in el && typeof el[key] === 'boolean');
 }
 
-// The attribute a prop writes, or null for a prop that writes none of its
-// own: children, key, ref, a delegated handler ($$click), raw inner HTML, a
-// listener, a classList (it writes class, which `fold` removed first).
-function attrOf(key) {
-  return key === 'children' || key === 'key' || key === 'ref' || key.startsWith('$$') || key === 'innerHTML'
-    || key === 'dangerouslySetInnerHTML' || key === 'classList' || _isEventProp(key) ? null : markupName(key);
+// The attribute a prop writes on `el`, or null for a prop that writes none of
+// its own: children, key, ref, a delegated handler ($$click), raw inner HTML,
+// a listener, a classList (it writes class, which `fold` removed first), and
+// a form field's value or checked (a property: the server's attribute there
+// showed it, and goes unless a default prop writes it).
+function attrOf(el, key) {
+  if (key === 'children' || key === 'key' || key === 'ref' || key.startsWith('$$') || key === 'innerHTML'
+    || key === 'dangerouslySetInnerHTML' || key === 'classList' || _isEventProp(key)) return null;
+  if (FIELD_PROPS.has(key) && FIELD_TAGS.has(el.localName)) {
+    if (el.localName !== 'input') return null;
+    if (key === 'checked') return null;
+    if (key === 'value' && !ATTRIBUTE_VALUE_TYPES.has(el.type)) return null;
+  }
+  return markupName(key);
 }
 
 // The server attributes no prop renders, removed: an event handler's name
@@ -2769,11 +2764,12 @@ function dropUnrendered(el, props, fold, names) {
     let rendered = name === 'class' && fold;
     for (const k in props) {
       if (rendered) break;
-      const a = attrOf(k);
+      const a = attrOf(el, k);
       rendered = a !== null && (a === name || a.toLowerCase() === name);
     }
     if (!rendered) el.removeAttribute(name);
   }
+  if (el.localName === 'option') _keepSelection(el);
 }
 
 // A reactive prop whose attribute the server wrote: the attribute stands
@@ -2947,6 +2943,12 @@ function adoptVNode(vnode) {
   // from that markup when it hydrates. Anywhere else it is left over.
   const children = vnode.children;
   const empty = !children || children.length === 0;
+  // A <textarea>'s text is its default: what the server wrote there showed
+  // its value, and the props have written its default (dom.js Form fields).
+  if (empty && tag === 'textarea') {
+    if (props.defaultValue === undefined) el.defaultValue = '';
+    return;
+  }
   if (empty && (el.firstChild === null || props['data-island'] != null)) return;
   enterNode(el, null);
   try {
@@ -2985,7 +2987,7 @@ function hydrateElementProps(el, props) {
   let twice = false;
   for (const key in props) {
     const value = props[key];
-    const name = attrOf(key);
+    const name = attrOf(el, key);
     if (name === null) {
       if (key === 'ref') applyRef(value, el);
       // `$$click` and the like: a delegated handler, assigned as compiled code does.
@@ -4050,14 +4052,18 @@ function claimStatic(c, t) {
 // otherwise claimed node by node, so each difference is reported and
 // replaced. An element the template leaves empty keeps what the server put in
 // it only when a binding writes its content (`flags` 2: innerHTML); anything
-// else in it is left over.
+// else in it is left over, apart from an empty <textarea>'s text: that is its
+// default, which showed the server's value and which its props write again
+// (dom.js Form fields).
 function claimNode(el, t, flags) {
   if (flags & 1) {
     keepTemplateAttrs(el, t);
     enterNode(el, t.firstChild);
   } else if (!el.isEqualNode(t) || hasShadowRoot(el)) {
     keepTemplateAttrs(el, t);
-    if (t.firstChild !== null || (el.firstChild !== null && (flags & 2) === 0)) {
+    if (t.firstChild === null && t.localName === 'textarea') {
+      /** @type {HTMLTextAreaElement} */ (el).defaultValue = '';
+    } else if (t.firstChild !== null || (el.firstChild !== null && (flags & 2) === 0)) {
       enterNode(el, t.firstChild);
       _$exit();
     }

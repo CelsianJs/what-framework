@@ -51,6 +51,6 @@ describe('compiled innerHTML bindings (app-06-html)', () => {
     } finally {
       console.warn = warn;
     }
-    assert.ok(warnings.some((w) => /Plain string innerHTML is not allowed/.test(w)), warnings.join('\n'));
+    assert.ok(warnings.some((w) => /ERR_UNSAFE_INNERHTML/.test(w)), warnings.join('\n'));
   });
 });

@@ -24,24 +24,46 @@ export function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// What each pair compares, as current against reference (above 1: faster):
+// the throughput of the central 80% of calls (opsPerSec, from the trimmed
+// mean), the median call and the 95th-percentile call. The trimmed mean
+// leaves out the slowest tenth of calls, so a change that slows one call in
+// twenty passed it at full speed (round 5, B1); the 95th percentile is that
+// call. The tail is noisier than the middle, so it has a floor of its own.
+const MEASURES = [
+  ['throughput', (now, then) => now.opsPerSec / then.opsPerSec, 'opsPerSec'],
+  ['median call', (now, then) => then.p50 / now.p50, 'p50'],
+  ['95th-percentile call', (now, then) => then.p95 / now.p95, 'p95'],
+];
+
 /**
  * Each guarded operation of `current` against `reference`, two lists of
- * reports measured in pairs: the ratio of its ops/s in each pair, their
- * median and range, and a failure when the median is below 1 - tolerance.
- * An operation the reference does not measure is reported, not judged.
+ * reports measured in pairs: for each measure (MEASURES) the ratio in each
+ * pair, their median and range, and a failure when the median is below its
+ * floor: 1 - tolerance for throughput and the median call, 1 - tailTolerance
+ * for the 95th-percentile call. An operation the reference does not measure
+ * is reported, not judged.
  */
-export function compareInterleaved(name, reference, current, tolerance, guardOps) {
+export function compareInterleaved(name, reference, current, tolerance, guardOps, tailTolerance = 0.25) {
   const failures = [];
   const rows = [];
   for (const op of guardOps) {
-    const ratios = [];
+    const ratios = MEASURES.map(() => []);
     let missing = null;
     for (let i = 0; i < current.length; i++) {
       const now = current[i].find((row) => row.name === op);
       const then = reference[i].find((row) => row.name === op);
-      if (!now || !Number.isFinite(now.opsPerSec)) missing = 'current';
-      else if (!then || !Number.isFinite(then.opsPerSec)) missing ??= 'reference';
-      else ratios.push(now.opsPerSec / then.opsPerSec);
+      if (!now || !Number.isFinite(now.opsPerSec)) {
+        missing = 'current';
+        continue;
+      }
+      if (!then || !Number.isFinite(then.opsPerSec)) {
+        missing ??= 'reference';
+        continue;
+      }
+      MEASURES.forEach(([, ratio, field], m) => {
+        if (Number.isFinite(now[field]) && Number.isFinite(then[field]) && now[field] > 0 && then[field] > 0) ratios[m].push(ratio(now, then));
+      });
     }
     if (missing === 'current') {
       failures.push(`${name}: missing benchmark "${op}" in current run`);
@@ -51,12 +73,17 @@ export function compareInterleaved(name, reference, current, tolerance, guardOps
       rows.push({ op, note: 'not in the reference build: not compared' });
       continue;
     }
-    const mid = median(ratios);
-    const row = { op, median: mid, low: Math.min(...ratios), high: Math.max(...ratios), pairs: ratios.length };
-    rows.push(row);
-    if (mid < 1 - tolerance) {
-      failures.push(`${name}: ${op} at ${pct(mid)} of the reference (median of ${ratios.length} pairs, range ${pct(row.low)} to ${pct(row.high)}; the floor is ${pct(1 - tolerance)})`);
-    }
+    const measured = MEASURES.map(([measure], m) => ratios[m].length === 0 ? null
+      : { measure, median: median(ratios[m]), low: Math.min(...ratios[m]), high: Math.max(...ratios[m]), pairs: ratios[m].length });
+    const [throughput] = measured;
+    rows.push({ op, ...throughput, measures: measured.filter(Boolean) });
+    measured.forEach((row, m) => {
+      if (row === null) return;
+      const floor = 1 - (m === 2 ? tailTolerance : tolerance);
+      if (row.median < floor) {
+        failures.push(`${name}: ${op}: ${row.measure} at ${pct(row.median)} of the reference (median of ${row.pairs} pairs, range ${pct(row.low)} to ${pct(row.high)}; the floor is ${pct(floor)})`);
+      }
+    });
   }
   return { failures, rows };
 }

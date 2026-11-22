@@ -34,6 +34,7 @@ export {
   setServerContext,
   runWithServerContext,
   __installServerContextStorage,
+  _runComponentAsync,
   __markServerProcess,
   _isServerProcess,
   __flushOutsideServerContext,

@@ -9,6 +9,7 @@
 import { handleActionRequest } from './actions.js';
 import { addField } from './fields.js';
 import { runInActionContext } from './context.js';
+import { isHost, requestUrl } from './request-url.js';
 
 const DEFAULT_BASE_PATH = '/__what_action';
 export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
@@ -147,7 +148,7 @@ function targetOrigin(headers, url) {
     parsed = new URL(String(url));
   } catch { /* a path: no scheme or host of its own */ }
   const host = headers.host || (parsed && parsed.host);
-  if (!host) return null;
+  if (!host || !isHost(host)) return null;
   const forwarded = String(headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
   const scheme = forwarded === 'https' || forwarded === 'http' ? forwarded : parsed && parsed.protocol === 'https:' ? 'https' : 'http';
   try {
@@ -206,11 +207,14 @@ function requestOf(reqLike, method) {
   if (reqLike.request instanceof Request) return reqLike.request;
   const headers = lowerHeaders(reqLike.headers);
   const target = typeof reqLike.url === 'string' && reqLike.url ? reqLike.url : '/';
-  let url;
-  try {
-    url = new URL(target.startsWith('/') ? `http://${headers.host || 'localhost'}${target}` : target);
-  } catch {
-    url = new URL('http://localhost/');
+  // A Host that is not a host (request-url.js) is this server's own.
+  let url = target.startsWith('/') ? requestUrl('http', isHost(headers.host) ? headers.host : 'localhost', target) : null;
+  if (url === null) {
+    try {
+      url = new URL(target.startsWith('/') ? `http://localhost${target}` : target);
+    } catch {
+      url = new URL('http://localhost/');
+    }
   }
   const init = new Headers();
   for (const [name, value] of Object.entries(headers)) {
@@ -356,9 +360,13 @@ async function answerAction(req, res, handle, search) {
     return;
   }
   const query = Object.fromEntries(new URLSearchParams(search));
-  const scheme = req.socket && req.socket.encrypted ? 'https' : 'http';
-  const url = `${scheme}://${req.headers.host || 'localhost'}${req.url}`;
-  const out = await handle({ method: req.method, headers: req.headers, body, query, url });
+  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', req.headers.host ?? 'localhost', req.url);
+  if (url === null) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Bad Request' }));
+    return;
+  }
+  const out = await handle({ method: req.method, headers: req.headers, body, query, url: url.href });
   res.writeHead(out.status, out.headers);
   res.end(out.body);
 }

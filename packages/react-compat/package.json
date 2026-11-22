@@ -57,6 +57,9 @@
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"

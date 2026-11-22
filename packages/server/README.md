@@ -388,6 +388,23 @@ import { createRequestHandler } from 'what-framework/server';
 const handle = createRequestHandler({ routes }); // CSRF protection is ON — zero config
 ```
 
+Its built-in renderer answers each page with the status, headers and redirect
+the loader and the page set on `response` (`response.redirect()` in a loader, a
+`<Router>` middleware's redirect, `response.setStatus(404)`), and hands the
+loader the visitor's `csrfToken` on an uncached route. `createRouteRenderer(document)`
+returns that renderer, for an ISR engine's `render` (scheduled regeneration)
+or to wrap it, so an app never re-implements it:
+
+```js
+import { createRequestHandler, createRouteRenderer } from 'what-framework/server';
+import { createCacheEngine, createMemoryStore } from 'what-isr';
+
+const document = { clientEntry: '/src/entry-client.js' };
+const render = createRouteRenderer(document);
+const cache = createCacheEngine({ store: createMemoryStore(), render });
+const handle = createRequestHandler({ routes, cache, render, document });
+```
+
 How the default CSRF protection works:
 
 1. `POST /__what_action` refuses a request the browser marks cross-site

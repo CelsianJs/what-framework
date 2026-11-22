@@ -1,11 +1,11 @@
-import { setNextBinding } from './diagnostics.js';
+import { report, setNextBinding } from './diagnostics.js';
 // What Framework - Fine-Grained DOM Runtime
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
 import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, applyRef, setClassList, _writeClass } from './render.js';
-import { REFUSED_ATTRS, URL_ATTRS, isAriaAttr, isUnsafeUrl } from './markup-rules.js';
+import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
 // SVG elements that need namespace
 const SVG_ELEMENTS = new Set([
@@ -445,65 +445,123 @@ function applyProps(el, newProps, oldProps, isSvg) {
   }
 }
 
-// <select> needs its value set after <option> children mount. Setting it
-// immediately can fail if the matching <option> isn't in the DOM yet; the
-// microtask retry fixes up after the options are appended. An array selects
-// each option it names (a multiple select), which `el.value` cannot.
-export function _setSelectValue(el, value) {
-  el._$value = value ?? undefined;
-  // The options may not be in the DOM yet (children are appended after
-  // props), so a value they do not show is tried once more after them. A
-  // later write, null included, supersedes that retry.
-  const write = (el._$selectWrite = (el._$selectWrite || 0) + 1);
-  if (!selectOptions(el, value)) {
-    queueMicrotask(() => {
-      if (el._$selectWrite === write) selectOptions(el, value);
-    });
-  }
-}
+// --- Form fields ---
+//
+// A form field's state, through every client path that writes it (h()
+// setProp, compiled setProp, setValue and setChecked, a spread, hydration),
+// as React 19 documents it for controlled and uncontrolled fields:
+//   - `value` (an <input> whose value is its own, a <textarea>, a <select>)
+//     and `checked` (an <input>) control what the field shows. They are
+//     written as properties, which mark the field changed, so a default
+//     written later never moves what it shows; a write of the value it wrote
+//     last is skipped, which leaves what the user has done since. The value a
+//     prop holds is what a form reset keeps (_resetForm), any value as its
+//     string (`true` is "true", as React writes it), checked as a boolean.
+//   - Null or undefined releases a field the prop controlled: it shows
+//     nothing (an empty value, unchecked, no option selected), and a reset
+//     restores its default. A field it never controlled is left as it is.
+//   - `defaultValue`, `defaultChecked`, an <option>'s `selected` and
+//     `defaultSelected`, and a <select>'s `defaultValue` (the options it
+//     names) are the field's default: its content attribute (what a reset
+//     restores, what a server writes), which shows only while nothing has
+//     controlled or changed the field.
+// A select's value selects the options markup-rules' selectedOptions names.
+// Its options may not be in the DOM yet (children are appended after props),
+// so a value or default they do not show is written once more after them;
+// a later write, null included, supersedes that retry.
 
-// Whether the options `value` names are now the selected ones. Null and
-// undefined name none.
-function selectOptions(el, value) {
-  if (value == null) {
-    el.selectedIndex = -1;
+/**
+ * Write prop `key` of a form field `el` and return true, or return false
+ * when `key` is not a field prop of `el`.
+ */
+export function _setFieldProp(el, key, value) {
+  const tag = el.tagName;
+  if (tag === 'OPTION') {
+    if (key !== 'selected' && key !== 'defaultSelected') return false;
+    el.defaultSelected = !!value;
+    _keepSelection(el);
     return true;
   }
-  if (!Array.isArray(value)) {
-    el.value = value;
-    return el.value === String(value);
-  }
-  const wanted = value.map(String);
-  let found = 0;
-  for (const option of el.options) {
-    option.selected = wanted.includes(option.value);
-    if (option.selected) found++;
-  }
-  return found === wanted.length;
+  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return false;
+  const own = tag !== 'INPUT' || !ATTRIBUTE_VALUE_TYPES.has(el.type);
+  if (key === 'value' && own) _setFieldValue(el, value);
+  else if (key === 'defaultValue' && own) {
+    if (tag === 'SELECT') setSelectDefault(el, value);
+    else el.defaultValue = value == null ? '' : String(value);
+  } else if (key === 'checked' && tag === 'INPUT') {
+    const on = value == null ? undefined : !!value;
+    if (el._$checked !== on) {
+      el._$checked = on;
+      el.checked = on === true;
+    }
+  } else if (key === 'defaultChecked' && tag === 'INPUT') {
+    el.defaultChecked = !!value;
+    // A default checks a radio nothing has changed, which unchecks the others
+    // in its group, a radio a prop controls among them: that one is checked
+    // again.
+    if (value && el.type === 'radio' && el._$checked === undefined && el.form) {
+      for (const other of el.form.elements) if (other._$checked && other.name === el.name) other.checked = true;
+    }
+  } else return false;
+  return true;
 }
 
-// A form field's value prop: an <input>'s, a <textarea>'s or a <select>'s,
-// through every write path (h(), compiled setProp, setValue, a spread,
-// hydration). A value is shown and recorded as the value a form reset keeps
-// (_resetForm), any value as its string (`true` is "true", as React writes
-// it). Null or undefined makes the field uncontrolled again: a reset restores
-// its default, which no value write ever touches (an <input>'s value
-// attribute is its defaultValue); one it controlled shows nothing, and a
-// select selects nothing. A write of the value it wrote last leaves what the
-// user has typed since.
+/** The value of a text field or select (see Form fields above). */
 export function _setFieldValue(el, value) {
   if (el.tagName === 'SELECT') return _setSelectValue(el, value);
-  let str = value == null ? undefined : String(value);
-  if (el._$value === str) return;
-  el._$value = str;
-  if (el.value !== (str ??= '')) el.value = str;
+  const str = value == null ? undefined : String(value);
+  if (el._$value !== str) {
+    el._$value = str;
+    el.value = str ?? '';
+  }
 }
 
-const FIELDS = /^(?:INPUT|TEXTAREA|SELECT)$/;
+export function _setSelectValue(el, value) {
+  if (value == null && el._$value === undefined) return;
+  el._$value = value ?? undefined;
+  const write = (el._$selectWrite = (el._$selectWrite || 0) + 1);
+  if (!markOptions(el, value, 'selected')) {
+    queueMicrotask(() => el._$selectWrite === write && markOptions(el, value, 'selected'));
+  }
+}
 
-/** Whether `key` on `el` is a form field's value prop (_setFieldValue). */
-export function _isFieldValue(el, key) {
-  return key === 'value' && FIELDS.test(el.tagName);
+// Write `prop` (`selected`, or `defaultSelected`) of every option of `el`:
+// true for the options `value` names, false for the rest (null names none;
+// a single select then shows none, as unselecting the last option of one
+// would select its first). Whether its options were there to name.
+function markOptions(el, value, prop) {
+  const { options } = el;
+  const values = [...options].map((option) => option.value);
+  const chosen = selectedOptions(values, value);
+  for (let i = 0; i < options.length; i++) options[i][prop] = chosen[i];
+  if (prop === 'selected' && !el.multiple && !chosen.includes(true)) el.selectedIndex = -1;
+  return values.length > 0 && [value].flat().every((v) => values.includes(String(v)));
+}
+
+// An option's default (its selected attribute) can move what its select
+// shows even after a script selected options (Chromium lets it; JSDOM, like
+// the HTML standard, does not once an option was written): a select a value
+// controls selects its options again. Called after every write of an
+// option's default, and by hydration after it rewrites an option's attributes.
+export function _keepSelection(option) {
+  const select = option.closest('select');
+  if (select !== null && select._$value !== undefined) markOptions(select, select._$value, 'selected');
+}
+
+// A select's defaultValue: the options it names are the default-selected
+// ones. Written now and once more after the options are in place: hydration
+// writes each option's own props after its select's, which would take the
+// mark away from an option the select named.
+function setSelectDefault(el, value) {
+  if (value == null) return;
+  el._$default = value;
+  const apply = () => {
+    if (el._$default !== value) return;
+    markOptions(el, value, 'defaultSelected');
+    if (el._$value !== undefined) markOptions(el, el._$value, 'selected');
+  };
+  apply();
+  queueMicrotask(apply);
 }
 
 // Whether `el` takes prop `key` through a property it can write: one with a
@@ -651,24 +709,16 @@ function setProp(el, key, value, isSvg) {
       }
       el.innerHTML = html;
     } else {
-      if (__DEV__) {
-        console.warn(
-          '[what] innerHTML received a raw string. This is a security risk (XSS). ' +
-          'Use innerHTML={{ __html: trustedString }} or dangerouslySetInnerHTML={{ __html: trustedString }} instead.'
-        );
-      }
       // Refuse to set raw string innerHTML — prevent XSS
+      if (__DEV__) report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
       return;
     }
     return;
   }
 
-  // A form field's value, before the nullish and boolean branches below,
-  // which would treat it as an attribute (the field's default).
-  if (_isFieldValue(el, key)) {
-    _setFieldValue(el, value);
-    return;
-  }
+  // A form field's state, before the nullish and boolean branches below,
+  // which would write its value as its default (Form fields above).
+  if (_setFieldProp(el, key, value)) return;
 
   // null / undefined — attribute must be ABSENT (React/Solid semantics), not
   // stamped as the literal string "undefined"/"null". Runs before the boolean,
@@ -679,8 +729,6 @@ function setProp(el, key, value, isSvg) {
     if (_writableProp(el, key)) {
       try { el[key] = ''; } catch { /* a property '' does not fit (files) */ }
     }
-    // No value prop is an uncontrolled field: a form reset restores its default.
-    if (key === 'value') el._$value = undefined;
     el.removeAttribute(key);
     return;
   }
@@ -721,10 +769,6 @@ function setProp(el, key, value, isSvg) {
   // Default: property if the element can write one, otherwise attribute
   if (_writableProp(el, key)) {
     el[key] = value;
-    // What a controlled field's value prop holds, which a form reset keeps
-    // (_resetForm); render.js setValue and setChecked keep theirs too. A
-    // boolean checked is the default-checked attribute, which a reset restores.
-    if (key === 'value') el._$value = String(value);
   } else {
     el.setAttribute(key, value);
   }

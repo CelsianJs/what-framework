@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -85,7 +85,7 @@ function readCsrfCookie(res) {
 
 test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', async (t) => {
   const workDir = await mkdtemp(join(tmpdir(), 'create-what-boot-'));
-  const { child } = await scaffoldAndBoot(workDir);
+  const { child, appDir } = await scaffoldAndBoot(workDir);
 
   try {
     await t.test('SSR document renders with hydration payload + import map', async () => {
@@ -125,7 +125,11 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
     });
 
     await t.test('allowlisted client files ARE served', async () => {
+      // what_scaffold writes a store under src/stores/, which pages import.
+      await mkdir(join(appDir, 'src', 'stores'), { recursive: true });
+      await writeFile(join(appDir, 'src', 'stores', 'demo.js'), 'export const demo = 1;\n');
       for (const path of [
+        '/src/stores/demo.js',
         '/src/entry-client.js',
         '/src/styles.css',
         '/src/pages/home.js',

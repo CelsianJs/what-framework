@@ -235,6 +235,15 @@ export async function handleExtendedCommand(command, args, devtools) {
         return { error: `Blocked navigation to unsafe URL: "${path}"` };
       }
 
+      // No client router to claim it (a full-stack page that loads no
+      // what-router on the client): the browser loads the URL, as a link
+      // click would. The answer goes out first; the page that loads is a new
+      // session.
+      if (!routeState(devtools).router) {
+        setTimeout(() => (replace ? location.replace(trimmedPath) : location.assign(trimmedPath)), 0);
+        return { requested: trimmedPath, router: false, document: true, settled: true, note: 'No client router: the browser loads the URL, and the page that loads connects as a new session.' };
+      }
+
       if (replace) history.replaceState(null, '', trimmedPath);
       else history.pushState(null, '', trimmedPath);
       window.dispatchEvent(new PopStateEvent('popstate'));

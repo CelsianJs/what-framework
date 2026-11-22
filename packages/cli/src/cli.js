@@ -266,9 +266,30 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, targetPath, transformImports, fileToRoute };
+export { safePath, isAllowedOrigin, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
 
 // --- Dev Server ---
+
+// A request listener no request can end the process with: a throw or a
+// rejection answers 500, or closes the connection once the response began.
+function guarded(listener) {
+  return (req, res) => {
+    const fail = (error) => {
+      console.error(`[what] ${req.method} ${String(req.url).slice(0, 200)} failed: ${error && error.message}`);
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Internal Server Error');
+    };
+    try {
+      Promise.resolve(listener(req, res)).catch(fail);
+    } catch (error) {
+      fail(error);
+    }
+  };
+}
 
 async function dev() {
   const port = getFlag('--port', 3000);
@@ -276,7 +297,7 @@ async function dev() {
   const config = await loadConfigAsync();
   const runtimeDirs = requireRuntimeDirs('what dev');
 
-  const server = createServer(async (req, res) => {
+  const server = createServer(guarded(async (req, res) => {
     let pathname = targetPath(req.url);
     if (pathname === null) {
       res.writeHead(400);
@@ -382,7 +403,7 @@ async function dev() {
 
     res.writeHead(404);
     res.end('Not found');
-  });
+  }));
 
   // WebSocket server for HMR (zero dependencies)
   const wsClients = new Set();
@@ -596,7 +617,7 @@ async function preview() {
     process.exit(1);
   }
 
-  const server = createServer((req, res) => {
+  const server = createServer(guarded((req, res) => {
     let pathname = targetPath(req.url);
     if (pathname === null) {
       res.writeHead(400);
@@ -619,7 +640,7 @@ async function preview() {
         res.end('Not found');
       }
     }
-  });
+  }));
 
   server.listen(port, () => {
     console.log(`\n  what preview\n`);
@@ -1065,12 +1086,15 @@ const IMPORT_MAP = {
 
 const SPECIFIER_RE = /(from\s*|import\s*\(\s*)(['"])([^'"]+)\2/g;
 
+// Own entries only: a name from the URL (`/@what/__proto__`) must not reach
+// what an object inherits.
 function resolveFrameworkModule(name, runtimeDirs) {
-  if (RUNTIME_ENTRIES[name]) return RUNTIME_ENTRIES[name];
+  if (Object.hasOwn(RUNTIME_ENTRIES, name)) return RUNTIME_ENTRIES[name];
 
   const slash = name.indexOf('/');
   if (slash === -1) return null;
-  const dir = runtimeDirs[name.slice(0, slash)];
+  const pkg = name.slice(0, slash);
+  const dir = Object.hasOwn(runtimeDirs, pkg) ? runtimeDirs[pkg] : null;
   if (!dir) return null;
   const file = safePath(dir, '/' + name.slice(slash + 1));
   if (!file || !existsSync(file) || extname(file) !== '.js') return null;

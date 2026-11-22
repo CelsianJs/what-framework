@@ -41,7 +41,7 @@ import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
 import { isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
-import { _afterOpen, _isDevMode, _markSelected, _rawText, _resolveInnerHTML, _selectValue, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
+import { _afterOpen, _field, _isDevMode, _markSelected, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
@@ -431,7 +431,8 @@ function attributeHole(m, slot, v) {
 // --- Elements decided at run time ------------------------------------------------
 
 // An element whose attributes are only known when it is placed: a spread, a
-// classList, innerHTML or dangerouslySetInnerHTML. `props` is the object the
+// classList, innerHTML or dangerouslySetInnerHTML, a form field's value or
+// default (what-server's _field shows one of them). `props` is the object the
 // h() spelling would build, rendered by renderAttrs and _resolveInnerHTML with
 // the checks a vnode gets; `children` is the compiled content (Markup or
 // null), used unless innerHTML replaces it.
@@ -445,28 +446,28 @@ class Element extends Html {
 
   render(renderChild, hk, ns) {
     const { tag, props, children } = this;
-    const select = _selectValue(tag, props);
-    const open = keyed(hk, '<' + tag + renderAttrs(select ? select.props : props) + '>');
+    const field = _field(tag, props);
+    const open = keyed(hk, '<' + tag + renderAttrs(field ? field.props : props) + '>');
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
     if (inner != null) return open + keyed(hk, String(inner)) + keyed(hk, '</' + tag + '>');
-    const content = children === null ? '' : children.render(renderChild, hk, ns);
-    return open + _afterOpen(tag, ns) + (select ? _markSelected(content, select.value, select.multiple) : content) + keyed(hk, '</' + tag + '>');
+    const content = field && field.text !== null ? escapeHtml(field.text) : children === null ? '' : children.render(renderChild, hk, ns);
+    return open + _afterOpen(tag, ns) + (field && field.select ? _markSelected(content, field.select.value) : content) + keyed(hk, '</' + tag + '>');
   }
 
   // A select's options are marked when its content is all known now; content
   // that streams later (a boundary inside the select) is left as it is.
   parts(ns) {
     const { tag, props, children } = this;
-    const select = _selectValue(tag, props);
-    const open = '<' + tag + renderAttrs(select ? select.props : props) + '>';
+    const field = _field(tag, props);
+    const open = '<' + tag + renderAttrs(field ? field.props : props) + '>';
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
     if (inner != null) return open + String(inner) + '</' + tag + '>';
     const head = open + _afterOpen(tag, ns);
-    const content = children === null ? '' : children.parts(ns);
+    const content = field && field.text !== null ? escapeHtml(field.text) : children === null ? '' : children.parts(ns);
     if (typeof content !== 'string') return [head, ...content, '</' + tag + '>'];
-    return head + (select ? _markSelected(content, select.value, select.multiple) : content) + '</' + tag + '>';
+    return head + (field && field.select ? _markSelected(content, field.select.value) : content) + '</' + tag + '>';
   }
 
   childNs(ns) {

@@ -46,7 +46,7 @@ const EXPECTED_EXPORTS = {
   ],
   './server': [
     'renderToString', 'renderToStringAsync', 'renderDocument', 'renderToStream',
-    'createRequestHandler', 'createActionHandler', 'createServer',
+    'createRequestHandler', 'createRouteRenderer', 'createActionHandler', 'createServer',
     'action', 'Form', 'island', 'Island', 'hydrateIslands',
     'generateCsrfToken', 'validateCsrfToken', 'csrfMetaTag',
     'exportStatic', 'createVercelHandler', 'createCloudflareHandler',

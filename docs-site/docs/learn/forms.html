@@ -90,6 +90,17 @@
           <h1>Forms</h1>
           <p class="subtitle">Build validated, reactive forms with minimal boilerplate.</p>
 
+          <h2 id="field-props">Controlled and uncontrolled fields</h2>
+          <p>A field's props follow React 19's rules, on every path: <code>h()</code>, compiled JSX, a spread, a server render and hydration.</p>
+          <ul>
+            <li><code>value</code> (a text input, a <code>&lt;textarea&gt;</code>, a <code>&lt;select&gt;</code>) and <code>checked</code> (a checkbox or radio) control what the field shows. A signal or a function keeps it live. A user's edit stays until the binding writes a value other than the one it wrote last.</li>
+            <li><code>defaultValue</code>, <code>defaultChecked</code>, an <code>&lt;option&gt;</code>'s <code>selected</code> or <code>defaultSelected</code>, and a <code>&lt;select&gt;</code>'s <code>defaultValue</code> (the options it names; an array for <code>multiple</code>) are the field's default: what it shows while nothing controls it, and what a form reset restores.</li>
+            <li>A <code>value</code> or <code>checked</code> of <code>null</code> or <code>undefined</code> releases the field. A field it controlled shows nothing (an empty value, unchecked, no option selected), and the next reset restores its default. A field it never controlled keeps its default.</li>
+            <li>A select's value selects options by their value (the <code>value</code> attribute, else the text with HTML whitespace collapsed): a string selects the first option with it, in a <code>multiple</code> select too, and an array every option it names.</li>
+            <li>After <code>&lt;Form&gt;</code>'s action succeeds, the form is reset: uncontrolled fields go back to their defaults, and a controlled one shows what its prop holds.</li>
+            <li>A server writes what the field shows first, its value, else its default, in the one place the markup has for it (an input's <code>value</code> and <code>checked</code> attributes, a textarea's text, the options' <code>selected</code>), so a form posted before any script runs submits it. Hydration then writes the declared defaults back.</li>
+          </ul>
+
           <h2 id="use-form">useForm</h2>
           <p><code>useForm</code> provides complete form state management, field registration, validation, and submission handling in a single hook. It uses per-field signals internally so that updating one input never causes unrelated fields to re-render.</p>
 
@@ -499,6 +510,7 @@
         <aside class="toc">
           <div class="toc-title">On This Page</div>
           <ul class="toc-links">
+            <li><a href="#field-props">Controlled and uncontrolled fields</a></li>
             <li><a href="#use-form">useForm</a></li>
             <li><a href="#use-form-returns" class="toc-h3">Return Value</a></li>
             <li><a href="#form-state" class="toc-h3">formState</a></li>

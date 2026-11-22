@@ -21,6 +21,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "what-framework": "^0.14.0"
   },

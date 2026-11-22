@@ -248,6 +248,16 @@ mount(<App />, '#app');
 // `instanceof WhatError`, or reads what the development checks reported; neither
 // needs the error catalogue, which only getErrorDefinition() and those checks
 // read, and both must not carry it (see CATALOGUE below).
+// An h() app with an <ErrorBoundary> and no computed: the boundary's reset
+// must not bring the pull phase (round 5, PKG5-1).
+const errorBoundaryApp = `
+import { signal, h, mount, ErrorBoundary } from 'what-core';
+
+const count = signal(0);
+const fallback = ({ error, reset }) => h('button', { onclick: reset }, error.message);
+mount(h(ErrorBoundary, { fallback }, h('output', {}, () => count())), '#app');
+`;
+
 const whatErrorApp = `
 import { signal, WhatError } from 'what-framework';
 
@@ -401,6 +411,7 @@ const scenarios = {
   'compiled-h-counter': () => viteBundle('compiled-h-counter', { source: compiledHCounter }),
   'hooks-app': () => viteBundle('hooks-app', { source: hooksApp }),
   'what-error': () => esbuildBundle('what-error', { source: whatErrorApp, loader: 'js' }),
+  'error-boundary-counter': () => esbuildBundle('error-boundary-counter', { source: errorBoundaryApp, loader: 'js' }),
   'diagnostics-read': () => esbuildBundle('diagnostics-read', { source: diagnosticsReadApp, loader: 'js' }),
   'computed-counter': () => viteBundle('computed-counter', { source: computedCounter }),
   'async-app': () => viteBundle('async-app', { source: asyncApp }),
@@ -505,6 +516,7 @@ const PULL_PHASE = '[what] deferred evaluation';
 console.log('\n[check-size] pull phase only when a computed is made:\n');
 for (const [name, expected] of [
   ['core-counter', false],
+  ['error-boundary-counter', false],
   ['compiled-counter', false],
   ['compiled-counter (vite, source)', false],
   ['compiled-hydrate', false],

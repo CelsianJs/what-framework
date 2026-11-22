@@ -194,11 +194,11 @@ const releaseQueue = [];
 // unobserved computeds only through these operations, which the first computed
 // or selector installs: an app of signals and effects alone does not ship
 // them.
-/** @type {{ mark: typeof markPending, check: typeof checkEffect, unwatched: typeof unwatched, dispose: typeof disposeComputed, settle: typeof settleInputs } | null} */
+/** @type {{ mark: typeof markPending, check: typeof checkEffect, unwatched: typeof unwatched, dispose: typeof disposeComputed, settle: typeof settleInputs, refresh: typeof refreshUntracked } | null} */
 let pullOps = null;
 
 function installPull() {
-  if (pullOps === null) pullOps = { mark: markPending, check: checkEffect, unwatched, dispose: disposeComputed, settle: settleInputs };
+  if (pullOps === null) pullOps = { mark: markPending, check: checkEffect, unwatched, dispose: disposeComputed, settle: settleInputs, refresh: refreshUntracked };
 }
 
 // The async machinery is reached only through these operations, which the
@@ -1927,11 +1927,14 @@ export function _errorSource(err) {
  * whose errors it caught (see _errorSource), unless one has run again since.
  */
 export function _retryErrors(sources) {
+  // A caught error has a source only once a computed exists, which installed
+  // the pull phase: a boundary in an app without one does not carry it.
+  if (pullOps === null) return;
   for (const s of sources) {
     const node = s.node;
     if ((node.flags & (ERRORED | DISPOSED)) === ERRORED && node.a.run === s.run) {
       node.flags |= DIRTY;
-      refreshUntracked(node);
+      pullOps.refresh(node);
     }
   }
 }
@@ -3016,10 +3019,14 @@ function scopeOf(o) {
 // Null on the client and outside every render. _detached() turns it off.
 /** @type {(() => any) | null} */
 let ownerFallback = null;
+// Whether a fallback was ever set: _detached() turns the fallback off for a
+// while, which is not a copy that never had one.
+let fallbackSet = false;
 
 /** @internal server-context.js: the owner for work created with no current owner. */
 export function _setOwnerFallback(fn) {
   ownerFallback = fn;
+  fallbackSet = true;
 }
 
 /** @internal what-server: this copy of the engine, as a render's rootFor() takes it: a root owned by nothing, and its disposal. */
@@ -3038,7 +3045,21 @@ function runNow() {
 function ownerNow() {
   const run = activeSub !== null ? activeSub : runningEffect;
   if (run !== null && run !== ownerRun) return run;
-  return currentOwner !== null || ownerFallback === null ? currentOwner : ownerFallback();
+  if (currentOwner !== null) return currentOwner;
+  // A copy of this module that never touched the server store (a library
+  // bundled with its own engine, rendered by another copy's server) takes
+  // the lookup the store hands out (server-context.js `adopt`).
+  if (!fallbackSet) /** @type {any} */ (globalThis)[SERVER_STORE]?.adopt?.(_setOwnerFallback, _engine);
+  return ownerFallback === null ? null : ownerFallback();
+}
+
+// The server render store every copy of what-core shares (server-context.js).
+const SERVER_STORE = Symbol.for('what.serverContext.v1');
+
+/** @internal Whether a server render is active, whichever copy of what-core runs it. */
+export function _inServerRender() {
+  const server = /** @type {any} */ (globalThis)[SERVER_STORE];
+  return server != null && (server.current != null || (server.storage !== null && server.storage.getStore() != null));
 }
 
 /** @internal Run `fn` with no owner current, and none supplied by the fallback. */

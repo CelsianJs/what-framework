@@ -15,6 +15,9 @@ import {
   isUrlAttr,
   attributeName,
   rawTextHazard,
+  FIELD_PROPS,
+  FIELD_TAGS,
+  ATTRIBUTE_VALUE_TYPES,
 } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
 
@@ -628,17 +631,33 @@ export function createEventHandler(handler, modifiers) {
 // Fine-Grained Mode (template + insert + effect)
 // =====================================================
 
-// Check if a JSX child is static (no expressions)
+// Whether the attribute at `index` is a form field's value, checked or
+// default (an input's, a textarea's or a select's). The template's attribute
+// is the field's default, which no value is written to, and a textarea's or a
+// select's default is no attribute at all, so these are set by the runtime's
+// field setters (render.js setValue, setChecked, setProp). An input whose
+// static type makes its value an attribute (a checkbox, a button) keeps it.
+export function isFieldProp(tagName, attributes, index) {
+  if (!FIELD_TAGS.has(tagName)) return false;
+  const name = getAttrName(attributes[index]);
+  if (!FIELD_PROPS.has(name)) return false;
+  if (tagName !== 'input' || (name !== 'value' && name !== 'defaultValue')) return true;
+  const type = attributes.find((a) => !t.isJSXSpreadAttribute(a) && getAttrName(a) === 'type');
+  return !(type && t.isStringLiteral(type.value) && ATTRIBUTE_VALUE_TYPES.has(type.value.value.toLowerCase()));
+}
+
+// Check if a JSX child is static (no expressions, nothing a runtime setter writes)
 export function isStaticChild(child) {
   if (t.isJSXText(child)) return true;
   if (t.isJSXExpressionContainer(child)) return false;
   if (t.isJSXElement(child)) {
     const el = child.openingElement;
     if (isComponentElement(child)) return false;
-    for (const attr of el.attributes) {
+    for (const [i, attr] of el.attributes.entries()) {
       if (t.isJSXSpreadAttribute(attr)) return false;
       const value = attr.value;
       if (t.isJSXExpressionContainer(value)) return false;
+      if (isFieldProp(el.name.name, el.attributes, i)) return false;
     }
     return child.children.every(isStaticChild);
   }

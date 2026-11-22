@@ -35,6 +35,18 @@ function abortError(signal) {
   return signal.reason ?? Object.assign(new Error('The request was aborted.'), { name: 'AbortError' });
 }
 
+// The origin of the request a route match answers: the scheme and host its
+// render sees in `request.url`, which the adapter took from a validated Host.
+function originOf(routeMatch) {
+  const request = routeMatch.request;
+  if (request == null || typeof request.url !== 'string') return '';
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * @param {object} [options]
  * @param {any} [options.store] cache store (see stores/store-interface.js)
@@ -63,7 +75,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
         { code: 'ERR_ISR_VARY_NO_HEADERS' },
       );
     }
-    return cacheKey({ path: routeMatch.path, query: routeMatch.query, vary });
+    return cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
   }
 
   // Render + store. `renderOverride` lets a caller (e.g. the deploy adapter)
@@ -164,14 +176,15 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     // Always render, never store.
     if (config.mode === 'server' || vary === null) {
       if (vary === null) {
-        logger.warn?.(`[what-isr] ${routeMatch.path} declares \`vary\` but no request headers were supplied; bypassing the cache`);
+        // ERROR_CODES.ISR_VARY_NO_HEADERS
+        logger.warn?.(`ERR_ISR_VARY_NO_HEADERS [what-isr] route declares \`vary\` but the adapter supplied no request headers; refusing to cache. (${routeMatch.path})`);
       }
       const out = await (renderOverride || render)(routeMatch, { signal: routeMatch.signal });
       const entry = makeEntry({ ...out, path: routeMatch.path, private: vary === null || out.private }, config, now());
       return serve(entry, 'BYPASS', routeMatch, responseHeaderList(out.headers));
     }
 
-    const key = cacheKey({ path: routeMatch.path, query: routeMatch.query, vary });
+    const key = cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
     const entry = await store.get(key);
     const t = now();
 

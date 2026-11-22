@@ -27,7 +27,7 @@ export const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
 // <animate> or <set> with attributeName="href" sets as the href after the
 // element's own attributes were checked. Compared in lower case, so the
 // camelCase props (formAction, xlinkHref) are covered too.
-export const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href', 'xlinkhref', 'values', 'to', 'from', 'by']);
+export const URL_ATTRS = /* @__PURE__ */ new Set(['href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href', 'xlinkhref', 'values', 'to', 'from', 'by']);
 
 export function isUrlAttr(name) {
   return URL_ATTRS.has(name.toLowerCase());
@@ -54,13 +54,13 @@ export function isUnsafeUrl(value) {
 // replaces the element with its value parsed as markup. Refused outright, in
 // any letter case, on every path. innerHTML and dangerouslySetInnerHTML are the
 // other two; they are accepted only as { __html: trustedString }.
-export const REFUSED_ATTRS = new Set(['srcdoc', 'outerhtml']);
+export const REFUSED_ATTRS = /* @__PURE__ */ new Set(['srcdoc', 'outerhtml']);
 
 export function isRefusedAttr(name) {
   return REFUSED_ATTRS.has(name.toLowerCase());
 }
 
-export const INNER_HTML_PROPS = new Set(['innerHTML', 'dangerouslySetInnerHTML']);
+export const INNER_HTML_PROPS = /* @__PURE__ */ new Set(['innerHTML', 'dangerouslySetInnerHTML']);
 
 // Prop names whose HTML attribute is not just the prop name in another case.
 // The client reaches the right attribute through the element's reflected DOM
@@ -69,7 +69,7 @@ export const INNER_HTML_PROPS = new Set(['innerHTML', 'dangerouslySetInnerHTML']
 // parses as a meaningless `htmlfor` attribute, and hydration never corrects a
 // static attribute. Names that differ from their attribute only by case
 // (tabIndex, readOnly) need no entry: the parser lowercases attribute names.
-export const ATTRIBUTE_ALIASES = new Map([
+export const ATTRIBUTE_ALIASES = /* @__PURE__ */ new Map([
   ['className', 'class'],
   ['htmlFor', 'for'],
   ['httpEquiv', 'http-equiv'],
@@ -84,7 +84,7 @@ export function attributeName(prop) {
 // default is its content attribute (an <input>'s defaultValue is its `value`
 // attribute, what a form reset restores), so markup writes it there. A client
 // writes these props as properties, which reflect to the same attributes.
-const DEFAULT_ATTRIBUTES = new Map([
+const DEFAULT_ATTRIBUTES = /* @__PURE__ */ new Map([
   ['defaultValue', 'value'],
   ['defaultChecked', 'checked'],
   ['defaultSelected', 'selected'],
@@ -95,13 +95,40 @@ export function markupName(prop) {
   return DEFAULT_ATTRIBUTES.get(prop) || attributeName(prop);
 }
 
+// --- Form fields ---
+//
+// The props of a form field that hold its state: `value` (an <input> whose
+// value is its own, a <textarea>, a <select>) and `checked` control what it
+// shows; `defaultValue` and `defaultChecked` are its default, what a form
+// reset restores. A server shows the value (else the default) in the one
+// place markup has for both; a client writes the value as a property and the
+// default as the attribute (what-core's dom.js, what-server's html.js).
+export const FIELD_PROPS = /* @__PURE__ */ new Set(['value', 'defaultValue', 'checked', 'defaultChecked']);
+export const FIELD_TAGS = /* @__PURE__ */ new Set(['input', 'textarea', 'select']);
+
+// <input> types whose `value` is the attribute it submits or shows on a
+// button, not a value the user edits: for them `value` is an attribute.
+export const ATTRIBUTE_VALUE_TYPES = /* @__PURE__ */ new Set(['checkbox', 'radio', 'hidden', 'submit', 'reset', 'button', 'image']);
+
+/** A string with ASCII whitespace stripped from both ends and collapsed to single spaces. */
+export function stripAndCollapse(text) {
+  return text.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '').replace(/[\t\n\f\r ]+/g, ' ');
+}
+
 /**
- * The prop that writes the same attribute as the default prop `prop` and
- * takes it when both are given (`value` over `defaultValue`): the attribute
- * then shows the field's value. Null for any other prop.
+ * The options a <select> value selects, as one boolean per option value in
+ * `values`: an array selects every option whose value it holds, any other
+ * value the first option with its string, a value no option has none. The
+ * client writes it (`select.value =` picks the first match, in a multiple
+ * select too) and a server marks it.
  */
-export function controllingProp(prop) {
-  return prop === 'defaultValue' ? 'value' : prop === 'defaultChecked' ? 'checked' : prop === 'defaultSelected' ? 'selected' : null;
+export function selectedOptions(values, value) {
+  if (Array.isArray(value)) {
+    const wanted = value.map(String);
+    return values.map((v) => wanted.includes(v));
+  }
+  const at = values.indexOf(String(value));
+  return values.map((_, i) => i === at);
 }
 
 // ARIA attributes and `role` take enumerated string values, never HTML boolean
@@ -117,7 +144,7 @@ export function isEnumeratedAttr(name) {
   return isAriaAttr(name) || name.startsWith('data-');
 }
 
-export const VOID_ELEMENTS = new Set([
+export const VOID_ELEMENTS = /* @__PURE__ */ new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
@@ -130,10 +157,10 @@ export const VOID_ELEMENTS = new Set([
 // elements <mi>, <mo>, <mn>, <ms> and <mtext>, apart from <mglyph> and
 // <malignmark>, which stay MathML; and of MathML <annotation-xml> whose
 // encoding is text/html or application/xhtml+xml.
-export const SVG_HTML_INTEGRATION_POINTS = new Set(['foreignObject', 'desc', 'title']);
-export const MATHML_TEXT_INTEGRATION_POINTS = new Set(['mi', 'mo', 'mn', 'ms', 'mtext']);
-export const MATHML_IN_TEXT_POINTS = new Set(['mglyph', 'malignmark']);
-export const HTML_ENCODINGS = new Set(['text/html', 'application/xhtml+xml']);
+export const SVG_HTML_INTEGRATION_POINTS = /* @__PURE__ */ new Set(['foreignObject', 'desc', 'title']);
+export const MATHML_TEXT_INTEGRATION_POINTS = /* @__PURE__ */ new Set(['mi', 'mo', 'mn', 'ms', 'mtext']);
+export const MATHML_IN_TEXT_POINTS = /* @__PURE__ */ new Set(['mglyph', 'malignmark']);
+export const HTML_ENCODINGS = /* @__PURE__ */ new Set(['text/html', 'application/xhtml+xml']);
 
 // The namespace the children of `tag` are parsed in, given the namespace `tag`
 // itself is in: null for HTML, 'svg', 'math', or 'foreign' for SVG or MathML
@@ -159,18 +186,18 @@ export function childNamespace(ns, tag, encoding) {
 // from the sequences encodeRawText replaces. In SVG or MathML they are
 // ordinary elements whose content is parsed as markup, so there their text is
 // escaped (rawTextContent).
-export const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
+export const RAW_TEXT_ELEMENTS = /* @__PURE__ */ new Set(['script', 'style']);
 
 // Elements whose content the HTML parser reads as text that it decodes:
 // <textarea> and <title> in HTML. Nothing in it is markup, a comment included,
 // so a server writes their children as escaped text with no hydration
 // markers, and the client hydrates that text as one text node.
-export const TEXT_ONLY_ELEMENTS = new Set(['textarea', 'title']);
+export const TEXT_ONLY_ELEMENTS = /* @__PURE__ */ new Set(['textarea', 'title']);
 
 // The HTML parser drops a newline that comes right after one of these start
 // tags, so a server writes one there: the parser drops that one, and content
 // that begins with a newline keeps its own.
-export const LEADING_NEWLINE_ELEMENTS = new Set(['pre', 'textarea', 'listing']);
+export const LEADING_NEWLINE_ELEMENTS = /* @__PURE__ */ new Set(['pre', 'textarea', 'listing']);
 
 // The sequences that could end a raw-text element or change how the parser
 // reads it: `</` (which starts every closing tag, in any letter case) and, in

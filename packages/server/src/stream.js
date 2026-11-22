@@ -63,7 +63,9 @@
 // left current across an await. Each frame is created with an explicit parent
 // and is current only for the synchronous call that needs it (the component
 // body, a reactive child), so concurrent streams cannot read each other's
-// context and leave no frame current behind them.
+// context and leave no frame current behind them. An async component's code
+// after an `await` finds its own frame through the async context (what-core's
+// _runComponentAsync), never another stream's.
 //
 // A render ends exactly once (finished, failed or aborted), and ending it
 // releases its context: the listener on the caller's signal is removed and the
@@ -74,6 +76,7 @@ import {
   _beginComponentSSR,
   _endComponentSSR,
   _runInComponentSSR,
+  _runComponentAsync,
   _mapArrayToArray,
   _assignOwnerPath,
   _ownerCounter,
@@ -101,7 +104,7 @@ import {
   assertSafeTag,
   renderAttrs,
   _markSelected,
-  _selectValue,
+  _field,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -193,7 +196,9 @@ function errorComment(error) {
 }
 
 function defaultOnError(error) {
-  console.error('[what-server] Error during streaming SSR:', error);
+  // A coded error leads with its code, as a diagnostic does.
+  if (error != null && typeof error.code === 'string' && error.code.startsWith('ERR_')) console.error(`${error.code} ${error.message}`);
+  else console.error('[what-server] Error during streaming SSR:', error);
 }
 
 function timeoutError() {
@@ -380,8 +385,8 @@ function step(seg, node, owner) {
 
   assertSafeTag(tag, node);
   const props = node.props;
-  const select = _selectValue(tag, props);
-  put(seg, `<${tag}${renderAttrs(select ? select.props : props || {})}>`);
+  const field = _field(tag, props);
+  put(seg, `<${tag}${renderAttrs(field ? field.props : props || {})}>`);
   if (VOID_ELEMENTS.has(tag)) return null;
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) {
@@ -390,12 +395,12 @@ function step(seg, node, owner) {
   }
   seg.buf += _afterOpen(tag, seg.ns);
   if (_isTextContent(tag, seg.ns)) {
-    seg.buf += `${_rawText(tag, node.children, seg.ns)}</${tag}>`;
+    seg.buf += `${_rawText(tag, node.children, seg.ns, field)}</${tag}>`;
     return null;
   }
   enterNamespace(seg, childNamespace(seg.ns, tag, props && props.encoding), owner);
   push(seg, mark(CLOSE, { html: `</${tag}>` }), owner);
-  if (select) push(seg, mark(SELECT_END, { start: seg.buf.length, value: select.value, multiple: select.multiple }), owner);
+  if (field && field.select) push(seg, mark(SELECT_END, { start: seg.buf.length, value: field.select.value }), owner);
   pushChildren(seg, node.children, owner);
   return null;
 }
@@ -406,7 +411,7 @@ function step(seg, node, owner) {
 // must not move).
 function markSelectedIn(seg, marker) {
   if (seg.buf.length < marker.start || seg.detached.some((d) => d.at >= marker.start)) return;
-  seg.buf = seg.buf.slice(0, marker.start) + _markSelected(seg.buf.slice(marker.start), marker.value, marker.multiple);
+  seg.buf = seg.buf.slice(0, marker.start) + _markSelected(seg.buf.slice(marker.start), marker.value);
 }
 
 // The items pushed next sit in namespace `ns` (what-core's childNamespace); the
@@ -461,7 +466,8 @@ function stepComponent(seg, node, owner, attempts) {
   if (stepped) seg.key = frame._ownerPath;
   let result;
   try {
-    result = node.tag(_componentProps(node));
+    // In its frame for its code after an `await` too (an async component).
+    result = _runComponentAsync(frame, () => node.tag(_componentProps(node)));
   } catch (error) {
     seg.key = outer;
     if (isThenable(error)) return suspend(seg, node, owner, attempts, children, resources, error);

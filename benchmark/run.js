@@ -36,10 +36,14 @@ function bench(name, fn, iterations = 10000) {
   const min = times[0];
   const max = times[times.length - 1];
   const p50 = times[Math.floor(times.length * 0.5)];
+  // The tail the trimmed mean leaves out: a change that slows one call in
+  // twenty shows here and in the untrimmed mean, not in opsPerSec.
+  const p95 = times[Math.floor(times.length * 0.95)];
   const p99 = times[Math.floor(times.length * 0.99)];
+  const mean = times.reduce((a, b) => a + b, 0) / times.length;
   const opsPerSec = Math.round(1000 / avg);
 
-  const result = { name, avg, min, max, p50, p99, opsPerSec, iterations, warmupIterations };
+  const result = { name, avg, mean, min, max, p50, p95, p99, opsPerSec, iterations, warmupIterations };
   results.push(result);
 
   const bar = '█'.repeat(Math.min(50, Math.round(opsPerSec / 5000)));

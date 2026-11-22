@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import { isNamed, createResponder, previewValue, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
-import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, asyncFields, stalledWork, registryCoverage } from './tools.js';
+import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, lintHint, asyncFields, stalledWork, registryCoverage } from './tools.js';
 import { SAFE_READ_PATHS, normalizeSafeRead } from './safe-read.js';
 
 const label = (map, id) => (map.get(id) ? `${map.get(id)}#${id}` : `#${id}`);
@@ -325,6 +325,14 @@ export function registerExtendedTools(server, bridge) {
         }
       }
 
+      // The files the issues point into, for what_lint.
+      const named = [];
+      if (out.hotEffects) named.push(...effects.filter((e) => (e.runCount || 0) > threshold));
+      if (out.unreadSignals && out.unreadSignals.written) named.push(...signals.filter((s) => s.rev > 0 && s.loc));
+      if (out.errors || out.diagnostics) named.push(...bridge.getDiagnostics(session), ...bridge.getErrors(session));
+      const lint = issues.length ? lintHint(named) : null;
+      if (lint) out.lint = lint;
+
       out.status = issues.length ? `issues: ${issues.join(', ')}` : 'healthy';
       if (issues.includes('diagnostics') || issues.includes('errors')) {
         out.hint = 'what_errors lists each with owner, location and fix; what_fix({error}) gives the worked example.';
@@ -340,7 +348,7 @@ export function registerExtendedTools(server, bridge) {
 
   server.tool(
     'what_navigate',
-    'Navigate the app to a path (relative paths and http(s) URLs only) the way back/forward does, so what-router runs its guards, and wait until it has settled (or timeout). Returns browser and router state like what_route, cancelled:true when a guard refused, and since for what_events.',
+    'Navigate the app to a path (relative paths and http(s) URLs only) the way back/forward does, so what-router runs its guards, and wait until it has settled (or timeout). Returns browser and router state like what_route, cancelled:true when a guard refused, and since for what_events. A page with no client router loads the URL instead (document:true); the page that loads connects as a new session.',
     {
       path: z.string().describe('Path to navigate to, e.g. "/dashboard"'),
       replace: z.boolean().optional().default(false).describe('replaceState instead of pushState'),
@@ -362,6 +370,7 @@ export function registerExtendedTools(server, bridge) {
           router: data.router,
           settled: data.settled,
           ...(data.cancelled ? { cancelled: true } : {}),
+          ...(data.document ? { document: true, hint: data.note } : {}),
           ...(data.settled ? {} : { hint: `The router had not settled after ${wait} ms; call what_route again.` }),
           ...(await actionEvents(bridge, session, since, seq)),
         }, seq),

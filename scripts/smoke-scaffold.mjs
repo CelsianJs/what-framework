@@ -150,6 +150,33 @@ function packLocalPackages(tarballDir) {
 
 // `answers` are typed into create-what's prompts (one per line); without them
 // it scaffolds with --yes.
+// Two pages that redirect on the server, added to a scaffolded full-stack
+// app: /gate from its loader, /lab/dashboard from a <Router> middleware.
+function addRedirectPages(appDir) {
+  writeFileSync(join(appDir, 'src/pages/gate.js'), `import { h } from 'what-framework';
+export const page = { mode: 'server' };
+export const loader = ({ response }) => { response.redirect('/'); return {}; };
+export default function Gate() { return h('main', {}, 'secret'); }
+`);
+  writeFileSync(join(appDir, 'src/pages/lab.js'), `import { h } from 'what-framework';
+import { Router } from 'what-framework/router';
+export const page = { mode: 'server' };
+export const loader = () => ({});
+const routes = [
+  { path: '/lab/login', component: () => h('h2', {}, 'Log in') },
+  { path: '/lab/dashboard', component: () => h('h2', {}, 'Dashboard'), middleware: [() => '/lab/login'] },
+];
+export default function Lab() { return h('main', {}, h(Router, { routes })); }
+`);
+  const routesFile = join(appDir, 'src/routes.js');
+  const routes = readFileSync(routesFile, 'utf8');
+  const patched = routes
+    .replace("import './actions/posts.js';", "import './actions/posts.js';\nimport Gate, { loader as gateLoader, page as gatePage } from './pages/gate.js';\nimport Lab, { loader as labLoader, page as labPage } from './pages/lab.js';")
+    .replace('export const routes = [', "export const routes = [\n  { path: '/gate', component: Gate, loader: gateLoader, page: gatePage, mode: gatePage.mode },\n  { path: '/lab/:sub', component: Lab, loader: labLoader, page: labPage, mode: labPage.mode },");
+  if (patched === routes) fail('smoke: could not add the redirect routes to src/routes.js');
+  writeFileSync(routesFile, patched);
+}
+
 function scaffoldApp(workDir, name, tarballs, extraFlags = [], answers = null) {
   const createWhat = join(REPO, 'packages/create-what/index.js');
   if (answers === null) run(process.execPath, [createWhat, name, '--yes', ...extraFlags], { cwd: workDir });
@@ -379,6 +406,7 @@ async function smokeStylex(workDir, tarballs, browser) {
 async function smokeFullstack(workDir, tarballs, browser) {
   log('--- fullstack template (SSR + ISR + hydration) ---');
   const appDir = scaffoldApp(workDir, 'smoke-fullstack', tarballs, ['--fullstack']);
+  addRedirectPages(appDir);
   const port = PORT_BASE + 10;
 
   await assertPortFree(port);
@@ -410,6 +438,16 @@ async function smokeFullstack(workDir, tarballs, browser) {
   // ISR: second request must be a cache HIT
   const second = await fetch(base + '/');
   assert(second.headers.get('x-what-cache') === 'HIT', `second request is an ISR HIT (got ${second.headers.get('x-what-cache')})`);
+
+  // A page is answered with the status and redirect its render set: a
+  // loader's response.redirect(), a <Router> middleware's, a missing post's
+  // 404 (server.js renders with what-server's own route renderer).
+  const gate = await fetch(base + '/gate', { redirect: 'manual' });
+  assert(gate.status === 302 && gate.headers.get('location') === '/', `a loader redirect answers 302 / (got ${gate.status} ${gate.headers.get('location')})`);
+  const guarded = await fetch(base + '/lab/dashboard', { redirect: 'manual' });
+  assert(guarded.status >= 300 && guarded.status < 400 && guarded.headers.get('location') === '/lab/login',
+    `a <Router> middleware redirect answers a redirect to /lab/login (got ${guarded.status} ${guarded.headers.get('location')})`);
+  assert((await fetch(base + '/blog/no-such-post')).status === 404, 'a missing post answers 404');
 
   if (browser) {
     // The page actually hydrates: the Like button works.

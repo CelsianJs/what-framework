@@ -234,5 +234,5 @@ export function ensureServerRuntime() {
   const AsyncLocalStorage = g.AsyncLocalStorage
     // node-floor: feature-detected; older Node 20 releases get it from what-server's Node entry
     ?? (typeof g.process?.getBuiltinModule === 'function' ? g.process.getBuiltinModule('node:async_hooks')?.AsyncLocalStorage : undefined);
-  if (AsyncLocalStorage) __installServerContextStorage(new AsyncLocalStorage());
+  if (AsyncLocalStorage) __installServerContextStorage(new AsyncLocalStorage(), new AsyncLocalStorage());
 }

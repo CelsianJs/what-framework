@@ -44,6 +44,19 @@ export function sourceSuffix(data) {
   return `${data.owner ? ` in ${data.owner}` : ''}${data.loc ? ` at ${data.loc}` : ''}`;
 }
 
+/**
+ * The source files `entries` name (their `loc`, `file:line:col`), and how to
+ * check them offline: what_lint finds a missing cleanup or a write in render
+ * where the live tools see only its symptom (a hot effect, a mismatch).
+ */
+export function lintHint(entries) {
+  const files = [...new Set(entries.map((e) => e && e.loc).filter(Boolean).map((loc) => String(loc).replace(/(?::\d+){1,2}$/, '')))];
+  return files.length === 0 ? null : {
+    files: files.slice(0, 5),
+    hint: 'what_lint({ code, filePath }) with a file\'s source checks it offline: ERR_MISSING_CLEANUP and ERR_SIGNAL_WRITE_IN_RENDER are found there, not at run time.',
+  };
+}
+
 /** "App > [Header, TodoList > [TodoItem ×20]]", grouping same-name siblings. */
 export function componentTreeLine(components, maxDepth = 2) {
   if (!components || components.length === 0) return '(empty)';
@@ -153,6 +166,39 @@ export function formatEvent(entry, names) {
     case 'page:closed': return `#${seq} page closed`;
     default: return `#${seq} ${event}`;
   }
+}
+
+// What an event line says apart from its cursor, the value written and the
+// run count: equal for the lines a timer or a loop repeats.
+const lineShape = (line) => line.replace(/^#\d+ /, '').replace(/=("(?:[^"\\]|\\.)*"|\S+)/, '=…').replace(/ \(\d+\) /, ' ');
+
+/**
+ * Event lines with a run of three or more repeats of the same group of one to
+ * four lines (lineShape) kept as its first and last group and one line that
+ * counts the rest: an interval's write and the runs it causes, every tick.
+ */
+export function collapseRepeats(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    let taken = 0;
+    for (let size = 1; size <= 4 && taken === 0; size++) {
+      const block = lines.slice(i, i + size).map(lineShape);
+      if (block.length < size) break;
+      let count = 1;
+      while (i + (count + 1) * size <= lines.length && lines.slice(i + count * size, i + (count + 1) * size).every((line, j) => lineShape(line) === block[j])) count++;
+      if (count < 3) continue;
+      const end = i + count * size;
+      out.push(...lines.slice(i, i + size), `… ${count - 2} more of the ${size === 1 ? 'line' : `${size} lines`} above, then:`, ...lines.slice(end - size, end));
+      taken = end - i;
+    }
+    if (taken === 0) {
+      out.push(lines[i]);
+      taken = 1;
+    }
+    i += taken;
+  }
+  return out;
 }
 
 /** Read the page's whole registry. Resolves with the state and the cursor it describes. */
@@ -292,6 +338,7 @@ export function registerTools(server, bridge) {
           diagnostics: diagnosticSummary(bridge, session),
           errors: errors.length,
           ...(issues.length ? { issues, ...(hidden ? { moreIssues: hidden } : {}), hint: 'what_errors gives each with its fix; what_fix({error}) the worked example.', note: UNTRUSTED_NOTE } : {}),
+          ...(issues.length && lintHint([...diagnostics, ...errors]) ? { lint: lintHint([...diagnostics, ...errors]) } : {}),
           ...(stalled ? { stalled } : {}),
           ...registryCoverage(state),
           keySignals,
@@ -701,7 +748,7 @@ export function registerTools(server, bridge) {
         next: more ? events[events.length - 1].seq : seq,
         more,
         ...(slice.lostThrough ? { lostThrough: slice.lostThrough } : {}),
-        events: events.map((e) => formatEvent(e, names)),
+        events: collapseRepeats(events.map((e) => formatEvent(e, names))),
         ...(events.some((e) => /^(async|transition|optimistic|suspense|hydration):/.test(e.event)) ? {
           work: events.filter((e) => /^(async|transition|optimistic|suspense|hydration):/.test(e.event)).map((e) => {
             const { lastError, ...data } = e.data;

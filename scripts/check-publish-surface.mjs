@@ -46,11 +46,19 @@ const trackedPackageJson = execFileSync('git', ['ls-files', '*package.json'], {
 const unexpectedPublic = [];
 const missingAllowed = [];
 
+// Every published package declares the Node range the repository supports,
+// so npm warns a user on an older Node at install time (check:node-floor
+// holds the code to it).
+const nodeRange = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).engines?.node;
+
 for (const path of trackedPackageJson) {
   const pkg = JSON.parse(readFileSync(resolve(repoRoot, path), 'utf8'));
   if (allowedPublicPackageJson.has(path)) {
     if (pkg.private === true) {
       missingAllowed.push(`${path} is listed as public but has private=true`);
+    }
+    if (pkg.engines?.node !== nodeRange) {
+      missingAllowed.push(`${path} declares engines.node ${JSON.stringify(pkg.engines?.node ?? null)}, not the repository's ${JSON.stringify(nodeRange)}`);
     }
     continue;
   }

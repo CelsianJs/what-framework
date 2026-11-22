@@ -35,7 +35,7 @@ import {
   assertSafeTag,
   renderAttrs,
   _markSelected,
-  _selectValue,
+  _field,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -249,8 +249,8 @@ function _renderHydratable(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
-  const select = _selectValue(tag, props);
-  const open = out(`<${tag}${renderAttrs(select ? select.props : props || {})}>`);
+  const field = _field(tag, props);
+  const open = out(`<${tag}${renderAttrs(field ? field.props : props || {})}>`);
 
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
@@ -258,9 +258,9 @@ function _renderHydratable(vnode) {
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) return open + out(String(rawInner)) + out(`</${tag}>`);
   const lead = _afterOpen(tag, _ns);
-  if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns)) + out(`</${tag}>`);
+  if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns, field)) + out(`</${tag}>`);
   const content = renderElementChildren(tag, props, children, _renderHydratable);
-  return open + lead + (select ? _markSelected(content, select.value, select.multiple) : content) + out(`</${tag}>`);
+  return open + lead + (field && field.select ? _markSelected(content, field.select.value) : content) + out(`</${tag}>`);
 }
 
 function renderChildren(children, render) {
@@ -373,8 +373,8 @@ function _renderString(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
-  const select = _selectValue(tag, props);
-  const attrs = renderAttrs(select ? select.props : props || {});
+  const field = _field(tag, props);
+  const attrs = renderAttrs(field ? field.props : props || {});
   const open = `<${tag}${attrs}>`;
 
   // Void elements
@@ -383,9 +383,9 @@ function _renderString(vnode) {
   const rawInner = _resolveInnerHTML(props);
   if (rawInner != null) return `${open}${String(rawInner)}</${tag}>`;
   const lead = _afterOpen(tag, _ns);
-  if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns)}</${tag}>`;
+  if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns, field)}</${tag}>`;
   const content = renderElementChildren(tag, props, children, _renderString);
-  return `${open}${lead}${select ? _markSelected(content, select.value, select.multiple) : content}</${tag}>`;
+  return `${open}${lead}${field && field.select ? _markSelected(content, field.select.value) : content}</${tag}>`;
 }
 
 // --- Render to String + collected <head> ---
@@ -698,7 +698,7 @@ export {
 // Runtime-neutral deploy adapters. Node-only adapters are re-exported by the
 // package's conditional Node entry so browser/edge bundles never resolve Node
 // builtins merely because they import a client-safe server action.
-export { createRequestHandler } from './adapter/core.js';
+export { createRequestHandler, createRouteRenderer } from './adapter/core.js';
 export { createCloudflareHandler } from './adapter/cloudflare.js';
 
 // Safe state serialization for inlining into <script> tags

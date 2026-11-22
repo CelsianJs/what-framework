@@ -265,7 +265,14 @@ function sharedRenderRequest(request, signal, varied) {
   return { request: new SharedRenderRequest(request, init, request.headers, read), unvaried };
 }
 
-function defaultRenderRoute(documentOptions) {
+/**
+ * The built-in route renderer createRequestHandler uses: the route's loader
+ * and page rendered as a document with `documentOptions`, answering with the
+ * status, headers and redirect the loader and the page set on `response`.
+ * An ISR engine's `render` (scheduled regeneration) takes it too, so a
+ * regenerated page is rendered exactly as a requested one.
+ */
+export function createRouteRenderer(documentOptions = {}) {
   // `cacheCtx` is what the cache engine hands a render it may share; absent on
   // the direct path.
   return async function renderRoute(routeMatch, cacheCtx) {
@@ -352,7 +359,7 @@ export function createRequestHandler(options = {}) {
   // `onError` hears the errors every built-in render contains or fails on,
   // streamed or buffered.
   const renderOptions = onError ? { ...documentOptions, onError } : documentOptions;
-  const renderRoute = render || defaultRenderRoute(renderOptions);
+  const renderRoute = render || createRouteRenderer(renderOptions);
 
   // Bind the cache engine so server actions' revalidatePath/revalidateTag (and
   // any app code calling them from what-framework/server) purge this engine.

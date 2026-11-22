@@ -29,6 +29,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "peerDependencies": {
     "what-server": "^0.14.0"
   },

@@ -34,7 +34,7 @@
 
 import {
   RAW_TEXT_ELEMENTS, TEXT_ONLY_ELEMENTS, LEADING_NEWLINE_ELEMENTS, SAFE_ATTR_NAME, SAFE_TAG_NAME, VOID_ELEMENTS, escapeHtml,
-  controllingProp, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr, markupName,
+  FIELD_PROPS, FIELD_TAGS, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr, markupName,
 } from 'what-core/internal/markup-rules';
 import { t } from './types.js';
 import {
@@ -224,16 +224,27 @@ function staticValue(attr) {
   return undefined;
 }
 
+// Whether the form field `tag` with props `names` shows a value decided at
+// render time: a <textarea>'s or a <select>'s value or default (its text, its
+// options' marks), an <input>'s value next to its default. An <input>'s value
+// or default alone is its attribute, which a template slot writes.
+function isRuntimeField(tag, names) {
+  if (tag !== 'input') return [...FIELD_PROPS].some((name) => names.has(name));
+  return (names.has('value') && names.has('defaultValue')) || (names.has('checked') && names.has('defaultChecked'));
+}
+
 // The attributes in the order the h() spelling's props object holds them: a
 // name written twice keeps its first position and its last value. Events,
 // refs and keys are not markup. A spread, a classList or innerHTML make the
 // whole element a run-time element whose props object is built exactly as
-// h() would build it; so does a <select>'s value, which HTML shows by marking
-// the options it names (what-server's _markSelected), not as an attribute.
+// h() would build it; so does a form field whose value and default share
+// the markup (isRuntimeField): which one it shows is decided where the values
+// are known (what-server's _field), by the rule every server renderer applies.
 /** @returns {{ runtime: boolean, props: any, list: any[] }} */
 function readAttributes(node, state) {
   const attrs = node.openingElement.attributes;
-  const select = t.isJSXIdentifier(node.openingElement.name, { name: 'select' });
+  const nameNode = node.openingElement.name;
+  const field = t.isJSXIdentifier(nameNode) && FIELD_TAGS.has(nameNode.name);
   const entries = [];
   let runtime = false;
   for (const attr of attrs) {
@@ -251,7 +262,7 @@ function readAttributes(node, state) {
       name = prop;
       expr = t.callExpression(t.cloneNode(attr.value.expression), []);
     }
-    if (RUNTIME_ATTRS.has(name) || (select && name === 'value')) runtime = true;
+    if (RUNTIME_ATTRS.has(name)) runtime = true;
     const key = markupName(name);
     if (!SAFE_ATTR_NAME.test(key)) {
       throw unsafeMarkup(attr, state, `"${key}" is not an attribute name what-server can emit.`);
@@ -261,6 +272,7 @@ function readAttributes(node, state) {
     entries.push({ name, key, attr, fixed, expr: expr || (fixed === undefined ? getAttributeValue(attr.value) : null) });
   }
 
+  if (field && !runtime) runtime = isRuntimeField(nameNode.name, new Set(entries.map((e) => e.name)));
   if (runtime) {
     const properties = entries.map(e => (e.spread
       ? t.spreadElement(e.spread)
@@ -273,12 +285,6 @@ function readAttributes(node, state) {
     const first = byName.get(entry.name);
     if (first) Object.assign(first, { fixed: entry.fixed, expr: entry.expr, attr: entry.attr });
     else byName.set(entry.name, entry);
-  }
-  // One attribute shows a field's value: its value prop's when it has one,
-  // else its default's (what-server's renderAttrs decides the same).
-  for (const name of [...byName.keys()]) {
-    const controlling = controllingProp(name);
-    if (controlling !== null && byName.has(controlling)) byName.delete(name);
   }
   return { runtime: false, props: null, list: [...byName.values()] };
 }

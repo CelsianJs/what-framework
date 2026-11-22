@@ -6,7 +6,10 @@
 // action's Request from the connection (its TLS socket, its Host header) and
 // that path, never from an authority in the target. The CSRF origin check
 // takes the scheme from the same place. toNodeListener and whatMiddleware
-// answer 400 for a target that is not a path.
+// answer 400 for a target that is not a path, and for a Host header that is
+// not a host (request-url.js): `Host: h/admin?` must not make What render
+// /admin for `GET /public` (round 5, V1), and userinfo is a 400, not a 500
+// with a logged stack (V4).
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,11 +33,12 @@ const HOSTILE = ['//', '//[::1', '/\\', '//@', '//evil.test/__what_action', '/st
 
 // One raw HTTP/1.1 request, written as is: no client library normalizes it.
 function raw(port, method, target, headers = {}, body = '') {
+  const { host = 'victim.test', ...rest } = headers;
   return new Promise((resolve) => {
     const socket = net.connect(port, '127.0.0.1');
     let data = '';
-    const lines = [`${method} ${target} HTTP/1.1`, 'host: victim.test', 'connection: close',
-      ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`), `content-length: ${Buffer.byteLength(body)}`, '', body];
+    const lines = [`${method} ${target} HTTP/1.1`, `host: ${host}`, 'connection: close',
+      ...Object.entries(rest).map(([k, v]) => `${k}: ${v}`), `content-length: ${Buffer.byteLength(body)}`, '', body];
     // Without an answer the request would wait forever: a status of 0 says so.
     socket.setTimeout(3000, () => socket.destroy());
     socket.on('connect', () => socket.write(lines.join('\r\n')));
@@ -204,4 +208,67 @@ describe('the Node adapter takes a path only', () => {
       assert.deepEqual(rejections, []);
     });
   }
+});
+
+describe('a Host header names a host, never the path', () => {
+  /** @type {http.Server[]} */
+  const servers = [];
+  const ports = {};
+  const logged = [];
+  const error = console.error;
+
+  before(async () => {
+    console.error = (...args) => logged.push(args.join(' '));
+    const page = (text) => () => h('p', null, text);
+    const options = { routes: [
+      { path: '/public', component: page('public page'), page: { mode: 'server', stream: false } },
+      { path: '/admin', component: page('admin page'), page: { mode: 'server', stream: false } },
+    ] };
+    const stacks = {
+      toNodeListener: toNodeListener((await import('../src/adapter/core.js')).createRequestHandler(options)),
+      whatMiddleware: connectStyle(whatMiddleware(options), notAction),
+      nodeActionMiddleware: connectStyle(nodeActionMiddleware(), notAction),
+    };
+    for (const [name, listener] of Object.entries(stacks)) {
+      const server = http.createServer(listener);
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      servers.push(server);
+      ports[name] = /** @type {any} */ (server.address()).port;
+    }
+  });
+
+  after(() => {
+    console.error = error;
+    for (const server of servers) server.close();
+  });
+
+  const NOT_HOSTS = ['h/admin?', 'h/admin#', 'h\\admin?', 'h\\admin#', 'a@evil.test', 'user:pw@app.test', 'app.test:99999', 'app.test:abc', '%', '['];
+  const HOSTS = ['app.test', 'app.test:8080', '127.0.0.1:3000', '[::1]:3000', 'my_app', 'app.test.'];
+
+  for (const stack of ['toNodeListener', 'whatMiddleware']) {
+    it(`${stack}: a Host that is not a host is 400 and renders nothing; a host renders the target's path`, async () => {
+      for (const host of NOT_HOSTS) {
+        const res = await raw(ports[stack], 'GET', '/public', { host });
+        assert.equal(res.status, 400, host);
+        assert.doesNotMatch(res.body, /admin page|public page/, host);
+      }
+      for (const host of HOSTS) {
+        const res = await raw(ports[stack], 'GET', '/public', { host });
+        assert.equal(res.status, 200, host);
+        assert.match(res.body, /public page/, host);
+      }
+      assert.deepEqual(logged, [], 'nothing is logged');
+    });
+  }
+
+  it('nodeActionMiddleware: a Host that is not a host is 400', async () => {
+    for (const host of NOT_HOSTS) {
+      const res = await raw(ports.nodeActionMiddleware, 'POST', '/__what_action', { host, 'content-type': 'application/json', 'x-what-action': 'targetWhoCalls', 'sec-fetch-site': 'same-origin' }, '{"args":[]}');
+      assert.equal(res.status, 400, host);
+    }
+    seenUrl = null;
+    const res = await raw(ports.nodeActionMiddleware, 'POST', '/__what_action', { host: 'app.test:8080', 'content-type': 'application/json', 'x-what-action': 'targetWhoCalls', 'sec-fetch-site': 'same-origin' }, '{"args":[]}');
+    assert.equal(res.status, 200);
+    assert.equal(seenUrl, 'http://app.test:8080/__what_action');
+  });
 });

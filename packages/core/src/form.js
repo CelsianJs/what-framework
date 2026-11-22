@@ -300,14 +300,16 @@ function createFormController(options = {}) {
     };
 
     if (isRadio) {
-      // Without a declared value this thunk must report FALSE, never `!!field`:
-      // the contribution can only come from the element, which a prop thunk does
-      // not have, and `!!field` is true for every radio in the group at once, so
-      // picking any option rendered ALL of them checked. The ref below fixes up
-      // the real DOM once it does have the element.
+      // Without a declared value this thunk must report UNDEFINED, never
+      // `!!field`: the contribution can only come from the element, which a
+      // prop thunk does not have, and `!!field` is true for every radio in the
+      // group at once, so picking any option rendered ALL of them checked. Not
+      // false either: a false `checked` controls the radio unchecked, and the
+      // ref below is what checks it once it has the element. A server, which
+      // has no element, writes it unchecked.
       const isChecked = hasRadioValue
         ? () => fieldSig() === options.value
-        : () => false;
+        : () => undefined;
 
       if (hasRadioValue) result.value = options.value;
       // A FUNCTION, not the getter the checkbox branch uses: every consumer

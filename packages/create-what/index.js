@@ -1224,17 +1224,18 @@ export default function Home() {
   writeFileSync(resolve(root, 'src', 'pages', 'post.js'), `// Dynamic post page. getStaticPaths pre-renders known slugs at build; unknown
 // slugs render on first hit (fallback: 'blocking') and are then cached.
 // The database import lives inside the loader/getStaticPaths (server-only),
-// keeping /src/db.js out of the browser. A missing post sets notFound: true,
-// which server.js turns into a real 404 status that is never ISR-cached.
+// keeping /src/db.js out of the browser. A missing post answers 404
+// (response.setStatus), which the ISR cache never stores.
 
 import { h, Head, useLoaderData } from 'what-framework';
 
 export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
 
-export const loader = async ({ params }) => {
+export const loader = async ({ params, response }) => {
   const { getPost } = await import('../db.js'); // server-only
   const post = getPost(params.slug);
-  return { post, notFound: !post };
+  if (!post) response.setStatus(404);
+  return { post };
 };
 
 export async function getStaticPaths() {
@@ -1503,7 +1504,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, statSync, createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequestHandler, renderDocument, toNodeListener } from 'what-framework/server';
+import { createRequestHandler, createRouteRenderer, toNodeListener } from 'what-framework/server';
 import {
   createCacheEngine,
   createMemoryStore,
@@ -1534,8 +1535,9 @@ if (!REVALIDATE_SECRET) {
 
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
 // to survive restarts, or createRedisStore({client}) for multi-instance.
-// \`render\` powers scheduled regeneration (renderRoute is defined below;
-// function declarations hoist, so the reference is valid here).
+// \`render\` powers scheduled regeneration: the framework's own renderer
+// (renderRoute below; function declarations hoist), so a regenerated page is
+// rendered exactly as a requested one.
 const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
 
 // Non-200 renders (soft-404s like /blog/nonexistent) must never be ISR-cached —
@@ -1606,24 +1608,15 @@ const documentOptions = {
   },
 };
 
-// Render a matched route. Mirrors the framework default renderer, plus:
-//   - passes csrfToken through to loaders (so /new can SSR the no-JS form token)
-//   - honors a loader's \`notFound: true\` with a real 404 status (the appCache
-//     wrapper above keeps those responses out of the ISR cache)
-async function renderRoute(routeMatch) {
-  const { route, params, query, request, csrfToken } = routeMatch;
-  const reqCtx = { params, query, request, csrfToken };
-  const loaderData = typeof route.loader === 'function' ? await route.loader(reqCtx) : undefined;
-  const notFound = !!(loaderData && loaderData.notFound);
-  const pageModule = { default: route.component, loader: () => loaderData };
-  const opts = csrfToken ? { ...documentOptions, csrfToken } : documentOptions;
-  const html = await renderDocument(pageModule, reqCtx, opts);
-  return {
-    html,
-    status: notFound ? 404 : 200,
-    tags: (routeMatch.config && routeMatch.config.tags) || [],
-    path: routeMatch.path,
-  };
+// Render a matched route with the framework's renderer: the loader gets the
+// request, its params and query, the per-visitor csrfToken on an uncached
+// route (so /new can SSR the no-JS form token) and the \`response\`, whose
+// status, headers and redirect (a loader's response.redirect(), a <Router>
+// middleware's) the page is answered with. A non-200 render, such as a
+// missing post's 404, is kept out of the ISR cache by appCache above.
+const renderPage = createRouteRenderer(documentOptions);
+function renderRoute(routeMatch, cacheCtx) {
+  return renderPage(routeMatch, cacheCtx);
 }
 
 export function createHandler(options = {}) {
@@ -1745,6 +1738,7 @@ export const CLIENT_FILES = ['/src/entry-client.js', '/src/styles.css'];
 export const CLIENT_DIRS = [
   '/src/pages/',      // page modules (hydrated by entry-client)
   '/src/components/', // client-shared UI (create as needed)
+  '/src/stores/',     // client state (what_scaffold writes stores here)
 ];
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));

@@ -7,7 +7,7 @@ import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
   getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, hasLiteralMatchArms,
   isBindingAttribute, isComponentElement, isConditionallyEvaluated, isDynamicAttr,
-  isEventAttrName, isForeignTag, isHydrateRootArgument, isShadowedAttr, isStaticChild,
+  isEventAttrName, isFieldProp, isForeignTag, isHydrateRootArgument, isShadowedAttr, isStaticChild,
   isVoidHtmlElement, normalizeJsxText, parseEventModifiers, propKey,
   addImports, helper, helperLocals, readSwitch, uniqueName,
   checkElementName, checkIslandProp, checkStaticAttribute, checkStaticRawText, directiveValue,
@@ -232,8 +232,10 @@ const UNQUOTED_ATTR_VALUE = /^[^\s"'=<>`&]+$/;
 //   - class/className after a classList: `classList={{a: on()}} class="b"`
 //     means class "b" (the later write replaces the toggled class, as in h()
 //     and on the server), and baking it applied "b" first.
+//   - a form field's value, checked and defaults (isFieldProp).
 // Those are set in source order by applyDynamicAttrs instead.
-function isTemplateAttr(attributes, index) {
+function isTemplateAttr(attributes, index, tagName) {
+  if (isFieldProp(tagName, attributes, index)) return false;
   for (let i = 0; i < index; i++) {
     const earlier = attributes[i];
     if (t.isJSXSpreadAttribute(earlier)) return false;
@@ -253,7 +255,7 @@ function extractStaticHTML(node, state) {
 
   for (const [attrIndex, attr] of el.attributes.entries()) {
     if (t.isJSXSpreadAttribute(attr)) continue;
-    if (!isTemplateAttr(el.attributes, attrIndex)) continue;
+    if (!isTemplateAttr(el.attributes, attrIndex, tagName)) continue;
     if (isShadowedAttr(el.attributes, attrIndex)) continue;
     const name = getAttrName(attr);
     if (name === 'key') continue;
@@ -330,7 +332,7 @@ export function transformElementFineGrained(path, state) {
 
   // Check if this entire subtree is purely static
   const allChildrenStatic = children.every(isStaticChild);
-  const allAttrsStatic = attributes.every(attr => !isDynamicAttr(attr));
+  const allAttrsStatic = attributes.every((attr, i) => !isDynamicAttr(attr) && !isFieldProp(tagName, attributes, i));
   const noEvents = attributes.every(attr => {
     if (t.isJSXSpreadAttribute(attr)) return false;
     const name = getAttrName(attr);
@@ -750,7 +752,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     // A literal attribute the template could not hold (see isTemplateAttr):
     // applied here, in the order the author wrote it. A valueless attribute is
     // `true` in JSX, which is what the h() spelling passes.
-    if (!isTemplateAttr(attributes, attrIndex)) {
+    if (!isTemplateAttr(attributes, attrIndex, tagName)) {
       statements.push(
         t.expressionStatement(
           buildSetPropCall(attributeName(attrName), getAttributeValue(attr.value))
@@ -895,7 +897,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       if (typeof entry.marker === 'number') uses.push(entry.marker);
     } else if (entry.kind === 'element') {
       const attrs = entry.node.openingElement.attributes;
-      entry.hasAnythingDynamic = attrs.some(isDynamicAttr) ||
+      entry.hasAnythingDynamic = attrs.some((attr, i) => isDynamicAttr(attr) || isFieldProp(entry.node.openingElement.name.name, attrs, i)) ||
         attrs.some(a => !t.isJSXSpreadAttribute(a) && getAttrName(a)?.startsWith('on')) ||
         !entry.node.children.every(isStaticChild);
       if (entry.hasAnythingDynamic) uses.push(entry.index);

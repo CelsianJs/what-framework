@@ -101,11 +101,35 @@ function freeDevFlag(env) {
     },
   };
 }
+// The production tier's error catalogue: each code's code, severity and
+// template, without its fix and worked example. A page that loads the
+// production dist without a bundler (an import map: the full-stack starter's
+// production deploy) loads the catalogue with the root entry, and a production
+// diagnostic needs its code and message; the fix and the example are a
+// what_fix call or docs/ERRORS.md away. Made from the source's catalogue, so
+// the two cannot drift; the build fails if the literal cannot be found.
+function compactCatalogue() {
+  return {
+    name: 'what-compact-catalogue',
+    setup(build) {
+      build.onLoad({ filter: /[\\/]packages[\\/]core[\\/]src[\\/]errors\.js$/ }, async (args) => {
+        const source = await readFile(args.path, 'utf8');
+        const start = source.indexOf('export const ERROR_CODES = {');
+        const end = source.indexOf('\n};\n\n// Reverse index');
+        if (start === -1 || end === -1) throw new Error(`${args.path}: the ERROR_CODES literal the production tier compacts was not found`);
+        const { ERROR_CODES } = await import(pathToFileURL(args.path).href);
+        const compact = Object.fromEntries(Object.entries(ERROR_CODES).map(([name, { code, severity, template }]) => [name, { code, severity, template }]));
+        return { contents: `${source.slice(0, start)}export const ERROR_CODES = ${JSON.stringify(compact, null, 2)};${source.slice(end + 3)}`, loader: 'js' };
+      });
+    },
+  };
+}
+
 // process.env.NODE_ENV is folded too, for the server and compiler modules
 // that test it directly.
 export const PRODUCTION = {
   define: { __WHAT_DEV__: 'false', __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
-  plugins: [freeDevFlag()],
+  plugins: [compactCatalogue(), freeDevFlag()],
 };
 
 // The bundler tier. A browser bundle made with neither the `development` nor

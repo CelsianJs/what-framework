@@ -22,6 +22,17 @@ If you discover a security vulnerability, please report it responsibly:
 We support the latest published minor. All 14 packages release together at the same version,
 so "0.15.x" applies across the whole `what-*` / `create-what` / `eslint-plugin-what` set.
 
+## The Host header
+
+The Host header is client input: a sender chooses it, and a proxy may forward it as it came. The
+Node entry points (`toNodeListener`, `whatMiddleware`, `nodeActionMiddleware`) accept a Host only as
+a host (a DNS name or IPv4 address, or a bracketed IPv6 literal, with an optional port) and answer
+400 to anything else (a path, a query, a backslash, userinfo), and the path What routes on always
+comes from the request target, never from the Host. A cached (ISR) page is keyed on the request's
+origin as well as its path, so a Host one sender chose never reaches another host's visitors. Still
+allowlist the hosts your proxy forwards: a page that builds absolute URLs from `request.url` (a
+canonical link, a fetch to the app's own API) builds them on the host the request named.
+
 ## Server actions
 
 A server action is a public, unauthenticated endpoint: its id is in the page (and can be computed

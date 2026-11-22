@@ -112,7 +112,7 @@ Call \`what_connection_status\`: the connected pages (sessions), then for the pa
 
 ### "Route not working"
 1. \`what_route\`: the address bar (\`browser\`) and what-router's own state (\`router\`: path, params, matched pattern, navigating), separately; \`settled\` says they agree.
-2. \`what_navigate { path: "/expected" }\`: waits for the router's guards to finish and answers with the same fields, \`cancelled\` when a guard refused.
+2. \`what_navigate { path: "/expected" }\`: waits for the router's guards to finish and answers with the same fields, \`cancelled\` when a guard refused. On a page with no client router it loads the URL instead (\`document: true\`), and the page that loads connects as a new session.
 `;
 
 const apiReference = () => `# What Framework API Reference

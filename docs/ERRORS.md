@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 66 of them: 38 errors and 28 warnings.
+Every code in What's error catalogue, all 68 of them: 40 errors and 28 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -62,6 +62,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_DUPLICATE_ACTION_ID`](#err-duplicate-action-id) | error | Duplicate server action ID "`id`". |
 | [`ERR_DUPLICATE_KEY`](#err-duplicate-key) | warning | A keyed list has more than one item with the key `key`. |
 | [`ERR_EFFECT_DEP_NOT_FUNCTION`](#err-effect-dep-not-function) | warning | useEffect dependency at index `index` is a plain value, so the effect cannot re-run when it changes. |
+| [`ERR_FOREIGN_ENGINE_IN_SSR`](#err-foreign-engine-in-ssr) | error | An async value was made by a second copy of what-core during a server render. |
 | [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action, its id, or a function. |
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
 | [`ERR_FORM_RADIO_UNTYPED`](#err-form-radio-untyped) | warning | register("`name`") was spread onto a radio without { type: 'radio' }, which overwrote the radio's value. |
@@ -92,6 +93,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_PENDING_READ_UNTRACKED`](#err-pending-read-untracked) | warning | `call` was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen. |
 | [`ERR_PRETEXT_NOT_INSTALLED`](#err-pretext-not-installed) | error | [what-text] Failed to load @chenglou/pretext: `message`. |
 | [`ERR_QUERY_OUTSIDE_RENDER`](#err-query-outside-render) | warning | [what] Server query cache used outside a render, loader or action. |
+| [`ERR_REDIRECT_CYCLE`](#err-redirect-cycle) | error | [what-router] Redirect loop (`kind`): `cycle`. Guards of: `guards`. |
 | [`ERR_REDIRECT_NOT_CAUGHT`](#err-redirect-not-caught) | error | [what-router] redirect to `target` |
 | [`ERR_RUNTIME`](#err-runtime) | error | An error surfaced that the framework could not classify, so the message is the original one verbatim. |
 | [`ERR_SIGNAL_WRITE_IN_COMPUTED`](#err-signal-write-in-computed) | warning | Computed "`computedName`" wrote signal "`signalName`". A computed only derives a value; a write from it runs again on every recomputation and can loop. |
@@ -462,6 +464,29 @@ useEffect(() => save(count()), [count]);
 
 // Good - or let the effect track what it reads:
 useEffect(() => save(count()));
+```
+
+## ERR_FOREIGN_ENGINE_IN_SSR
+
+**Severity:** error
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** thrown
+
+> An async value was made by a second copy of what-core during a server render.
+
+The page is server-rendered by one copy of what-core, and a component made a resource, a query or another async value with a different copy: usually a library that bundled what-framework into its own build instead of declaring it as a peer dependency. A second copy never joins the render, so its value would start over on every retry of the render and never reach the client; the render fails instead. Bundle one copy: mark what-framework (and what-core) external in the library's build and list it under peerDependencies, or dedupe the install (npm ls what-core shows each copy). Effects and computeds of a second copy are still owned by the render and disposed with it.
+
+```jsx
+// Bad — a library's vite.config.js bundles what-framework into dist/index.js:
+export default defineConfig({ build: { lib: { entry: 'src/index.js' } } });
+
+// Good — the library leaves the framework to the app (and lists it in peerDependencies):
+export default defineConfig({
+  build: {
+    lib: { entry: 'src/index.js' },
+    rollupOptions: { external: [/^what-framework/, /^what-core/] },
+  },
+});
 ```
 
 ## ERR_FORM_ACTION_MISSING
@@ -1106,6 +1131,30 @@ export async function loader() {
 }
 ```
 
+## ERR_REDIRECT_CYCLE
+
+**Severity:** error
+  ·  **Raised by:** `what-router`
+  ·  **Detected:** reported
+
+> [what-router] Redirect loop ({{kind}}): {{cycle}}. Guards of: {{guards}}.
+
+Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each URL in order; the guards are the routes whose middleware redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.
+
+```jsx
+// Bad — a logged-in non-admin bounces between the two forever:
+const routes = [
+  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || '/login'] },
+];
+
+// Good — the dashboard's guard sends a logged-in non-admin somewhere that lets them in:
+const routes = [
+  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || (isLoggedIn() ? '/account' : '/login')] },
+];
+```
+
 ## ERR_REDIRECT_NOT_CAUGHT
 
 **Severity:** error
@@ -1394,8 +1443,8 @@ const { tools } = await client.listTools();
 ## ERR_UNSAFE_INNERHTML
 
 **Severity:** warning
-  ·  **Raised by:** `eslint-plugin-what`
-  ·  **Detected:** lint
+  ·  **Raised by:** `eslint-plugin-what`, `what-core`
+  ·  **Detected:** reported, lint
 
 > innerHTML set on element without using the __html safety marker.
 

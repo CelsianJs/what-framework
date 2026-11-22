@@ -303,7 +303,7 @@ describe('redirect loop detection', () => {
       container = await mountAt('/loop-a', cyclic);
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
     assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
   });
@@ -319,7 +319,7 @@ describe('redirect loop detection', () => {
       container = await mountAt('/sig-a', cyclic);
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
     assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
   });
@@ -338,7 +338,7 @@ describe('redirect loop detection', () => {
       for (let i = 0; i < 40; i++) await flush();
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
   });
 });

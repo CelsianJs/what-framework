@@ -30,7 +30,7 @@
 // is the renderer's copy's: what it creates goes to a root of its own for that
 // render, which the render's release disposes too (renderOwner below).
 
-import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback } from './reactive.js';
+import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed } from './reactive.js';
 import { _installServerSeeding } from './hydration-data.js';
 
 // The process's render context, its async context provider and whether it is
@@ -42,19 +42,36 @@ import { _installServerSeeding } from './hydration-data.js';
 // key names the store's shape (`.v1`), so a copy that keeps another shape
 // keeps another store.
 const STORE = Symbol.for('what.serverContext.v1');
-/** @type {{ current: any, storage: { getStore: () => any, run: (store: any, fn: () => any) => any } | null, server: boolean, withDocument: boolean } | null} */
+/** @typedef {{ getStore: () => any, run: (store: any, fn: () => any) => any }} AsyncStorage */
+/** @type {{ current: any, storage: AsyncStorage | null, frames: AsyncStorage | null, server: boolean, withDocument: boolean, adopt: typeof adopt } | null} */
 let shared = null;
 // Made on first use, so importing the module writes no global. On first use
 // this copy's engine also starts asking the active render for the root that
 // holds what it creates with no owner current (renderOwner).
 function store() {
   if (shared === null) _setOwnerFallback(renderOwner);
-  return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, server: false, withDocument: false };
+  return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, frames: null, server: false, withDocument: false, adopt };
 }
 
-// The root of the active render for work this copy of the engine creates
-// with no owner current: the render's own, or one of this copy's for it.
+// What a copy of the engine that never reached this module takes as its owner
+// lookup (reactive.js ownerNow): the active render's root for that copy.
+function adopt(setFallback, engine) {
+  setFallback(() => {
+    const ctx = getServerContext();
+    return ctx != null && typeof ctx.rootFor === 'function' ? ctx.rootFor(engine) : null;
+  });
+}
+
+// The owner of work this copy of the engine creates with no owner current, in
+// a server render: the frame of the component whose code it is (code an async
+// component runs after an `await`, which _runComponentAsync made findable), so
+// what it reads by context (a Router's state, useContext) and what it creates
+// are its component's; else the render's root, the render's own or one of
+// this copy's for it.
 function renderOwner() {
+  const frames = /** @type {any} */ (shared).frames;
+  const resumed = frames !== null ? frames.getStore() : undefined;
+  if (resumed != null && resumed.engine === _engine && !_isDisposed(resumed.frame)) return resumed.frame;
   const ctx = getServerContext();
   return ctx != null && typeof ctx.rootFor === 'function' ? ctx.rootFor(_engine) : null;
 }
@@ -62,7 +79,9 @@ function renderOwner() {
 let installed = false;
 
 /**
- * Install the async context provider used by the server renderer.
+ * Install the async context providers used by the server renderer: `storage`
+ * carries a render's context past an `await`, `frames` an async component's
+ * frame (_runComponentAsync).
  *
  * This intentionally accepts the small AsyncLocalStorage surface instead of
  * importing `node:async_hooks` from what-core: the core bundle remains browser
@@ -70,12 +89,26 @@ let installed = false;
  *
  * @internal
  */
-export function __installServerContextStorage(storage) {
+export function __installServerContextStorage(storage, frames) {
   if (installed) return;
   installed = true;
   const state = store();
-  if (state.storage === null) state.storage = storage;
+  if (state.storage === null) {
+    state.storage = storage;
+    state.frames = frames ?? null;
+  }
   _installServerSeeding();
+}
+
+/**
+ * Call a server component's function `fn` in its `frame` so that the code it
+ * runs after an `await` still has the frame as its owner (renderOwner).
+ *
+ * @internal
+ */
+export function _runComponentAsync(frame, fn) {
+  const frames = store().frames;
+  return frames === null ? fn() : frames.run({ engine: _engine, frame }, fn);
 }
 
 // Whether code outside every render runs on a server, where a query cache
@@ -178,9 +211,11 @@ export function __outsideServerContext(fn) {
   const state = store();
   const prev = state.current;
   const storage = state.storage;
+  const frames = state.frames;
   state.current = null;
+  const outside = frames ? () => frames.run(null, fn) : fn;
   try {
-    return _detached(storage ? () => storage.run(null, fn) : fn);
+    return _detached(storage ? () => storage.run(null, outside) : outside);
   } finally {
     state.current = prev;
   }

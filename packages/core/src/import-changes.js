@@ -115,7 +115,7 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '__flushOutsideServerContext', '__outsideServerContext', '__markServerProcess',
-    '_rowKeyDigest', '_rowKeySalt', '_engine',
+    '_rowKeyDigest', '_rowKeySalt', '_engine', '_runComponentAsync',
   ], note: 'Server-rendering internals are what-server\'s interface in what-core/internal; apps use getResponse() and useLoaderData().' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '__invalidateFromDevtools', '_tagQueries', '_formStatus', '_formStatusContext', '_resetForm', '_devAction', '__DEV__', '_urgent', '_currentTransition', '_onCommit', '_pathLoaded',

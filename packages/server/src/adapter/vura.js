@@ -11,6 +11,7 @@
 // shape @celsian/vura-contract validates).
 
 import { createRequestHandler } from './core.js';
+import { isHost } from '../request-url.js';
 
 // Vura manifest v1 constants. They mirror @celsian/vura-contract, which is a
 // test-time dependency only: what-server must not pull a deploy target's
@@ -20,10 +21,6 @@ const FUNCTION_PATTERN = '/*';
 const FUNCTION_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
 const FUNCTION_MEMORY = ['1gb', '4gb', '6gb', '8gb', '12gb'];
 
-// A hostname with an optional port, or a bracketed IPv6 literal. Anything else
-// (userinfo, a path, whitespace) means the header was not set by the edge, so
-// the request keeps its own URL rather than adopting an origin we can't parse.
-const FORWARDED_HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/;
 
 function firstValue(header) {
   return header ? header.split(',')[0].trim() : '';
@@ -44,7 +41,9 @@ function firstValue(header) {
  */
 function toPublicRequest(request) {
   const host = firstValue(request.headers.get('x-forwarded-host'));
-  if (!host || !FORWARDED_HOST.test(host)) return request;
+  // Anything but a host (userinfo, a path, whitespace: request-url.js) means
+  // the edge did not set it, so the request keeps its own URL.
+  if (!isHost(host)) return request;
   const proto = (firstValue(request.headers.get('x-forwarded-proto')) || 'https').toLowerCase();
   if (proto !== 'https' && proto !== 'http') return request;
 

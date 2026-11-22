@@ -36,7 +36,7 @@
 
 import { isHydrating, _resumeBoundary } from './render.js';
 import { getCurrentComponent } from './dom.js';
-import { _currentComponent, _installSeedOps, _installStoreSeedOps, __DEV__ } from './reactive.js';
+import { _currentComponent, _installSeedOps, _installStoreSeedOps, _inServerRender, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { report } from './diagnostics.js';
 
@@ -359,7 +359,15 @@ export function _installServerSeeding() {
  * @param {boolean} track whether an adopted value's function runs once to learn what it reads
  */
 export function _seedFor(key, track) {
-  return seeder === null ? null : seeder(key, track);
+  if (seeder !== null) return seeder(key, track);
+  // A server render another copy of what-core runs (this one is a library's
+  // own engine): this copy never joined it, so the value would start over on
+  // every retry of the render and never reach the client. Said, not guessed.
+  if (_inServerRender()) {
+    // ERROR_CODES.FOREIGN_ENGINE_IN_SSR
+    throw Object.assign(new Error('[what] An async value was made by a second copy of what-core during a server render. Bundle one copy of what-framework.'), { code: 'ERR_FOREIGN_ENGINE_IN_SSR' });
+  }
+  return null;
 }
 
 // In a server render: the render's resource store, under `key` or, without

@@ -15,7 +15,10 @@ import {
   TEXT_ONLY_ELEMENTS,
   LEADING_NEWLINE_ELEMENTS,
   markupName,
-  controllingProp,
+  FIELD_PROPS,
+  ATTRIBUTE_VALUE_TYPES,
+  stripAndCollapse,
+  selectedOptions,
   isEnumeratedAttr,
   isRefusedAttr,
   isUnsafeUrl,
@@ -322,10 +325,6 @@ function renderAttrs(props) {
     }
     const info = attrInfo(propKey);
     if (info.skip) continue; // internal props, and event handlers (never rendered in SSR)
-    // One attribute shows a field's value: its value prop's when it has one,
-    // else its default's.
-    const controlling = controllingProp(propKey);
-    if (controlling !== null && props[controlling] != null) continue;
     const key = info.key;
 
     // A remaining function value is a reactive accessor, so CALL it. Every
@@ -407,43 +406,82 @@ function resolveAttr(key, val) {
 
 const CLASS_PROPS = new Set(['class', 'className', 'classList']);
 
-// A <select> rendered on a server, before any script runs: HTML has no value
-// attribute for it, so its value is shown by marking the options it names
-// `selected` (_markSelected). The select's props without `value`, the value
-// (resolved as renderAttrs resolves an attribute) and whether it is multiple;
-// null for any other element, or a select with no value.
-export function _selectValue(tag, props) {
-  if (tag !== 'select' || props == null || props.value == null) return null;
-  const value = resolveAttr('value', props.value);
-  const multiple = resolveAttr('multiple', props.multiple);
-  const { value: _value, ...rest } = props;
-  return { props: rest, value: value === UNRESOLVED ? null : value, multiple: multiple !== UNRESOLVED && !!multiple };
+// --- Form fields ---
+//
+// A form field a server renders shows, before any script runs, what the
+// client shows first (what-core's dom.js has the client's rules): its value
+// prop's value when that is not null or undefined, else its default's.
+// Markup has one place for both, the content attribute a form reset restores
+// (an <input>'s `value` and `checked`, a <textarea>'s text, an <option>'s
+// `selected`), so the value shown goes there, and hydration writes the
+// declared default back. A function prop is called first, as for any
+// attribute, so an accessor that returns null falls back to the default.
+//
+// _field(tag, props) is null for an element with no field props; otherwise
+// { props, text, select }: the props to render as attributes, the text of a
+// <textarea> (null: its children's), and the value whose options a <select>
+// marks `selected` (null: the options' own marks stand).
+export function _field(tag, props) {
+  if (props == null || (tag !== 'input' && tag !== 'textarea' && tag !== 'select')) return null;
+  let present = false;
+  for (const key of FIELD_PROPS) if (Object.hasOwn(props, key)) present = true;
+  if (!present) return null;
+  const read = (key) => {
+    const value = Object.hasOwn(props, key) ? resolveAttr(key, props[key]) : undefined;
+    return value === UNRESOLVED ? undefined : value;
+  };
+  const type = tag === 'input' ? resolveAttr('type', props.type) : null;
+  const ownValue = tag !== 'input' || !ATTRIBUTE_VALUE_TYPES.has(typeof type === 'string' ? type.toLowerCase() : '');
+  const shown = ownValue ? read('value') ?? read('defaultValue') : undefined;
+  const checked = tag === 'input' ? read('checked') ?? read('defaultChecked') : undefined;
+  // The props without the field's, the input's shown value and checked
+  // written where the first of each pair stood.
+  const rest = {};
+  let valueDone = false;
+  let checkedDone = false;
+  for (const key in props) {
+    if (ownValue && (key === 'value' || key === 'defaultValue')) {
+      if (!valueDone && tag === 'input' && shown != null) rest.value = shown;
+      valueDone = true;
+    } else if (tag === 'input' && (key === 'checked' || key === 'defaultChecked')) {
+      if (!checkedDone && checked) rest.checked = true;
+      checkedDone = true;
+    } else {
+      rest[key] = props[key];
+    }
+  }
+  if (tag === 'input') return { props: rest, text: null, select: null };
+  if (tag === 'textarea') return { props: rest, text: shown == null ? null : String(shown), select: null };
+  return { props: rest, text: null, select: shown == null ? null : { value: shown } };
 }
 
 // An option open tag and its content, up to the next option, optgroup or the
 // end of the select.
 const OPTION = /<option(\s[^>]*)?>([\s\S]*?)(?=<\/?option[\s>]|<\/?optgroup[\s>]|<\/select>|$)/g;
+const SELECTED = /\sselected(?:="[^"]*")?(?=\s|$)/g;
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
 const unescape = (text) => text.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity]);
 
-// `html`, a select's rendered content, with the options `value` names marked
-// `selected`, as a client select written that value shows them: every option
-// named in a multiple select, the first in another. An option's value is its
-// value attribute, else its text with tags and markers removed, stripped and
-// its whitespace collapsed (the HTML rule). An option already marked keeps its
-// mark.
-export function _markSelected(html, value, multiple) {
-  if (value == null) return html;
-  const wanted = new Set((Array.isArray(value) ? value : [value]).map(String));
-  let marked = false;
+// An option's value in rendered markup: its value attribute, else its text
+// with tags and markers removed, ASCII whitespace stripped and collapsed (the
+// HTML rule: a no-break space is kept).
+function optionValue(attrs, content) {
+  const named = /\svalue="([^"]*)"/.exec(attrs);
+  return named ? unescape(named[1]) : stripAndCollapse(unescape(content.replace(/<!--[\s\S]*?-->|<[^>]*>/g, '')));
+}
+
+// `html`, a select's rendered content, with exactly the options `value`
+// selects marked `selected` (what-core's selectedOptions, the rule the client
+// writes): a mark an option carried as its own default goes when the value
+// does not select it.
+export function _markSelected(html, value) {
+  const values = [];
+  for (const [, attrs = '', content] of html.matchAll(OPTION)) values.push(optionValue(attrs, content));
+  const chosen = selectedOptions(values, value);
+  let i = 0;
   return html.replace(OPTION, (option, attrs = '', content) => {
-    if ((marked && !multiple) || /\sselected(?=[\s=]|$)/.test(attrs)) return option;
-    const named = /\svalue="([^"]*)"/.exec(attrs);
-    const own = named ? unescape(named[1])
-      : unescape(content.replace(/<!--[\s\S]*?-->|<[^>]*>/g, '')).replace(/[\t\n\f\r ]+/g, ' ').trim();
-    if (!wanted.has(own)) return option;
-    marked = true;
-    return `<option${attrs} selected>${content}`;
+    const own = attrs.replace(SELECTED, '');
+    return `<option${own}${chosen[i++] ? ' selected' : ''}>${content}`;
   });
 }
 
@@ -583,8 +621,8 @@ function styleText(style) {
 // both write raw text through this, so their output is the same.
 // The text of a <script> or <style> (raw text, see rawTextContent), or of a
 // <textarea> or <title> in HTML (escaped text, no markers).
-function _rawText(tag, children, ns) {
-  const text = textOf(tag, children);
+function _rawText(tag, children, ns, field) {
+  const text = field != null && field.text !== null ? field.text : textOf(tag, children);
   return RAW_TEXT_ELEMENTS.has(tag) ? rawTextContent(tag, text, ns) : escapeHtml(text);
 }
 

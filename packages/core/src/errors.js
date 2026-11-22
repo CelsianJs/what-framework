@@ -457,6 +457,24 @@ try { html = renderToString(<App />); }
 catch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { location: e.to }).end(); }`,
   },
 
+  REDIRECT_CYCLE: {
+    code: 'ERR_REDIRECT_CYCLE',
+    severity: 'error',
+    template: '[what-router] Redirect loop ({{kind}}): {{cycle}}. Guards of: {{guards}}.',
+    suggestion: 'Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each URL in order; the guards are the routes whose middleware redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.',
+    codeExample: `// Bad — a logged-in non-admin bounces between the two forever:
+const routes = [
+  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || '/login'] },
+];
+
+// Good — the dashboard's guard sends a logged-in non-admin somewhere that lets them in:
+const routes = [
+  { path: '/login', component: Login, middleware: [() => !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() => isAdmin() || (isLoggedIn() ? '/account' : '/login')] },
+];`,
+  },
+
   // --- Development checks in core ---
   // Raised through diagnostics.js report(), so they reach devtools, the MCP
   // bridge and what-framework/testing as coded events.
@@ -743,6 +761,23 @@ export function Page() { return <h1>Hi</h1>; }   // renders on the server
 // Good — or h(), which renderToString understands:
 import { h } from 'what-framework';
 export function Title() { return h('h1', null, 'Hi'); }`,
+  },
+
+  FOREIGN_ENGINE_IN_SSR: {
+    code: 'ERR_FOREIGN_ENGINE_IN_SSR',
+    severity: 'error',
+    template: 'An async value was made by a second copy of what-core during a server render.',
+    suggestion: 'The page is server-rendered by one copy of what-core, and a component made a resource, a query or another async value with a different copy: usually a library that bundled what-framework into its own build instead of declaring it as a peer dependency. A second copy never joins the render, so its value would start over on every retry of the render and never reach the client; the render fails instead. Bundle one copy: mark what-framework (and what-core) external in the library\'s build and list it under peerDependencies, or dedupe the install (npm ls what-core shows each copy). Effects and computeds of a second copy are still owned by the render and disposed with it.',
+    codeExample: `// Bad — a library's vite.config.js bundles what-framework into dist/index.js:
+export default defineConfig({ build: { lib: { entry: 'src/index.js' } } });
+
+// Good — the library leaves the framework to the app (and lists it in peerDependencies):
+export default defineConfig({
+  build: {
+    lib: { entry: 'src/index.js' },
+    rollupOptions: { external: [/^what-framework/, /^what-core/] },
+  },
+});`,
   },
 
   UNSAFE_STATIC_MARKUP: {

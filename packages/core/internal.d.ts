@@ -207,8 +207,10 @@ export function _rowKeySalt(): string;
 export function _resetForm(form: HTMLFormElement, onError: (error: unknown) => void): void;
 /** @internal Used by what-react. The client renderer a '__portal' vnode carries as its `mount` prop: builds the vnode's children into `props.container` and returns the placeholder comment. */
 export function _mountPortal(vnode: VNode<any>, parent?: Node): Comment;
-/** @internal Used by what-server/node. Installs the Node AsyncLocalStorage backend. */
-export function __installServerContextStorage(storage: unknown): void;
+/** @internal Used by what-server. Installs the AsyncLocalStorage backends: one carries a render's context past an `await`, the other an async component's frame. */
+export function __installServerContextStorage(storage: unknown, frames?: unknown): void;
+/** @internal Used by what-server. Calls a server component's function in its frame, so that its code after an `await` keeps the frame as its owner. */
+export function _runComponentAsync<T>(frame: unknown, fn: () => T): T;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
 export function __markServerProcess(): void;
 /** @internal Used by what-router. Whether code outside a render runs on a server: a process what-server marked, unless it had a document then and has AsyncLocalStorage. */

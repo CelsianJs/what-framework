@@ -549,6 +549,13 @@ export interface RequestHandlerOptions {
 /** Runtime-neutral request handler: Request in, Response out. */
 export function createRequestHandler(options?: RequestHandlerOptions): (request: Request) => Promise<Response>;
 
+/**
+ * The built-in route renderer createRequestHandler uses: the route's loader and page rendered
+ * as a document, answering with the status, headers and redirect they set on `response`. Hand it
+ * to an ISR engine's `render` so scheduled regeneration renders a page as a request does.
+ */
+export function createRouteRenderer(documentOptions?: DocumentOptions): (routeMatch: RouteMatchContext, cacheCtx?: CacheRenderContext) => Promise<RenderRouteResult>;
+
 /** Cloudflare Workers entry wrapping createRequestHandler. */
 export function createCloudflareHandler(options?: RequestHandlerOptions): { fetch: (request: Request, env?: any, ctx?: any) => Promise<Response> };
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 // The real implementation, not a copy: an earlier copy of safePath drifted from
 // cli.js and hid both the dead-containment-check and the symlink-escape bugs.
-import { safePath, isAllowedOrigin, targetPath } from '../src/cli.js';
+import { safePath, isAllowedOrigin, targetPath, resolveFrameworkModule, guarded } from '../src/cli.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const testDir = join(__dirname, '.test-security');
@@ -140,6 +140,35 @@ describe('security', () => {
         assert.doesNotThrow(() => targetPath(target));
         assert.equal(targetPath(target), null, String(target));
       }
+    });
+  });
+
+  // One request must not end `what dev` (round 5, V3): /@what/<name> looks a
+  // name up among its own entries only, and a listener that throws or rejects
+  // answers 500.
+  describe('the dev server survives any one request', () => {
+    it('/@what/<name> never reaches what an object inherits', () => {
+      for (const name of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', '__proto__/x.js', 'constructor/x.js']) {
+        assert.equal(resolveFrameworkModule(name, {}), null, name);
+      }
+    });
+
+    it('a listener that throws or rejects answers 500', async () => {
+      const answers = [];
+      const response = () => {
+        const res = { headersSent: false, writeHead(status) { answers.push(status); }, end() {}, destroy() { answers.push('destroyed'); } };
+        return res;
+      };
+      const error = console.error;
+      console.error = () => {};
+      try {
+        guarded(() => { throw new Error('sync'); })({ method: 'GET', url: '/' }, response());
+        guarded(async () => { throw new Error('async'); })({ method: 'GET', url: '/' }, response());
+        await new Promise((resolve) => setImmediate(resolve));
+      } finally {
+        console.error = error;
+      }
+      assert.deepEqual(answers, [500, 500]);
     });
   });
 });

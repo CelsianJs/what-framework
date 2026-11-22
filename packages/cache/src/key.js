@@ -1,6 +1,9 @@
 // Cache key scheme. A key uniquely identifies a cacheable render:
-//   <normalizedPath>\0<normalizedQuery>\0<varyString>
-// NUL separators avoid cross-field collisions. Tracking params are stripped so
+//   <origin>\0<normalizedPath>\0<normalizedQuery>\0<varyString>
+// the origin (scheme and host) when the request names one: a shared render
+// sees the request's URL, so two hosts serving one app keep two entries, and
+// a Host one sender chose never reaches another host's visitors. NUL
+// separators avoid cross-field collisions. Tracking params are stripped so
 // /p?utm_source=x and /p share one cache entry.
 
 import { createHash } from 'node:crypto';
@@ -211,12 +214,13 @@ function varyString(vary) {
  * name -> value map, or a declared list resolved here against `headers`.
  *
  * @param {object} [request]
+ * @param {string} [request.origin] the request URL's origin, when it has one
  * @param {string} [request.path]
  * @param {string|Record<string, any>} [request.query]
  * @param {string|string[]|Record<string, any>} [request.vary]
  * @param {Record<string, any>} [request.headers]
  */
-export function cacheKey({ path, query, vary, headers } = {}) {
+export function cacheKey({ origin, path, query, vary, headers } = {}) {
   // A string or an array is a DECLARATION and has to be resolved against the
   // request. A plain object is an already-resolved name -> value map (what the
   // ISR engine passes). Anything else is refused rather than silently producing
@@ -228,11 +232,12 @@ export function cacheKey({ path, query, vary, headers } = {}) {
   if (resolved === null) {
     // ERROR_CODES.ISR_VARY_UNRESOLVED
     throw Object.assign(
-      new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request (unsupported shape, or no request headers were supplied)'),
+      new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request.'),
       { code: 'ERR_ISR_VARY_UNRESOLVED' },
     );
   }
-  return [normalizePath(path), normalizeQuery(query), varyString(resolved)].join(KEY_SEP);
+  const fields = [normalizePath(path), normalizeQuery(query), varyString(resolved)];
+  return (origin ? [String(origin), ...fields] : fields).join(KEY_SEP);
 }
 
 /**

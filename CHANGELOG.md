@@ -235,6 +235,23 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `whatMiddleware` passes a handler's error to `next(err)` instead of
   rejecting. *Migration:* behind a forward proxy that sends absolute-form
   targets, rewrite them to origin-form at the proxy.
+- **what-isr keys on the request's origin as well as its path.** On upgrade
+  every cached entry misses once, and a deployment that serves one app on
+  several hosts keeps one entry per host. *Migration:* to share entries, have
+  the proxy send one canonical Host. A custom `cacheKey()` caller can pass
+  `origin`.
+- **A Host header that is not a host gets 400** from `toNodeListener`,
+  `whatMiddleware`, `nodeActionMiddleware` and the Vura handler. *Migration:*
+  fix a proxy that forwards a malformed Host.
+- **A second copy of what-core bundled into a library throws
+  `ERR_FOREIGN_ENGINE_IN_SSR`** when it makes an async value during a server
+  render, instead of fetching twice. *Migration:* mark what-framework as a
+  peer dependency of the library.
+- **Full-stack apps scaffolded from an earlier create-what** render routes
+  with their own function, which ignores redirects and headers. *Migration:*
+  in `server.js`, use
+  `const renderPage = createRouteRenderer(documentOptions)` from
+  `what-framework/server`.
 - **`exportStatic()` resolves `{ pages, redirects, skipped }`.** A page that
   redirects is written as a redirect stub, and a page with another status is
   skipped with a warning.
@@ -394,8 +411,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   serialized and are adopted on hydrate. A render sets its status, headers and
   redirect: loaders get `response`, components call `getResponse()`,
   `response.redirect(path)` takes a same-origin path, and
-  `response.redirectExternal(url)` leaves the site. `renderToString(vnode,
-  { response })`, and `renderToStringAsync` returns `response`.
+  `response.redirectExternal(url)` leaves the site.
+  `renderToString(vnode, { response })`, and `renderToStringAsync` returns
+  `response`. `createRouteRenderer(documentOptions)` is the route renderer
+  `createRequestHandler` uses, for a custom server. The create-what full-stack
+  template uses it, so route middleware redirects, `response.redirect()`,
+  status and headers work there.
 - **Hydration by adoption.** Matching markup creates no nodes, each reactive
   child runs once, and nothing the server sent is fetched again. Keyless
   server values are found by owner identity. A component that suspends while
@@ -428,22 +449,27 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 66 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 68 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
-  `ERR_QUERY_OUTSIDE_RENDER`.
+  `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
+  code's severity and message and leaves the fix and example to `what_fix` and
+  docs/ERRORS.md (5.3 KB gzip instead of 21.2 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
-  Suspense and action events) and `what_why` (why a run, a skipped effect or
-  a mount happened, back to the write or landing). Async flight details and
-  stalled-work diagnosis (`what_diagnose({ focus: "async" })`), unread
-  written signals with creation sites, repeated computeds, hydration adoption
-  counts and kind-specific mismatch fixes. `what_cache` shows each key's
-  status, readers, age and last fetch. `what_invalidate_cache` takes array
-  prefixes. `what_lint` compiles the snippet with the project's ESLint config
+  Suspense and action events) and `what_why` (why a run, a skipped effect or a
+  mount happened, back to the write or landing). Async flight details and
+  stalled-work diagnosis (`what_diagnose({ focus: "async" })`), unread written
+  signals with creation sites, repeated computeds, hydration adoption counts
+  and kind-specific mismatch fixes. `what_cache` shows each key's status,
+  readers, age and last fetch. `what_invalidate_cache` takes array prefixes.
+  `what_lint` compiles the snippet with the project's ESLint config
   (`filePath`), and `what_scaffold` detects the project's template. The server
-  exits on stdin EOF and frees its port.
+  exits on stdin EOF and frees its port. `what_navigate` loads the URL on a
+  page with no client router. `what_connection_status` and `what_diagnose`
+  name the files to pass to `what_lint`, and `what_events` folds repeated
+  timer runs.
 - **eslint-plugin-what.** `no-moved-imports` (with autofix),
   `no-signal-read-in-effect-deps`, `no-effect-self-write`, `effect-cleanup`,
   `no-unsafe-innerhtml`, `no-async-component`, `no-promise-in-usememo`,
@@ -455,49 +481,64 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `action()` accepts a synchronous function. `what-framework/router`
   re-exports what-router's declarations.
 - **Benchmarks and gates.** Reactivity, SSR, size and krausest harnesses
-  against Solid 1.9, Solid 2.0 and React 19 (`benchmark/`), `npm run
-  bench:hydrate` in `benchmark/ssr`, size ceilings in `.size-budgets.json`
-  with the cause of each change, and `npm run check:snippets`, which runs
-  every code block shipped in the docs, READMEs, skills and MCP resources.
-  `npm run check:node-floor` keeps APIs newer than Node 20 out of the shipped
-  code and the tests, and CI runs the suite on Node 20, 22, 24 and 26.
-  `npm run bench:gate` measures core and DX against a reference build
-  (`benchmark/reference.json`) in interleaved runs of one session.
+  against Solid 1.9, Solid 2.0 and React 19 (`benchmark/`),
+  `npm run bench:hydrate` in `benchmark/ssr`, size ceilings in
+  `.size-budgets.json` with the cause of each change, and
+  `npm run check:snippets`, which runs every code block shipped in the docs,
+  READMEs, skills and MCP resources. `npm run check:node-floor` keeps APIs
+  newer than Node 20 out of the shipped code and the tests, and CI runs the
+  suite on Node 20, 22, 24 and 26. `npm run bench:gate` measures core and DX
+  against a reference build (`benchmark/reference.json`) in interleaved runs
+  of one session. The gate judges each operation by its throughput, median
+  call and 95th-percentile call (`WHAT_BENCH_TOLERANCE_TAIL`, default 0.25),
+  so a change that slows one call in twenty fails it. Every package declares
+  `engines.node: ">=20"`.
 
 ### Fixed
 
-- **Request isolation (security).** Loaders and actions run in their
-  request's server context, so `prefetchQuery` and the query cache never
-  serve one user's data to another, including on a server with a DOM global
-  and no AsyncLocalStorage. Outside any render the server cache is never
-  shared. On the server, route state (`route.url`, `route.query`,
-  `useParams()`, `useSearch()`, `useRoute()`) is the request's own, also for
-  ISR-cached pages. Process-wide registries are shared by every tier of the
-  packages one process loads, so `node --conditions=production` no longer
-  splits what-server's action registry (actions answered 404) or
-  what-router's matcher. Each process-wide key names a protocol version
+- **Request isolation (security).** Loaders and actions run in their request's
+  server context, so `prefetchQuery` and the query cache never serve one
+  user's data to another, including on a server with a DOM global and no
+  AsyncLocalStorage. Outside any render the server cache is never shared. On
+  the server, route state (`route.url`, `route.query`, `useParams()`,
+  `useSearch()`, `useRoute()`) is the request's own, also for ISR-cached
+  pages. Process-wide registries are shared by every tier of the packages one
+  process loads, so `node --conditions=production` no longer splits
+  what-server's action registry (actions answered 404) or what-router's
+  matcher. Each process-wide key names a protocol version
   (`Symbol.for('what.actions.v1')`, …), so a copy of another protocol keeps
-  its own. Work that another copy of what-core creates during
-  a server render, once that copy has read the render's context, is released
-  with the render. One realm serves one app's actions: two apps in one process
-  that register the same action id share it, and development reports
-  `ERR_DUPLICATE_ACTION_ID`.
+  its own. Work that a second copy of what-core bundled into a library creates
+  during a server render is released with the render, from its first
+  operation. An async value such a copy makes during a server render throws
+  `ERR_FOREIGN_ENGINE_IN_SSR`: bundle one copy of what-framework. One realm
+  serves one app's actions: two apps in one process that register the same
+  action id share it, and development reports `ERR_DUPLICATE_ACTION_ID`.
 - **Redirects and URLs (security).** `_redirect` and `response.redirect()`
   refuse dot-segment targets such as `/.//evil`, and what-isr's path predicate
   matches what-server's. SVG `values`, `to`, `from` and `by` with
   `javascript:` are refused on every path. The Origin-only CSRF path compares
   the full origin, and the Node adapter sees TLS as https.
-- **Request targets (security).** A target that is not a path (`GET //`,
-  `*`, absolute or authority form) gets a 400 or goes to `next()` in
-  `what dev`, `what preview`, the create-what full-stack server and its Vite
-  middleware, and what-server's Node adapter and middlewares, so one request
-  cannot end the process. `nodeActionMiddleware` never rejects. The router's
-  and the cache's URL parsing never throws on a request's path.
+- **Request targets (security).** A target that is not a path (`GET //`, `*`,
+  absolute or authority form) gets a 400 or goes to `next()` in `what dev`,
+  `what preview`, the create-what full-stack server and its Vite middleware,
+  and what-server's Node adapter and middlewares, so one request cannot end
+  the process. The Host header must be a host (a DNS name, IPv4 address or
+  bracketed IPv6 literal, with an optional port): anything else, including a
+  path, a query, a backslash or userinfo, gets 400 from `toNodeListener`,
+  `whatMiddleware`, `nodeActionMiddleware` and the Vura handler, with nothing
+  logged. The path What routes on comes from the request target only.
+  `what dev` and `what preview` answer 500 to a request that throws, and a
+  module name such as `/@what/__proto__` no longer reaches what an object
+  inherits, so no single request ends them. `nodeActionMiddleware` never
+  rejects. The router's and the cache's URL parsing never throws on a
+  request's path.
 - **Form data (security).** No-JS and enhanced form fields such as
   `constructor` and `__proto__` arrive as own fields. ISR loader `query`
-  objects are null-prototype. A malformed cookie no longer fails every page.
-  A cached ISR render sees exactly what its key is made of: a repeated cookie
-  name counts once, with its first value.
+  objects are null-prototype. A malformed cookie no longer fails every page. A
+  cached ISR render sees exactly what its key is made of: the key holds the
+  request's origin (scheme and host) as well as its path, so two hosts keep
+  two entries and a Host one sender chose never reaches another host's
+  visitors; a repeated cookie name counts once, with its first value.
 - **Keyed hydration.** A server row is adopted only as its own key's row;
   rows in another order are moved and the rest rebuilt, with a report, so
   what was typed into a row stays with its key. A differing text takes exactly
@@ -529,35 +570,54 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   such as an input's `form` and `list` are set as attributes, so
   `h('input', { form })` no longer throws. Value and checked bindings no
   longer rewrite the value they last wrote, so a refetch keeps what the user
-  typed. `useFormStatus().data()` is the latest submission still pending.
-  A value released to `null` or `undefined` makes the field uncontrolled, so
-  a form reset restores its default, in `h()` and compiled output.
-  `defaultValue`, `defaultChecked` and `defaultSelected` are written as the
-  `value`, `checked` and `selected` attributes in server HTML and compiled
-  templates. A server-rendered `<select value>` marks the options it names
-  `selected` (in a multiple select, every one its array names), so a form
-  posted before hydration carries them. A later write to a select's value
-  supersedes a deferred earlier one, and `false` clears it. An action result
-  whose `then` getter throws reaches `form:error`.
+  typed. `useFormStatus().data()` is the latest submission still pending. A
+  value released to `null` or `undefined` makes the field uncontrolled, so a
+  form reset restores its default, in `h()` and compiled output. A field's
+  value, checkedness and selection are written as its state, and its defaults
+  as its markup, on every path (h(), compiled, spread, hydration, and every
+  server renderer), as React 19 does. A server-rendered field shows its value,
+  or its default when the value is nullish, in its one content attribute, and
+  a `<textarea>` carries it as its text. A multiple `<select>` given one value
+  marks only the first option with that value. Option values are matched after
+  HTML whitespace stripping, so a leading no-break space counts. A checkbox
+  the user clicked still follows its signal. A value released to `null` keeps
+  the field's default, and a select whose value starts `null` keeps its
+  options' defaults. Unselecting every option of a single select leaves none
+  selected. A radio's `defaultChecked` no longer unchecks a controlled
+  sibling. `register(name, { type: 'radio' }).checked()` is `undefined`, not
+  `false`, when the registration has no value. A server-rendered
+  `<select value>` marks the options it names `selected` (in a multiple
+  select, every one its array names), so a form posted before hydration
+  carries them. A later write to a select's value supersedes a deferred
+  earlier one, and `false` clears it. An action result whose `then` getter
+  throws reaches `form:error`.
 - **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
   lands `undefined` is data. A superseded invalidation answers when its
   replacement lands. The query hooks and a `query()` on one key no longer
   report a hydration mismatch.
-- **Router.** A delayed View Transition cannot commit a superseded
-  navigation. A `preload` that throws renders the route's error boundary.
-  `<Router>` server-renders the request's URL with its `preload`. A relative
-  `<Link>` is active on the server as on the client, and a relative server
-  `navigate()` resolves against the page. A nested Router's middleware and
-  `preload` read its own route, and sibling server Routers keep their own
-  URLs. A navigation started from inside a guard is released when the Router
-  unmounts.
-- **Compiler.** The callee analysis is iterative, so a module of thousands
-  of chained helpers or aliases compiles. A getter read through a local alias
-  is reactive, and a member replaced through a destructuring or a `for…of`
-  loop is seen. An `Array.of()` or `Array.from()` array of primitives the
-  compiler can see is static. `x?.map((item) => <Row key=… />)` and lists
-  nested in keyed rows, ternaries and `&&` are keyed on the server as on the
-  client. A keyed `.map()` row in a template literal no longer crashes it.
+- **Router.** A delayed View Transition cannot commit a superseded navigation.
+  A `preload` that throws renders the route's error boundary. `<Router>`
+  server-renders the request's URL with its `preload`. A relative `<Link>` is
+  active on the server as on the client, and a relative server `navigate()`
+  resolves against the page. A nested Router's middleware and `preload` read
+  its own route, and sibling server Routers keep their own URLs. A navigation
+  started from inside a guard is released when the Router unmounts. An async
+  page reads its nearest `<Router>`, its hooks and the context its parents
+  provide after an `await`, also in a nested or sibling Router and in
+  concurrent streams. A redirect loop reports `ERR_REDIRECT_CYCLE` with the
+  URLs it went through and the routes whose guards sent it on.
+- **Compiler.** The callee analysis is iterative, so a module of thousands of
+  chained helpers or aliases compiles. A getter read through a local alias is
+  reactive, and a member replaced through a destructuring or a `for…of` loop
+  is seen. An `Array.of()` or `Array.from()` array of primitives the compiler
+  can see is static. `x?.map((item) => <Row key=… />)` and lists nested in
+  keyed rows, ternaries and `&&` are keyed on the server as on the client. A
+  keyed `.map()` row in a template literal no longer crashes it. A getter
+  reached through property access, destructuring, a function's return or an
+  array is reactive in JSX. A module of very deep expressions or very long
+  chains of reassigned locals compiles, and its reads stay reactive. A
+  differential test compiles thousands of generated modules both as analysed
+  and fully reactive, and checks that both render the same.
 - **Server.** A component given one child receives the child itself, as on
   the client. SSR style objects drop the declarations the client's CSSOM
   would drop. A no-JS action sees `getRequest()` before its first `await`

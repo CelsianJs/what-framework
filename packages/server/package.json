@@ -70,6 +70,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "peerDependencies": {
     "what-core": "^0.14.0",
     "what-router": "^0.14.0"

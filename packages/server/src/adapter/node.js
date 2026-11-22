@@ -5,6 +5,7 @@
 import http from 'node:http';
 import { createRequestHandler } from './core.js';
 import { MAX_BODY_BYTES } from '../action-handler.js';
+import { requestUrl } from '../request-url.js';
 
 // A Request object only exists after the body is read, so the cap the fetch
 // path enforces would run too late here. Returned instead of a Request when the
@@ -17,7 +18,7 @@ const TOO_LARGE_RESPONSE = () => new Response(
 );
 
 // Returned instead of a Request for a request target that is not a path, or
-// whose URL cannot be built from it and the Host header.
+// a Host header that is not a host (request-url.js).
 const BAD_TARGET = Symbol('what.badTarget');
 
 const BAD_TARGET_RESPONSE = () => new Response('Bad Request', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
@@ -33,18 +34,12 @@ function disconnectSignal(res) {
 }
 
 async function nodeToWebRequest(req, res) {
-  const host = req.headers.host || 'localhost';
   // A path only ('/x?y', '//x' included): an absolute-form or authority-form
   // target names a host of its own, which the request's Host header decides
-  // here, and `*` names no resource.
-  if (typeof req.url !== 'string' || !req.url.startsWith('/')) return BAD_TARGET;
-  // The scheme the socket was reached by: a TLS server's requests are https.
-  let url;
-  try {
-    url = new URL(`${req.socket && req.socket.encrypted ? 'https' : 'http'}://${host}${req.url}`);
-  } catch {
-    return BAD_TARGET;
-  }
+  // here, and `*` names no resource. The scheme is the one the socket was
+  // reached by: a TLS server's requests are https.
+  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', req.headers.host ?? 'localhost', req.url);
+  if (url === null) return BAD_TARGET;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (v != null) headers.set(k, Array.isArray(v) ? v.join(', ') : String(v));

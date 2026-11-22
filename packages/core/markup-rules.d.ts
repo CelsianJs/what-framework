@@ -29,8 +29,16 @@ export const ATTRIBUTE_ALIASES: ReadonlyMap<string, string>;
 export function attributeName(prop: string): string;
 /** The attribute `prop` is written as in markup: a field default (`defaultValue`, `defaultChecked`, `defaultSelected`) is its content attribute. */
 export function markupName(prop: string): string;
-/** The prop that takes a default prop's attribute when both are given (`value` for `defaultValue`), or null. */
-export function controllingProp(prop: string): 'value' | 'checked' | 'selected' | null;
+/** value, defaultValue, checked, defaultChecked: the props that hold a form field's state. */
+export const FIELD_PROPS: ReadonlySet<string>;
+/** input, textarea, select: the elements whose state those props hold. */
+export const FIELD_TAGS: ReadonlySet<string>;
+/** The <input> types whose `value` is an attribute (checkbox, radio, hidden and the buttons). */
+export const ATTRIBUTE_VALUE_TYPES: ReadonlySet<string>;
+/** `text` with ASCII whitespace stripped from both ends and collapsed: an <option>'s value from its text. */
+export function stripAndCollapse(text: string): string;
+/** One boolean per option value: whether the <select> value `value` selects that option. */
+export function selectedOptions(values: readonly string[], value: unknown): boolean[];
 /** role and aria-*. */
 export function isAriaAttr(name: string): boolean;
 /** aria-*, role and data-*: true and false are written out. */

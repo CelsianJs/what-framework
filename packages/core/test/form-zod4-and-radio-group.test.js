@@ -483,14 +483,16 @@ describe('register() spread onto a raw radio input (#22d)', () => {
     assert.equal(b.checked, false);
   });
 
-  it('reports checked=false, never !!field, when the registration has no value', () => {
+  it('reports checked=undefined, never !!field, when the registration has no value', () => {
     // The prop-level thunk is what SSR serializes, and it has no element to read
     // a value from. `!!field` made every radio in the group serialize as checked.
+    // Undefined, not false: a false `checked` controls the radio unchecked, and
+    // the registration's ref is what checks it.
     const form = useForm({ defaultValues: { size: '' } });
     const registered = form.register('size', { type: 'radio' });
 
     form.setValue('size', 'large');
     assert.equal(typeof registered.checked, 'function', 'checked must stay a reactive thunk');
-    assert.equal(registered.checked(), false);
+    assert.equal(registered.checked(), undefined);
   });
 });

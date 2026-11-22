@@ -272,7 +272,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   if (t.isMemberExpression(expr) || t.isOptionalMemberExpression(expr)) {
     return isPotentiallyReactive(expr.object, signalNames, importedIds) ||
            (expr.computed && isPotentiallyReactive(expr.property, signalNames, importedIds)) ||
-           mayRunAccessor(expr, signalNames.scope);
+           mayRunAccessor(expr, signalNames.scope, importedIds);
   }
 
   if (t.isConditionalExpression(expr)) {
@@ -292,7 +292,7 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
 
   if (t.isAssignmentExpression(expr)) {
     return isPotentiallyReactive(expr.right, signalNames, importedIds) ||
-           (t.isMemberExpression(expr.left) && (mayRunAccessor(expr.left, signalNames.scope) || (expr.left.computed &&
+           (t.isMemberExpression(expr.left) && (mayRunAccessor(expr.left, signalNames.scope, importedIds) || (expr.left.computed &&
              isPotentiallyReactive(expr.left.property, signalNames, importedIds))));
   }
 
@@ -427,54 +427,442 @@ function evaluation(fn, outer, thisKind, scope, importedIds) {
   return { fn, outer, thisKind, scope, importedIds, env: new Map(), params: new Map(), written: new Map(), reads: false, edges: [] };
 }
 
-// Whether the property read `expr` may run an accessor the module declares:
-// its object may be an object literal the module declares with a getter or
-// setter of that name (or a key it cannot see), or an instance of a class it
-// declares, held directly or through other names (see builtValues).
-function mayRunAccessor(expr, scope) {
-  let root = expr.object;
-  while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
-  if (!t.isIdentifier(root)) return false;
-  const built = builtValues(root, scope);
-  if (built.instance) return true;
-  if (!built.literal) return false;
-  const ev = evaluation(null, null, U, scope, null);
-  evalExpr(expr, ev);
-  return finish(ev);
+// --- Property reads ---
+//
+// A property read with no call (`{model.text}`, `{(c ? a : b).text}`,
+// `{make().text}`) is reactive when reading it may run code the module
+// declares: a getter of an object it builds, of a class it declares (an
+// instance's or a static one), or anything the walk below cannot follow. The
+// read's root is followed to every value it may hold, each with the path the
+// read takes from it, through: the names it passes through (a variable's
+// initializer and every value assigned to it later), `a || b`, `c ? a : b`,
+// `(x, a)`, a property of an object or an element of an array the module
+// builds, a destructured name (its initializer at the destructured path, or
+// the default), the return values of a function the module declares (its
+// parameters taking the call's arguments), and every value the module
+// assigns to a property it reads. The read is static only when every value
+// is one whose properties run no app code: a primitive, a function, a
+// built-in object, or a value from outside the module. That last one is the
+// documented rule: a prop's, a parameter's or an imported function's
+// result's property is read once (docs/GOTCHAS.md section 2). The walk is a
+// list of its own (a chain of thousands of names nests nothing), bounded by
+// PROPERTY_STEPS values: past it, the read is reactive.
+const PROPERTY_STEPS = 50000;
+// The imports of the module a walk reads (an accessor's body that calls one reads).
+let walkImports = null;
+
+function mayRunAccessor(expr, scope, importedIds) {
+  walkImports = importedIds || null;
+  const path = [];
+  let root = expr;
+  while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
+    path.unshift(propertyName(root));
+    root = root.object;
+  }
+  const pending = [{ node: root, scope, path, args: null }];
+  const seen = new Set();
+  const push = (item) => {
+    const key = `${idOf(item.node)}|${item.path.join('\u0000')}|${item.args === null ? 0 : idOf(item.args)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pending.push(item);
+  };
+  for (let steps = 0; pending.length > 0; steps++) {
+    if (steps > PROPERTY_STEPS) return true;
+    if (followValue(/** @type {any} */ (pending.pop()), push)) return true;
+  }
+  return false;
 }
 
-// What the module built that the name `id` may hold: an object literal
-// (`literal`), an instance of a class it declares (`instance`). A value is
-// followed through the names it passes through, each a variable's
-// initializer and every value assigned to it, and through `a || b`,
-// `c ? a : b`, `(x, a)` and `b = a`, on a list of its own (a chain of
-// thousands of aliases nests nothing). What a call returns, a parameter and
-// a property of another value are values it did not see built.
-function builtValues(id, scope) {
-  const built = { literal: false, instance: false };
-  const pending = [{ node: id, scope }];
-  const seen = new Set();
-  while (pending.length > 0) {
-    const { node, scope: at } = /** @type {{ node: any, scope: any }} */ (pending.pop());
-    if (t.isObjectExpression(node)) built.literal = true;
-    else if (t.isNewExpression(node)) built.instance = built.instance || !builtinConstructor(node.callee, at);
-    else if (t.isLogicalExpression(node)) pending.push({ node: node.left, scope: at }, { node: node.right, scope: at });
-    else if (t.isConditionalExpression(node)) pending.push({ node: node.consequent, scope: at }, { node: node.alternate, scope: at });
-    else if (t.isSequenceExpression(node)) pending.push({ node: node.expressions[node.expressions.length - 1], scope: at });
-    else if (t.isAssignmentExpression(node)) pending.push({ node: node.right, scope: at });
-    else if (t.isParenthesizedExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node) || t.isTSNonNullExpression(node)) {
-      pending.push({ node: node.expression, scope: at });
-    } else if (t.isIdentifier(node)) {
-      const binding = bindingOf(node, at);
-      if (!binding || seen.has(binding) || !binding.path.isVariableDeclarator() || !t.isIdentifier(binding.path.node.id)) continue;
-      seen.add(binding);
-      if (binding.path.node.init) pending.push({ node: binding.path.node.init, scope: binding.path.scope });
-      for (const write of binding.constantViolations) {
-        if (write.isAssignmentExpression() && t.isIdentifier(write.node.left)) pending.push({ node: write.node.right, scope: write.scope });
+// One value of a read's walk: `node` in `scope`, read along `path` (null for
+// a key the code computes), `args` the arguments of the call whose function
+// it stands in. True when reading it may run app code; otherwise its next
+// values are pushed.
+function followValue(item, push) {
+  const { node, scope, path, args } = item;
+  if (path.length === 0) return false;
+  const next = (n) => push({ node: n, scope, path, args });
+  switch (node.type) {
+    case 'Identifier': return followName(item, push);
+    case 'ObjectExpression': return followObject(item, push);
+    case 'ArrayExpression': return followArray(item, push);
+    case 'MemberExpression': case 'OptionalMemberExpression':
+      if (t.isSuper(node.object)) return true;
+      push({ node: node.object, scope, path: [propertyName(node), ...path], args });
+      return false;
+    case 'ConditionalExpression': next(node.consequent); next(node.alternate); return false;
+    case 'LogicalExpression': next(node.left); next(node.right); return false;
+    case 'SequenceExpression': next(node.expressions[node.expressions.length - 1]); return false;
+    case 'AssignmentExpression': next(node.right); return false;
+    case 'ParenthesizedExpression': case 'TSAsExpression': case 'TSSatisfiesExpression': case 'TSNonNullExpression': case 'TypeCastExpression':
+      next(node.expression);
+      return false;
+    case 'NewExpression':
+      return !builtinConstructor(node.callee, scope) &&
+        !(t.isIdentifier(node.callee) && !bindingOf(node.callee, scope) && BUILTIN_CONSTRUCTORS.has(node.callee.name));
+    case 'CallExpression': case 'OptionalCallExpression': return followCall(item, push);
+    case 'ClassExpression': return followStatic(node, item, push);
+    case 'StringLiteral': case 'NumericLiteral': case 'BooleanLiteral': case 'NullLiteral': case 'BigIntLiteral': case 'RegExpLiteral':
+    case 'TemplateLiteral': case 'UnaryExpression': case 'BinaryExpression': case 'UpdateExpression':
+    case 'ArrowFunctionExpression': case 'FunctionExpression':
+      return false;
+    default:
+      return true;
+  }
+}
+
+function followName(item, push) {
+  const { node, scope, path, args } = item;
+  if (node.name === 'undefined' && !bindingOf(node, scope)) return false;
+  const binding = bindingOf(node, scope);
+  // A global (document, Math): the platform's.
+  if (binding === null) return false;
+  if (args !== null && args.has(binding)) {
+    const arg = args.get(binding);
+    if (arg === null) return false;
+    push({ ...arg, path });
+    return false;
+  }
+  // A prop or a parameter: read once.
+  if (binding.kind === 'param') return false;
+  // An import held under another name is as reactive as the import.
+  if (binding.kind === 'module') return true;
+  const at = binding.path;
+  if (at.isFunctionDeclaration()) return false;
+  if (at.isClassDeclaration()) return followStatic(at.node, item, push);
+  if (!at.isVariableDeclarator()) return true;
+  const loop = at.parentPath && at.parentPath.parentPath;
+  if (loop && (loop.isForOfStatement() || loop.isForInStatement()) && loop.node.left === at.parentPath.node) return true;
+  // A value whose members the module writes, or that it hands to code the
+  // walk does not follow, may hold anything.
+  if (opaque(binding)) return true;
+  if (t.isIdentifier(at.node.id)) {
+    if (at.node.init) push({ node: at.node.init, scope: at.scope, path, args: null });
+  } else {
+    // A destructured name: the initializer at its path in the pattern, or a
+    // default.
+    const found = patternPath(at.node.id, binding.identifier);
+    if (found === null || !at.node.init) return true;
+    push({ node: at.node.init, scope: at.scope, path: [...found.keys, ...path], args: null });
+    for (const { at: depth, node: value } of found.defaults) push({ node: value, scope: at.scope, path: [...found.keys.slice(depth), ...path], args: null });
+  }
+  for (const write of binding.constantViolations) {
+    if (write.isUpdateExpression()) continue;
+    if (!write.isAssignmentExpression() || !t.isIdentifier(write.node.left)) return true;
+    const op = write.node.operator;
+    if (op === '=' || op === '||=' || op === '&&=' || op === '??=') push({ node: write.node.right, scope: write.scope, path, args: null });
+  }
+  return false;
+}
+
+// Where `id` stands in the destructuring pattern `pattern`: the keys from the
+// destructured value to it, and the defaults on the way ({ at, node }: the
+// default given for the value after `at` keys). Null under a rest element or
+// a computed key.
+function patternPath(pattern, id) {
+  const keys = [];
+  const defaults = [];
+  const walk = (node) => {
+    if (node === id) return true;
+    if (t.isAssignmentPattern(node)) {
+      defaults.push({ at: keys.length, node: node.right });
+      if (walk(node.left)) return true;
+      defaults.pop();
+      return false;
+    }
+    if (t.isObjectPattern(node)) {
+      for (const prop of node.properties) {
+        if (t.isRestElement(prop)) {
+          if (walk(prop.argument)) return 'rest';
+          continue;
+        }
+        keys.push(prop.computed && !t.isStringLiteral(prop.key) && !t.isNumericLiteral(prop.key) ? null : keyName(prop));
+        const found = walk(prop.value);
+        if (found) return found;
+        keys.pop();
+      }
+      return false;
+    }
+    if (t.isArrayPattern(node)) {
+      for (let i = 0; i < node.elements.length; i++) {
+        const element = node.elements[i];
+        if (element === null) continue;
+        if (t.isRestElement(element)) {
+          if (walk(element.argument)) return 'rest';
+          continue;
+        }
+        keys.push(String(i));
+        const found = walk(element);
+        if (found) return found;
+        keys.pop();
       }
     }
+    return false;
+  };
+  const found = walk(pattern);
+  return found === true && !keys.includes(null) ? { keys, defaults } : null;
+}
+
+function followObject(item, push) {
+  const { node, scope, path, args } = item;
+  const key = path[0];
+  // A method that writes its object may change any member.
+  for (const prop of node.properties) {
+    const fn = t.isObjectMethod(prop) ? prop : t.isObjectProperty(prop) && t.isFunctionExpression(prop.value) ? prop.value : null;
+    if (fn === null) continue;
+    const at = functionPaths.get(fn);
+    if (!at || !thisStaysPut(at)) return true;
   }
-  return built;
+  if (key === null) {
+    for (const prop of node.properties) {
+      if (t.isSpreadElement(prop) || (t.isObjectMethod(prop) && prop.kind !== 'method')) return true;
+      if (t.isObjectProperty(prop)) push({ node: prop.value, scope, path: path.slice(1), args });
+    }
+    return false;
+  }
+  /** @type {any} */
+  let found = null;
+  for (const prop of node.properties) {
+    if (t.isSpreadElement(prop) || (prop.computed && !t.isStringLiteral(prop.key) && !t.isNumericLiteral(prop.key))) {
+      found = 'unknown';
+      continue;
+    }
+    if (keyName(prop) !== key) continue;
+    found = t.isObjectMethod(prop) && prop.kind === 'set' ? null : prop;
+  }
+  if (found === 'unknown') return true;
+  if (found !== null && typeof found === 'object') {
+    if (found.type === 'ObjectMethod') return found.kind === 'get' && followAccessor(found, item, push);
+    push({ node: found.value, scope, path: path.slice(1), args });
+  }
+  return false;
+}
+
+// A getter the read runs: its body read as a call is (what it calls, reads
+// and converts, `this` a value not proven), and what it returns followed
+// along the rest of the read.
+function followAccessor(fn, item, push) {
+  const at = functionPaths.get(fn);
+  if (!at) return true;
+  const ev = evaluation(null, null, U, at.scope, walkImports);
+  edge(at, [], U, ev);
+  if (finish(ev)) return true;
+  if (item.path.length > 1) pushReturns(at, item.path.slice(1), null, push);
+  return false;
+}
+
+// The values the function at `fn` returns, read along `path`.
+function pushReturns(fn, path, args, push) {
+  const body = fn.node.body;
+  if (!t.isBlockStatement(body)) {
+    push({ node: body, scope: fn.scope, path, args });
+    return;
+  }
+  fn.traverse({
+    ReturnStatement(ret) {
+      if (ret.node.argument) push({ node: ret.node.argument, scope: ret.scope, path, args });
+    },
+    Function(inner) {
+      inner.skip();
+    },
+  });
+}
+
+function followArray(item, push) {
+  const { node, scope, path, args } = item;
+  const key = path[0];
+  if (key !== null && !/^\d+$/.test(key)) return false;
+  for (let i = 0; i < node.elements.length; i++) {
+    const element = node.elements[i];
+    if (t.isSpreadElement(element)) return true;
+    if (element !== null && (key === null || String(i) === key)) push({ node: element, scope, path: path.slice(1), args });
+  }
+  return false;
+}
+
+// A class's own (static) member read: a static accessor, a static block, an
+// inherited one (a superclass) or a computed key may run its code; a static
+// property's value is followed.
+function followStatic(cls, item, push) {
+  if (cls.superClass) return true;
+  const key = item.path[0];
+  for (const member of cls.body.body) {
+    if (t.isStaticBlock(member)) return true;
+    if (!member.static) continue;
+    if (member.computed) return true;
+    const name = t.isIdentifier(member.key) ? member.key.name : t.isStringLiteral(member.key) ? member.key.value : null;
+    if (key !== null && name !== key) continue;
+    if (t.isClassMethod(member) && member.kind === 'get' && key !== null) {
+      if (followAccessor(member, item, push)) return true;
+    } else if (t.isClassMethod(member) && member.kind !== 'method') return true;
+    if (t.isClassProperty(member) && member.value) push({ node: member.value, scope: item.scope, path: item.path.slice(1), args: null });
+  }
+  return false;
+}
+
+// What a call returns: a function the module declares returns its return
+// statements' values, its parameters taking the arguments; an async function
+// or a generator returns a promise or an iterator (the platform's); a
+// function from outside the module (an import, a global, a parameter)
+// returns a value from outside, read once. A method call's result is
+// followed no further unless its receiver is plain.
+function followCall(item, push) {
+  const { node, scope, path } = item;
+  const callee = node.callee;
+  if (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) {
+    let receiver = callee.object;
+    while (t.isMemberExpression(receiver) || t.isOptionalMemberExpression(receiver)) receiver = receiver.object;
+    if (t.isStringLiteral(receiver) || t.isTemplateLiteral(receiver) || t.isNumericLiteral(receiver)) return false;
+    if (!t.isIdentifier(receiver)) return true;
+    const binding = bindingOf(receiver, scope);
+    if (binding === null || binding.kind === 'param') return false;
+    const kind = declaredKind(binding);
+    return !(kind === P || kind === A || kind === B || kind === D);
+  }
+  if (!t.isIdentifier(callee)) return true;
+  const binding = bindingOf(callee, scope);
+  if (binding === null || binding.kind === 'module' || binding.kind === 'param') return false;
+  if (item.args !== null && item.args.has(binding)) return true;
+  const fn = declaredFunction(callee, scope);
+  if (fn === null) return true;
+  if (fn.node.async || fn.node.generator) return false;
+  /** @type {Map<any, any>} */
+  const args = new Map();
+  for (let i = 0; i < fn.node.params.length; i++) {
+    const param = fn.node.params[i];
+    if (!t.isIdentifier(param)) return true;
+    const own = fn.scope.getBinding(param.name);
+    const arg = node.arguments[i];
+    if (arg !== undefined && t.isSpreadElement(arg)) return true;
+    if (own) args.set(own, arg === undefined ? null : { node: arg, scope, args: item.args });
+  }
+  pushReturns(fn, path, args, push);
+  return false;
+}
+
+// Whether the value a variable holds may change under the walk: the module
+// writes a member of it (`v.a = x`, `v.a.b = x`, `v[k] = x`, an array's
+// mutator), or the value, or a member of it, goes where the walk does not
+// follow it (handed to a function from outside the module, stored in another
+// value). It is followed where it flows: through `c ? v : w`, `v || w`,
+// `(x, v)`, into a name (`const w = v`, `w = v`, `const w = v.c`, a
+// destructured name), into a parameter of a function the module declares
+// that it is passed to, and out of a function that returns it, to each call
+// of that function. Reading it, calling its methods, constructing or
+// extending a class, converting and comparing it change nothing.
+/** @type {WeakMap<object, boolean>} */
+let opaqueBindings = new WeakMap();
+function opaque(binding) {
+  const known = opaqueBindings.get(binding);
+  if (known !== undefined) return known;
+  let result = false;
+  const uses = [...binding.referencePaths];
+  const names = new Set([binding]);
+  const places = new Set();
+  // A holder already known to change nothing is not read again: walking a
+  // chain of names from its last one reads each name once.
+  const hold = (other) => {
+    if (!other || opaqueBindings.get(other) === true) {
+      result = true;
+    } else if (!names.has(other) && opaqueBindings.get(other) !== false) {
+      names.add(other);
+      uses.push(...other.referencePaths);
+    }
+  };
+  const flow = (path) => uses.push(path);
+  while (uses.length > 0 && !result) {
+    const use = /** @type {any} */ (uses.pop());
+    if (places.has(use.node)) continue;
+    places.add(use.node);
+    if (valueChanges(use, hold, flow)) result = true;
+  }
+  opaqueBindings.set(binding, result);
+  return result;
+}
+
+// Whether the use `ref` of a value may change it or hand it where it is not
+// followed; `hold` takes a binding that holds it next (undefined: one that
+// cannot be named), `flow` an expression whose value it is.
+function valueChanges(ref, hold, flow) {
+  let use = ref;
+  let member = false;
+  for (;;) {
+    const parent = use.parentPath;
+    if (!parent) return true;
+    if ((parent.isMemberExpression() || parent.isOptionalMemberExpression()) && parent.node.object === use.node) {
+      if (isWritten(parent)) return true;
+      use = parent;
+      member = true;
+      continue;
+    }
+    if ((parent.isCallExpression() || parent.isOptionalCallExpression()) && parent.node.callee === use.node) {
+      return member && MUTATING.has(propertyName(use.node));
+    }
+    if ((parent.isConditionalExpression() && parent.node.test !== use.node) || parent.isLogicalExpression() ||
+        (parent.isSequenceExpression() && parent.node.expressions[parent.node.expressions.length - 1] === use.node) ||
+        parent.isParenthesizedExpression() || parent.isTSAsExpression() || parent.isTSSatisfiesExpression() || parent.isTSNonNullExpression()) {
+      use = parent;
+      continue;
+    }
+    break;
+  }
+  const parent = use.parentPath;
+  if (parent.isVariableDeclarator({ init: use.node })) {
+    for (const name of Object.keys(parent.getBindingIdentifiers())) hold(parent.scope.getBinding(name));
+    return false;
+  }
+  if (parent.isAssignmentExpression({ right: use.node })) {
+    if (parent.node.operator !== '=' || !t.isIdentifier(parent.node.left)) return true;
+    hold(parent.scope.getBinding(parent.node.left.name));
+    return false;
+  }
+  if ((parent.isCallExpression() || parent.isOptionalCallExpression()) && parent.node.callee !== use.node) {
+    const fn = declaredFunction(parent.node.callee, parent.scope);
+    const index = parent.node.arguments.indexOf(use.node);
+    if (fn === null || index === -1) return true;
+    const param = fn.node.params[index];
+    if (param === undefined) return false;
+    for (const name of Object.keys(t.getBindingIdentifiers(param))) hold(fn.scope.getBinding(name));
+    return false;
+  }
+  if (parent.isReturnStatement() || (parent.isArrowFunctionExpression() && parent.node.body === use.node)) {
+    const fn = parent.isReturnStatement() ? parent.getFunctionParent() : parent;
+    const name = fn && functionName(fn);
+    if (!name) return true;
+    for (const call of name.referencePaths) {
+      if (!call.parentPath.isCallExpression({ callee: call.node })) return true;
+      flow(call.parentPath);
+    }
+    return false;
+  }
+  if (parent.isNewExpression({ callee: use.node }) || (parent.isClass() && parent.node.superClass === use.node)) return false;
+  return !(parent.isBinaryExpression() || parent.isUnaryExpression() || parent.isTemplateLiteral() || parent.isJSXExpressionContainer() ||
+    parent.isIfStatement({ test: use.node }) || parent.isConditionalExpression({ test: use.node }) || parent.isSpreadElement() ||
+    parent.isExpressionStatement() || parent.isForOfStatement({ right: use.node }) || parent.isForInStatement({ right: use.node }) ||
+    parent.isSwitchStatement({ discriminant: use.node }));
+}
+
+// The binding that names the function at `fn` (its declaration, or the
+// constant it initializes), or null.
+function functionName(fn) {
+  if (fn.isFunctionDeclaration() && fn.node.id) return fn.scope.parent.getBinding(fn.node.id.name) || null;
+  const holder = fn.parentPath;
+  if (holder.isVariableDeclarator({ init: fn.node }) && t.isIdentifier(holder.node.id)) {
+    const binding = holder.scope.getBinding(holder.node.id.name);
+    return binding && binding.constant ? binding : null;
+  }
+  return null;
+}
+
+// The function the module declares that `callee` names, or null.
+function declaredFunction(callee, scope) {
+  if (!t.isIdentifier(callee)) return null;
+  const binding = bindingOf(callee, scope);
+  if (!binding) return null;
+  if (binding.path.isFunctionDeclaration()) return binding.constant ? binding.path : null;
+  if (!binding.constant || !binding.path.isVariableDeclarator()) return null;
+  const init = binding.path.get('init');
+  return init.isArrowFunctionExpression() || init.isFunctionExpression() ? init : null;
 }
 
 function bindingOf(id, scope) {
@@ -714,7 +1102,10 @@ function keepsItself(binding) {
   return answer;
 }
 
+const stayPut = new WeakMap();
 function thisStaysPut(fn) {
+  const known = stayPut.get(fn.node);
+  if (known !== undefined) return known;
   let ok = true;
   fn.traverse({
     ThisExpression(path) {
@@ -725,6 +1116,7 @@ function thisStaysPut(fn) {
       if (!path.isArrowFunctionExpression()) path.skip();
     },
   });
+  stayPut.set(fn.node, ok);
   return ok;
 }
 
@@ -752,10 +1144,32 @@ function memberOf(binding, name, write) {
 }
 
 // --- Evaluation ---
+//
+// The evaluation recurses as deep as the expressions it reads, and a binding
+// written from another one is read inside the evaluation that meets it, so a
+// chain of variables each written from the last with nested arithmetic nests
+// both at once. Past EVAL_DEPTH nested expressions the evaluation stops and
+// reads: the expression is reactive.
+const EVAL_DEPTH = 600;
+let evalDepth = 0;
 
 /** @returns {Kind} */
 function evalExpr(e, ev) {
   if (e == null) return P;
+  if (evalDepth >= EVAL_DEPTH) {
+    ev.reads = true;
+    return U;
+  }
+  evalDepth++;
+  try {
+    return evalNode(e, ev);
+  } finally {
+    evalDepth--;
+  }
+}
+
+/** @returns {Kind} */
+function evalNode(e, ev) {
   switch (e.type) {
     case 'StringLiteral': case 'NumericLiteral': case 'BooleanLiteral': case 'NullLiteral': case 'BigIntLiteral':
       return P;
@@ -1396,6 +1810,7 @@ export function resolveCallees(program, callPaths, importedIds) {
   declaratorPaths = new WeakMap();
   decided = new WeakMap();
   declaredKinds = new WeakMap();
+  opaqueBindings = new WeakMap();
   program.traverse({
     ReferencedIdentifier(path) {
       if (path.isIdentifier()) references.set(path.node, path.scope.getBinding(path.node.name) || null);
