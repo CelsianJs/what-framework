@@ -443,7 +443,12 @@ export function Match(props: {
   children?: VNodeChild;
 }): VNode;
 
-export function Portal(props: { target: string | Element; children?: VNodeChild }): VNode | null;
+/**
+ * Renders its children into `target`, an element or a CSS selector, or into
+ * `document.body` when there is none, and removes them when the portal goes.
+ * The server renders nothing for it.
+ */
+export function Portal(props: { target?: string | Element | null; children?: VNodeChild }): VNode | null;
 
 // --- State ---
 
@@ -535,11 +540,18 @@ export type { ServerContext } from './internal.js';
 
 // --- Structured Errors ---
 
+/**
+ * A catalogue entry. The development build carries all of it; the production
+ * build carries `code`, `severity` and `template` only, and the fix and the
+ * worked example are in `what_fix` (the MCP tool) and docs/ERRORS.md.
+ */
 export interface ErrorCodeDefinition {
   code: string;
   severity: 'error' | 'warning';
   template: string;
-  suggestion: string;
+  /** The fix. Absent in the production build. */
+  suggestion?: string;
+  /** A worked bad/good example. Absent in the production build, and on a few entries. */
   codeExample?: string;
 }
 
@@ -549,7 +561,9 @@ export interface ErrorCodeDefinition {
  *
  * Errors thrown outside what-core carry only their code — the suggestion and
  * the worked example live once, in the catalogue, so that the client bundle
- * does not have to ship the prose. This is how they are recovered.
+ * does not have to ship the prose. This is how they are recovered, in
+ * development; the production build's entry has the code, severity and
+ * template only.
  */
 export function getErrorDefinition(code: string): ErrorCodeDefinition | undefined;
 

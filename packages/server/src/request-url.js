@@ -11,6 +11,12 @@
 // Userinfo, a path, a query, a fragment, a backslash or whitespace is not a
 // host, and the request is answered 400. The path always comes from the
 // target, which must be a path (origin-form).
+//
+// The path What routes is the target's own, as a server in front (an
+// Express route, a proxy ACL) saw it. URL parsing resolves dot segments
+// (`/public/../admin`, and `%2e%2e`, `.%2E`) and reads a backslash as a slash,
+// so a target that holds one names a path the server in front never routed:
+// it is answered 400. Browsers never send one.
 
 const HOST = /^(?:[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_.])?|\[[0-9A-Fa-f:.]+\])(?::(\d{1,5}))?$/;
 
@@ -21,13 +27,24 @@ export function isHost(host) {
   return match !== null && (match[1] === undefined || Number(match[1]) <= 65535);
 }
 
+// A dot segment, literal or percent-encoded, or a backslash, in a target's
+// path (before its query or fragment).
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
+
+/** Whether the path of `target` is the path URL parsing reads from it (see above). */
+export function isPlainPath(target) {
+  const end = target.search(/[?#]/);
+  const path = end < 0 ? target : target.slice(0, end);
+  return !path.includes('\\') && !DOT_SEGMENT.test(path);
+}
+
 /**
  * The URL of a request for the path `target` at `host` over `scheme`
- * ('http' or 'https'), or null when `target` is not a path or `host` is not
- * a host.
+ * ('http' or 'https'), or null when `target` is not a path (or holds a dot
+ * segment or a backslash) or `host` is not a host.
  */
 export function requestUrl(scheme, host, target) {
-  if (typeof target !== 'string' || !target.startsWith('/') || !isHost(host)) return null;
+  if (typeof target !== 'string' || !target.startsWith('/') || !isPlainPath(target) || !isHost(host)) return null;
   try {
     return new URL(`${scheme}://${host}${target}`);
   } catch {

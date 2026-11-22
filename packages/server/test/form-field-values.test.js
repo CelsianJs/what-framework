@@ -121,7 +121,9 @@ describe('a field default is its content attribute in markup', () => {
     assert.deepEqual(read(streamed), expected);
     const compiled = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
     assert.deepEqual(read(renderToString(h(compiled.F))), expected);
-    assert.doesNotMatch(compileJSX(source, { pluginOptions: { generate: 'ssr' } }), /defaultValue=|defaultChecked|defaultSelected/);
+    // An option is placed at run time, where the select it sits in decides its
+    // mark: its defaultSelected is a prop renderAttrs writes as `selected`.
+    assert.doesNotMatch(compileJSX(source, { pluginOptions: { generate: 'ssr' } }), /defaultValue=|defaultChecked/);
   });
 });
 

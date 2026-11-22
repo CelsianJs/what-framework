@@ -5,28 +5,26 @@
 // HTML; the client paths run in the page with the development runtime. The
 // part run is every shape with a checkedness or a selection (checkbox, radio
 // group, single and multiple selects) plus every tenth other shape, on every
-// client path.
+// client path, each hydration also after a user edit made before it runs.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { compileJSX } from '../../../test-utils/compile.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
 import { installDOM } from '../../../test-utils/dom.js';
-import { shapes, jsxModule, hComponent, isDynamic } from './fixtures/form-oracle.js';
+import { shapes, jsxModule, hComponent, isDynamic, editsEarly } from './fixtures/form-oracle.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../../..');
 
-const browserAvailable = existsSync(chromium.executablePath());
-if (!browserAvailable && process.env.WHAT_REQUIRE_BROWSER_TESTS === '1') {
-  throw new Error('WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is missing; run npx playwright install --with-deps chromium.');
-}
+const browserAvailable = await chromiumLaunches(chromium);
 
 const SHAPES = shapes().filter((s) => s.control !== 'text' && s.control !== 'textarea' || s.id % 10 === 0);
 const AUTHORINGS = ['h', 'compiled', 'spread'];
@@ -35,7 +33,7 @@ const SOURCES = ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydr
 // Every server render the page parses: `${id}|${authoring}|${renderer}`.
 async function serverMarkup() {
   installDOM();
-  const { h, signal } = await import('../../core/src/index.js');
+  const { h, signal, For, Show } = await import('../../core/src/index.js');
   const { renderToString, renderToHydratableString, renderToStream } = await import('../src/index.js');
   const stream = async (view) => {
     let html = '';
@@ -47,9 +45,9 @@ async function serverMarkup() {
   const markup = {};
   for (const shape of SHAPES) {
     for (const authoring of AUTHORINGS) {
-      const Component = authoring === 'h' ? hComponent(h, shape) : server[`${authoring === 'spread' ? 'S' : 'C'}${shape.id}`];
+      const Component = authoring === 'h' ? hComponent(h, shape, { For, Show }) : server[`${authoring === 'spread' ? 'S' : 'C'}${shape.id}`];
       for (const [name, render] of Object.entries(renderers)) {
-        markup[`${shape.id}|${authoring}|${name}`] = await render(h(Component, { v: isDynamic(shape) ? signal(shape.initial) : undefined }));
+        markup[`${shape.id}|${authoring}|${name}`] = await render(h(Component, { v: isDynamic(shape) ? signal(shape.initial) : undefined, o: signal(editsEarly(shape)) }));
       }
     }
   }
@@ -69,9 +67,9 @@ async function pageBundle(dir) {
     import * as oracle from ${JSON.stringify(path.join(here, 'fixtures/form-oracle.js'))};
     import * as client from './client.mjs';
     import * as hydratable from './hydratable.mjs';
-    const env = { h: core.h, mount: core.mount, hydrate: core.hydrate, flushSync: core.flushSync, signal: core.signal, resetForm: _resetForm, document };
+    const env = { h: core.h, mount: core.mount, hydrate: core.hydrate, flushSync: core.flushSync, signal: core.signal, resetForm: _resetForm, For: core.For, Show: core.Show, document };
     const byId = new Map(oracle.shapes().map((s) => [s.id, s]));
-    const component = (shape, authoring, build) => authoring === 'h' ? oracle.hComponent(core.h, shape) : build[(authoring === 'spread' ? 'S' : 'C') + shape.id];
+    const component = (shape, authoring, build) => authoring === 'h' ? oracle.hComponent(core.h, shape, env) : build[(authoring === 'spread' ? 'S' : 'C') + shape.id];
     export async function run(ids, markup, authorings, sources) {
       const findings = [];
       let server = 0;
@@ -79,7 +77,7 @@ async function pageBundle(dir) {
       for (const id of ids) {
         const shape = byId.get(id);
         for (const authoring of authorings) {
-          for (const renderer of ['string', 'hydratable', 'stream']) {
+          for (const renderer of oracle.editsEarly(shape) ? ['string', 'hydratable', 'stream'] : []) {
             server++;
             const found = oracle.checkServerHtml(env, shape, markup[id + '|' + authoring + '|' + renderer]);
             if (found) findings.push({ shape, authoring, renderer, ...found });
@@ -90,8 +88,13 @@ async function pageBundle(dir) {
           for (const source of sources) {
             clients++;
             const [from, renderer] = source.split(':');
-            const found = await oracle.runClient(env, shape, component(shape, authoring, hydratable), markup[id + '|' + from + '|' + renderer]);
+            const html = markup[id + '|' + from + '|' + renderer];
+            const found = await oracle.runClient(env, shape, component(shape, authoring, hydratable), html);
             if (found) findings.push({ shape, path: authoring + ' hydrating ' + source, ...found });
+            if (!oracle.editsEarly(shape)) continue;
+            clients++;
+            const early = await oracle.runClient(env, shape, component(shape, authoring, hydratable), html, true);
+            if (early) findings.push({ shape, path: authoring + ' hydrating ' + source + ', edited before', ...early });
           }
         }
       }

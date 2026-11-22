@@ -9,11 +9,12 @@
 // re-ran is a false positive, measured in bytes, not a failure.
 //
 // The space (each case its own names, so cases share one module):
-//   - values: object literals with getters, setters, methods and nested
-//     objects; class instances with getters and methods (and a subclass);
-//     static getters; objects given a getter by Object.defineProperty;
-//     arrays of objects; objects returned by a function or an arrow the
-//     module declares, or built around another object by a closure;
+//   - values: object literals with getters, setters, methods, nested objects
+//     and an iterator; class instances with getters and methods (and a
+//     subclass); static getters; objects given a getter by
+//     Object.defineProperty; Proxies whose trap answers a read; arrays of
+//     objects; objects returned by a function or an arrow the module
+//     declares, or built around another object by a closure;
 //   - names for them: aliases, `a || b`, `c ? a : b`, `(0, a)`, property
 //     projections, array elements, object and array destructuring with
 //     defaults, a variable reassigned later, a property assigned later, at
@@ -21,7 +22,12 @@
 //   - reads in JSX: member chains, optional and computed members, method
 //     calls with and without arguments, a template literal, arithmetic, a
 //     conditional, calls of helpers that read the object (directly, through
-//     a callback, through a generator), as children and as attributes.
+//     a callback, through a generator, through a local alias of a helper,
+//     called directly or from another helper, through a closure over a
+//     local reassigned after the closure was made), tagged templates (a tag
+//     the module declares, one that reads a signal itself), spreads (an
+//     iterable spread into an array, an object spread into a literal), as
+//     children and as attributes.
 // Leaves read one of four signals, or a constant.
 //
 // It covers what a JSX read can reach in a module. A prop's or a parameter's
@@ -47,10 +53,11 @@ function leaf(g) {
 
 // A value of the shape every object here has: a getter `a`, data `b`, a
 // method `m` and an arrow `f`, and below depth 0 a nested object `c`.
-function objectLiteral(g, depth) {
+function objectLiteral(g, depth, iterable = false) {
   const props = [`get a() { return ${leaf(g)}; }`, `b: ${g.rnd() < 0.7 ? `'k${g.int(9)}'` : leaf(g)}`, `m() { return ${leaf(g)}; }`, `f: () => ${leaf(g)}`];
   if (depth > 0) props.push(`c: ${objectLiteral(g, depth - 1)}`);
   if (g.rnd() < 0.3) props.push('set z(v) { this.b = v; }');
+  if (iterable) props.push(`*[Symbol.iterator]() { yield ${leaf(g)}; yield this.b; }`);
   for (let i = props.length - 1; i > 0; i--) {
     const j = g.int(i + 1);
     [props[i], props[j]] = [props[j], props[i]];
@@ -86,6 +93,7 @@ export function generateCase(g, id) {
   const arrays = [];
   const leaves = [];
   const classes = [];
+  const iterables = [];
 
   // Values.
   const makers = [
@@ -114,6 +122,8 @@ export function generateCase(g, id) {
       decls.push(`const ${d} = { ${rest.join(', ')} };`, `Object.defineProperty(${d}, 'a', { get() { return ${leaf(g)}; } });`);
       return d;
     },
+    // A Proxy whose trap answers `a`, and forwards every other read.
+    () => `new Proxy(${objectLiteral(g, depth)}, { get(t, k) { return k === 'a' ? ${leaf(g)} : t[k]; } })`,
   ];
   const value = () => g.pick(makers)();
   const count = 1 + g.int(3);
@@ -122,6 +132,12 @@ export function generateCase(g, id) {
     const code = value();
     place(name).push(`const ${name} = ${code};`);
     objects.push({ name, d: depth });
+  }
+  if (g.rnd() < 0.4) {
+    const name = fresh('it');
+    place(name).push(`const ${name} = ${objectLiteral(g, depth, true)};`);
+    objects.push({ name, d: depth });
+    iterables.push(name);
   }
   if (g.rnd() < 0.5) {
     const name = fresh('arr');
@@ -186,12 +202,22 @@ export function generateCase(g, id) {
   const pickFn = fresh('pick');
   const each = fresh('each');
   const gen = fresh('gen');
+  const alias = fresh('alias');
+  const via = fresh('via');
+  const closure = fresh('closure');
+  const tag = fresh('tag');
+  const greet = fresh('greet');
   decls.push(
     `function ${fmt}(v, n) { return '[' + v + (n || '') + ']'; }`,
     `function ${get}(o) { return o.a; }`,
     `const ${pickFn} = (o) => o;`,
     `function ${each}(list, fn) { return list.map(fn).join(','); }`,
     `function* ${gen}(o) { yield o.a; yield o.b; }`,
+    `const ${alias} = ${get};`,
+    `const ${via} = (o) => ${alias}(o);`,
+    `function ${closure}(n) { let o = { a: 'k' + n }; const current = () => o.a; o = { get a() { return ${leaf(g)}; } }; return current(); }`,
+    `function ${tag}(strings, ...values) { return strings.join('/') + values.join('|'); }`,
+    `const ${greet} = (strings) => strings[0] + ${leaf(g)};`,
   );
 
   // Reads.
@@ -202,7 +228,7 @@ export function generateCase(g, id) {
   const readCount = 3 + g.int(4);
   for (let i = 0; i < readCount; i++) {
     const o = g.pick(objects);
-    const roll = g.int(16);
+    const roll = g.int(22);
     let code;
     if (roll < 5) code = member(o);
     else if (roll === 5) code = `\`\${${member(o)}}-\${${member(g.pick(objects))}}\``;
@@ -215,6 +241,11 @@ export function generateCase(g, id) {
     else if (roll === 12 && leaves.length > 0) code = g.pick([g.pick(leaves), `${g.pick(leaves)} + '!'`]);
     else if (roll === 13 && classes.length > 0) code = `${g.pick(classes)}.s`;
     else if (roll === 14) code = `[...${gen}(${o.name})].join('|')`;
+    else if (roll === 15) code = g.pick([`${alias}(${o.name})`, `${via}(${o.name})`]);
+    else if (roll === 16) code = `${closure}(${g.int(9)})`;
+    else if (roll === 17) code = g.pick([`${tag}\`x\${${member(o)}}y\``, `${greet}\`Hi \``]);
+    else if (roll === 18 && iterables.length > 0) code = g.pick([`[...${g.pick(iterables)}]`, `[...${g.pick(iterables)}, 'end']`]);
+    else if (roll === 19) code = `({ ...${o.name} }).${g.pick(['a', 'b'])}`;
     else code = `(${g.rnd() < 0.5 ? 'true' : 'false'} ? ${o.name} : ${g.pick(objects).name}).a`;
     reads.push({ code, attr: g.rnd() < 0.25 ? g.pick(['title', 'data-x', 'class']) : null });
   }
@@ -278,10 +309,18 @@ export function wrappedReads(code) {
 
 // --- Pathological shapes: the analysis must never throw ---
 
+const PATHOLOGICAL_HEAD = `import { signal } from 'what-framework';\nexport const s0 = signal('v0');\n`;
+
+/** A view reading s0 through a chain of `n` helpers, each calling the next. */
+export function helperChain(n) {
+  return PATHOLOGICAL_HEAD + `function h0(x) { return x + s0(); }\n` + Array.from({ length: n }, (_, i) => `function h${i + 1}(x) { return h${i}(x); }`).join('\n') +
+    `\nexport const View = () => <p>{h${n}('a')}</p>;`;
+}
+
 /** Sources the compiler must compile, each a view that reads signal s0. */
 export function pathological(g, size) {
   const sources = [];
-  const head = `import { signal } from 'what-framework';\nexport const s0 = signal('v0');\n`;
+  const head = PATHOLOGICAL_HEAD;
   const n = size;
   // A long chain of aliases of an object with a getter.
   sources.push(head + `const a0 = { get t() { return s0(); } };\n` +
@@ -299,8 +338,7 @@ export function pathological(g, size) {
   const depthExpr = (d) => (d === 0 ? 's0()' : g.rnd() < 0.5 ? `(${depthExpr(d - 1)} + 'x')` : `(true ? ${depthExpr(d - 1)} : 'y')`);
   sources.push(head + `const fmt = (v) => v;\nexport const View = () => <p>{fmt(${depthExpr(Math.min(n, 300))})}</p>;`);
   // A long chain of helpers calling each other.
-  sources.push(head + `function h0(x) { return x + s0(); }\n` + Array.from({ length: n }, (_, i) => `function h${i + 1}(x) { return h${i}(x); }`).join('\n') +
-    `\nexport const View = () => <p>{h${n}('a')}</p>;`);
+  sources.push(helperChain(n));
   // Destructuring through many levels.
   sources.push(head + `const d0 = { get t() { return s0(); } };\n` +
     Array.from({ length: n }, (_, i) => `const { k: d${i + 1} } = { k: d${i} };`).join('\n') + `\nexport const View = () => <p>{d${n}.t}</p>;`);

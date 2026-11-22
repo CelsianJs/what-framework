@@ -18,7 +18,6 @@ import {
   FIELD_PROPS,
   ATTRIBUTE_VALUE_TYPES,
   stripAndCollapse,
-  selectedOptions,
   isEnumeratedAttr,
   isRefusedAttr,
   isUnsafeUrl,
@@ -455,34 +454,114 @@ export function _field(tag, props) {
   return { props: rest, text: null, select: shown == null ? null : { value: shown } };
 }
 
-// An option open tag and its content, up to the next option, optgroup or the
-// end of the select.
-const OPTION = /<option(\s[^>]*)?>([\s\S]*?)(?=<\/?option[\s>]|<\/?optgroup[\s>]|<\/select>|$)/g;
-const SELECTED = /\sselected(?:="[^"]*")?(?=\s|$)/g;
-const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
-const unescape = (text) => text.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity]);
+// --- Options ---
+//
+// A <select> with a value or default marks the options that value selects
+// (what-core's selectedOptions, the rule the client writes), and a mark an
+// option carries as its own default goes when the value does not select it.
+// Each option decides its mark as it is rendered, from the select it sits in,
+// which the renderer carries down to it: _selectScope gives that select's
+// scope, _optionSelected the decision. An option's value is its value prop,
+// else its text (HTML's rule: stripped and collapsed), which is what the
+// renderer writes as text inside it, collected through `sink` while its
+// children render. Raw HTML inside an option (innerHTML, the html tag) is not
+// text the renderer writes, so it counts for nothing: such an option needs a
+// value prop.
 
-// An option's value in rendered markup: its value attribute, else its text
-// with tags and markers removed, ASCII whitespace stripped and collapsed (the
-// HTML rule: a no-break space is kept).
-function optionValue(attrs, content) {
-  const named = /\svalue="([^"]*)"/.exec(attrs);
-  return named ? unescape(named[1]) : stripAndCollapse(unescape(content.replace(/<!--[\s\S]*?-->|<[^>]*>/g, '')));
+/** The scope of a select whose options `field` (_field's) marks, or null when it marks none. */
+export function _selectScope(field) {
+  if (field === null || field.select === null) return null;
+  const value = field.select.value;
+  return { value, wanted: Array.isArray(value) ? value.map(String) : null, found: false };
 }
 
-// `html`, a select's rendered content, with exactly the options `value`
-// selects marked `selected` (what-core's selectedOptions, the rule the client
-// writes): a mark an option carried as its own default goes when the value
-// does not select it.
-export function _markSelected(html, value) {
-  const values = [];
-  for (const [, attrs = '', content] of html.matchAll(OPTION)) values.push(optionValue(attrs, content));
-  const chosen = selectedOptions(values, value);
-  let i = 0;
-  return html.replace(OPTION, (option, attrs = '', content) => {
-    const own = attrs.replace(SELECTED, '');
-    return `<option${own}${chosen[i++] ? ' selected' : ''}>${content}`;
-  });
+/** Whether the option with value `value` is selected in `scope`: every option an array holds, else the first with the value. */
+export function _optionSelected(scope, value) {
+  if (scope.wanted !== null) return scope.wanted.includes(value);
+  if (scope.found || value !== String(scope.value)) return false;
+  scope.found = true;
+  return true;
+}
+
+/** An option's value prop as a string, or null when it has none (its text is its value). */
+export function _optionValue(props) {
+  if (props == null || !Object.hasOwn(props, 'value')) return null;
+  const value = resolveAttr('value', props.value);
+  return value === UNRESOLVED || value == null ? null : String(value);
+}
+
+/** An option's props without its own marks, which a select's scope replaces. */
+export function _optionProps(props) {
+  const own = {};
+  for (const key in props) if (key !== 'selected' && key !== 'defaultSelected') own[key] = props[key];
+  return own;
+}
+
+/**
+ * A compiled element the stream places as it places a vnode element (a
+ * select, an option, an element with h() children: ssr-runtime's Element).
+ */
+export class ElementParts {
+  constructor(tag, props, children) {
+    this.tag = tag;
+    this.props = props;
+    this.children = children;
+  }
+}
+
+// The text the synchronous renderers write while an option's children render
+// (null: no option is collecting). The stream keeps its own per segment.
+export const sink = { text: /** @type {string | null} */ (null) };
+
+// The select scope the synchronous renderers are in.
+/** @type {any} */
+let selecting = null;
+
+/** Enter the scope of a select rendered with `field`; returns the scope to restore. */
+export function _enterSelect(field) {
+  const outer = selecting;
+  selecting = _selectScope(field);
+  return outer;
+}
+
+export function _leaveSelect(outer) {
+  selecting = outer;
+}
+
+// What a renderer writes and then throws away (a boundary's subtree before its
+// fallback) must not have used up a single select's match.
+export function _saveSelect() {
+  return selecting !== null && selecting.found;
+}
+
+export function _restoreSelect(found) {
+  if (selecting !== null) selecting.found = found;
+}
+
+/**
+ * An option the synchronous renderers place: rendered on its own (null) when
+ * no select scope marks it, else its open tag through `write` (the renderer's
+ * writer, which places a pending hydration key), its content through
+ * `content`, and the scope's mark.
+ */
+export function _renderOption(props, write, content) {
+  const scope = selecting;
+  if (scope === null) return null;
+  const head = write(`<option${renderAttrs(_optionProps(props || {}))}`);
+  let value = _optionValue(props);
+  let html;
+  if (value !== null) html = content();
+  else {
+    const outer = sink.text;
+    sink.text = '';
+    try {
+      html = content();
+      value = stripAndCollapse(sink.text);
+    } finally {
+      sink.text = outer;
+    }
+  }
+  return `${head}${_optionSelected(scope, value) ? ' selected' : ''}>${html}${write('</option>')}`;
 }
 
 // The class attribute the client ends up with when the props carry a classList,

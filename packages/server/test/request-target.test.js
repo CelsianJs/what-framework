@@ -272,3 +272,84 @@ describe('a Host header names a host, never the path', () => {
     assert.equal(seenUrl, 'http://app.test:8080/__what_action');
   });
 });
+
+// The path What routes is the target's own, as a server in front of it saw
+// it. URL parsing resolves dot segments (literal and percent-encoded) and
+// reads a backslash as a slash, so `GET /public/../admin` would render /admin
+// past an Express guard on /admin that routed /public, and
+// `POST /x/../__what_action` would run an action past a guard on the
+// endpoint (round 6, S3). Such a target is answered 400; browsers never send
+// one. HTTP/2 names its host in `:authority`, a pseudo-header that is not a
+// header field (P2).
+describe('a target with a dot segment or a backslash is 400', () => {
+  const DOTTED = ['/public/../admin', '/public/%2e%2e/admin', '/public/.%2E/admin', '/public/%2E%2e/admin', '/public/./admin',
+    '/x/%2e/admin', '/public\\..\\admin', '/public\\admin', '/..', '/x/..', '/public/..?q=1', '/x/../__what_action', '/x/%2e%2e/__what_action'];
+  const PLAIN = ['/public', '/a.b', '/..a', '/a..', '/a/...', '/.well-known/x', '/public?next=/../admin'];
+  /** @type {http.Server[]} */
+  const servers = [];
+  const ports = {};
+  let ran = 0;
+
+  before(async () => {
+    action(() => { ran++; return 'ok'; }, { id: 'targetDotted' });
+    const Page = () => h('p', null, 'public page');
+    const options = { routes: [{ path: '/public', component: Page, page: { mode: 'server', stream: false } }, { path: '/admin', component: () => h('p', null, 'ADMIN'), page: { mode: 'server', stream: false } }] };
+    const handler = (await import('../src/adapter/core.js')).createRequestHandler(options);
+    for (const [name, listener] of [['toNodeListener', toNodeListener(handler)], ['whatMiddleware', connectStyle(whatMiddleware(options), notAction)]]) {
+      const server = http.createServer(listener);
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      servers.push(server);
+      ports[name] = /** @type {any} */ (server.address()).port;
+    }
+  });
+
+  after(() => {
+    for (const server of servers) server.close();
+  });
+
+  for (const stack of ['toNodeListener', 'whatMiddleware']) {
+    it(`${stack}: never renders or acts on a path the target does not name`, async () => {
+      for (const target of DOTTED) {
+        const res = await raw(ports[stack], 'GET', target);
+        assert.equal(res.status, 400, target);
+        assert.doesNotMatch(res.body, /ADMIN/, target);
+      }
+      for (const target of ['/x/../__what_action', '/x/%2e%2e/__what_action', '/x\\..\\__what_action']) {
+        const res = await raw(ports[stack], 'POST', target, { 'content-type': 'application/json', 'x-what-action': 'targetDotted', 'sec-fetch-site': 'same-origin' }, '{"args":[]}');
+        assert.equal(res.status === 400 || res.status === 404, true, `${target}: ${res.status}`);
+      }
+      assert.equal(ran, 0, 'the action never ran');
+      for (const target of PLAIN) {
+        const res = await raw(ports[stack], 'GET', target);
+        assert.notEqual(res.status, 400, target);
+      }
+    });
+  }
+
+  it('toNodeListener serves HTTP/2, its host from :authority when it sends no Host', async () => {
+    const http2 = await import('node:http2');
+    const handler = (await import('../src/adapter/core.js')).createRequestHandler({ routes: [{ path: '/who', component: () => h('p', null, 'who'), page: { mode: 'server', stream: false }, loader: () => ({}) }] });
+    const server = http2.createServer(toNodeListener(handler));
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = /** @type {any} */ (server.address());
+    try {
+      const get = (headers) => new Promise((resolve, reject) => {
+        const client = http2.connect(`http://127.0.0.1:${port}`);
+        client.on('error', reject);
+        const req = client.request({ ':path': '/who', ...headers });
+        let body = '';
+        let status = 0;
+        req.on('response', (h) => { status = h[':status']; });
+        req.on('data', (d) => { body += d; });
+        req.on('end', () => { client.close(); resolve({ status, body }); });
+        req.on('error', reject);
+        req.end();
+      });
+      const ok = await get({ ':authority': 'app.test' });
+      assert.equal(ok.status, 200);
+      assert.match(ok.body, /who/);
+    } finally {
+      server.close();
+    }
+  });
+});

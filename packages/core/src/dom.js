@@ -4,7 +4,7 @@ import { report, setNextBinding } from './diagnostics.js';
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
 import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, __DEV__ } from './reactive.js';
-import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, applyRef, setClassList, _writeClass } from './render.js';
+import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
 // SVG elements that need namespace
@@ -56,9 +56,7 @@ export function _isUnsafeAttr(key, value) {
 // while `aria-*={false}` was wrong everywhere. Every widget built on the a11y
 // module is affected, since useAriaExpanded/useAriaSelected/useAriaChecked all
 // return booleans.
-export function _isAriaAttr(key) {
-  return isAriaAttr(key);
-}
+export { isAriaAttr as _isAriaAttr };
 
 
 // --- _liveRegionNodes(tracked) ---
@@ -464,11 +462,15 @@ function applyProps(el, newProps, oldProps, isSvg) {
 //     `defaultSelected`, and a <select>'s `defaultValue` (the options it
 //     names) are the field's default: its content attribute (what a reset
 //     restores, what a server writes), which shows only while nothing has
-//     controlled or changed the field.
+//     controlled or changed the field. An <option>'s `value` is what names
+//     it.
 // A select's value selects the options markup-rules' selectedOptions names.
 // Its options may not be in the DOM yet (children are appended after props),
 // so a value or default they do not show is written once more after them;
-// a later write, null included, supersedes that retry.
+// a later write, null included, supersedes that retry. A select a value
+// controls follows it whenever its option set changes: a region or list that
+// adds or removes options (its own, or a group's) has it select them again
+// (_optionsChanged), as does an option's default changing (_keepSelection).
 
 /**
  * Write prop `key` of a form field `el` and return true, or return false
@@ -477,24 +479,17 @@ function applyProps(el, newProps, oldProps, isSvg) {
 export function _setFieldProp(el, key, value) {
   const tag = el.tagName;
   if (tag === 'OPTION') {
-    if (key !== 'selected' && key !== 'defaultSelected') return false;
-    el.defaultSelected = !!value;
+    // Its value names it: a select a value controls selects again.
+    if (key === 'value') {
+      if (value == null) el.removeAttribute('value');
+      else el.value = value;
+    } else if (key === 'selected' || key === 'defaultSelected') el.defaultSelected = !!value;
+    else return false;
     _keepSelection(el);
-    return true;
-  }
-  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return false;
-  const own = tag !== 'INPUT' || !ATTRIBUTE_VALUE_TYPES.has(el.type);
-  if (key === 'value' && own) _setFieldValue(el, value);
-  else if (key === 'defaultValue' && own) {
-    if (tag === 'SELECT') setSelectDefault(el, value);
-    else el.defaultValue = value == null ? '' : String(value);
-  } else if (key === 'checked' && tag === 'INPUT') {
+  } else if (tag === 'INPUT' && key === 'checked') {
     const on = value == null ? undefined : !!value;
-    if (el._$checked !== on) {
-      el._$checked = on;
-      el.checked = on === true;
-    }
-  } else if (key === 'defaultChecked' && tag === 'INPUT') {
+    if (el._$checked !== on) el.checked = (el._$checked = on) === true;
+  } else if (tag === 'INPUT' && key === 'defaultChecked') {
     el.defaultChecked = !!value;
     // A default checks a radio nothing has changed, which unchecks the others
     // in its group, a radio a prop controls among them: that one is checked
@@ -502,26 +497,30 @@ export function _setFieldProp(el, key, value) {
     if (value && el.type === 'radio' && el._$checked === undefined && el.form) {
       for (const other of el.form.elements) if (other._$checked && other.name === el.name) other.checked = true;
     }
-  } else return false;
-  return true;
-}
-
-/** The value of a text field or select (see Form fields above). */
-export function _setFieldValue(el, value) {
-  if (el.tagName === 'SELECT') return _setSelectValue(el, value);
-  const str = value == null ? undefined : String(value);
-  if (el._$value !== str) {
-    el._$value = str;
-    el.value = str ?? '';
+  } else if ((key !== 'value' && key !== 'defaultValue')
+    || (tag === 'INPUT' ? ATTRIBUTE_VALUE_TYPES.has(el.type) : tag !== 'TEXTAREA' && tag !== 'SELECT')) {
+    return false;
+  } else if (key === 'defaultValue') {
+    if (tag === 'SELECT') setSelectDefault(el, value);
+    else el.defaultValue = value == null ? '' : String(value);
+  } else if (tag === 'SELECT') {
+    _setSelectValue(el, value);
+  } else {
+    const str = value == null ? undefined : String(value);
+    if (el._$value !== str) el.value = (el._$value = str) ?? '';
   }
+  return true;
 }
 
 export function _setSelectValue(el, value) {
   if (value == null && el._$value === undefined) return;
+  _selectionKeeper = _keepSelection;
   el._$value = value ?? undefined;
+  _installOptionsChanged(_optionsChanged);
   const write = (el._$selectWrite = (el._$selectWrite || 0) + 1);
   if (!markOptions(el, value, 'selected')) {
-    queueMicrotask(() => el._$selectWrite === write && markOptions(el, value, 'selected'));
+    const retry = () => el._$selectWrite === write && markOptions(el, value, 'selected');
+    if (!_afterWalk(retry)) queueMicrotask(retry);
   }
 }
 
@@ -541,27 +540,114 @@ function markOptions(el, value, prop) {
 // An option's default (its selected attribute) can move what its select
 // shows even after a script selected options (Chromium lets it; JSDOM, like
 // the HTML standard, does not once an option was written): a select a value
-// controls selects its options again. Called after every write of an
-// option's default, and by hydration after it rewrites an option's attributes.
-export function _keepSelection(option) {
-  const select = option.closest('select');
-  if (select !== null && select._$value !== undefined) markOptions(select, select._$value, 'selected');
+// controls selects its options again. Called with an option after every
+// write of its default, by hydration after it rewrites an option's
+// attributes (_selectionKeeper), and with a select after a write of its
+// default.
+export function _keepSelection(el) {
+  const select = el.closest('select');
+  if (select?._$value !== undefined) markOptions(select, select._$value, 'selected');
 }
+
+/** A region or list changed the children of `parent`: a select it controls selects its options again. */
+function _optionsChanged(parent) {
+  const select = parent.localName === 'optgroup' ? parent.parentNode : parent;
+  if (select !== null && select._$value !== undefined && select.localName === 'select') markOptions(select, select._$value, 'selected');
+}
+
+// What hydration calls with an option whose attributes it rewrote: the above,
+// installed by the first write of a select's value, which is what makes a
+// select one a value controls. A program that never writes one does not carry
+// the option marking.
+/** @type {((option: Element) => void) | null} */
+export let _selectionKeeper = null;
 
 // A select's defaultValue: the options it names are the default-selected
 // ones. Written now and once more after the options are in place: hydration
 // writes each option's own props after its select's, which would take the
-// mark away from an option the select named.
+// mark away from an option the select named, so a hydration writes it again
+// when its walk is done.
 function setSelectDefault(el, value) {
   if (value == null) return;
   el._$default = value;
   const apply = () => {
     if (el._$default !== value) return;
     markOptions(el, value, 'defaultSelected');
-    if (el._$value !== undefined) markOptions(el, el._$value, 'selected');
+    _keepSelection(el);
   };
   apply();
-  queueMicrotask(apply);
+  if (!_afterWalk(apply)) queueMicrotask(apply);
+}
+
+// --- What the user changed before hydration ---
+//
+// A field the user changed between the first paint and hydration keeps what
+// they left in it, controlled or not, and its input and change events are
+// replayed once the hydration is done, so its handlers see the change. React
+// 19 does the same: react-dom's hydrateInput and hydrateSelect never write the
+// live value or selection, and queue a replay of the change event when it
+// differs from the server's. A field is changed when what it shows is not
+// what its markup's defaults show (the server wrote what it showed there):
+// its value, its checkedness, or the options a reset would select. A
+// controlled field's prop still counts as written, so a write of the same
+// value leaves the user's change, and any other value replaces it.
+
+/**
+ * The fields hydration is claiming with `el` that the user changed, each as
+ * [el, what it shows], pushed to `out`: `el`, or every radio of its group,
+ * which the props of the first one claimed would change (`seen` holds the
+ * radios already read).
+ */
+export function _changedFields(el, out, seen) {
+  if (el.type !== 'radio') {
+    const changed = changedField(el);
+    if (changed !== null) out.push(changed);
+    return;
+  }
+  const group = el.form !== null ? el.form.elements : el.ownerDocument.getElementsByName(el.name);
+  for (const radio of group) {
+    if (radio.type !== 'radio' || radio.name !== el.name || radio.form !== el.form || seen.has(radio)) continue;
+    seen.add(radio);
+    if (radio.checked !== radio.defaultChecked) out.push([radio, radio.checked]);
+  }
+}
+
+function changedField(el) {
+  if (el.tagName === 'SELECT') {
+    const options = [...el.options];
+    const live = options.map((option) => option.selected);
+    let changed;
+    if (el.multiple) changed = options.some((option, i) => live[i] !== option.defaultSelected);
+    else {
+      let reset = -1;
+      for (let i = 0; i < options.length; i++) if (options[i].defaultSelected) reset = i;
+      if (reset === -1 && el.size <= 1) reset = options.findIndex((option) => !option.disabled);
+      changed = el.selectedIndex !== reset;
+    }
+    return changed ? [el, options, live] : null;
+  }
+  if (el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked ? [el, el.checked] : null;
+  if (el.type === 'file' || (el.tagName === 'INPUT' && ATTRIBUTE_VALUE_TYPES.has(el.type))) return null;
+  return el.value !== el.defaultValue ? [el, el.value] : null;
+}
+
+/** The fields a hydration claimed changed (_changedFields) show what they showed, and replay their events. */
+export function _restoreFields(fields) {
+  for (const [el, shown, live] of fields) {
+    if (live !== undefined) {
+      shown.forEach((option, i) => { if (!live[i]) option.selected = false; });
+      shown.forEach((option, i) => { if (live[i]) option.selected = true; });
+      if (!el.multiple && !live.includes(true)) el.selectedIndex = -1;
+    } else if (shown === false) el.checked = false;
+    else if (shown !== true && el.value !== shown) el.value = shown;
+  }
+  // A radio checked last unchecks the rest of its group.
+  for (const [el, shown] of fields) if (shown === true) el.checked = true;
+  for (const [el, shown] of fields) {
+    if (shown === false && el.type === 'radio') continue;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 }
 
 // Whether `el` takes prop `key` through a property it can write: one with a
@@ -590,9 +676,7 @@ export function _writableProp(el, key) {
 // have different callers. hydrate() writes a vnode's props onto the element it
 // claims through this one too (render.js, from the renderer slot), so a
 // hydrated element behaves as a built one.
-export function _setVNodeProp(el, key, value, isSvg) {
-  setProp(el, key, value, isSvg);
-}
+export { setProp as _setVNodeProp };
 
 function setProp(el, key, value, isSvg) {
   // A function classList, or an object with function entries, is reactive in
@@ -665,54 +749,24 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // Style
   if (key === 'style') {
-    if (typeof value === 'string') {
-      el.style.cssText = value;
-      el._prevStyle = null;
-    } else if (typeof value === 'object') {
-      // The object is the element's whole inline style: the first one replaces
-      // what the element had (a string's declarations, the server's).
-      const oldStyle = el._prevStyle;
-      if (oldStyle == null) {
-        if (el.hasAttribute('style')) el.removeAttribute('style');
-      } else {
-        for (const prop in oldStyle) {
-          if (!(prop in value)) el.style[prop] = '';
-        }
-      }
-      for (const prop in value) {
-        el.style[prop] = value[prop] ?? '';
-      }
-      el._prevStyle = { ...value };
-    }
+    setStyle(el, value);
     return;
   }
 
-  // dangerouslySetInnerHTML
-  if (key === 'dangerouslySetInnerHTML') {
+  // Raw inner HTML: dangerouslySetInnerHTML, or innerHTML given as
+  // { __html } (null writes nothing; a string is refused, to prevent XSS:
+  // { __html } marks markup someone trusted).
+  if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') {
+    if (key === 'innerHTML' && !(value && typeof value === 'object' && '__html' in value)) {
+      if (__DEV__ && value != null) report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
+      return;
+    }
     const html = value?.__html ?? '';
     if (__DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
       console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
     }
     el.innerHTML = html;
-    return;
-  }
-
-  // innerHTML — require { __html: ... } wrapper to prevent XSS
-  if (key === 'innerHTML') {
-    if (value == null) return; // null/undefined — do nothing
-    if (value && typeof value === 'object' && '__html' in value) {
-      const html = value.__html ?? '';
-      if (__DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
-        console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
-      }
-      el.innerHTML = html;
-    } else {
-      // Refuse to set raw string innerHTML — prevent XSS
-      if (__DEV__) report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
-      return;
-    }
     return;
   }
 
@@ -735,7 +789,7 @@ function setProp(el, key, value, isSvg) {
 
   // aria-*/role BEFORE the boolean fast-path: these are enumerated string
   // attributes, so a boolean has to serialize as "true"/"false", never as HTML
-  // boolean syntax. See _isAriaAttr.
+  // boolean syntax. See _isAriaAttr above.
   // data-* joins aria-* here rather than falling through to the boolean branch
   // below. Both are enumerated: `data-open="false"` is a distinct state from an
   // absent `data-open`, and `[data-open="false"]` is an ordinary CSS selector,
@@ -743,7 +797,7 @@ function setProp(el, key, value, isSvg) {
   // The compiled path in render.js has always stringified these, so keeping the
   // generic boolean branch first is also what made an SSR page disagree with
   // its own compiled client on hydration.
-  if (_isAriaAttr(key) || key.startsWith('data-')) {
+  if (isAriaAttr(key) || key.startsWith('data-')) {
     el.setAttribute(key, typeof value === 'boolean' ? String(value) : value);
     return;
   }

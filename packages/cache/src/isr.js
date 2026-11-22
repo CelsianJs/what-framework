@@ -21,8 +21,19 @@
 //
 // `render(routeMatch, ctx)` is INJECTED by the adapter (wraps renderPage +
 // serializeState) — the engine never imports what-server, keeping it standalone.
+//
+// Origins. An entry a request rendered is keyed on that request's origin: a
+// Host one sender chose never reaches another host's visitors. A regeneration
+// with no request (a scheduler's engine.regenerate(route), revalidatePath and
+// revalidateTag with `regenerate`) refreshes what visitors read: the entry of
+// every origin stored for the path, each rendered from a GET request the
+// engine makes at that origin. When none is stored, it renders the path's
+// default entry, keyed without an origin, from a request at the engine's
+// `origin` (else http://localhost); a request whose origin has no entry of
+// its own is served the default entry. No visitor's request makes a default
+// entry, so no sender's Host can reach another host through one.
 
-import { cacheKey, canonicalMatch, normalizePath, resolveVary, declaredVary } from './key.js';
+import { cacheKey, canonicalMatch, keyOrigin, keyTarget, normalizePath, normalizeQuery, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 import { buildCacheHeaders, responseHeaderList, servedHeaders } from './headers.js';
 import { safeLocalPath } from './local-path.js';
@@ -47,6 +58,18 @@ function originOf(routeMatch) {
   }
 }
 
+// The most origins one regeneration with no request renders (storedOrigins).
+const MAX_ORIGINS = 16;
+
+// `routeMatch` with the GET request a regeneration with no request renders
+// it from: its path and query at `origin`.
+function requestAt(routeMatch, origin) {
+  const url = new URL(normalizePath(routeMatch.path), origin);
+  const query = normalizeQuery(routeMatch.query);
+  if (query) url.search = query;
+  return { ...routeMatch, request: new Request(url) };
+}
+
 /**
  * @param {object} [options]
  * @param {any} [options.store] cache store (see stores/store-interface.js)
@@ -54,8 +77,10 @@ function originOf(routeMatch) {
  * @param {any} [options.cdn] optional CDN adapter for edge fan-out
  * @param {() => number} [options.now]
  * @param {any} [options.logger]
+ * @param {string} [options.origin] the public origin a default entry is rendered at
  */
-export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console } = {}) {
+export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin } = {}) {
+  const defaultOrigin = publicOrigin ? new URL(publicOrigin).origin : 'http://localhost';
   // key -> { promise: Promise<{ entry, headers }>, waiters, pinned, controller }
   const inFlight = new Map();
 
@@ -76,6 +101,41 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       );
     }
     return cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
+  }
+
+  // The path's default entry: keyed without an origin.
+  function defaultKeyFor(routeMatch) {
+    return keyFor({ ...routeMatch, request: undefined });
+  }
+
+  // A regeneration with no request, of `routeMatch`, for each origin in
+  // `origins` ('' for the default entry): each rendered from a request the
+  // engine makes. Resolves with the first one's entry.
+  async function regenerateAt(routeMatch, origins) {
+    const results = await Promise.all([...origins].map((origin) => {
+      const match = requestAt(routeMatch, origin || defaultOrigin);
+      return regenerate(origin ? keyFor(match) : defaultKeyFor(routeMatch), match, undefined, { background: true });
+    }));
+    return results.length ? results[0].entry : null;
+  }
+
+  // The origins whose entry for `routeMatch`'s path and query is stored: ''
+  // for the default entry. The default entry when there are none. At most
+  // MAX_ORIGINS, the last the store lists (a memory store lists the most
+  // recently used last): a sender can make the engine store an entry for any
+  // host it names, and a scheduled tick must not render each of them.
+  async function storedOrigins(routeMatch) {
+    const path = normalizePath(routeMatch.path);
+    const query = normalizeQuery(routeMatch.query);
+    const origins = new Set();
+    for (const key of await store.keys()) {
+      const target = keyTarget(key);
+      if (target.path !== path || target.query !== query) continue;
+      const origin = keyOrigin(key);
+      origins.delete(origin);
+      origins.add(origin);
+    }
+    return origins.size ? new Set([...origins].slice(-MAX_ORIGINS)) : new Set(['']);
   }
 
   // Render + store. `renderOverride` lets a caller (e.g. the deploy adapter)
@@ -184,8 +244,20 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       return serve(entry, 'BYPASS', routeMatch, responseHeaderList(out.headers));
     }
 
-    const key = cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
-    const entry = await store.get(key);
+    const own = cacheKey({ origin: originOf(routeMatch), path: routeMatch.path, query: routeMatch.query, vary });
+    let key = own;
+    let entry = await store.get(own);
+    // No entry of its own origin: the path's default entry, which a stale
+    // one refreshes as it was made, from no visitor's request.
+    let refresh = routeMatch;
+    if (!entry && key !== defaultKeyFor(routeMatch)) {
+      const shared = await store.get(defaultKeyFor(routeMatch));
+      if (shared) {
+        key = defaultKeyFor(routeMatch);
+        entry = shared;
+        refresh = requestAt(routeMatch, defaultOrigin);
+      }
+    }
     const t = now();
 
     if (entry && isFresh(entry, t)) {
@@ -194,10 +266,11 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
     if (entry && isServableStale(entry, t)) {
       // Serve stale immediately; refresh in the background (deduped, non-blocking).
-      regenerate(key, routeMatch, renderOverride, { background: true })
+      regenerate(key, refresh, refresh === routeMatch ? renderOverride : undefined, { background: true })
         .catch((e) => logger.error?.('[what-isr] background regenerate failed:', e));
       return serve(entry, 'STALE', routeMatch);
     }
+    key = own;
 
     // Cold miss or expired beyond the swr window.
     if (entry && config.onMiss === 'stale-if-error') {
@@ -234,11 +307,13 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     if (cdn && cdn.purge) await cdn.purge([local]);
     if (regen) {
       const route = routeResolver ? routeResolver(norm) : { path: norm, query: {}, config: {} };
-      // keyFor() can throw (a route declaring `vary` with no headers), so it has
-      // to run inside the try: as an argument expression the .catch() never
-      // attached and the rejection escaped revalidatePath.
+      // The origins it held, or the default entry. keyFor() can throw (a
+      // route declaring `vary` with no headers), so it has to run inside the
+      // try: as an argument expression the .catch() never attached and the
+      // rejection escaped revalidatePath.
       try {
-        await regenerate(keyFor(route), route, undefined, { background: true });
+        if (originOf(route)) await regenerate(keyFor(route), route, undefined, { background: true });
+        else await regenerateAt(route, deleted.length ? new Set(deleted.map(keyOrigin).slice(-MAX_ORIGINS)) : new Set(['']));
       } catch (e) {
         logger.error?.('[what-isr] regen after revalidatePath failed:', e);
       }
@@ -258,7 +333,8 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
         const route = routeResolver(key);
         if (!route) continue;
         try {
-          await regenerate(keyFor(route), route, undefined, { background: true });
+          if (originOf(route)) await regenerate(keyFor(route), route, undefined, { background: true });
+          else await regenerateAt(route, [keyOrigin(key)]);
         } catch { /* best effort: a purge must not fail because a regen did */ }
       }
     }
@@ -267,8 +343,11 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
 
   return {
     handle,
-    regenerate: (routeMatch) => regenerate(keyFor(routeMatch), routeMatch, undefined, { background: true })
-      .then((result) => result.entry),
+    // A route with a request regenerates that request's entry; one with none
+    // (a scheduler's) every origin's stored for it, else the default entry.
+    regenerate: async (routeMatch) => (originOf(routeMatch)
+      ? (await regenerate(keyFor(routeMatch), routeMatch, undefined, { background: true })).entry
+      : regenerateAt(routeMatch, await storedOrigins(routeMatch))),
     revalidatePath,
     revalidateTag,
     keyFor,

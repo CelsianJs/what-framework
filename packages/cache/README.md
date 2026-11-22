@@ -75,6 +75,29 @@ adapter sets it from the `Request`): when it aborts, that request stops waiting
 at once and is rejected with its abort reason, and the regeneration carries on
 for everyone else.
 
+## Regenerations with no request
+
+An entry a request rendered is keyed on that request's origin, so a Host one
+sender chose never reaches another host's visitors. A regeneration with no
+request (`engine.regenerate(route)`, which the scheduler calls, and
+`revalidatePath`/`revalidateTag` with `regenerate`) refreshes what visitors
+read:
+
+- every origin's entry stored for the path and query, each rendered from a GET
+  request the engine makes at that origin (at most 16 per regeneration, the
+  most recently used: a sender can make the engine store an entry for any host
+  it names);
+- with none stored, the path's default entry, keyed without an origin and
+  rendered from a GET request at `createCacheEngine({ origin })` (default
+  `http://localhost`). A request whose origin has no entry of its own is served
+  it. No visitor's request makes it, so no sender's Host reaches anyone through
+  it.
+
+So a scheduler warms a page before its first visit. Set `origin` to the public
+origin when the page builds absolute URLs from `request.url`. The render is
+what-server's `createRouteRenderer`, as for a request; it also renders a match
+that has no request, as a GET of its path.
+
 ## Stores
 
 `createMemoryStore({ max })`, `createFilesystemStore({ dir })` and

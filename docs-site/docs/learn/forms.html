@@ -96,9 +96,41 @@
             <li><code>value</code> (a text input, a <code>&lt;textarea&gt;</code>, a <code>&lt;select&gt;</code>) and <code>checked</code> (a checkbox or radio) control what the field shows. A signal or a function keeps it live. A user's edit stays until the binding writes a value other than the one it wrote last.</li>
             <li><code>defaultValue</code>, <code>defaultChecked</code>, an <code>&lt;option&gt;</code>'s <code>selected</code> or <code>defaultSelected</code>, and a <code>&lt;select&gt;</code>'s <code>defaultValue</code> (the options it names; an array for <code>multiple</code>) are the field's default: what it shows while nothing controls it, and what a form reset restores.</li>
             <li>A <code>value</code> or <code>checked</code> of <code>null</code> or <code>undefined</code> releases the field. A field it controlled shows nothing (an empty value, unchecked, no option selected), and the next reset restores its default. A field it never controlled keeps its default.</li>
-            <li>A select's value selects options by their value (the <code>value</code> attribute, else the text with HTML whitespace collapsed): a string selects the first option with it, in a <code>multiple</code> select too, and an array every option it names.</li>
+            <li>A select's value selects options by their value (the <code>value</code> attribute, else the text with HTML whitespace collapsed): a string selects the first option with it, in a <code>multiple</code> select too, and an array every option it names. It does so whenever its options change, so options a <code>&lt;For&gt;</code> or <code>&lt;Show&gt;</code> adds after a fetch show the value too.</li>
             <li>After <code>&lt;Form&gt;</code>'s action succeeds, the form is reset: uncontrolled fields go back to their defaults, and a controlled one shows what its prop holds.</li>
             <li>A server writes what the field shows first, its value, else its default, in the one place the markup has for it (an input's <code>value</code> and <code>checked</code> attributes, a textarea's text, the options' <code>selected</code>), so a form posted before any script runs submits it. Hydration then writes the declared defaults back.</li>
+            <li>A field the user changed before hydration ran keeps what they left in it, controlled or not, and its <code>input</code> and <code>change</code> events fire once hydration is done, so its handlers see the change. React 19 does the same. A controlled field's prop still counts as written: the binding's next write of another value replaces the user's change.</li>
+          </ul>
+
+          <h2 id="server-validation">Server validation, with and without JavaScript</h2>
+          <p>The dispatch of <code>useActionState(serverAction, initial)</code> as a <code>&lt;Form&gt;</code>'s action gives one edit form that works in both modes. The action is called as <code>savePost(previousState, fields)</code> and returns the error as a value; the fields' defaults come from the state:</p>
+
+<pre><code><span class="keyword">import</span> { useActionState } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+<span class="keyword">import</span> { Form, action } <span class="keyword">from</span> <span class="string">'what-framework/server'</span>;
+
+<span class="keyword">export const</span> savePost = <span class="function">action</span>(<span class="keyword">async</span> (previous, fields) =&gt; {
+  <span class="keyword">const</span> title = String(fields.title ?? <span class="string">''</span>).trim();
+  <span class="keyword">if</span> (title.length &lt; 3) <span class="keyword">return</span> { error: <span class="string">'Title needs three characters'</span>, fields: { title } };
+  <span class="keyword">await</span> db.posts.update({ title });
+  <span class="keyword">return</span> { saved: <span class="keyword">true</span>, fields: { title } };
+}, { id: <span class="string">'savePost'</span> });
+
+<span class="keyword">function</span> <span class="function">EditPost</span>({ post }) {
+  <span class="keyword">const</span> [state, save] = <span class="function">useActionState</span>(savePost, <span class="keyword">null</span>);
+  <span class="keyword">return</span> (
+    &lt;<span class="component">Form</span> <span class="attr">action</span>={save}&gt;
+      &lt;<span class="tag">input</span> <span class="attr">name</span>=<span class="string">"title"</span> <span class="attr">defaultValue</span>={() =&gt; state()?.fields?.title ?? post.title} /&gt;
+      {() =&gt; state()?.error &amp;&amp; &lt;<span class="tag">p</span> <span class="attr">role</span>=<span class="string">"alert"</span>&gt;{state().error}&lt;/<span class="tag">p</span>&gt;}
+      &lt;<span class="tag">button</span> <span class="attr">type</span>=<span class="string">"submit"</span>&gt;Save&lt;/<span class="tag">button</span>&gt;
+    &lt;/<span class="component">Form</span>&gt;
+  );
+}</code></pre>
+
+          <ul>
+            <li><strong>With JavaScript</strong> the result becomes <code>state</code>, then the form resets to the defaults that state gives: the typed title stays next to the error.</li>
+            <li><strong>Without JavaScript</strong> the form posts the state it holds; the endpoint runs the action, answers 303 back to the page, and carries the result in a one-time, HttpOnly cookie for that action (3 KB at most). The page's next render starts from it, outside the ISR cache, and clears it; hydration starts from it too. This path needs <code>createRequestHandler</code>, the full-stack starter's handler.</li>
+            <li>The state is the visitor's own data, which they can set to anything: show it, and trust it for nothing else. Keep it small: the errors and the fields typed.</li>
+            <li><code>&lt;Form action={serverAction} redirect="/x"&gt;</code> stays fire and redirect: without JavaScript what the action returns is not carried back.</li>
           </ul>
 
           <h2 id="use-form">useForm</h2>
@@ -511,6 +543,7 @@
           <div class="toc-title">On This Page</div>
           <ul class="toc-links">
             <li><a href="#field-props">Controlled and uncontrolled fields</a></li>
+            <li><a href="#server-validation">Server validation</a></li>
             <li><a href="#use-form">useForm</a></li>
             <li><a href="#use-form-returns" class="toc-h3">Return Value</a></li>
             <li><a href="#form-state" class="toc-h3">formState</a></li>

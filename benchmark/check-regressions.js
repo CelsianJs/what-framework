@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { DOM_TIMING, loadAverage } from './dom-gate.mjs';
+import { DOM_TIMING, domThreshold, loadAverage } from './dom-gate.mjs';
 import { compareInterleaved, referenceTree, runInterleaved } from './ab.mjs';
 
 const ROOT = process.cwd();
@@ -42,6 +42,8 @@ const dxTolerance = envNumber('WHAT_BENCH_TOLERANCE_DX', 0.05);
 // The 95th-percentile call's floor (ab.mjs MEASURES): the tail of a
 // microsecond operation moves more between runs than its middle does.
 const tailTolerance = envNumber('WHAT_BENCH_TOLERANCE_TAIL', 0.25);
+// The 99th-percentile call's floor: wide, for a call several times slower.
+const farTolerance = envNumber('WHAT_BENCH_TOLERANCE_P99', 0.6);
 const domTolerance = envNumber('WHAT_BENCH_TOLERANCE_DOM', 0.1);
 // Reference/current pairs per suite.
 const PAIRS = envNumber('WHAT_BENCH_PAIRS', 9, { integer: true, min: 3 });
@@ -160,7 +162,7 @@ function compareDomSet(currentPath) {
       failures.push(`dom: ${benchName} produced no measurement (${JSON.stringify(now.ms)} ms)`);
       continue;
     }
-    const maxAllowed = Math.max(base.ms * (1 + domTolerance), base.ms + domNoiseFloorMs);
+    const maxAllowed = domThreshold(base, domTolerance, domNoiseFloorMs);
     if (now.ms > maxAllowed) {
       const delta = (((now.ms - base.ms) / base.ms) * 100).toFixed(1);
       failures.push(`dom: ${benchName} regressed +${delta}% (${now.ms} ms > ${maxAllowed.toFixed(3)} ms threshold)`);
@@ -211,7 +213,7 @@ function runAB(referenceDir, tag) {
     const outDir = join(tmp, `${name}-${tag}`);
     mkdirSync(outDir);
     const { reference, current } = runInterleaved({ script, pairs: PAIRS, referenceDir, currentDir: ROOT, outDir });
-    const result = compareInterleaved(name, reference, current, tolerance, guard, tailTolerance);
+    const result = compareInterleaved(name, reference, current, tolerance, guard, tailTolerance, farTolerance);
     for (const row of result.rows) {
       console.log(row.note
         ? `  ${name}: ${row.op}: ${row.note}`

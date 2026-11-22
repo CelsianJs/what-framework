@@ -53,6 +53,9 @@ export {
   _$htemplate,
   _$claim,
   _$next,
+  // A hydratable template's claim of a form control, as a child and as its root.
+  _$control,
+  _$claimControl,
   _$skip,
   _$hole,
   _$exit,

@@ -169,6 +169,10 @@ export function _$hfield(parent: Node, cell: unknown, value: unknown, flag: numb
 export function _$htemplate(html: string, flag?: number): (() => Node) & { root(): Node };
 export function _$claim(template: (() => Node) & { root(): Node }, flags?: number): any;
 export function _$next(skip: number, flags?: number): any;
+/** @internal _$next for a form control: what the user changed in it before hydration stays. */
+export function _$control(skip: number, flags?: number): any;
+/** @internal _$claim for a template whose root is a form control. */
+export function _$claimControl(tmpl: any, flags?: number): any;
 export function _$skip(count: number): void;
 export function _$hole(parent: Node, value: unknown, flag: number, devName?: string): void;
 export function _$exit(): void;

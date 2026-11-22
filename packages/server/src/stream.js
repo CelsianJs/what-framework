@@ -84,7 +84,7 @@ import {
   __flushOutsideServerContext,
   isVNode,
 } from 'what-core/internal';
-import { childNamespace } from 'what-core/internal/markup-rules';
+import { childNamespace, stripAndCollapse } from 'what-core/internal/markup-rules';
 import { createRenderContext, ensureServerRuntime, resourcePayload, errorRecord } from './context.js';
 import { getIslandStoresSnapshot } from './islands.js';
 import { serializeState } from './serialize.js';
@@ -103,8 +103,12 @@ import {
   _plainText,
   assertSafeTag,
   renderAttrs,
-  _markSelected,
   _field,
+  _selectScope,
+  _optionSelected,
+  _optionValue,
+  _optionProps,
+  ElementParts,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -130,7 +134,8 @@ const SCOPE_END = 3; // a <Suspense> / <ErrorBoundary> subtree is finished
 const RETRY = 4;     // re-run a node that suspended
 const AWAITED = 5;   // the settled result of an async component
 const NS_END = 6;    // an element whose children sit in another namespace is finished
-const SELECT_END = 7; // a <select> with a value is finished: mark its options
+const SELECT_END = 7; // a <select> is finished: back to the select scope it was in
+const OPTION_END = 8; // an option whose text is its value is finished: mark it
 
 // A marker is an instance of this module's own class, never a shape: a child
 // can be any value a reactive child returns, JSON included, and a plain
@@ -241,10 +246,13 @@ class BoundaryFailure {
  * @property {string | null} ns      the namespace of the next item (enterNamespace)
  * @property {string | null} baseNs  the namespace the segment's content starts in
  * @property {string | null} key     the hydration key waiting for the next write (compiled.js)
+ * @property {any} select      the scope of the select whose options are being placed (html.js Options)
+ * @property {any} baseSelect  the select scope the segment's content starts in
+ * @property {any} option      the OPTION_END marker of the option collecting its text, or null
  */
 
 /** @returns {Segment} */
-function createSegment(r, parent, id, inheritedBoundary, ns, baseNs) {
+function createSegment(r, parent, id, inheritedBoundary, ns, baseNs, select = null) {
   return {
     r,
     id,
@@ -262,6 +270,9 @@ function createSegment(r, parent, id, inheritedBoundary, ns, baseNs) {
     ns,
     baseNs,
     key: null,
+    select,
+    baseSelect: select,
+    option: null,
   };
 }
 
@@ -310,8 +321,16 @@ function runSegment(seg) {
 function step(seg, node, owner) {
   if (node == null || node === false || node === true) return null;
   const type = typeof node;
-  if (type === 'string') { put(seg, escapeHtml(node)); return null; }
-  if (type === 'number') { put(seg, String(node)); return null; }
+  if (type === 'string') {
+    put(seg, escapeHtml(node));
+    if (seg.option !== null) seg.option.text += node;
+    return null;
+  }
+  if (type === 'number') {
+    put(seg, String(node));
+    if (seg.option !== null) seg.option.text += node;
+    return null;
+  }
   if (type === 'function') return stepFunction(seg, node, owner, 0);
   if (Array.isArray(node)) {
     put(seg, ARRAY_OPEN);
@@ -329,7 +348,8 @@ function step(seg, node, owner) {
         return null;
       case SCOPE_END: seg.scopes.pop(); return null;
       case NS_END: seg.ns = marker.ns; return null;
-      case SELECT_END: markSelectedIn(seg, marker); return null;
+      case SELECT_END: seg.select = marker.outer; return null;
+      case OPTION_END: finishOption(seg, marker); return null;
       case RETRY: return retry(seg, marker, owner);
       case AWAITED:
         if (marker.failed) throw marker.error;
@@ -337,6 +357,8 @@ function step(seg, node, owner) {
         return null;
     }
   }
+
+  if (node instanceof ElementParts) return stepElement(seg, node.tag, node.props, node.children, owner);
 
   // Compiled JSX (ssr-runtime.js, compiled.js): finished markup, or markup and
   // between it the thunks, vnodes and attributes rendered here in document
@@ -357,6 +379,7 @@ function step(seg, node, owner) {
 
   if (!isVNode(node)) {
     put(seg, _plainText(node));
+    if (seg.option !== null) seg.option.text += String(node);
     return null;
   }
 
@@ -374,6 +397,9 @@ function step(seg, node, owner) {
       bufStart: seg.buf.length,
       itemIndex: seg.items.length,
       ns: seg.ns,
+      select: seg.select,
+      found: seg.select !== null && seg.select.found,
+      option: seg.option,
     });
     push(seg, mark(CLOSE, { html: BOUNDARY_CLOSE }), owner);
     push(seg, mark(SCOPE_END), owner);
@@ -384,7 +410,12 @@ function step(seg, node, owner) {
   if (typeof tag === 'function') return stepComponent(seg, node, owner, 0);
 
   assertSafeTag(tag, node);
-  const props = node.props;
+  return stepElement(seg, tag, node.props, node.children, owner);
+}
+
+function stepElement(seg, tag, props, children, owner) {
+  const html = seg.ns === null;
+  if (tag === 'option' && html && seg.select !== null) return stepOption(seg, props, children, owner);
   const field = _field(tag, props);
   put(seg, `<${tag}${renderAttrs(field ? field.props : props || {})}>`);
   if (VOID_ELEMENTS.has(tag)) return null;
@@ -395,23 +426,57 @@ function step(seg, node, owner) {
   }
   seg.buf += _afterOpen(tag, seg.ns);
   if (_isTextContent(tag, seg.ns)) {
-    seg.buf += `${_rawText(tag, node.children, seg.ns, field)}</${tag}>`;
+    seg.buf += `${_rawText(tag, children, seg.ns, field)}</${tag}>`;
     return null;
   }
   enterNamespace(seg, childNamespace(seg.ns, tag, props && props.encoding), owner);
   push(seg, mark(CLOSE, { html: `</${tag}>` }), owner);
-  if (field && field.select) push(seg, mark(SELECT_END, { start: seg.buf.length, value: field.select.value }), owner);
-  pushChildren(seg, node.children, owner);
+  // A select carries its scope down to its options (html.js Options).
+  if (tag === 'select' && html) {
+    push(seg, mark(SELECT_END, { outer: seg.select }), owner);
+    seg.select = _selectScope(field);
+  }
+  pushChildren(seg, children || [], owner);
   return null;
 }
 
-// A finished <select>'s options, marked in the segment's output. Content a
-// boundary inside the select streams later is in another segment, and is
-// left as it is; so is everything when one did (its placeholder's offset
-// must not move).
-function markSelectedIn(seg, marker) {
-  if (seg.buf.length < marker.start || seg.detached.some((d) => d.at >= marker.start)) return;
-  seg.buf = seg.buf.slice(0, marker.start) + _markSelected(seg.buf.slice(marker.start), marker.value);
+// An option a select scope marks. With a value prop it is marked as it opens;
+// one whose text is its value collects the text its children write (step) and
+// is marked when they are done (finishOption).
+function stepOption(seg, props, children, owner) {
+  put(seg, `<option${renderAttrs(_optionProps(props || {}))}`);
+  const value = _optionValue(props);
+  const rawInner = _resolveInnerHTML(props);
+  if (value !== null) {
+    seg.buf += _optionSelected(seg.select, value) ? ' selected>' : '>';
+  } else {
+    seg.buf += '>';
+    const option = mark(OPTION_END, { at: seg.buf.length - 1, text: '', outer: seg.option });
+    seg.option = option;
+    push(seg, mark(CLOSE, { html: '</option>' }), owner);
+    push(seg, option, owner);
+    if (rawInner != null) seg.buf += String(rawInner);
+    else pushChildren(seg, children || [], owner);
+    return null;
+  }
+  if (rawInner != null) {
+    seg.buf += `${String(rawInner)}</option>`;
+    return null;
+  }
+  push(seg, mark(CLOSE, { html: '</option>' }), owner);
+  pushChildren(seg, children || [], owner);
+  return null;
+}
+
+// The mark goes into the open tag, before its `>`; what the segment recorded
+// past that point moves with the text after it.
+function finishOption(seg, option) {
+  seg.option = option.outer;
+  if (seg.select === null || !_optionSelected(seg.select, stripAndCollapse(option.text))) return;
+  const at = option.at;
+  seg.buf = seg.buf.slice(0, at) + ' selected' + seg.buf.slice(at);
+  for (const entry of seg.detached) if (entry.at > at) entry.at += 9;
+  for (const scope of seg.scopes) if (scope.bufStart > at) scope.bufStart += 9;
 }
 
 // The items pushed next sit in namespace `ns` (what-core's childNamespace); the
@@ -535,7 +600,15 @@ function unwindTo(seg, scope, index) {
   seg.buf = seg.buf.slice(0, scope.bufStart);
   seg.ns = scope.ns;
   seg.key = null;
+  leaveScope(seg, scope);
+  if (seg.select !== null) seg.select.found = scope.found;
   cancelDetachedFrom(seg, scope.bufStart);
+}
+
+// Back to the select and option a scope opened in.
+function leaveScope(seg, scope) {
+  seg.select = scope.select;
+  seg.option = scope.option;
 }
 
 // The fallback in place of an unwound boundary's content, opened by
@@ -583,7 +656,16 @@ function detach(seg, blocker) {
   const r = seg.r;
   const scope = seg.scopes[index];
   const id = `${r.idPrefix}${r.nextId++}`;
-  const boundary = createSegment(r, seg, id, enclosingErrorBoundary(seg, index), seg.ns, scope.ns);
+  // Its options decide their marks on a copy of the select scope it opened in
+  // (one it opens itself goes with it), which the fallback does not use up.
+  const base = scope.select === null ? null : { ...scope.select, found: scope.found };
+  const boundary = createSegment(r, seg, id, enclosingErrorBoundary(seg, index), seg.ns, scope.ns, base);
+  if (seg.select !== scope.select) boundary.select = seg.select;
+  // An option open inside it goes with it, its open tag now in its output.
+  if (seg.option !== scope.option) {
+    boundary.option = seg.option;
+    seg.option.at -= scope.bufStart;
+  }
   // The boundary's children move to the new segment; its closing marker stays
   // here, after the placeholder and the fallback.
   const first = scope.itemIndex + 2;
@@ -603,6 +685,8 @@ function detach(seg, blocker) {
   }
   seg.scopes.length = index;
   seg.ns = scope.ns;
+  leaveScope(seg, scope);
+  if (seg.select !== null) seg.select.found = scope.found;
   const keep = [];
   for (const entry of seg.detached) {
     if (entry.at >= scope.bufStart) {
@@ -649,6 +733,8 @@ function handleError(seg, error, node) {
     seg.buf = '';
     seg.key = null;
     seg.ns = seg.baseNs;
+    seg.select = seg.baseSelect;
+    seg.option = null;
     cancelDetachedFrom(seg, 0);
     report(r, error, 'boundary', seg.id);
     push(seg, _boundaryFallback(errorBoundary.vnode, error, (e) => report(r, e, 'boundary', seg.id)), errorBoundary.owner);
@@ -668,6 +754,8 @@ function handleError(seg, error, node) {
     if (marker.$m === CLOSE) put(seg, marker.html);
     else if (marker.$m === SCOPE_END) seg.scopes.pop();
     else if (marker.$m === NS_END) seg.ns = marker.ns;
+    else if (marker.$m === SELECT_END) seg.select = marker.outer;
+    else if (marker.$m === OPTION_END) finishOption(seg, marker);
     else if (marker.$m === END) {
       if (seg.key === marker.frame._ownerPath) seg.key = marker.outer;
       report(r, error, 'render', seg.id);

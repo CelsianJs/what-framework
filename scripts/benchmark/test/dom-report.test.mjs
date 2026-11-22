@@ -177,3 +177,14 @@ test('regression gate rejects frame-based baselines before running benchmarks', 
   assert.match(result.stderr, /Invalid script-only DOM baseline.*npm run bench:dom/);
   assert.doesNotMatch(result.stdout, /Building|round 1/);
 });
+
+test('the gate calls a guarded op regressed only past its tolerance, one clock tick and half its recorded spread', async () => {
+  const { domThreshold } = await import('../../../benchmark/dom-gate.mjs');
+  // Round 6: selectRow recorded at 0.085 ms over rounds 0.06 ms apart, measured at 0.100 ms with nothing changed.
+  const selectRow = { ms: 0.085, spread: 0.06 };
+  assert.ok(0.1 <= domThreshold(selectRow, 0.1, 0.005), 'the same code, one session later, passes');
+  assert.ok(0.13 > domThreshold(selectRow, 0.1, 0.005), 'half as slow again fails');
+  // A millisecond op keeps its tolerance: its spread is small beside it.
+  assert.equal(+domThreshold({ ms: 3.5, spread: 0.37 }, 0.1, 0.005).toFixed(3), 3.85);
+  assert.equal(+domThreshold({ ms: 0.05 }, 0.1, 0.005).toFixed(3), 0.055, 'a baseline without a spread keeps the tick and the tolerance');
+});

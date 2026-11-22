@@ -253,10 +253,81 @@ throws). The reset clears the uncontrolled fields; a controlled one (a `value`
 or `checked` prop) shows what its prop holds, as React 19 keeps a controlled
 input's state. A control named `reset` or `elements` does not stop it, and a
 reset that throws is the form's `form:error`. A server action receives the
-fields as an object; a client action (`useActionState`'s dispatch) receives
-the FormData. (`packages/server/test/actions-transition.test.js`, "<Form> on a
-mounted page" and "<Form> resets as React 19 resets a form";
-`packages/server/test/form.test.js`)
+fields as an object, and so does the dispatch of `useActionState(serverAction)`;
+the dispatch of a client function receives the FormData.
+(`packages/server/test/actions-transition.test.js`, "<Form> on a mounted page"
+and "<Form> resets as React 19 resets a form"; `packages/server/test/form.test.js`)
+
+`<Form action={serverAction} redirect="/x">` is fire and redirect: without
+JavaScript the endpoint answers 303 to `/x` and what the action returned is
+not carried back. For a form that shows what the server said (a validation
+error), use the edit-form pattern below.
+
+### An edit form with server validation
+
+One form that works with and without JavaScript: the dispatch of
+`useActionState(serverAction, initial)` as the form's action, and field
+defaults that come from the state.
+
+```jsx
+import { useActionState, useLoaderData } from 'what-framework';
+import { Form, action } from 'what-framework/server';
+
+export const savePost = action(async (previous, fields) => {
+  const title = String(fields.title ?? '').trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
+  const { updatePost } = await import('../db.js');
+  await updatePost(fields.slug, { title });
+  return { saved: true, fields: { title } };
+}, { id: 'savePost', revalidate: ['/'] });
+
+export default function EditPost() {
+  const { post } = useLoaderData();
+  const [state, save] = useActionState(savePost, null);
+  return (
+    <Form action={save}>
+      <input type="hidden" name="slug" value={post.slug} />
+      <label>
+        Title
+        <input name="title" defaultValue={() => state()?.fields?.title ?? post.title} />
+      </label>
+      {() => state()?.error && <p role="alert">{state().error}</p>}
+      {() => state()?.saved && <p role="status">Saved</p>}
+      <button type="submit">Save</button>
+    </Form>
+  );
+}
+```
+
+- The action is called as `savePost(previousState, fields)` in both modes, as
+  React's `useActionState(fn)` calls `fn`. Validation failure is a value it
+  returns, not a throw: a throw reaches the `<ErrorBoundary>` with JavaScript
+  and answers 500 without it.
+- **With JavaScript**, the dispatch posts the call to `/__what_action`, its
+  result becomes `state`, and then the form is reset to the defaults that
+  state gives: the title the visitor typed stays, next to the error.
+- **Without JavaScript**, the form posts to `/__what_action` with the state it
+  held (a hidden `_state` field). The endpoint runs the action, answers 303
+  back to the page that posted (`redirect` when the form has one), and carries
+  what the action returned in a cookie for that action: one-time, HttpOnly,
+  `SameSite=Lax`, a minute at most, 3 KB at most (a larger result is dropped
+  with `ERR_ACTION_STATE_TOO_LARGE`, and the page renders from `initial`). The
+  next render of the page starts that action's `useActionState` from it, and
+  its response clears the cookie. That render is the visitor's own: never
+  stored in the ISR cache, never served from it. Hydration starts from the
+  same state.
+- The state is the visitor's own data, and the visitor can set the cookie to
+  anything: render it (it is escaped like every value), never trust it for
+  anything else. The action gets `previousState` from the client too, with or
+  without JavaScript. Keep the state small and JSON: the errors and the fields
+  typed, not the saved record.
+- The no-JavaScript path needs `createRequestHandler` (the full-stack starter's
+  handler), which reads the cookie before the cache. A custom server that
+  renders with `renderDocument` passes the states itself:
+  `renderDocument(page, { ...ctx, actionStates })`, a `Map` of action id to
+  state.
+(`packages/server/test/action-state-form.test.js`; the full-stack scaffold's
+editor, `scripts/smoke-scaffold.mjs`)
 
 ### Call an action from a buildless page
 

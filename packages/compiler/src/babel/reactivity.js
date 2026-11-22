@@ -304,14 +304,27 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
     return expr.expressions.some(e => isPotentiallyReactive(e, signalNames, importedIds));
   }
 
+  // A tagged template is a call of its tag: reactive unless what it reaches
+  // is proven static (see callReads).
+  if (t.isTaggedTemplateExpression(expr)) {
+    return isPotentiallyReactive(expr.tag, signalNames, importedIds) ||
+           expr.quasi.expressions.some(e => isPotentiallyReactive(e, signalNames, importedIds)) ||
+           exprReads(expr, signalNames, importedIds);
+  }
+
+  // A spread runs code: an iterator (`[...model]`), getters (`{...model}`).
+  // An array or object literal with one is reactive unless what the spread
+  // reaches is proven static.
   if (t.isObjectExpression(expr)) {
     return expr.properties.some(prop =>
-      t.isObjectProperty(prop) && isPotentiallyReactive(prop.value, signalNames, importedIds)
-    );
+      t.isObjectProperty(prop) ? isPotentiallyReactive(prop.value, signalNames, importedIds) :
+      t.isSpreadElement(prop) && isPotentiallyReactive(prop.argument, signalNames, importedIds)
+    ) || (expr.properties.some(prop => t.isSpreadElement(prop)) && exprReads(expr, signalNames, importedIds));
   }
 
   if (t.isArrayExpression(expr)) {
-    return expr.elements.some(el => el && isPotentiallyReactive(el, signalNames, importedIds));
+    return expr.elements.some(el => el && isPotentiallyReactive(t.isSpreadElement(el) ? el.argument : el, signalNames, importedIds)) ||
+           (expr.elements.some(el => t.isSpreadElement(el)) && exprReads(expr, signalNames, importedIds));
   }
 
   if (t.isArrowFunctionExpression(expr) || t.isFunctionExpression(expr)) {
@@ -411,8 +424,13 @@ let decided = new WeakMap();
 function callReads(call, signalNames, importedIds) {
   const known = decided.get(call);
   if (known !== undefined) return known;
+  return exprReads(call, signalNames, importedIds);
+}
+
+// Whether evaluating `expr` may read a signal (the evaluation below).
+function exprReads(expr, signalNames, importedIds) {
   const ev = evaluation(null, null, U, signalNames.scope, importedIds);
-  evalExpr(call, ev);
+  evalExpr(expr, ev);
   return finish(ev);
 }
 

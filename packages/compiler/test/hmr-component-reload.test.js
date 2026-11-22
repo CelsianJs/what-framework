@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { createServer } from 'vite';
 import what from '../src/vite-plugin.js';
 
@@ -47,10 +47,7 @@ test('an installed component replacement hook is preserved', () => {
   assert.equal(updates[0][1], module);
 });
 
-const browserAvailable = existsSync(chromium.executablePath());
-if (!browserAvailable && process.env.WHAT_REQUIRE_BROWSER_TESTS === '1') {
-  throw new Error('WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is missing; run npx playwright install --with-deps chromium.');
-}
+const browserAvailable = await chromiumLaunches(chromium);
 
 test('editing an imported component updates the visible app without a manual refresh', {
   skip: !browserAvailable,
@@ -89,11 +86,21 @@ test('editing an imported component updates the visible app without a manual ref
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
     await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR baseline');
-    await writeFile(component, 'export default function Counter() { return <h1>HMR updated</h1>; }');
+    // A write the watcher makes before it has settled on the fixture is one it
+    // never reports (FSEvents on a loaded machine: round 6 saw the page
+    // connect and no change arrive), so the edit is written again until the
+    // watcher reports it; the page must then update.
+    const seen = new Promise((resolve) => server.watcher.on('change', (file) => { if (file === component) resolve(true); }));
+    let writes = 0;
+    while (writes < 20) {
+      writes++;
+      await writeFile(component, 'export default function Counter() { return <h1>HMR updated</h1>; }');
+      if (await Promise.race([seen, new Promise((resolve) => setTimeout(resolve, 500, false))])) break;
+    }
     try {
       await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR updated', null, { timeout: 15_000 });
     } catch (error) {
-      assert.fail(`${error.message}\nHMR events: ${JSON.stringify(updates)}\nPage errors: ${JSON.stringify(errors)}`);
+      assert.fail(`${error.message}\nWrites until the watcher reported one: ${writes}\nHMR events: ${JSON.stringify(updates)}\nPage errors: ${JSON.stringify(errors)}`);
     }
     assert.deepEqual(errors, []);
   } finally {

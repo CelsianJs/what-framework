@@ -191,6 +191,8 @@ export function _ownerCounter(frame: unknown, root: unknown): { _ownerChildren?:
 export function _currentOwnerPath(): string | undefined;
 /** @internal Used by what-server. The hydration data merged from the page's data elements, or null. */
 export function __readHydrationData(): Record<string, any> | null;
+/** Whether a hydrate() walk is claiming the server's DOM now (what-framework/render's isHydrating). */
+export function isHydrating(): boolean;
 /**
  * Whether `value` is a vnode made by h(), the JSX runtime or a boundary: the
  * private brand those producers give it, which JSON, structuredClone and

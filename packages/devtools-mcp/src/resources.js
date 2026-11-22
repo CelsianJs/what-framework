@@ -248,7 +248,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Todos /></Suspense>, '#app');
 - \`useClickOutside(ref, fn)\`: detect outside clicks
 
 ## Errors and diagnostics (agent-first)
-- \`getErrorDefinition(code)\`: the catalogue entry for a code, with template, suggestion and example
+- \`getErrorDefinition(code)\`: the catalogue entry for a code: template, suggestion and example in development; code, severity and template in the production build (\`what_fix\` and docs/ERRORS.md carry the full entry)
 - \`WhatError\`: the structured error class
 - \`getDiagnostics({ since })\`: coded diagnostics the runtime reported in development (cursor read: pass the returned \`seq\` back)
 - \`subscribeDiagnostics(fn)\` / \`clearDiagnostics()\`

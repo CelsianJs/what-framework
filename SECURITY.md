@@ -27,11 +27,24 @@ so "0.15.x" applies across the whole `what-*` / `create-what` / `eslint-plugin-w
 The Host header is client input: a sender chooses it, and a proxy may forward it as it came. The
 Node entry points (`toNodeListener`, `whatMiddleware`, `nodeActionMiddleware`) accept a Host only as
 a host (a DNS name or IPv4 address, or a bracketed IPv6 literal, with an optional port) and answer
-400 to anything else (a path, a query, a backslash, userinfo), and the path What routes on always
-comes from the request target, never from the Host. A cached (ISR) page is keyed on the request's
-origin as well as its path, so a Host one sender chose never reaches another host's visitors. Still
+400 to anything else (a path, a query, a backslash, userinfo). Over HTTP/2 the host is `:authority`
+when the request sends no Host, validated the same way. The path What routes on comes from the
+request target, never from the Host, and it is the target's own path: a target whose path holds a
+dot segment (`/public/../admin`, or percent-encoded, `%2e%2e`, `.%2E`) or a backslash is answered
+400, because URL parsing would resolve it to a path a server in front (an Express route, a proxy
+ACL) never routed. Browsers never send one. This holds at the Node entry points
+(`toNodeListener`, `whatMiddleware`, `nodeActionMiddleware`) and `what dev`/`what preview`; a Fetch
+entry (`fetchActionHandler`, the Vercel, Cloudflare and Vura adapters) receives a URL its platform
+already parsed, so the platform's routing is the one a guard has to agree with there. A cached
+(ISR) page is keyed on the request's origin as well as its path, so a Host one sender chose never
+reaches another host's visitors; a regeneration with no request renders a path's default entry
+from no visitor's request, and refreshes at most 16 stored origins of a path at a time. Still
 allowlist the hosts your proxy forwards: a page that builds absolute URLs from `request.url` (a
 canonical link, a fetch to the app's own API) builds them on the host the request named.
+
+`what dev` answers only a Host that is localhost (or `*.localhost`), an IP address, its `--host`
+or a name in `allowedHosts`, so a page that rebinds its own domain to the developer's machine
+cannot read the dev sources (403).
 
 ## Server actions
 
@@ -41,6 +54,27 @@ the double-submit token) stops another site from posting in a visitor's name; it
 client from calling an action itself. Authorize the caller and validate the arguments inside the
 action: the built-in endpoints run each call with `getRequest()` returning its request (cookies,
 headers), and with a query cache of its own.
+
+### The state a form posted without JavaScript
+
+A `<Form>` whose action is the dispatch of `useActionState(serverAction)` posts the state it holds
+(`_state`, JSON) and gets the action's result back on the next render of the page in a cookie. What
+holds, and what does not:
+
+- The cookie is the action's own (`what-as-` and the action id in hex), `HttpOnly`,
+  `SameSite=Lax`, `Path=/`, `Max-Age=60`, `Secure` over HTTPS and in production, and at most
+  3 KB; a larger result is not sent (`ERR_ACTION_STATE_TOO_LARGE`). The endpoint sets it only on
+  the 303 of a post that passed the CSRF checks and an action that returned.
+- `createRequestHandler` reads it before the ISR cache: a request that carries one is rendered for
+  its visitor alone, never stored and never served from the cache, and its response clears every
+  state cookie it carried (`Max-Age=0`) and is `private, no-store`. A cookie that does not parse
+  is cleared and ignored.
+- The state, posted or in the cookie, is client data: the visitor can set it to anything, and a
+  script on a sibling subdomain can set the cookie. A render shows it escaped like any value. Never
+  authorize, look up or write anything from it; the action validates `previousState` as it
+  validates its other arguments.
+- `HttpOnly` keeps the page's scripts from reading the result; it does not make it secret from the
+  visitor, whose own data it is. Do not return another user's data, or a token, in it.
 
 ## Hydration
 

@@ -30,7 +30,7 @@
 // is the renderer's copy's: what it creates goes to a root of its own for that
 // render, which the render's release disposes too (renderOwner below).
 
-import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed } from './reactive.js';
+import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed, _serverStoreKey as STORE } from './reactive.js';
 import { _installServerSeeding } from './hydration-data.js';
 
 // The process's render context, its async context provider and whether it is
@@ -40,21 +40,45 @@ import { _installServerSeeding } from './hydration-data.js';
 // a server of another renders still reads that render's context (its
 // response, its loader data). Keyed by Symbol.for, so one realm has one; the
 // key names the store's shape (`.v1`), so a copy that keeps another shape
-// keeps another store.
-const STORE = Symbol.for('what.serverContext.v1');
+// keeps another store (STORE, reactive.js _serverStoreKey).
 /** @typedef {{ getStore: () => any, run: (store: any, fn: () => any) => any }} AsyncStorage */
-/** @type {{ current: any, storage: AsyncStorage | null, frames: AsyncStorage | null, server: boolean, withDocument: boolean, adopt: typeof adopt } | null} */
+/** @type {{ current: any, storage: AsyncStorage | null, frames: AsyncStorage | null, server: boolean, withDocument: boolean, adopt?: typeof adopt, refuse?: typeof refuse } | null} */
 let shared = null;
 // Made on first use, so importing the module writes no global. On first use
 // this copy's engine also starts asking the active render for the root that
 // holds what it creates with no owner current (renderOwner).
 function store() {
   if (shared === null) _setOwnerFallback(renderOwner);
-  return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, frames: null, server: false, withDocument: false, adopt };
+  return shared ??= /** @type {any} */ (globalThis)[STORE] ??= { current: null, storage: null, frames: null, server: false, withDocument: false };
+}
+
+// What only a server render needs, installed by what can start one
+// (__installServerContextStorage, setServerContext, runWithServerContext), so
+// a browser bundle carries none of it: the server store seeding
+// (hydration-data.js), and on the store what another copy of the engine
+// takes from a render it never joined (adopt, refuse). Returns the store.
+function serving() {
+  _installServerSeeding();
+  const state = store();
+  state.adopt = adopt;
+  state.refuse = refuse;
+  return state;
+}
+
+// What a copy of the engine that never joined the render throws when it
+// makes an async value in one (hydration-data.js _seedFor): that copy never
+// reaches the render's resources, so the value would start over on every
+// retry of the render and never reach the client. Said, not guessed.
+function refuse() {
+  if (getServerContext() != null) {
+    // ERROR_CODES.FOREIGN_ENGINE_IN_SSR
+    throw Object.assign(new Error('[what] An async value was made by a second copy of what-core during a server render. Bundle one copy of what-framework.'), { code: 'ERR_FOREIGN_ENGINE_IN_SSR' });
+  }
 }
 
 // What a copy of the engine that never reached this module takes as its owner
-// lookup (reactive.js ownerNow): the active render's root for that copy.
+// lookup (reactive.js ownerNow), from the store of a render that started: the
+// active render's root for that copy.
 function adopt(setFallback, engine) {
   setFallback(() => {
     const ctx = getServerContext();
@@ -92,12 +116,11 @@ let installed = false;
 export function __installServerContextStorage(storage, frames) {
   if (installed) return;
   installed = true;
-  const state = store();
+  const state = serving();
   if (state.storage === null) {
     state.storage = storage;
     state.frames = frames ?? null;
   }
-  _installServerSeeding();
 }
 
 /**
@@ -157,8 +180,7 @@ export function isServerRender() {
  * manually (runWithServerContext does this for you).
  */
 export function setServerContext(ctx) {
-  _installServerSeeding();
-  const state = store();
+  const state = serving();
   const prev = state.current;
   state.current = ctx;
   return prev;
@@ -171,8 +193,7 @@ export function setServerContext(ctx) {
  * provider is installed.
  */
 export function runWithServerContext(ctx, fn) {
-  _installServerSeeding();
-  const state = store();
+  const state = serving();
   const prev = state.current;
   state.current = ctx;
   const run = ctx && ctx.owner ? () => runWithOwner(ctx.owner, fn) : fn;

@@ -121,17 +121,18 @@ export function useLocalStorage(key, initial) {
 }
 
 // --- portal ---
-// Render children into a different DOM container. Compiled children arrive
+// Render children into a different DOM container: `target`, an element or a
+// selector, document.body when there is none. Compiled children arrive
 // unbuilt (`_deferChildren`, see dom.js _installLazyChildren) and are built in
 // the container: while hydrating, children built where the portal is placed
-// would claim the server's nodes there.
+// would claim the server's nodes there. The server renders nothing for it.
 export const Portal = /* @__PURE__ */ Object.assign(function Portal({ target, children }) {
-  // In SSR, just return null (portals are client-only)
   if (typeof document === 'undefined') return null;
-  const container = typeof target === 'string'
-    ? document.querySelector(target)
-    : target;
-  if (!container) return null;
+  const container = typeof target === 'string' ? document.querySelector(target) : target ?? document.body;
+  if (!container) {
+    if (__DEV__ && typeof target === 'string') report('ERR_PORTAL_TARGET_MISSING', { data: { selector: target } });
+    return null;
+  }
   // The DOM reconciler will mount children here
   return _vnode('__portal', { container, mount: createPortalDOM }, Array.isArray(children) ? children : [children]);
 }, { _deferChildren: true });

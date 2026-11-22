@@ -11,7 +11,12 @@
 // `action` is a server action (what action() returns, or its id) or a client
 // function such as the dispatch of useActionState. Without JavaScript the
 // browser posts to the action endpoint (a server action) or to the
-// dispatch's permalink, and the endpoint answers 303 to `redirect`. Mounted,
+// dispatch's permalink, and the endpoint answers 303 to `redirect`. The
+// dispatch of useActionState(serverAction, initial) posts to the endpoint too,
+// with the state it holds: the endpoint runs serverAction(state, fields),
+// answers 303 back to the page (`redirect`, else the page that posted), and
+// the page renders again from the state the action returned
+// (action-handler.js carries it). Mounted,
 // the form handles its own submit: it runs the action with the form's data as
 // a transition, the status useFormStatus() reads inside it shows the
 // submission, and the form is reset when that transition commits, if the
@@ -26,14 +31,14 @@
 // it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
-import { _formStatusContext, _formStatus, _resetForm } from 'what-core/internal';
+import { _formStatusContext, _formStatus, _resetForm, isHydrating } from 'what-core/internal';
 import { _callAction } from './actions.js';
 import { addField } from './fields.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
 
 // Fields the endpoint reads itself; an enhanced submit does not pass them on.
-const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect']);
+const RESERVED = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state']);
 
 // The action id lives on the callable wrapper that action() returns. Accepting
 // the function itself is the point: passing the id as a string means keeping two
@@ -79,7 +84,10 @@ export function Form({
   ...rest
 }) {
   const actionId = serverActionId(action);
-  const token = csrfToken !== undefined ? csrfToken : readClientCsrfToken();
+  // A hydration adopts the fields the server rendered, which carry only the
+  // token it was handed: the page's own token is a field the server never
+  // wrote. A mounted form submits through the action client, which sends it.
+  const token = csrfToken !== undefined ? csrfToken : isHydrating() ? null : readClientCsrfToken();
   const status = _formStatus(method, action);
 
   const hidden = [];
@@ -87,6 +95,9 @@ export function Form({
     hidden.push(h('input', { type: 'hidden', name: '_action', value: actionId }));
     if (token) hidden.push(h('input', { type: 'hidden', name: 'what-csrf-token', value: token }));
     if (redirect) hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect }));
+    if (typeof action === 'function' && action._state) {
+      hidden.push(h('input', { type: 'hidden', name: '_state', value: JSON.stringify(action._state()) ?? 'null' }));
+    }
   }
 
   /** @type {Record<string, any>} */

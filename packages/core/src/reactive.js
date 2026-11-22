@@ -3049,18 +3049,12 @@ function ownerNow() {
   // A copy of this module that never touched the server store (a library
   // bundled with its own engine, rendered by another copy's server) takes
   // the lookup the store hands out (server-context.js `adopt`).
-  if (!fallbackSet) /** @type {any} */ (globalThis)[SERVER_STORE]?.adopt?.(_setOwnerFallback, _engine);
+  if (!fallbackSet) /** @type {any} */ (globalThis)[_serverStoreKey]?.adopt?.(_setOwnerFallback, _engine);
   return ownerFallback === null ? null : ownerFallback();
 }
 
-// The server render store every copy of what-core shares (server-context.js).
-const SERVER_STORE = Symbol.for('what.serverContext.v1');
-
-/** @internal Whether a server render is active, whichever copy of what-core runs it. */
-export function _inServerRender() {
-  const server = /** @type {any} */ (globalThis)[SERVER_STORE];
-  return server != null && (server.current != null || (server.storage !== null && server.storage.getStore() != null));
-}
+/** @internal The key of the server render store every copy of what-core shares (server-context.js). */
+export const _serverStoreKey = Symbol.for('what.serverContext.v1');
 
 /** @internal Run `fn` with no owner current, and none supplied by the fallback. */
 export function _detached(fn) {

@@ -212,8 +212,15 @@ export interface RevalidateOptions {
 }
 export interface CacheEngine {
   handle(routeMatch: RouteMatch, renderOverride?: RenderFn): Promise<ServeResult>;
-  /** Render and re-store one route now. What the poll scheduler calls per tick. */
-  regenerate(routeMatch: RouteMatch): Promise<CacheEntry>;
+  /**
+   * Render and re-store one route now. What the poll scheduler calls per tick.
+   * A match with a `request` refreshes that request's origin's entry. One with
+   * none refreshes every origin's entry stored for its path and query (at most
+   * 16, the most recently used), each from a GET request at that origin, or,
+   * with none stored, the path's default entry, which a request whose origin
+   * has no entry of its own is served. Resolves with the first entry, or null.
+   */
+  regenerate(routeMatch: RouteMatch): Promise<CacheEntry | null>;
   /** Both purges resolve to the cache keys they deleted, not to void. */
   revalidatePath(path: string, options?: RevalidateOptions): Promise<string[]>;
   revalidateTag(tag: string, options?: RevalidateOptions): Promise<string[]>;
@@ -227,6 +234,8 @@ export function createCacheEngine(options?: {
   cdn?: CDNAdapter;
   now?: () => number;
   logger?: Pick<Console, 'error' | 'warn' | 'log'>;
+  /** The public origin a default entry (a regeneration with no request and nothing stored) is rendered at. Default http://localhost. */
+  origin?: string;
 }): CacheEngine;
 
 // --- Revalidation webhook ---

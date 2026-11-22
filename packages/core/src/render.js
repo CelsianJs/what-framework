@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _keepSelection, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _handleNavigationSignal } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -445,6 +445,18 @@ export function svgTemplate(html) {
 // `devName` is the compiler's development name for the binding,
 // "li.children@src/App.jsx:15:11".
 
+// What has a select a value controls select its options again when a region
+// or list changes the children of `parent` (dom.js _optionsChanged): installed
+// by the field code once a value controls a select, so a program without one
+// carries none of it.
+/** @type {((parent: Node) => void) | null} */
+let optionsChanged = null;
+
+/** @internal */
+export function _installOptionsChanged(fn) {
+  optionsChanged = fn;
+}
+
 export function insert(parent, child, marker, devName) {
   const type = typeof child;
   if (type === 'string' || type === 'number') {
@@ -577,6 +589,7 @@ export function _region(fn, isSvg) {
     removeRegionNodes(host, current);
     current = valuesToNodes(val, host, [], isSvg);
     for (let i = 0; i < current.length; i++) host.insertBefore(current[i], endMarker);
+    if (optionsChanged !== null) optionsChanged(host);
   });
   // Everything between the markers is replaced on every run, so an OUTER
   // region that embeds this one removes the live range rather than trusting a
@@ -726,13 +739,19 @@ function createVNodeRows(isSvg, scope, end = document.createComment('/list'), ro
       });
       for (const same of byKey.values()) same.forEach(drop);
       stale.forEach(drop);
-      let ref = end;
-      for (let i = next.length - 1; i >= 0; i--) {
-        const row = next[i];
-        if (row.last.nextSibling !== ref) eachRowNode(row, (n) => host.insertBefore(n, ref));
-        ref = row.first;
+      // The first rows go in in document order (see reconcileNodes).
+      if (rows.length === 0) {
+        for (const row of next) eachRowNode(row, (n) => host.insertBefore(n, end));
+      } else {
+        let ref = end;
+        for (let i = next.length - 1; i >= 0; i--) {
+          const row = next[i];
+          if (row.last.nextSibling !== ref) eachRowNode(row, (n) => host.insertBefore(n, ref));
+          ref = row.first;
+        }
       }
       rows = next;
+      if (optionsChanged !== null) optionsChanged(host);
     },
     // The region's value is no longer a keyed list: drop the rows and their end.
     remove() {
@@ -816,6 +835,12 @@ function sameNodeArray(a, b) {
 }
 
 function reconcileInsert(parent, value, current, marker) {
+  const nodes = reconcileNodes(parent, value, current, marker);
+  if (optionsChanged !== null && nodes !== current) optionsChanged(parent);
+  return nodes;
+}
+
+function reconcileNodes(parent, value, current, marker) {
   // Guard: parent must be a node that supports child operations.
   // This catches cases where a stale DOM reference (e.g., a comment node from
   // shifted childNodes indices) is mistakenly passed as the parent.
@@ -894,16 +919,26 @@ function reconcileInsert(parent, value, current, marker) {
     if (!found) parent.removeChild(oldNode);
   }
 
-  let ref = targetMarker;
-  for (let i = newNodes.length - 1; i >= 0; i--) {
-    const node = newNodes[i];
-    if (node.parentNode !== parent || node.nextSibling !== ref) {
-      // Guard against stale ref from nested reconciliation
-      if (ref && ref.parentNode !== parent) ref = null;
-      if (ref) parent.insertBefore(node, ref);
-      else parent.appendChild(node);
+  // Nodes none of which is in place yet go in in document order, as a parser
+  // would put them: a single select that gains options selects as it would
+  // if they had been there (the first, or the last one marked selected).
+  let fresh = true;
+  for (let i = 0; i < newLen && fresh; i++) fresh = newNodes[i].parentNode !== parent;
+  if (fresh) {
+    const at = targetMarker !== null && targetMarker.parentNode === parent ? targetMarker : null;
+    for (let i = 0; i < newLen; i++) parent.insertBefore(newNodes[i], at);
+  } else {
+    let ref = targetMarker;
+    for (let i = newNodes.length - 1; i >= 0; i--) {
+      const node = newNodes[i];
+      if (node.parentNode !== parent || node.nextSibling !== ref) {
+        // Guard against stale ref from nested reconciliation
+        if (ref && ref.parentNode !== parent) ref = null;
+        if (ref) parent.insertBefore(node, ref);
+        else parent.appendChild(node);
+      }
+      ref = node;
     }
-    ref = node;
   }
 
   if (newNodes.length === 0) return null;
@@ -992,7 +1027,9 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
       // Resolve the LIVE parent from the end marker each run: a list built into
       // a fragment (`<>{items().map(...)}</>`) moves with that fragment, and the
       // captured `parent` goes stale.
-      reconcileKeyed(endMarker.parentNode || parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+      const host = endMarker.parentNode || parent;
+      reconcileKeyed(host, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+      if (optionsChanged !== null) optionsChanged(host);
       // Snapshot for the next diff, defended against in-place mutation.
       items = newItems.length > 0 ? newItems.slice() : newItems;
     });
@@ -1681,9 +1718,7 @@ export function spread(el, props) {
       // Reactive prop: an effect of its own, owned like every binding.
       if (key === 'class' || key === 'className') {
         effect(() => { _writeClass(el, value(), _hasSVGElement && el instanceof SVGElement); });
-      } else if (key === 'style' && typeof value() === 'object') {
-        // Route through setStyle so stale object keys are cleared between
-        // re-evaluations (el._lastStyleObj diffing).
+      } else if (key === 'style') {
         effect(() => { setStyle(el, value()); });
       } else {
         effect(() => { setProp(el, key, value()); });
@@ -1761,7 +1796,6 @@ export function setProp(el, key, value) {
       report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
     }
   } else if (key === 'style') {
-    // Delegate to setStyle so the object form clears stale keys (el._lastStyleObj).
     setStyle(el, value);
   } else if (_setFieldProp(el, key, value)) {
     // A form field's state, before the nullish and boolean branches (dom.js
@@ -1928,33 +1962,29 @@ export function applyRef(ref, el) {
   return ref;
 }
 
-// style — string (cssText) or object form.
+// style: a string is the element's whole inline style (cssText), and so is
+// an object, written property by property: the first object replaces what
+// the element had (a string's declarations, the server's), a later one
+// clears the properties the previous one set and it does not. Anything else
+// (null, undefined, false) clears the inline style. Every path writes it
+// here: h() and runtime setProp (dom.js), compiled JSX, spreads, hydration.
 export function setStyle(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setStyle);
-  if (typeof value === 'string') {
-    el.style.cssText = value;
-    // cssText fully replaces inline styles — drop any tracked object so a later
-    // object form starts clean rather than diffing against stale keys.
-    el._lastStyleObj = null;
-  } else if (value && typeof value === 'object') {
+  const prev = el._lastStyleObj;
+  if (value !== null && typeof value === 'object') {
     const style = el.style;
-    // Clear properties present in the previously-applied object but absent from
-    // the new one. Without this, `style={() => cond() ? {color, fontWeight} :
-    // {color}}` would leave fontWeight set after flipping to the second object.
-    const prev = el._lastStyleObj;
-    if (prev) {
-      for (const prop in prev) {
-        if (!(prop in value)) style[prop] = '';
-      }
+    if (prev != null) {
+      for (const prop in prev) if (!(prop in value)) style[prop] = '';
+    } else if (el.hasAttribute('style')) {
+      el.removeAttribute('style');
     }
-    for (const prop in value) {
-      style[prop] = value[prop] ?? '';
-    }
-    el._lastStyleObj = value;
-  } else if (value == null) {
-    el.style.cssText = '';
-    el._lastStyleObj = null;
+    for (const prop in value) style[prop] = value[prop] ?? '';
+    el._lastStyleObj = { ...value };
+    return;
   }
+  el._lastStyleObj = null;
+  if (typeof value === 'string') el.style.cssText = value;
+  else if (el.hasAttribute('style')) el.removeAttribute('style');
 }
 
 // Plain attribute set — used for data-*/aria-* (statically recognizable).
@@ -2256,7 +2286,56 @@ function newSession(container, onError, ownerRoot) {
     dropping: [],
     ownerRoot,
     ordered: true,
+    // The fields the user changed before the walk claimed them, and what
+    // runs once it is done (dom.js: What the user changed before hydration).
+    fields: [],
+    radios: new WeakSet(),
+    after: [],
   };
+}
+
+// The walk `walk` is done: what waited for it runs, then the fields the user
+// changed show what they showed.
+function walkDone(walk) {
+  for (const fn of walk.after) fn();
+  if (walk.fields.length > 0) /** @type {Function} */ (restoreFields)(walk.fields);
+}
+
+// What the user changed before hydration is kept for the form controls a walk
+// claims, before the claim or the props write anything: compiled JSX claims
+// one with _$control (_$claimControl for a template's root), and a vnode's
+// element claim keeps one (adoptVNode). (dom.js: What the user changed
+// before hydration.)
+/** @type {((fields: any[]) => void) | null} */
+let restoreFields = null;
+
+/** The server's form control `el`, which the walking hydration claims: what the user changed in it stays. */
+function _keepControl(el) {
+  restoreFields = _restoreFields;
+  _changedFields(el, session.fields, session.radios);
+}
+
+// The server's element at the cursor, when it is the form control about to be claimed.
+function keepControlAt(c) {
+  const n = next(c);
+  if (n !== null && n.nodeType === 1) _keepControl(n);
+}
+
+/** _$next for a form control (what the user changed in it stays). */
+export function _$control(k, flags) {
+  const c = cur;
+  if (c !== null && c.h) {
+    while (k-- > 0) stepStatic(c);
+    k = 0;
+    keepControlAt(c);
+  }
+  return _$next(k, flags);
+}
+
+/** _$claim for a template whose root is a form control. */
+export function _$claimControl(tmpl, flags) {
+  if (cur !== null && cur.h) keepControlAt(cur);
+  return _$claim(tmpl, flags);
 }
 // The owner path of the component whose output has not written its first node
 // yet: the server put it on that node if it is an element.
@@ -2268,6 +2347,13 @@ const CLIENT = { h: false };
 
 export function isHydrating() {
   return cur !== null && cur.h;
+}
+
+/** @internal Run `fn` when the hydration walking now is done; false when none is. */
+export function _afterWalk(fn) {
+  if (cur === null || !cur.h || session === null) return false;
+  session.after.push(fn);
+  return true;
 }
 
 /**
@@ -2307,7 +2393,7 @@ export function hydrate(tree, container, options) {
     unmount = _trackRoot(container, dispose);
     const saved = { cur, depth: outer.length, session, pendingKey };
     if (__DEV__ && __devtools?.onRecord) /** @type {any} */ (saved).devNodes = devHydrationNodes(container);
-    session = newSession(container, (options && options.onHydrationError) || null, _hydrationRoot(container));
+    const walk = (session = newSession(container, (options && options.onHydrationError) || null, _hydrationRoot(container)));
     // The server counts useId from 1 for every render; the client restarts so
     // `for` and `aria-labelledby` keep pointing at the ids the server wrote.
     __resetIdCounter();
@@ -2331,6 +2417,7 @@ export function hydrate(tree, container, options) {
         if (saved.depth === 0) releaseCursors();
       }
     });
+    walkDone(walk);
     _adoptDetached(container.childNodes);
     if (__DEV__ && /** @type {any} */ (saved).devNodes) devHydrationComplete(container, /** @type {any} */ (saved).devNodes);
   });
@@ -2710,7 +2797,7 @@ function keepTemplateAttrs(el, t) {
   for (let i = 0; i < want.length; i += 3) {
     if (el.getAttribute(want[i]) !== want[i + 1]) el.setAttributeNS(want[i + 2], want[i], want[i + 1]);
   }
-  if (el.localName === 'option') _keepSelection(el);
+  if (_selectionKeeper !== null && el.localName === 'option') _selectionKeeper(el);
 }
 
 // A template node's attributes as [name, value, namespace, ...], read from
@@ -2769,7 +2856,7 @@ function dropUnrendered(el, props, fold, names) {
     }
     if (!rendered) el.removeAttribute(name);
   }
-  if (el.localName === 'option') _keepSelection(el);
+  if (_selectionKeeper !== null && el.localName === 'option') _selectionKeeper(el);
 }
 
 // A reactive prop whose attribute the server wrote: the attribute stands
@@ -2934,6 +3021,7 @@ function adoptVNode(vnode) {
     recover(c, clientBuild(vnodeRenderer, vnode, c.p, isSvgParent(c.p)), `<${tag}>`);
     return;
   }
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') _keepControl(el);
   const props = vnode.props || {};
   hydrateElementProps(el, props);
   const html = props.dangerouslySetInnerHTML ?? props.innerHTML;
@@ -3424,7 +3512,9 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent]) {
         held = false;
         while (start.nextSibling !== null && start.nextSibling !== endMarker) start.nextSibling.remove();
       }
-      reconcileKeyed(endMarker.parentNode || parent, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+      const host = endMarker.parentNode || parent;
+      reconcileKeyed(host, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+      if (optionsChanged !== null) optionsChanged(host);
     }
     items = newItems.length > 0 ? newItems.slice() : newItems;
   });
@@ -3917,6 +4007,7 @@ function resumeIn(walk, start, end, fn) {
       if (saved.depth === 0) releaseCursors();
     }
   });
+  walkDone(walk);
 }
 
 /**

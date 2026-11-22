@@ -9,11 +9,12 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import what from 'what-compiler/vite';
 import devtoolsPlugin from '../src/vite-plugin.js';
 import { createBridge } from '../src/bridge.js';
@@ -27,15 +28,7 @@ const REPO = resolve(here, '../../..');
 // Skip gracefully when the Playwright browser isn't installed. The release
 // gate sets WHAT_REQUIRE_BROWSER_TESTS=1 so a missing browser fails instead of
 // silently shipping the bridge unverified.
-let browserAvailable = false;
-try {
-  browserAvailable = existsSync(chromium.executablePath());
-} catch {
-  browserAvailable = false;
-}
-if (process.env.WHAT_REQUIRE_BROWSER_TESTS === '1' && !browserAvailable) {
-  throw new Error('WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is not installed. Run `npx playwright install --with-deps chromium` before this suite.');
-}
+const browserAvailable = await chromiumLaunches(chromium);
 const e2eDescribe = browserAvailable ? describe : describe.skip;
 if (!browserAvailable) console.warn('[what] Skipping devtools-mcp e2e: Chromium not installed (run `npx playwright install chromium`).');
 

@@ -161,10 +161,93 @@ function targetOrigin(headers, url) {
 // Reserved form fields consumed by the framework (not passed to the action).
 // `what-csrf-token` is an alias for `_csrf` matching the <meta name="what-csrf-token">
 // tag SSR pages embed, so templates can reuse one name for both surfaces.
-const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect']);
+const RESERVED_FORM_FIELDS = new Set(['_action', 'data-action', '_csrf', 'what-csrf-token', '_redirect', '_state']);
+
+// --- The state of a form posted without JavaScript ---
+//
+// A <Form> whose action is the dispatch of useActionState(serverAction)
+// posts `_state`, the state the page rendered it with (JSON). The endpoint
+// runs serverAction(state, fields), as React's useActionState(fn) calls fn,
+// and carries what the action returned to the next render of the page in a
+// cookie of that action's own: one-time (the render that reads it clears it,
+// and it lasts a minute), HttpOnly, SameSite=Lax, at most STATE_LIMIT bytes.
+// What comes back in it is the visitor's own data, and a visitor can set the
+// cookie to anything: a render shows it, escaped like any value, and must
+// trust it for nothing else. adapter/core.js reads it (readActionStates).
+export const STATE_LIMIT = 3072;
+const STATE_COOKIE = 'what-as-';
+const STATE_MAX_AGE = 60;
+
+// An action id as a cookie name: its UTF-8 bytes in hex, so any id is a token.
+function stateCookieName(id) {
+  let hex = '';
+  for (const byte of new TextEncoder().encode(id)) hex += byte.toString(16).padStart(2, '0');
+  return STATE_COOKIE + hex;
+}
+
+function stateCookie(id, value, secure) {
+  return `${stateCookieName(id)}=${value}; Path=/; Max-Age=${STATE_MAX_AGE}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
+
+/**
+ * The states a request's Cookie header carries back, by action id, and the
+ * Set-Cookie values that clear each: { states: Map, clear: string[] }, or
+ * null when it carries none. A cookie whose value does not parse is cleared
+ * and left out.
+ */
+export function readActionStates(cookieHeader, secure) {
+  if (!cookieHeader || !String(cookieHeader).includes(STATE_COOKIE)) return null;
+  const states = new Map();
+  const clear = [];
+  for (const part of String(cookieHeader).split(';')) {
+    const at = part.indexOf('=');
+    const name = (at < 0 ? part : part.slice(0, at)).trim();
+    if (!name.startsWith(STATE_COOKIE)) continue;
+    const hex = name.slice(STATE_COOKIE.length);
+    if (!/^(?:[0-9a-f]{2})+$/.test(hex)) continue;
+    clear.push(`${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
+    try {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+      const id = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      const value = part.slice(at + 1).trim();
+      if (value.length <= STATE_LIMIT && !states.has(id)) states.set(id, JSON.parse(decodeURIComponent(value)));
+    } catch { /* not one this endpoint wrote: cleared, not read */ }
+  }
+  return clear.length > 0 ? { states, clear } : null;
+}
+
+// The state a form posted (`_state`), or undefined when the form posted none:
+// a server action's own form. A state that is not JSON, or longer than the
+// limit, is a 400.
+function postedState(form) {
+  if (!Object.hasOwn(form, '_state')) return undefined;
+  const raw = form._state;
+  if (typeof raw !== 'string' || raw.length > STATE_LIMIT) return INVALID;
+  try {
+    return { value: JSON.parse(raw) };
+  } catch {
+    return INVALID;
+  }
+}
+const INVALID = Symbol('invalid');
+
+// Whether the visitor reached this server over HTTPS: the request URL's
+// scheme, a proxy's X-Forwarded-Proto, or a production process (the CSRF
+// cookie's rule, adapter/core.js).
+function isSecure(headers, url) {
+  if (String(headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https') return true;
+  if (typeof url === 'string' && url.startsWith('https:')) return true;
+  return typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+}
 
 /**
  * Framework-agnostic action dispatcher.
+ *
+ * A form post that carries `_state` (a <Form> whose action is the dispatch of
+ * useActionState(serverAction)) calls the action with the posted state and
+ * the fields, and its 303 sets the cookie the next render reads (see
+ * readActionStates above).
  *
  * options:
  *   - getCsrfToken(reqLike) -> sessionToken (sync or async). Omit + skipCsrf for none.
@@ -218,7 +301,8 @@ function requestOf(reqLike, method) {
   }
   const init = new Headers();
   for (const [name, value] of Object.entries(headers)) {
-    if (value != null) init.set(name, Array.isArray(value) ? value.join(', ') : String(value));
+    // HTTP/2's pseudo-headers (`:path`, `:authority`) are not header fields.
+    if (value != null && !name.startsWith(':')) init.set(name, Array.isArray(value) ? value.join(', ') : String(value));
   }
   return new Request(url, { method, headers: init });
 }
@@ -280,14 +364,20 @@ export function createActionHandler(options = {}) {
         if (!RESERVED_FORM_FIELDS.has(k)) addField(data, k, v);
       }
 
-      const result = await call(actionId, [data], { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, formHeaders);
+      const previous = postedState(form);
+      if (previous === INVALID) return htmlResponse(400, 'Invalid form state');
+      const args = previous === undefined ? [data] : [previous.value, data];
+      const result = await call(actionId, args, { csrfToken: sessionCsrfToken, skipCsrf: skipCsrf || byOrigin }, formHeaders);
 
       if (result.status === 200) {
-        return {
-          status: 303,
-          headers: { location: safeRedirectTarget(form, headers) },
-          body: '',
-        };
+        /** @type {Record<string, string>} */
+        const answer = { location: safeRedirectTarget(form, headers) };
+        if (previous !== undefined) {
+          const value = encodeURIComponent(JSON.stringify(result.body) ?? 'null');
+          if (value.length <= STATE_LIMIT) answer['set-cookie'] = stateCookie(String(actionId), value, isSecure(headers, reqLike.url));
+          else console.warn(`[what-server] ERR_ACTION_STATE_TOO_LARGE Server action "${actionId}" returned ${value.length} bytes of state to a form posted without JavaScript; the limit is ${STATE_LIMIT}, so the page renders from its initial state.`);
+        }
+        return { status: 303, headers: answer, body: '' };
       }
       return htmlResponse(result.status, (result.body && result.body.message) || 'Action failed');
     }
@@ -360,7 +450,7 @@ async function answerAction(req, res, handle, search) {
     return;
   }
   const query = Object.fromEntries(new URLSearchParams(search));
-  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', req.headers.host ?? 'localhost', req.url);
+  const url = requestUrl(req.socket && req.socket.encrypted ? 'https' : 'http', req.headers.host ?? req.headers[':authority'] ?? 'localhost', req.url);
   if (url === null) {
     res.writeHead(400, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ message: 'Bad Request' }));

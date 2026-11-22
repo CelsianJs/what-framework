@@ -109,6 +109,19 @@ export function createDomReport(runs, provenance = {}) {
   };
 }
 
+/**
+ * The most a guarded op may take before the gate calls it a regression: its
+ * baseline plus the largest of the tolerance, one tick of the clock
+ * (`noiseFloorMs`) and half the spread of the baseline's own rounds. An op of
+ * a few dozen microseconds moves more than the tolerance between sessions with
+ * nothing changed (round 6: selectRow recorded at 0.085 ms, measured at
+ * 0.100 ms at load 8, its recorded rounds spanning 0.06 ms); the spread is how
+ * far it moved while the baseline was recorded.
+ */
+export function domThreshold(base, tolerance, noiseFloorMs) {
+  return base.ms + Math.max(base.ms * tolerance, noiseFloorMs, (Number.isFinite(base.spread) ? base.spread : 0) / 2);
+}
+
 // The machine's 1, 5 and 15 minute load averages: a baseline recorded on a
 // busy machine is not one, so the file says what it was recorded under.
 export function loadAverage() {

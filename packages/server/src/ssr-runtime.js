@@ -41,7 +41,7 @@ import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
 import { isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
-import { _afterOpen, _field, _isDevMode, _markSelected, _rawText, _resolveInnerHTML, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
+import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
@@ -432,10 +432,14 @@ function attributeHole(m, slot, v) {
 
 // An element whose attributes are only known when it is placed: a spread, a
 // classList, innerHTML or dangerouslySetInnerHTML, a form field's value or
-// default (what-server's _field shows one of them). `props` is the object the
-// h() spelling would build, rendered by renderAttrs and _resolveInnerHTML with
-// the checks a vnode gets; `children` is the compiled content (Markup or
-// null), used unless innerHTML replaces it.
+// default (what-server's _field shows one of them), and every <option>, whose
+// mark the select it is placed in decides (html.js Options). `props` is the
+// object the h() spelling would build, rendered by renderAttrs and
+// _resolveInnerHTML with the checks a vnode gets; `children` is the compiled
+// content (Markup or null), used unless innerHTML replaces it, or, for an
+// option whose text is its value and the elements inside one, the h()
+// children it would be handed (ssrElement), so the renderer writes their text
+// as text.
 class Element extends Html {
   constructor(tag, props, children) {
     super();
@@ -445,20 +449,44 @@ class Element extends Html {
   }
 
   render(renderChild, hk, ns) {
-    const { tag, props, children } = this;
+    const { tag, props } = this;
+    if (tag === 'option' && ns === null) {
+      const option = _renderOption(props, (html) => keyed(hk, html), () => this.content(renderChild, hk, ns, null));
+      if (option !== null) return option;
+    }
     const field = _field(tag, props);
     const open = keyed(hk, '<' + tag + renderAttrs(field ? field.props : props) + '>');
     if (VOID_ELEMENTS.has(tag)) return open;
     const inner = _resolveInnerHTML(props);
     if (inner != null) return open + keyed(hk, String(inner)) + keyed(hk, '</' + tag + '>');
-    const content = field && field.text !== null ? escapeHtml(field.text) : children === null ? '' : children.render(renderChild, hk, ns);
-    return open + _afterOpen(tag, ns) + (field && field.select ? _markSelected(content, field.select.value) : content) + keyed(hk, '</' + tag + '>');
+    return open + _afterOpen(tag, ns) + this.content(renderChild, hk, ns, field) + keyed(hk, '</' + tag + '>');
   }
 
-  // A select's options are marked when its content is all known now; content
-  // that streams later (a boundary inside the select) is left as it is.
+  // An option's content is its inner HTML too.
+  content(renderChild, hk, ns, field) {
+    const { tag, props, children } = this;
+    if (field === null) {
+      const inner = _resolveInnerHTML(props);
+      if (inner != null) return keyed(hk, String(inner));
+    }
+    if (field && field.text !== null) return escapeHtml(field.text);
+    if (children === null) return '';
+    if (tag !== 'select' || ns !== null) return renderContent(children, renderChild, hk, ns);
+    const outer = _enterSelect(field);
+    try {
+      return renderContent(children, renderChild, hk, ns);
+    } finally {
+      _leaveSelect(outer);
+    }
+  }
+
+  // A select, an option and an element with h() children go to the stream as
+  // ElementParts, which it places as it places a vnode element.
   parts(ns) {
     const { tag, props, children } = this;
+    if (ns === null && (tag === 'option' || tag === 'select' || Array.isArray(children))) {
+      return [new ElementParts(tag, props, children === null ? [] : Array.isArray(children) ? children : [children])];
+    }
     const field = _field(tag, props);
     const open = '<' + tag + renderAttrs(field ? field.props : props) + '>';
     if (VOID_ELEMENTS.has(tag)) return open;
@@ -467,11 +495,11 @@ class Element extends Html {
     const head = open + _afterOpen(tag, ns);
     const content = field && field.text !== null ? escapeHtml(field.text) : children === null ? '' : children.parts(ns);
     if (typeof content !== 'string') return [head, ...content, '</' + tag + '>'];
-    return head + (field && field.select ? _markSelected(content, field.select.value) : content) + '</' + tag + '>';
+    return head + content + '</' + tag + '>';
   }
 
   childNs(ns) {
-    return this.children === null ? ns : this.children.childNs(ns);
+    return this.children === null || Array.isArray(this.children) ? ns : this.children.childNs(ns);
   }
 
   rootTag() {
@@ -479,9 +507,23 @@ class Element extends Html {
   }
 }
 
-/** An element with a spread, a classList or innerHTML (see Element). */
+function renderContent(children, renderChild, hk, ns) {
+  if (!Array.isArray(children)) return children.render(renderChild, hk, ns);
+  let html = '';
+  for (let i = 0; i < children.length; i++) html += renderChild(children[i], ns);
+  return html;
+}
+
+/**
+ * An element whose markup is decided where it is placed (see Element). An
+ * array of children is the h() children the compiler hands it, collected as
+ * h() flattens them: text stays the text it is.
+ */
 export function ssrElement(tag, props, children) {
-  return new Element(tag, props, children);
+  if (!Array.isArray(children)) return new Element(tag, props, children);
+  const list = [];
+  collect(children, list);
+  return new Element(tag, props, list);
 }
 
 // The text of a <script> or <style>: written raw in HTML and escaped in SVG or

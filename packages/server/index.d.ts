@@ -138,6 +138,15 @@ export interface RenderRequestContext {
    * shared, so a form there only submits with the client enhancer active.
    */
   csrfToken?: string;
+  /**
+   * What a form posted without JavaScript left for this render: action id to
+   * the state its action returned. `useActionState(action)` starts from it,
+   * here and in the hydration. createRequestHandler reads it from the
+   * one-time cookie the action endpoint sets; a custom server passes it
+   * itself. The visitor can set it to anything: show it, trust it for nothing.
+   * The loader does not receive it.
+   */
+  actionStates?: Map<string, unknown>;
   [key: string]: any;
 }
 

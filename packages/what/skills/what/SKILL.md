@@ -125,6 +125,28 @@ export default function AddPost() {
 Add the page to `src/routes.js` and its client component to
 `src/entry-client.js`, as the existing pages do.
 
+A form that shows what the server said (a validation error), with and without
+JavaScript, uses the dispatch of `useActionState(serverAction, initial)` as
+its action, as `src/pages/edit.js` does: the action is called as
+`action(previousState, fields)` and returns the error as a value, and the
+fields' defaults come from the state. Without JavaScript the endpoint brings
+the result back to the page in a one-time cookie. `redirect` is for a form
+whose result is not shown: what its action returns is not carried back.
+
+```js
+import { h, useActionState } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { savePostAction } from '../components/post-actions.js';
+
+export function EditTitle({ post }) {
+  const [state, save] = useActionState(savePostAction, null);
+  return h(Form, { action: save },
+    h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title }),
+    () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
+    h('button', { type: 'submit' }, 'Save'));
+}
+```
+
 ## MCP DevTools
 
 `what-devtools-mcp` connects to the app running in the browser: the Vite plugin from `what-devtools-mcp/vite` injects the client in development, and `.mcp.json` starts the server (`npx what-devtools-mcp`).

@@ -15,7 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
-import { _devAction, __DEV__ } from 'what-core/internal';
+import { _devAction, __DEV__, __readHydrationData, getServerContext, isHydrating } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 
@@ -143,8 +143,29 @@ export function action(fn, options = {}) {
 
   callAction._actionId = id;
   callAction._isAction = true;
+  callAction._postedState = () => postedState(id);
 
   return callAction;
+}
+
+// The state an action's form left when it was posted without JavaScript: the
+// action endpoint carries what the action returned to the page's next render
+// in a cookie, which the request handler reads into the render's
+// `actionStates` (action-handler.js). useActionState(action) starts from it in
+// that render, which hands it to the hydration in the data channel, and the
+// hydration starts from it too. As [state], or null.
+const POSTED = 'what:action-state:';
+function postedState(id) {
+  const ctx = getServerContext();
+  if (ctx !== null) {
+    if (ctx.actionStates == null || !ctx.actionStates.has(id)) return null;
+    const value = ctx.actionStates.get(id);
+    ctx.resources?.set(POSTED + id, { status: 'ready', value });
+    return [value];
+  }
+  if (!isHydrating()) return null;
+  const resources = __readHydrationData()?.resources;
+  return resources && Object.hasOwn(resources, POSTED + id) ? [resources[POSTED + id]] : null;
 }
 
 /**

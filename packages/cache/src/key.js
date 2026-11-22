@@ -107,13 +107,16 @@ export function keyedQuery(query) {
 /**
  * `routeMatch` as a render that may be stored sees it: made of what its key
  * is made of. A query parameter the key ignores (utm_*, fbclid, ...) is gone
- * from the query and from the request's URL, and a cookie name the request
- * repeats keeps its first value in the Cookie header. Otherwise one request
- * could store, under the key every visitor shares, a render made from an
- * input that key never saw (`?utm_source=<text>`, `theme=<text>; theme=dark`).
+ * from the query and from the request's URL, a cookie name the request
+ * repeats keeps its first value in the Cookie header, the URL's path has no
+ * trailing slash (normalizePath), and a HEAD request is a GET (the key has no
+ * method: a HEAD visitor's render is what a GET visitor is served). Otherwise
+ * one request could store, under the key every visitor shares, a render made
+ * from an input that key never saw (`?utm_source=<text>`,
+ * `theme=<text>; theme=dark`, `/docs/guide/`).
  */
 export function canonicalMatch(routeMatch) {
-  const out = { ...routeMatch, query: keyedQuery(routeMatch.query) };
+  const out = { ...routeMatch, path: normalizePath(routeMatch.path), query: keyedQuery(routeMatch.query) };
   for (const field of ['varyHeaders', 'headers']) {
     const headers = routeMatch[field];
     if (!headers || typeof headers !== 'object') continue;
@@ -124,9 +127,10 @@ export function canonicalMatch(routeMatch) {
   if (typeof Request !== 'undefined' && request instanceof Request && (request.method === 'GET' || request.method === 'HEAD')) {
     const url = new URL(request.url);
     for (const name of new Set(url.searchParams.keys())) if (shouldStrip(name)) url.searchParams.delete(name);
+    url.pathname = normalizePath(url.pathname);
     const headers = new Headers(request.headers);
     if (headers.has('cookie')) headers.set('cookie', canonicalCookie(headers.get('cookie')));
-    out.request = new Request(url, { method: request.method, headers, signal: request.signal });
+    out.request = new Request(url, { method: 'GET', headers, signal: request.signal });
   }
   return out;
 }
@@ -238,6 +242,19 @@ export function cacheKey({ origin, path, query, vary, headers } = {}) {
   }
   const fields = [normalizePath(path), normalizeQuery(query), varyString(resolved)];
   return (origin ? [String(origin), ...fields] : fields).join(KEY_SEP);
+}
+
+/** The origin a stored key was made with: '' for a key made without one (cacheKey). */
+export function keyOrigin(key) {
+  const fields = String(key).split(KEY_SEP);
+  return fields.length === 4 ? fields[0] : '';
+}
+
+/** The normalized path and query a stored key was made with. */
+export function keyTarget(key) {
+  const fields = String(key).split(KEY_SEP);
+  const at = fields.length === 4 ? 1 : 0;
+  return { path: fields[at], query: fields[at + 1] };
 }
 
 /**

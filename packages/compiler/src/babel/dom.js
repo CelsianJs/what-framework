@@ -373,7 +373,7 @@ export function transformElementFineGrained(path, state) {
   // NO IIFE wrapping — statements are inlined into the containing function.
   // A hydratable build claims the root instead (see applyDynamicChildren).
   const acquire = state.hydratable
-    ? t.callExpression(helper(state, '_$claim'), [t.identifier(tmplId)])
+    ? t.callExpression(helper(state, FORM_CONTROLS.has(tagName) ? '_$claimControl' : '_$claim'), [t.identifier(tmplId)])
     : t.callExpression(t.identifier(tmplId), []);
   const statements = [
     t.variableDeclaration('const', [
@@ -1070,11 +1070,11 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       // An element with bindings: taken in its place, entered when its own
       // children have steps.
       const childElRef = state.nextVarId();
-      const next = t.callExpression(helper(state, '_$next'), [t.numericLiteral(skip)]);
+      const childEl = entry.node.openingElement;
+      const next = t.callExpression(helper(state, FORM_CONTROLS.has(childEl.name.name) ? '_$control' : '_$next'), [t.numericLiteral(skip)]);
       skip = 0;
       stepped = true;
       statements.push(t.variableDeclaration('const', [t.variableDeclarator(t.identifier(childElRef), next)]));
-      const childEl = entry.node.openingElement;
       applyDynamicAttrs(statements, childElRef, childEl.attributes, state, childEl.name.name, entry.node._whatNs);
       const flags = (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state) ? 1 : 0) | (writesContent(childEl.attributes) ? 2 : 0);
       if (flags !== 0) next.arguments.push(t.numericLiteral(flags));
@@ -1105,6 +1105,10 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
   if (stepped) statements.push(t.expressionStatement(t.callExpression(helper(state, '_$exit'), [])));
   return stepped;
 }
+
+// A hydratable template claims a form control with _$control (_$claimControl
+// for its root): what the user changed in it before hydration stays.
+const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 
 function buildChildAccess(elId, index) {
   // Use firstChild/nextSibling chains instead of childNodes[N]
@@ -2186,6 +2190,8 @@ const RENDER_IMPORTS = [
   ['_$on', 'on'],
   ['_$claim', '_$claim'],
   ['_$next', '_$next'],
+  ['_$control', '_$control'],
+  ['_$claimControl', '_$claimControl'],
   ['_$skip', '_$skip'],
   ['_$hole', '_$hole'],
   ['_$exit', '_$exit'],

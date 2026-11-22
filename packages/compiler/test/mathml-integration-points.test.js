@@ -8,12 +8,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { compileJSX } from '../../../test-utils/compile.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -52,10 +53,7 @@ describe('namespace of a branch root at an integration point', () => {
   });
 });
 
-const browserAvailable = existsSync(chromium.executablePath());
-if (!browserAvailable && process.env.WHAT_REQUIRE_BROWSER_TESTS === '1') {
-  throw new Error('WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is missing; run npx playwright install --with-deps chromium.');
-}
+const browserAvailable = await chromiumLaunches(chromium);
 
 describe('namespace in a real browser', { skip: !browserAvailable }, () => {
   const source = `

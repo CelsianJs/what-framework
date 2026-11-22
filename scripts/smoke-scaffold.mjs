@@ -216,8 +216,9 @@ async function launchBrowser() {
 
 // `warnings: true` also counts console warnings, where development
 // diagnostics are printed.
-async function withPage(browser, url, fn, { warnings = false } = {}) {
-  const page = await browser.newPage();
+async function withPage(browser, url, fn, { warnings = false, javaScriptEnabled = true } = {}) {
+  const context = javaScriptEnabled ? null : await browser.newContext({ javaScriptEnabled });
+  const page = await (context ?? browser).newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
@@ -228,6 +229,7 @@ async function withPage(browser, url, fn, { warnings = false } = {}) {
     await fn(page, errors);
   } finally {
     await page.close();
+    if (context) await context.close();
   }
 }
 
@@ -449,6 +451,26 @@ async function smokeFullstack(workDir, tarballs, browser) {
     `a <Router> middleware redirect answers a redirect to /lab/login (got ${guarded.status} ${guarded.headers.get('location')})`);
   assert((await fetch(base + '/blog/no-such-post')).status === 404, 'a missing post answers 404');
 
+  // The editor's server validation without JavaScript: an invalid title comes
+  // back to the editor with the error and the title typed, once.
+  const editor = await (await fetch(base + '/edit/hello-world')).text();
+  assert(editor.includes('<input type="hidden" name="_action" value="savePost">') && editor.includes('<input type="hidden" name="_state" value="null">'),
+    'the editor posts the useActionState dispatch to the action endpoint, with its state');
+  const invalid = await fetch(base + '/__what_action', {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin', referer: base + '/edit/hello-world' },
+    body: new URLSearchParams({ _action: 'savePost', _state: 'null', slug: 'hello-world', title: 'x' }),
+  });
+  const stateCookie = (invalid.headers.get('set-cookie') || '').split(';')[0];
+  assert(invalid.status === 303 && invalid.headers.get('location') === '/edit/hello-world' && stateCookie.startsWith('what-as-'),
+    `an invalid no-JS post answers 303 back to the editor with the state cookie (got ${invalid.status} ${invalid.headers.get('location')} ${stateCookie})`);
+  const shown = await fetch(base + '/edit/hello-world', { headers: { cookie: stateCookie } });
+  const shownHtml = await shown.text();
+  assert(shownHtml.includes('role="alert">Title needs three characters<') && shownHtml.includes('name="title" value="x"'),
+    'the editor renders the error and the typed title from the posted state');
+  assert((shown.headers.get('set-cookie') || '').includes('Max-Age=0'), 'that render clears the state cookie');
+
   if (browser) {
     // The page actually hydrates: the Like button works.
     await withPage(browser, base + '/', async (page, errors) => {
@@ -495,6 +517,22 @@ async function smokeFullstack(workDir, tarballs, browser) {
     });
     const home = await (await fetch(base + '/')).text();
     assert(home.includes('Smoke Post'), 'action revalidated the cached home page (new post listed)');
+
+    // The editor, in Chromium, with JavaScript off and on: the same error next
+    // to the same typed title.
+    for (const javaScriptEnabled of [false, true]) {
+      const mode = javaScriptEnabled ? 'with JavaScript' : 'without JavaScript';
+      await withPage(browser, base + '/edit/hello-world', async (page, errors) => {
+        await page.fill('input[name=title]', 'x');
+        await page.click('button[type=submit]');
+        await page.waitForSelector('[role=alert]', { timeout: 8000 });
+        const alert = await page.textContent('[role=alert]');
+        const title = await page.inputValue('input[name=title]');
+        assert(new URL(page.url()).pathname === '/edit/hello-world' && alert === 'Title needs three characters' && title === 'x',
+          `the editor shows the server's validation error next to the typed title ${mode} (got ${page.url()} "${alert}" "${title}")`);
+        assert(errors.length === 0, `no browser errors in the editor ${mode} (got: ${errors.join('; ') || 'none'})`);
+      }, { javaScriptEnabled });
+    }
   }
 
   // Production without the revalidate secret: the app serves (a serverless
@@ -512,6 +550,43 @@ async function smokeFullstack(workDir, tarballs, browser) {
   });
   assert(webhook.status === 404 && prod.logs.includes('WHAT_REVALIDATE_SECRET'), 'production without WHAT_REVALIDATE_SECRET serves, warns, and does not mount the webhook (404)');
   prod.kill('SIGTERM');
+
+  // The scheduled warm-up runs as scaffolded: its renderer takes a match with
+  // no request, and the entry it stores is the one the first visitor reads.
+  // server.js again, with its 5-minute interval shortened and a line logged
+  // when a scheduled regeneration is done, which the first visit waits for.
+  const schedPort = PORT_BASE + 21;
+  await assertPortFree(schedPort);
+  const serverSource = readFileSync(join(appDir, 'server.js'), 'utf8');
+  assert(serverSource.includes('{ intervalMs: 5 * 60 * 1000 }') && serverSource.includes('const scheduler = createScheduler(cache);'),
+    'server.js registers the home page with the scheduler');
+  writeFileSync(join(appDir, 'server-scheduled.js'), serverSource
+    .replace('{ intervalMs: 5 * 60 * 1000 }', '{ intervalMs: 300 }')
+    .replace('const scheduler = createScheduler(cache);', [
+      'const scheduledRegenerate = cache.regenerate;',
+      "cache.regenerate = async (route) => { const entry = await scheduledRegenerate(route); console.log('[smoke] scheduled regeneration done'); return entry; };",
+      'const scheduler = createScheduler(cache);',
+    ].join('\n')));
+  const scheduled = startProcess(process.execPath, ['server-scheduled.js'], {
+    cwd: appDir,
+    env: { ...process.env, PORT: String(schedPort), NODE_ENV: 'development' },
+  });
+  try {
+    const schedBase = `http://localhost:${schedPort}`;
+    // Up, without a visit to /: the stylesheet is not a page.
+    await waitForHttp(schedBase + '/src/styles.css', { child: scheduled });
+    for (let i = 0; i < 120 && !scheduled.logs.includes('[smoke] scheduled regeneration done'); i++) {
+      if (/scheduled regenerate failed/.test(scheduled.logs)) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    const warm = await fetch(schedBase + '/');
+    await warm.text();
+    assert(warm.headers.get('x-what-cache') === 'HIT', `the scheduler warmed / before its first visit (got ${warm.headers.get('x-what-cache')})`);
+    assert(!/scheduled regenerate failed|TypeError/.test(scheduled.logs), `no scheduled tick failed (log: ${scheduled.logs.split('\n').find((l) => /failed|Error/.test(l)) || 'clean'})`);
+  } finally {
+    scheduled.kill('SIGTERM');
+    rmSync(join(appDir, 'server-scheduled.js'), { force: true });
+  }
 
   // `npm run build` writes Vura output, and the Function runs from dist/ alone
   // (no node_modules anywhere above it), the way the Vura runtime runs it.

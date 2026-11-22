@@ -26,14 +26,19 @@ export function median(values) {
 
 // What each pair compares, as current against reference (above 1: faster):
 // the throughput of the central 80% of calls (opsPerSec, from the trimmed
-// mean), the median call and the 95th-percentile call. The trimmed mean
-// leaves out the slowest tenth of calls, so a change that slows one call in
-// twenty passed it at full speed (round 5, B1); the 95th percentile is that
-// call. The tail is noisier than the middle, so it has a floor of its own.
+// mean), the median call, the 95th-percentile call and the 99th. The trimmed
+// mean leaves out the slowest tenth of calls, so a change that slows one call
+// in twenty passed it at full speed (round 5, B1); the 95th percentile is that
+// call. One slowed in fifty passed the 95th too (round 6, COR-09: 1 ms on every
+// 50th call of an SSR render, its 99th percentile 25 times the reference's);
+// the 99th percentile is that call. The further out in the tail, the noisier
+// a measure is, so each tail has a floor of its own, the 99th's wide: it
+// catches a call that became several times slower, not a few percent.
 const MEASURES = [
   ['throughput', (now, then) => now.opsPerSec / then.opsPerSec, 'opsPerSec'],
   ['median call', (now, then) => then.p50 / now.p50, 'p50'],
   ['95th-percentile call', (now, then) => then.p95 / now.p95, 'p95'],
+  ['99th-percentile call', (now, then) => then.p99 / now.p99, 'p99'],
 ];
 
 /**
@@ -41,10 +46,10 @@ const MEASURES = [
  * reports measured in pairs: for each measure (MEASURES) the ratio in each
  * pair, their median and range, and a failure when the median is below its
  * floor: 1 - tolerance for throughput and the median call, 1 - tailTolerance
- * for the 95th-percentile call. An operation the reference does not measure
- * is reported, not judged.
+ * for the 95th-percentile call, 1 - farTolerance for the 99th. An operation
+ * the reference does not measure is reported, not judged.
  */
-export function compareInterleaved(name, reference, current, tolerance, guardOps, tailTolerance = 0.25) {
+export function compareInterleaved(name, reference, current, tolerance, guardOps, tailTolerance = 0.25, farTolerance = 0.6) {
   const failures = [];
   const rows = [];
   for (const op of guardOps) {
@@ -79,7 +84,7 @@ export function compareInterleaved(name, reference, current, tolerance, guardOps
     rows.push({ op, ...throughput, measures: measured.filter(Boolean) });
     measured.forEach((row, m) => {
       if (row === null) return;
-      const floor = 1 - (m === 2 ? tailTolerance : tolerance);
+      const floor = 1 - (m === 3 ? farTolerance : m === 2 ? tailTolerance : tolerance);
       if (row.median < floor) {
         failures.push(`${name}: ${op}: ${row.measure} at ${pct(row.median)} of the reference (median of ${row.pairs} pairs, range ${pct(row.low)} to ${pct(row.high)}; the floor is ${pct(floor)})`);
       }

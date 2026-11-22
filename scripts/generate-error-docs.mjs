@@ -320,15 +320,15 @@ function diagnosticsSkill() {
     '',
     '# What Framework diagnostics',
     '',
-    'A diagnostic prints as `[what] ERR_CODE message`, then `in <App> › <Row>` (owner path) and `at file:line:col` when known. The same event reaches `what_errors` over MCP, `getDiagnostics()` in the page and `captureDiagnostics()` in tests. Repeats fold into one event with a `count`.',
+    'A diagnostic prints as `[what] ERR_CODE message`, then `in <App> › <Row>` (owner path) and `at file:line:col` when known. It reaches `what_errors` (MCP), `getDiagnostics()` (page) and `captureDiagnostics()` (tests). Repeats fold into one event with a `count`.',
     '',
-    'To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, works offline) for the fix and a worked bad/good example, or read its entry in `node_modules/what-framework/diagnostics.json`.',
+    'To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, offline) for the fix and a bad/good example, or read `node_modules/what-framework/diagnostics.json`.',
   ];
   for (const [title, test] of groups) {
     const list = entries.filter(test);
     if (!list.length) continue;
     out.push('', `## ${title}`, '');
-    for (const e of list) out.push(`- \`${e.code}\` ${e.severity === 'error' ? 'error' : 'warn'}: ${oneLine(e.summary, 76)}`);
+    for (const e of list) out.push(`- \`${e.code}\` ${e.severity === 'error' ? 'error' : 'warn'}: ${oneLine(e.summary, 75)}`);
   }
   return `${out.join('\n')}\n`;
 }

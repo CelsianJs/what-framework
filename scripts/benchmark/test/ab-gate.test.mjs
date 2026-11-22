@@ -74,3 +74,25 @@ test('a change that slows one call in twenty fails on its 95th-percentile call; 
     assert.ok(stalled.rows[0].measures[0].median > 0.95, 'the trimmed throughput does not see it');
   }
 });
+
+// Reports with every percentile: `far` multiplies the 99th percentile alone,
+// as a change that slows one call in fifty does (round 6, COR-09).
+function farTail(pairs, far, noise, seed) {
+  let s = seed;
+  const rand = () => ((s = (s * 16807) % 2147483647) / 2147483647) - 0.5;
+  return Array.from({ length: pairs }, () => GUARD.map((name) => {
+    const p50 = 0.04 * (1 + noise * rand());
+    return { name, opsPerSec: 1000 / p50, p50, p95: 0.05 * (1 + noise * rand()), p99: 0.07 * far * (1 + 3 * noise * rand()) };
+  }));
+}
+
+test('a change that slows one call in fifty 25 times fails on its 99th-percentile call; its noise passes', () => {
+  for (let seed = 1; seed < 20; seed++) {
+    const same = compareInterleaved('core', farTail(9, 1, 0.15, seed), farTail(9, 1, 0.15, seed + 100), 0.05, GUARD);
+    assert.deepEqual(same.failures, [], `seed ${seed}`);
+    const slowed = compareInterleaved('core', farTail(9, 1, 0.05, seed), farTail(9, 25, 0.05, seed + 100), 0.05, GUARD);
+    assert.equal(slowed.failures.length, 2, `seed ${seed}`);
+    assert.match(slowed.failures[0], /: 99th-percentile call at \d+\.\d% of the reference .*the floor is 40\.0%\)/);
+    assert.ok(slowed.rows[0].measures[2].median > 0.75, 'the 95th percentile does not see it');
+  }
+});

@@ -7,10 +7,12 @@
 //
 // The space is the cross product of
 //   - controls: a text input, a textarea, a checkbox, a radio group, a single
-//     select and a multiple select, the selects over four option sets
+//     select and a multiple select, the selects over six option sets
 //     (explicit values; implicit values; duplicate values; implicit values
 //     that need HTML whitespace stripping, one of them starting with a
-//     no-break space, which is not HTML whitespace);
+//     no-break space, which is not HTML whitespace; values, text and a title
+//     attribute holding `selected`, `value=`, quotes, `>`, `&` and entity
+//     text, which no renderer may rewrite; explicit values in an <optgroup>);
 //   - props: value, defaultValue, checked, defaultChecked, an option's
 //     selected and defaultSelected, a select's defaultValue, each default
 //     before or after the value;
@@ -24,7 +26,12 @@
 //     each hydratable server output;
 //   - phases: before hydration, after mount or hydration, after a signal
 //     write, after a user edit, after a form reset, after a release to null
-//     or undefined, after control is taken again.
+//     or undefined, after control is taken again;
+//   - a user edit made before hydration, on the server's markup, on every
+//     hydration path;
+//   - a select's options added after mount, at a later tick, by a <For> and
+//     by a <Show> (the select's own defaultValue aside: it names the default
+//     options there are when it is written, as React's does).
 //
 // Ground truth before hydration is the browser's own parsing of the
 // equivalent static HTML (staticHtml): the markup a page would carry if it
@@ -49,6 +56,13 @@
 //     defaults; a controlled field shows what its prop holds. what-server's
 //     <Form> does that with _resetForm when the action's transition commits,
 //     which is what the runner calls.
+//   - A field the user changed before hydration keeps what they left in it,
+//     controlled or not: react-dom 19 (ReactDOMInput.js hydrateInput,
+//     ReactDOMSelect.js hydrateSelect) never writes the live value or
+//     selection while hydrating, and replays the change event when the live
+//     state differs from the server's. The prop of a controlled field still
+//     counts as written, so the model's state after hydration is its state
+//     after mount and the same edit.
 // Where React documents no behaviour, the model states What's own rules, as
 // docs-site/docs/learn/forms.html and the code document them:
 //   - null or undefined as `value` or `checked` releases the field: it is
@@ -63,7 +77,9 @@
 //   - A select's value names the options it selects as the client's
 //     `select.value =` and `option.selected =` do: a single value selects the
 //     first option with that value (in a multiple select too), an array every
-//     option whose value it holds; a value no option has selects none.
+//     option whose value it holds; a value no option has selects none. It
+//     does so whenever its option set changes (options a list or a <Show>
+//     adds later), as a controlled React select does on every render.
 // The model also fixes the field's defaults: after mount and hydration alike
 // they are what the props declare, never what a server wrote to show a
 // controlled value.
@@ -76,7 +92,16 @@ export const OPTION_SETS = {
   implicit: [{ text: 'a' }, { text: 'b' }, { text: 'c' }],
   duplicate: [{ text: 'a' }, { text: 'b' }, { text: 'b' }],
   whitespace: [{ text: ' a\n ' }, { text: ' b' }, { text: 'b' }],
+  markup: [
+    { value: 'Only selected items', text: 'a selected b', title: 'x selected y' },
+    { value: 'value="b" selected', text: 'B > "b" & <c>', title: "it's value='b' > &amp;" },
+    { text: ' selected &lt; "c" > ', title: 'selected' },
+  ],
+  grouped: [{ value: 'a', text: 'A' }, { value: 'b', text: 'B' }, { value: 'c', text: 'C' }],
 };
+
+// The option sets whose options sit in an <optgroup>.
+const GROUPED = new Set(['grouped']);
 
 // An option's value: its value attribute, else its text with ASCII
 // whitespace stripped and collapsed (HTML's rule; U+00A0 is not ASCII
@@ -148,6 +173,21 @@ export function shapes() {
         }
       }
     });
+  }
+  // Selects whose options a list or a <Show> adds after mount.
+  const vals = OPTION_SETS.explicit.map(optionValue);
+  for (const late of ['for', 'show']) {
+    for (const dflt of ['none', 'selected0', 'defaultSelected2']) {
+      const base = { control: 'select', set: 'explicit', dflt, valueFirst: false, late };
+      add({ ...base, binding: 'none' });
+      add({ ...base, binding: 'static', initial: vals[1] });
+      for (const binding of ['signal', 'accessor']) add({ ...base, binding, initial: vals[1], writes: [vals[2], 'zzz', null, vals[0], undefined] });
+    }
+    for (const dflt of ['none', 'selected0']) {
+      const base = { control: 'multiple', set: 'explicit', dflt, valueFirst: false, late };
+      add({ ...base, binding: 'static', initial: [vals[1]] });
+      for (const binding of ['signal', 'accessor']) add({ ...base, binding, initial: [vals[1]], writes: [[vals[2]], [vals[0], vals[1]], null, vals[1], undefined] });
+    }
   }
   return list;
 }
@@ -359,9 +399,11 @@ export function staticHtml(shape) {
     case 'textarea': field = `<textarea name="${NAME}">${escape(live[0])}</textarea>`; break;
     case 'checkbox': field = `<input type="checkbox" name="${NAME}"${live[0] ? ' checked' : ''}>`; break;
     case 'radio': field = RADIOS.map((r, i) => `<input type="radio" name="${NAME}" value="${r}"${live[i] ? ' checked' : ''}>`).join(''); break;
-    default:
-      field = `<select name="${NAME}"${shape.control === 'multiple' ? ' multiple' : ''}>` + options(shape).map((o, i) =>
-        `<option${o.value !== undefined ? ` value="${escape(o.value)}"` : ''}${live[i] ? ' selected' : ''}>${escape(o.text)}</option>`).join('') + '</select>';
+    default: {
+      const opts = options(shape).map((o, i) =>
+        `<option${o.value !== undefined ? ` value="${escape(o.value)}"` : ''}${o.title !== undefined ? ` title="${escape(o.title)}"` : ''}${live[i] ? ' selected' : ''}>${escape(o.text)}</option>`).join('');
+      field = `<select name="${NAME}"${shape.control === 'multiple' ? ' multiple' : ''}>${GROUPED.has(shape.set) ? `<optgroup label="g">${opts}</optgroup>` : opts}</select>`;
+    }
   }
   return `<form>${field}</form>`;
 }
@@ -422,6 +464,7 @@ function optionProps(shape, i) {
   const o = options(shape)[i];
   const props = {};
   if (o.value !== undefined) props.value = o.value;
+  if (o.title !== undefined) props.title = o.title;
   if (shape.dflt === 'selected0' && i === 0) props.selected = true;
   if (shape.dflt === 'defaultSelected2' && i === 2) props.defaultSelected = true;
   return props;
@@ -429,8 +472,11 @@ function optionProps(shape, i) {
 
 const is = (value, r) => (value == null ? value : value === r);
 
-/** The h() component for `shape`: ({ v }) => <form>field</form>. */
-export function hComponent(h, shape) {
+/**
+ * The h() component for `shape`: ({ v, o }) => <form>field</form>, `o` the
+ * signal that adds a late shape's options. `env` gives For and Show.
+ */
+export function hComponent(h, shape, env) {
   const propsOf = (r) => {
     const props = { name: NAME };
     if (shape.control === 'checkbox') props.type = 'checkbox';
@@ -438,7 +484,7 @@ export function hComponent(h, shape) {
     if (shape.control === 'multiple') props.multiple = true;
     return props;
   };
-  return function Field({ v }) {
+  return function Field({ v, o }) {
     const field = (r) => {
       const props = propsOf(r);
       for (const [key, kind, value] of fieldProps(shape, r)) {
@@ -453,7 +499,14 @@ export function hComponent(h, shape) {
     else if (shape.control === 'textarea') fields = [h('textarea', field())];
     else if (shape.control === 'checkbox') fields = [h('input', field())];
     else if (shape.control === 'radio') fields = RADIOS.map((r) => h('input', field(r)));
-    else fields = [h('select', field(), ...options(shape).map((o, i) => h('option', optionProps(shape, i), o.text)))];
+    else {
+      const option = (i) => h('option', optionProps(shape, i), options(shape)[i].text);
+      let opts = options(shape).map((_, i) => option(i));
+      if (shape.late === 'for') opts = [h(env.For, { each: () => (o() ? [0, 1, 2] : []) }, option)];
+      if (shape.late === 'show') opts = [h(env.Show, { when: o }, ...opts)];
+      if (GROUPED.has(shape.set)) opts = [h('optgroup', { label: 'g' }, ...opts)];
+      fields = [h('select', field(), ...opts)];
+    }
     return h('form', null, ...fields);
   };
 }
@@ -486,19 +539,23 @@ export function jsxComponent(shape, name, spread) {
   else if (shape.control === 'checkbox') field = `<input${attrs(null, ` type="checkbox" name="${NAME}"`)} />`;
   else if (shape.control === 'radio') field = RADIOS.map((r) => `<input${attrs(r, ` type="radio" name="${NAME}" value="${r}"`)} />`).join('');
   else {
-    const opts = options(shape).map((o, i) => {
+    const option = (o, i) => {
       const p = optionProps(shape, i);
-      const own = Object.entries(p).map(([k, x]) => (x === true ? ` ${k}` : ` ${k}=${JSON.stringify(x)}`)).join('');
+      const own = Object.entries(p).map(([k, x]) => (x === true ? ` ${k}` : ` ${k}={${JSON.stringify(x)}}`)).join('');
       return `<option${own}>{${JSON.stringify(o.text)}}</option>`;
-    }).join('');
+    };
+    let opts = options(shape).map(option).join('');
+    if (shape.late === 'for') opts = `<For each={() => (o() ? [0, 1, 2] : [])}>{(i) => [${options(shape).map(option).join(', ')}][i]}</For>`;
+    if (shape.late === 'show') opts = `<Show when={o()}>${opts}</Show>`;
+    if (GROUPED.has(shape.set)) opts = `<optgroup label="g">${opts}</optgroup>`;
     field = `<select${attrs(null, ` name="${NAME}"${shape.control === 'multiple' ? ' multiple' : ''}`)}>${opts}</select>`;
   }
-  return `export function ${name}({ v }) { return <form>${field}</form>; }`;
+  return `export function ${name}({ v, o }) { return <form>${field}</form>; }`;
 }
 
 /** One module of every shape's components: C<id> plain, S<id> through a spread. */
 export function jsxModule(list) {
-  return `const is = (value, r) => (value == null ? value : value === r);\n` +
+  return `import { For, Show } from 'what-framework';\nconst is = (value, r) => (value == null ? value : value === r);\n` +
     list.map((shape) => jsxComponent(shape, `C${shape.id}`, false) + '\n' + jsxComponent(shape, `S${shape.id}`, true)).join('\n');
 }
 
@@ -528,15 +585,21 @@ function applyEdit(shape, form, live) {
   }
 }
 
+/** Whether a hydration path of `shape` can take a user edit before it runs: one whose options are there. */
+export const editsEarly = (shape) => shape.late === undefined;
+
 /**
  * Run `shape`'s script on a client path and return its first finding, or
- * null. `env` is { h, mount, hydrate, flushSync, signal, resetForm,
- * document }; `Component` the component; `html` the server markup to
- * hydrate, or undefined to mount.
+ * null. `env` is { h, mount, hydrate, flushSync, signal, resetForm, For,
+ * Show, document }; `Component` the component; `html` the server markup to
+ * hydrate, or undefined to mount. With `early`, the script's first edit is
+ * made on the server's markup before hydration runs, as a user does while
+ * the page loads, and the first state checked is the edited one.
  */
-export async function runClient(env, shape, Component, html) {
+export async function runClient(env, shape, Component, html, early = false) {
   const expected = expectations(shape);
   const v = isDynamic(shape) ? env.signal(shape.initial) : undefined;
+  const o = env.signal(shape.late === undefined);
   const host = env.document.createElement('div');
   env.document.body.append(host);
   const problems = [];
@@ -546,24 +609,31 @@ export async function runClient(env, shape, Component, html) {
     if (html !== undefined) {
       host.innerHTML = html;
       adopted = host.querySelector('[name]');
-      stop = env.hydrate(env.h(Component, { v }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
+      if (early) applyEdit(shape, host.querySelector('form'), expected[0].live);
+      stop = env.hydrate(env.h(Component, { v, o }), host, { onHydrationError: (info) => problems.push(`hydration error: ${info && (info.kind || info.message)}`) });
     } else {
-      stop = env.mount(env.h(Component, { v }), host);
+      stop = env.mount(env.h(Component, { v, o }), host);
     }
     await flushMicrotasks();
+    if (shape.late !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      o(true);
+      env.flushSync();
+      await flushMicrotasks();
+    }
     const form = host.querySelector('form');
     if (form === null) return { step: 'first', problem: 'no form rendered' };
     if (adopted !== null && host.querySelector('[name]') !== adopted) problems.push('hydration did not adopt the server field');
-    let at = 0;
+    let at = early ? 1 : 0;
     const check = (step) => {
       const actual = readState(shape, form);
       const want = expected[at++];
       if (problems.length > 0) return { step, problem: problems.join('; '), expected: want, actual };
-      return differs(want, actual) ? { step: want.step, expected: want, actual } : null;
+      return differs(want, actual) ? { step, expected: want, actual } : null;
     };
-    let found = check('first');
+    let found = check(early ? 'edit before hydration' : 'first');
     if (found) return found;
-    for (const want of expected.slice(1)) {
+    for (const want of expected.slice(at)) {
       if (want.step === 'edit') applyEdit(shape, form, expected[at - 1].live);
       else if (want.step === 'reset') env.resetForm(form, (error) => problems.push(`reset threw: ${error && error.message}`));
       else {

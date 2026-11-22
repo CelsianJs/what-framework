@@ -9,6 +9,11 @@
 //   a server render's resource store (seedFromStore): reactive.js
 //     _installStoreSeedOps, by server-context.js when a server render starts,
 //     not by hydrate()
+//   what another copy of what-core takes from a server render it never joined
+//     (the owner lookup it adopts, the refusal of its async values): put on
+//     the shared store by server-context.js when a server render starts
+//   the option marking hydration repeats for a select a value controls:
+//     dom.js _selectionKeeper, by the first write of a select's value
 //
 // Bundled from the source with the production tier's define and dev-flag
 // plugin, unminified, so the functions keep their names.
@@ -114,5 +119,43 @@ describe('feature reach in production bundles', () => {
     `);
     assert.ok(has(code, 'seedFromStore'));
     assert.ok(has(code, 'storeSettled'));
+    assert.ok(code.includes('rootFor(engine)'), 'the lookup another copy adopts');
+    assert.ok(code.includes('ERR_FOREIGN_ENGINE_IN_SSR'), 'the refusal of its async values');
+  });
+
+  it('an app with a computed does not carry the refusal of the async values of a second copy', async () => {
+    const code = await bundle(`
+      import { computed } from ${INDEX};
+      export const c = computed(() => 1);
+    `);
+    assert.ok(has(code, '_seedFor'), 'an async-capable value asks where it starts from');
+    assert.ok(!code.includes('ERR_FOREIGN_ENGINE_IN_SSR'));
+  });
+
+  it('an app that reads the server context does not carry what another copy adopts from a render', async () => {
+    const code = await bundle(`
+      import { getServerContext } from ${INTERNAL};
+      export const ctx = getServerContext();
+    `);
+    assert.ok(has(code, 'getServerContext'));
+    assert.ok(!code.includes('rootFor(engine)'), 'the lookup another copy adopts');
+  });
+
+  it('a hydrating app that never writes the value of a select carries no option marking', async () => {
+    const code = await bundle(`
+      import { hydrate } from ${INDEX};
+      hydrate(() => null, document.body);
+    `);
+    assert.ok(has(code, 'dropUnrendered'), 'hydration rewrites attributes');
+    assert.ok(!has(code, 'markOptions'));
+  });
+
+  it('writing the value of a select brings the option marking', async () => {
+    const code = await bundle(`
+      import { h, hydrate } from ${INDEX};
+      hydrate(() => h('select', { value: 'b' }, h('option', {}, 'a'), h('option', {}, 'b')), document.body);
+    `);
+    assert.ok(has(code, 'markOptions'));
+    assert.match(code, /_selectionKeeper = _keepSelection;/);
   });
 });

@@ -61,14 +61,40 @@ function isInside(target, base) {
 
 // The path of a request target, or null for one that is not a path (`*`, an
 // absolute URL) or that the URL parser rejects. `//x` is the path `//x`:
-// resolving the target against a base would read it as another host.
+// resolving the target against a base would read it as another host. A
+// target holding a dot segment (literal or percent-encoded) or a backslash is
+// refused too: the parser resolves it to a path other than the one sent, as
+// what-server's requestUrl refuses it.
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
 function targetPath(target) {
   if (typeof target !== 'string' || !target.startsWith('/')) return null;
+  const end = target.search(/[?#]/);
+  const raw = end < 0 ? target : target.slice(0, end);
+  if (raw.includes('\\') || DOT_SEGMENT.test(raw)) return null;
   try {
     return new URL(`http://localhost${target}`).pathname;
   } catch {
     return null;
   }
+}
+
+// The hosts `what dev` answers: a page on another site that rebinds its own
+// domain to this machine (DNS rebinding) sends its own name as the Host, and
+// would read the dev sources. Allowed, as Vite allows them: localhost and
+// *.localhost, an IP address, the --host the server listens on, and the
+// config's `allowedHosts` (a list of names, or true for any) with
+// --allowed-hosts (comma-separated). Any other Host is answered 403.
+function hostAllowance(host, config) {
+  const flag = getFlag('--allowed-hosts', '');
+  if (config.allowedHosts === true || flag === 'true') return () => true;
+  const names = new Set(['localhost', host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+    .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  return (header) => {
+    if (typeof header !== 'string') return false;
+    const value = header.toLowerCase();
+    const name = value.startsWith('[') ? value.slice(0, value.indexOf(']') + 1) : value.replace(/:\d*$/, '');
+    return names.has(name) || name.endsWith('.localhost') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name) || /^\[[0-9a-f:.]+\]$/.test(name);
+  };
 }
 
 // WS handshakes are exempt from the same-origin policy, so any page the developer
@@ -297,7 +323,13 @@ async function dev() {
   const config = await loadConfigAsync();
   const runtimeDirs = requireRuntimeDirs('what dev');
 
+  const hostAllowed = hostAllowance(host, config);
   const server = createServer(guarded(async (req, res) => {
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end(`Host not allowed. Add it to allowedHosts in what.config.js, or pass --allowed-hosts.`);
+      return;
+    }
     let pathname = targetPath(req.url);
     if (pathname === null) {
       res.writeHead(400);
@@ -539,8 +571,9 @@ async function build() {
       writeFileSync(outPath + '.gz', gzipped);
       gzipSize += gzipped.length;
     } else if (ext === '.html') {
+      // Written as authored: whitespace inside an attribute value, a <pre> or a
+      // <textarea>, or between inline elements, is content.
       let html = readFileSync(file, 'utf-8');
-      html = minifyHTML(html);
 
       // Replace references with hashed versions
       if (useHash) {
@@ -1164,14 +1197,6 @@ function minifyJS(code) {
     .replace(/^[ \t]*\/\/[^\n]*$/gm, '')       // line comments
     .replace(/^\s+/gm, '')                     // leading whitespace
     .replace(/\n\s*\n/g, '\n')                 // empty lines
-    .trim();
-}
-
-function minifyHTML(html) {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')           // comments
-    .replace(/\s{2,}/g, ' ')                   // collapse whitespace
-    .replace(/>\s+</g, '><')                   // between tags
     .trim();
 }
 

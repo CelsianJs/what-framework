@@ -1086,6 +1086,13 @@ The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
 \`/__what_action\` dispatches the action and redirects. With JavaScript,
 \`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload).
+
+The \`/edit/:slug\` editor shows a server validation error next to what the
+visitor typed, with and without JavaScript: its \`<Form>\`'s action is the
+dispatch of \`useActionState(savePostAction, null)\`
+(\`src/components/post-actions.js\`), and the title's \`defaultValue\` comes
+from the state. Without JavaScript the action's result comes back to the page
+in a one-time cookie.
 Unknown posts (\`/blog/nope\`) return a real 404 and are never ISR-cached.
 
 ### ISR cheat-sheet
@@ -1155,6 +1162,37 @@ export function createPost({ title, body }) {
   posts.push(post);
   return post;
 }
+
+export function updatePostTitle(slug, title) {
+  const post = getPost(slug);
+  if (post) post.title = title;
+  return post;
+}
+`);
+
+  // The editor's action, declared where the browser can load it: the page
+  // calls it. Its callback runs on the server only, where it imports the
+  // database.
+  mkdirSync(resolve(root, 'src', 'components'), { recursive: true });
+  writeFileSync(resolve(root, 'src', 'components', 'post-actions.js'), `// The post editor's server action. The browser loads this module (the edit
+// page calls the action), so the database is imported inside the callback,
+// which only ever runs on the server.
+//
+// It is called as savePostAction(previousState, fields), with and without
+// JavaScript, and a validation failure is a value it returns, not a throw:
+// the edit page shows it next to what the visitor typed.
+
+import { action, revalidatePath } from 'what-framework/server';
+
+export const savePostAction = action(async (previous, fields) => {
+  const title = String(fields.title ?? '').trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
+  const { updatePostTitle } = await import('../db.js');
+  const post = updatePostTitle(String(fields.slug), title);
+  if (!post) return { error: 'That post no longer exists', fields: { title } };
+  await revalidatePath(\`/blog/\${post.slug}\`);
+  return { saved: true, fields: { title } };
+}, { id: 'savePost', revalidate: ['/'] });
 `);
 
   // Server action: mutate, then revalidate the cached pages it affects.
@@ -1255,7 +1293,50 @@ export default function Post() {
       meta: [{ property: 'og:title', content: post.title }],
     }),
     h('article', {}, h('h1', {}, post.title), h('p', {}, post.body)),
-    h('p', {}, h('a', { href: '/' }, '← Back'))
+    h('p', {}, h('a', { href: '/' }, '← Back'), ' · ', h('a', { href: \`/edit/\${post.slug}\` }, 'Edit'))
+  );
+}
+`);
+
+  // /edit/:slug — server validation with and without JavaScript.
+  writeFileSync(resolve(root, 'src', 'pages', 'edit.js'), `// Post editor: one form with server validation that works with and without
+// JavaScript. Its action is the dispatch of useActionState(savePostAction):
+//   - With JS: the action's result becomes \`state\`, then the form resets to
+//     the defaults that state gives, so the typed title stays next to the
+//     error.
+//   - No JS: the form posts to /__what_action with the state it holds; the
+//     endpoint runs the action, answers 303 back here, and carries the result
+//     in a one-time cookie, which this page's next render starts from.
+// mode:'server': an editor is one visitor's page.
+
+import { h, Head, useActionState, useLoaderData } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { savePostAction } from '../components/post-actions.js';
+
+export const page = { mode: 'server' };
+
+export const loader = async ({ params, response }) => {
+  const { getPost } = await import('../db.js'); // server-only
+  const post = getPost(params.slug);
+  if (!post) response.setStatus(404);
+  return { post };
+};
+
+export default function EditPost() {
+  const { post } = useLoaderData();
+  const [state, save] = useActionState(savePostAction, null);
+  if (!post) return h('main', { class: 'container' }, h('h1', {}, 'Not found'));
+  return h('main', { class: 'container' },
+    h(Head, { title: \`Edit \${post.title} — ${packageName}\` }),
+    h('h1', {}, 'Edit post'),
+    h(Form, { action: save },
+      h('input', { type: 'hidden', name: 'slug', value: post.slug }),
+      h('label', {}, 'Title ', h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title })),
+      () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
+      () => (state()?.saved ? h('p', { role: 'status' }, 'Saved') : null),
+      h('button', { type: 'submit' }, 'Save')
+    ),
+    h('p', {}, h('a', { href: \`/blog/\${post.slug}\` }, '← Back'))
   );
 }
 `);
@@ -1314,14 +1395,17 @@ export default function NewPost() {
 import Home, { loader as homeLoader, page as homePage } from './pages/home.js';
 import Post, { loader as postLoader, getStaticPaths as postPaths, page as postPage } from './pages/post.js';
 import NewPost, { loader as newLoader, page as newPage } from './pages/new.js';
+import EditPost, { loader as editLoader, page as editPage } from './pages/edit.js';
 
-// Importing the action registers it so /__what_action can dispatch it.
+// Importing the action registers it so /__what_action can dispatch it (the
+// editor's comes with its page).
 import './actions/posts.js';
 
 export const routes = [
   { path: '/', component: Home, loader: homeLoader, page: homePage, mode: homePage.mode },
   { path: '/blog/:slug', component: Post, loader: postLoader, getStaticPaths: postPaths, page: postPage, mode: postPage.mode },
   { path: '/new', component: NewPost, loader: newLoader, page: newPage, mode: newPage.mode },
+  { path: '/edit/:slug', component: EditPost, loader: editLoader, page: editPage, mode: editPage.mode },
 ];
 `);
 
@@ -1343,12 +1427,15 @@ import { h, hydrate } from 'what-framework';
 import Home from './pages/home.js';
 import Post from './pages/post.js';
 import NewPost from './pages/new.js';
+import EditPost from './pages/edit.js';
 
 function matchPage(pathname) {
   if (pathname === '/') return h(Home, {});
   const post = pathname.match(/^\\/blog\\/([^/]+)\\/?$/);
   if (post) return h(Post, { slug: decodeURIComponent(post[1]) });
   if (pathname === '/new') return h(NewPost, {});
+  const edit = pathname.match(/^\\/edit\\/([^/]+)\\/?$/);
+  if (edit) return h(EditPost, { slug: decodeURIComponent(edit[1]) });
   return null;
 }
 
@@ -1560,10 +1647,13 @@ const appCache = {
   },
 };
 
-// Keep the home listing warm every 5 minutes regardless of traffic.
+// Keep the home listing warm every 5 minutes regardless of traffic. The
+// scheduled render has no request: the ISR engine renders it from a GET of
+// the path, so the entry it stores is the one the first visitor reads.
+const home = routes.find((route) => route.path === '/');
 const scheduler = createScheduler(cache);
 scheduler.register(
-  { path: '/', query: {}, params: {}, config: routes[0].page, route: routes[0] },
+  { path: '/', query: {}, params: {}, config: home.page, route: home },
   { intervalMs: 5 * 60 * 1000 }
 );
 

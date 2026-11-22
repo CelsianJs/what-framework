@@ -18,17 +18,24 @@ import { createContext, useContext } from './hooks.js';
  * with the transition: in the same flush as the data its action revalidated.
  * `state` and `isPending` are accessors. An action that throws reaches the
  * nearest <ErrorBoundary>, and the dispatches queued behind it are dropped.
- * `permalink` is the URL a <Form> posts to before JavaScript has loaded.
+ * `permalink` is the URL a <Form> posts to before JavaScript has loaded. The
+ * dispatch of a server action (what-server action()) carries its id: a
+ * <Form> it is the action of posts to the action endpoint, and the state the
+ * action returns there comes back with the page (see postedState).
  */
 export function useActionState(action, initialState, permalink) {
-  const state = signal(initialState);
+  // A server action (what-server action()) knows the state its form left
+  // when it was posted without JavaScript, for this render and its hydration.
+  const id = action != null ? action._actionId : undefined;
+  const posted = id !== undefined && action._postedState ? action._postedState() : null;
+  const state = signal(posted !== null ? posted[0] : initialState);
   const open = signal(0);
   const owner = getOwner();
   /** @type {Set<any>} the transition calls of the dispatches still running */
   const calls = new Set();
   /** @type {Set<() => void>} how to stop waiting for each action still running */
   const waits = new Set();
-  let latest = initialState;
+  let latest = posted !== null ? posted[0] : initialState;
   /** @type {Promise<void> | null} the last dispatch still running, if any */
   let queue = null;
   let generation = 0;
@@ -98,6 +105,10 @@ export function useActionState(action, initialState, permalink) {
     });
   };
   if (permalink !== undefined) dispatch.permalink = permalink;
+  if (id !== undefined) {
+    dispatch._actionId = id;
+    dispatch._state = () => state();
+  }
 
   return [() => state(), dispatch, () => open() > 0];
 }
@@ -158,9 +169,9 @@ export function useFormStatus() {
  * is the form's action function, or null for a URL or an action id, as in
  * React), and `submit(formData, run, reset)`, which runs `run(formData)` for
  * one submission as a transition the status shows. As React 19 does for an
- * uncontrolled form, `reset()` runs when that transition commits, if what ran
- * in it succeeded: `run` did not reject and no useActionState dispatch in it
- * failed. `run` returns what the action returns (a promise for an async one),
+ * uncontrolled form, `reset()` runs when that transition has committed (after
+ * the effects of its commit), if what ran in it succeeded: `run` did not
+ * reject and no useActionState dispatch in it failed. `run` returns what the action returns (a promise for an async one),
  * without awaiting it. Once the form's owner is disposed, the submissions still
  * running stop waiting and the form is not reset. Returns the transition's
  * promise.
@@ -200,7 +211,10 @@ export function _formStatus(method, action) {
         _onCommit(t, () => {
           calls.delete(call);
           pending((list) => list.filter((entry) => entry !== formData));
-          if (mounted && !call.failed && !failedIn.has(t)) reset();
+          // Once the commit has run its effects: the defaults a reset
+          // restores are those the committed state gives (a useActionState
+          // form's `defaultValue={() => state()?.fields?.title}`).
+          if (mounted && !call.failed && !failedIn.has(t)) queueMicrotask(() => mounted && reset());
         });
       });
     },

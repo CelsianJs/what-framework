@@ -802,18 +802,24 @@ function loopScreen(message) {
 // unless it is being called from here. Clearing it on a successful match
 // instead would never catch a cycle between two route components, because each
 // hop matches successfully before its component throws the next redirect.
-// A redirect loop, reported with the URLs it went through and the routes whose
-// guards sent it on (development: ERR_REDIRECT_CYCLE, a coded diagnostic).
+// A redirect loop, reported with the paths it went through and the route
+// patterns whose guards sent it on (development: ERR_REDIRECT_CYCLE, a coded
+// diagnostic; production: console.error). Paths only: a query or a fragment is
+// what the visitor carried (a token, an email), which error tracking that
+// captures the console would keep.
+const pathOnly = (url) => String(url).split(/[?#]/)[0];
 function redirectLoop(hops, kind) {
   _redirectHistory.length = 0;
-  const cycle = [hops[0].from, ...hops.map((hop) => hop.to)].join(' → ');
-  const guards = [...new Set(hops.map((hop) => hop.from))].join(', ');
+  const cycle = [hops[0].from, ...hops.map((hop) => hop.to)].map(pathOnly).join(' → ');
+  const guards = [...new Set(hops.map((hop) => hop.guard))].join(', ');
   // ERROR_CODES.REDIRECT_CYCLE
   if (__DEV__) reportDiagnostic('ERR_REDIRECT_CYCLE', { data: { kind, cycle, guards } });
   else console.error(`[what-router] Redirect loop (${kind}): ${cycle}`);
 }
 
-function handleRedirect(target, options) {
+// `guard` is the pattern of the route whose middleware or component sent the
+// navigation on, when the caller knows it.
+function handleRedirect(target, options, guard) {
   // A server render answers with a redirect: it has no history to push, and
   // the navigation state below is the browser tab's.
   if (onServer()) {
@@ -839,7 +845,8 @@ function handleRedirect(target, options) {
   if (_pendingUrl.peek() === target) return null;
 
   // Each hop: where the navigation was going when that route's guard sent it on.
-  _redirectHistory.push({ from: _pendingUrl.peek() ?? readUrl(), to: target });
+  const from = _pendingUrl.peek() ?? readUrl();
+  _redirectHistory.push({ from, to: target, guard: guard ?? pathOnly(from) });
 
   if (_redirectHistory.length > MAX_REDIRECTS) {
     redirectLoop(_redirectHistory.slice(-5), 'too many redirects');
@@ -1006,7 +1013,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       }
       if (typeof verdict === 'string') {
         // Middleware returned a redirect path
-        return handleRedirect(verdict);
+        return handleRedirect(verdict, undefined, r.path);
       }
 
       // Build element with loading state support
@@ -1068,7 +1075,8 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       if (!e || !e[REDIRECT]) throw e;
       sig = e;
     }
-    return handleRedirect(sig.to, sig.options);
+    const matched = matchRoute(pathOf(state.url()), routes);
+    return handleRedirect(sig.to, sig.options, matched ? matched.route.path : undefined);
   };
 
   // Render the global layout ONCE so it — and everything it mounts (sidebars,

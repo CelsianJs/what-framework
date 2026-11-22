@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { createServer } from 'vite';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,22 +20,11 @@ let page;
 // the `before` hook throws and node:test cancels every subtest with
 // "test did not finish before its parent and was cancelled", which poisons
 // the whole repo's test output. Mirrors devtools-mcp/test/e2e.test.js.
-let browserAvailable = false;
-try {
-  browserAvailable = existsSync(chromium.executablePath());
-} catch {
-  browserAvailable = false;
-}
 // See the note in packages/devtools-mcp/test/e2e.test.js: a graceful skip is
 // correct locally, but the publish workflow was skipping these too, so the
 // browser client shipped unverified. WHAT_REQUIRE_BROWSER_TESTS=1 makes a
-// missing browser fail instead of disappear.
-if (process.env.WHAT_REQUIRE_BROWSER_TESTS === '1' && !browserAvailable) {
-  throw new Error(
-    'WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is not installed. ' +
-    'Run `npx playwright install --with-deps chromium` before this suite.',
-  );
-}
+// browser that does not launch fail instead of disappear.
+const browserAvailable = await chromiumLaunches(chromium);
 const browserDescribe = browserAvailable ? describe : describe.skip;
 if (!browserAvailable) {
   console.warn('[what] Skipping devtools browser tests: Chromium not installed (run `npx playwright install chromium`).');

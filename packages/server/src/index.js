@@ -34,8 +34,13 @@ import {
   _plainText,
   assertSafeTag,
   renderAttrs,
-  _markSelected,
   _field,
+  _enterSelect,
+  _leaveSelect,
+  _renderOption,
+  _saveSelect,
+  _restoreSelect,
+  sink,
   escapeHtml,
   arrayKeys,
 } from './html.js';
@@ -77,7 +82,17 @@ let HK = createHydrationKeys();
 const renderHydratableIn = (child, ns) => renderIn(_renderHydratable, child, ns);
 
 // An element's children, in the namespace its tag gives them.
-function renderElementChildren(tag, props, children, render) {
+// A select carries its scope down to its options (html.js Options): `field`
+// is _field's for it.
+function renderElementChildren(tag, props, children, render, field) {
+  if (tag === 'select' && _ns === null) {
+    const outer = _enterSelect(field);
+    try {
+      return renderChildren(children, render);
+    } finally {
+      _leaveSelect(outer);
+    }
+  }
   const ns = childNamespace(_ns, tag, props && props.encoding);
   if (ns === _ns) return renderChildren(children, render);
   const outer = _ns;
@@ -152,9 +167,16 @@ function renderRegionValue(value) {
 function _renderHydratable(vnode) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
-  // Text. A number's string form has nothing to escape.
-  if (typeof vnode === 'string') return out(escapeHtml(vnode));
-  if (typeof vnode === 'number') return out(String(vnode));
+  // Text. A number's string form has nothing to escape. An option collecting
+  // its text (html.js Options) sees it.
+  if (typeof vnode === 'string') {
+    if (sink.text !== null) sink.text += vnode;
+    return out(escapeHtml(vnode));
+  }
+  if (typeof vnode === 'number') {
+    if (sink.text !== null) sink.text += vnode;
+    return out(String(vnode));
+  }
 
   // Signal — unwrap
   if (typeof vnode === 'function' && vnode._signal) {
@@ -202,7 +224,11 @@ function _renderHydratable(vnode) {
   if (Array.isArray(vnode)) return renderArray(vnode, '');
 
   if (isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
-  if (!isVNode(vnode)) return out(_plainText(vnode));
+  if (!isVNode(vnode)) {
+    const text = _plainText(vnode);
+    if (sink.text !== null) sink.text += String(vnode);
+    return out(text);
+  }
 
   if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
 
@@ -210,6 +236,7 @@ function _renderHydratable(vnode) {
   // never themselves; <!--b!--> opens one that shows its fallback.
   if (BOUNDARY_TAGS.has(vnode.tag)) {
     const saved = saveKeys();
+    const found = _saveSelect();
     try {
       return out(BOUNDARY_OPEN) + renderChildren(vnode.children, _renderHydratable) + out(BOUNDARY_CLOSE);
     } catch (e) {
@@ -218,6 +245,7 @@ function _renderHydratable(vnode) {
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
       restoreKeys(saved);
+      _restoreSelect(found);
       const open = out(BOUNDARY_FALLBACK);
       return open + _renderHydratable(_boundaryFallback(vnode, suspended ? null : e)) + out(BOUNDARY_CLOSE);
     }
@@ -249,6 +277,10 @@ function _renderHydratable(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
+  if (tag === 'option') {
+    const option = _renderOption(props, out, () => optionContent(props, children, _renderHydratable));
+    if (option !== null) return option;
+  }
   const field = _field(tag, props);
   const open = out(`<${tag}${renderAttrs(field ? field.props : props || {})}>`);
 
@@ -259,8 +291,13 @@ function _renderHydratable(vnode) {
   if (rawInner != null) return open + out(String(rawInner)) + out(`</${tag}>`);
   const lead = _afterOpen(tag, _ns);
   if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns, field)) + out(`</${tag}>`);
-  const content = renderElementChildren(tag, props, children, _renderHydratable);
-  return open + lead + (field && field.select ? _markSelected(content, field.select.value) : content) + out(`</${tag}>`);
+  return open + lead + renderElementChildren(tag, props, children, _renderHydratable, field) + out(`</${tag}>`);
+}
+
+// An option's content in a select scope: its raw inner HTML, else its children.
+function optionContent(props, children, render) {
+  const rawInner = _resolveInnerHTML(props);
+  return rawInner != null ? String(rawInner) : renderElementChildren('option', props, children, render, null);
 }
 
 function renderChildren(children, render) {
@@ -288,9 +325,16 @@ export function renderToString(vnode, options) {
 function _renderString(vnode) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
-  // Text. A number's string form has nothing to escape.
-  if (typeof vnode === 'string') return escapeHtml(vnode);
-  if (typeof vnode === 'number') return String(vnode);
+  // Text. A number's string form has nothing to escape. An option collecting
+  // its text (html.js Options) sees it.
+  if (typeof vnode === 'string') {
+    if (sink.text !== null) sink.text += vnode;
+    return escapeHtml(vnode);
+  }
+  if (typeof vnode === 'number') {
+    if (sink.text !== null) sink.text += vnode;
+    return String(vnode);
+  }
 
   // Signal — unwrap by calling it
   if (typeof vnode === 'function' && vnode._signal) {
@@ -328,7 +372,11 @@ function _renderString(vnode) {
   if (Array.isArray(vnode)) return renderChildren(vnode, _renderString);
 
   if (isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
-  if (!isVNode(vnode)) return _plainText(vnode);
+  if (!isVNode(vnode)) {
+    const text = _plainText(vnode);
+    if (sink.text !== null) sink.text += String(vnode);
+    return text;
+  }
 
   if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
 
@@ -343,6 +391,7 @@ function _renderString(vnode) {
   // whole page response, which is precisely the failure an ErrorBoundary exists
   // to prevent.
   if (BOUNDARY_TAGS.has(vnode.tag)) {
+    const found = _saveSelect();
     try {
       return renderChildren(vnode.children, _renderString);
     } catch (e) {
@@ -350,6 +399,7 @@ function _renderString(vnode) {
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
+      _restoreSelect(found);
       return _renderString(_boundaryFallback(vnode, suspended ? null : e));
     }
   }
@@ -373,6 +423,10 @@ function _renderString(vnode) {
   // Element
   const { tag, props, children } = vnode;
   assertSafeTag(tag, vnode);
+  if (tag === 'option') {
+    const option = _renderOption(props, asIs, () => optionContent(props, children, _renderString));
+    if (option !== null) return option;
+  }
   const field = _field(tag, props);
   const attrs = renderAttrs(field ? field.props : props || {});
   const open = `<${tag}${attrs}>`;
@@ -384,9 +438,10 @@ function _renderString(vnode) {
   if (rawInner != null) return `${open}${String(rawInner)}</${tag}>`;
   const lead = _afterOpen(tag, _ns);
   if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns, field)}</${tag}>`;
-  const content = renderElementChildren(tag, props, children, _renderString);
-  return `${open}${lead}${field && field.select ? _markSelected(content, field.select.value) : content}</${tag}>`;
+  return `${open}${lead}${renderElementChildren(tag, props, children, _renderString, field)}</${tag}>`;
 }
+
+const asIs = (html) => html;
 
 // --- Render to String + collected <head> ---
 // Like renderToString, but captures any <Head> tags declared anywhere in the
@@ -434,18 +489,22 @@ export async function renderPage(pageModule, reqCtx = {}) {
 // A loader that throws releases the context it would have rendered in.
 async function loadPage(pageModule, reqCtx) {
   const Component = pageModule.default || pageModule;
+  const { actionStates, ...loaderCtx } = reqCtx;
   const response = reqCtx.response || createResponse();
   const ctx = createRenderContext(undefined, {
     signal: reqCtx.signal || (reqCtx.request && reqCtx.request.signal),
     request: reqCtx.request,
     response,
   });
+  // The state forms posted without JavaScript left, by action id: what their
+  // useActionState starts from (what-core actions.js).
+  if (actionStates) ctx.actionStates = actionStates;
   try {
     throwIfAborted(ctx.signal);
     if (typeof pageModule.loader === 'function') {
       // In the request's render context: the queries it prefetches are this
       // request's, and reach its page and its data channel.
-      ctx.loaderData = await runWithServerContext(ctx, () => pageModule.loader({ ...reqCtx, signal: ctx.signal, response }));
+      ctx.loaderData = await runWithServerContext(ctx, () => pageModule.loader({ ...loaderCtx, signal: ctx.signal, response }));
     }
     throwIfAborted(ctx.signal);
   } catch (error) {

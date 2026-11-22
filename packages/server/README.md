@@ -348,6 +348,43 @@ function addLater(text, addOptimistic) {
 }
 ```
 
+### An edit form with server validation
+
+`<Form action={serverAction} redirect>` is fire and redirect: without
+JavaScript what the action returns is not carried back. A form that shows what
+the server said uses the dispatch of `useActionState(serverAction, initial)`:
+
+```js
+import { action, Form } from 'what-framework/server';
+import { h, useActionState } from 'what-framework';
+
+export const saveTitle = action(async (previous, fields) => {
+  const title = String(fields.title ?? '').trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title } };
+  await db.posts.update({ title });
+  return { saved: true, fields: { title } };
+}, { id: 'saveTitle' });
+
+function EditTitle({ post }) {
+  const [state, save] = useActionState(saveTitle, null);
+  return h(Form, { action: save },
+    h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title }),
+    () => state()?.error && h('p', { role: 'alert' }, state().error),
+    h('button', { type: 'submit' }, 'Save'));
+}
+```
+
+The action is called as `saveTitle(previousState, fields)`. With JavaScript
+its result becomes `state`, then the form resets to the defaults that state
+gives, so the typed title stays. Without JavaScript the form posts its state
+in a hidden `_state` field; the endpoint runs the action, answers 303 back to
+the page, and carries the result in a one-time cookie for that action
+(HttpOnly, `SameSite=Lax`, a minute, 3 KB at most). `createRequestHandler`
+reads it on the next request for the page, renders that action's
+`useActionState` from it outside the ISR cache, and clears it. The state is
+the visitor's to set: show it, trust it for nothing. A custom server passes
+`actionStates` (a `Map` of action id to state) to `renderDocument` itself.
+
 The client callable posts JSON to `/__what_action`, rejects with the action's
 error (`ERR_ACTION_FAILED`, or `TIMEOUT` after `timeout`, default 30 s), and
 rolls back the optimistic overlays of its transition when it fails. See
@@ -393,7 +430,11 @@ the loader and the page set on `response` (`response.redirect()` in a loader, a
 `<Router>` middleware's redirect, `response.setStatus(404)`), and hands the
 loader the visitor's `csrfToken` on an uncached route. `createRouteRenderer(document)`
 returns that renderer, for an ISR engine's `render` (scheduled regeneration)
-or to wrap it, so an app never re-implements it:
+or to wrap it, so an app never re-implements it. A scheduled regeneration has
+no request: the engine renders it from a GET request for the path, at the
+origin of each entry it refreshes, or the path's default entry when none is
+stored (what-isr's README, "Regenerations with no request"), and the renderer
+renders a match with no request as a GET of its path too:
 
 ```js
 import { createRequestHandler, createRouteRenderer } from 'what-framework/server';
@@ -457,8 +498,11 @@ forms work without any client JavaScript:
 
 - Action id: `_action` (or `data-action`) hidden field, or `?action=` query param.
 - The action receives **one argument**: the form fields as a plain object
-  (reserved `_action` / `_csrf` / `_redirect` fields stripped; repeated field
-  names become arrays).
+  (reserved `_action` / `_csrf` / `_redirect` / `_state` fields stripped;
+  repeated field names become arrays). A form that posts `_state` (JSON, what a
+  `useActionState` form holds) is called with two, `(state, fields)`, and its
+  303 sets the one-time state cookie described above; a `_state` that is not
+  JSON, or longer than 3 KB, is a `400`.
 - Success responds `303 See Other` (POST/redirect/GET) to `_redirect` (must be
   a local path), else the Referer path, else `/`.
 - Failures respond with an HTML error page and a matching status (`403` bad
@@ -661,7 +705,7 @@ covered by automated tests.
 | `generateStaticPage(page, data?)` | Generate a full HTML document |
 | `server(Component)` | Mark a component as server-only |
 | `action(fn, options?)` | Define a server action; on the client a transition that revalidates `revalidate` paths and `invalidates` query keys inside it |
-| `Form` | `<Form action={serverActionOrDispatch} redirect?>`: a real form that runs as a transition when mounted; `useFormStatus()` reads it |
+| `Form` | `<Form action={serverActionOrDispatch} redirect?>`: a real form that runs as a transition when mounted; `useFormStatus()` reads it. The dispatch of `useActionState(serverAction)` carries the action's result back without JavaScript too |
 | `useOptimistic(state, update?)` | The root entry's `useOptimistic`, re-exported: `[optimistic, addOptimistic]` as in React 19; call `addOptimistic` inside `startTransition` and the overlay drops when the action's transition commits ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)) |
 | `invalidatePath(path)` / `onRevalidate(path, cb)` | what-framework/data's, re-exported: refetch what was read on `path` and run its callbacks |
 

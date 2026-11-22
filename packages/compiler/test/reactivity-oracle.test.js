@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { compileJSX } from '../../../test-utils/compile.js';
-import { makeRandom, generateCase, moduleSource, serialize, wrappedReads, pathological, SIGNALS } from './fixtures/reactivity-oracle.js';
+import { makeRandom, generateCase, moduleSource, serialize, wrappedReads, pathological, helperChain, SIGNALS } from './fixtures/reactivity-oracle.js';
 
 installDOM();
 const { h, mount, flushSync } = await import('../../core/src/index.js');
@@ -100,5 +100,13 @@ describe('reactivity oracle', () => {
         stop();
       }
     }
+  });
+
+  // Deeper than a JavaScript stack runs, so the program cannot be mounted: the
+  // analysis must still follow the graph without recursing, to the read.
+  it('follows a call graph 10,000 helpers deep without recursing on the stack', () => {
+    let code;
+    assert.doesNotThrow(() => { code = compileJSX(helperChain(10000)); });
+    assert.match(code, /_\$insert\(_el\$0, \(\) => h10000\('a'\)\)/);
   });
 });

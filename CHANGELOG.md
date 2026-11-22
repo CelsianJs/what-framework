@@ -166,6 +166,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   unless code relied on a row ignoring the new item.
 - **`on(el, event, handler)` removes its listener when the current owner is
   disposed.** *Migration:* attach long-lived listeners outside a component.
+- **A style object after a style string replaces the string's declarations**
+  on compiled and spread paths, as `h()` already did and Solid does. `null`,
+  `undefined` and `false` clear the inline style on every path.
 - **`ERR_HYDRATION_MISMATCH` carries a record**,
   `{ kind, component, ownerPath, path, expected, found, recovery }`, in
   development and through `onHydrationError` in every build. The "already
@@ -239,7 +242,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   every cached entry misses once, and a deployment that serves one app on
   several hosts keeps one entry per host. *Migration:* to share entries, have
   the proxy send one canonical Host. A custom `cacheKey()` caller can pass
-  `origin`.
+  `origin`. A regeneration with no request (`createScheduler`,
+  `revalidatePath`/`revalidateTag` with `regenerate`) refreshes the entry of
+  each origin stored for the path, up to 16, or renders a default entry at
+  `createCacheEngine({ origin })` (default `http://localhost`), which a
+  request whose origin has no entry is served. `engine.regenerate(match)`
+  resolves `CacheEntry | null`.
 - **A Host header that is not a host gets 400** from `toNodeListener`,
   `whatMiddleware`, `nodeActionMiddleware` and the Vura handler. *Migration:*
   fix a proxy that forwards a malformed Host.
@@ -252,6 +260,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   in `server.js`, use
   `const renderPage = createRouteRenderer(documentOptions)` from
   `what-framework/server`.
+- **A request target whose path has a dot segment (`.`, `..`, `%2e`) or a
+  backslash gets 400** from `toNodeListener`, `whatMiddleware`,
+  `nodeActionMiddleware` and `what dev`/`what preview`, so a path guard in
+  front (an Express `app.use('/admin', …)`) routes the same path What renders.
+  Browsers never send one. *Migration:* none for browser traffic. A client
+  that sends such paths must resolve them first.
 - **`exportStatic()` resolves `{ pages, redirects, skipped }`.** A page that
   redirects is written as a redirect stub, and a page with another status is
   skipped with a warning.
@@ -304,6 +318,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   or `null`. *Migration:* reset by hand in the action's success path if you
   relied on an immediate reset, and compare `action` against your function,
   not its id.
+- **`_state` is a reserved `<Form>` field name**, with `_action`, `_redirect`
+  and the CSRF field. *Migration:* rename a field called `_state`.
+- **A form's reset after an action runs after the commit**, so a
+  `defaultValue` read from `useActionState`'s new state applies. A `<Form>`
+  with no `csrfToken` prop no longer adds the page's token while hydrating,
+  which the server never wrote. The enhanced submit still sends it in
+  `X-CSRF-Token`.
 - **`enhanceForms()` submits a same-origin form without a token**, as the
   native submit would, and leaves the decision to the endpoint.
   `data-no-csrf` is gone. *Migration:* remove `data-no-csrf`, and check the
@@ -389,6 +410,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   - `what_diagnose`'s hot-effect cutoff defaults to 5 runs. *Migration:* pass
     `threshold: 50` for 0.14's cutoff.
   - `what_errors` returns hydration guidance in `mismatchFixes[kind]`.
+- **`what dev` answers 403 to a Host it does not serve**, so a DNS-rebinding
+  page cannot read the dev sources. It serves localhost, `*.localhost`, IP
+  literals and `--host`. *Migration:* for a tunnel or a LAN name, add it to
+  `allowedHosts` in the config or pass `--allowed-hosts a,b` (`true` allows
+  any).
 
 ### Added
 
@@ -416,7 +442,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `response`. `createRouteRenderer(documentOptions)` is the route renderer
   `createRequestHandler` uses, for a custom server. The create-what full-stack
   template uses it, so route middleware redirects, `response.redirect()`,
-  status and headers work there.
+  status and headers work there. `createCacheEngine({ origin })` names the
+  origin a request-less regeneration renders at.
 - **Hydration by adoption.** Matching markup creates no nodes, each reactive
   child runs once, and nothing the server sent is fetched again. Keyless
   server values are found by owner identity. A component that suspends while
@@ -436,7 +463,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   in their request's context, with `getRequest()` and a query cache of their
   own. `<Form>` accepts client actions. CSRF by Fetch Metadata and `Origin`,
   so forms on cached and streamed pages post without a token, with
-  `trustedOrigins` for other origins.
+  `trustedOrigins` for other origins. Server validation with and without
+  JavaScript: `useActionState(serverAction, initial)` with
+  `<Form action={dispatch}>` calls the action with `(previousState, fields)`.
+  Without JavaScript the endpoint redirects back with the result in a one-time
+  cookie, and `createRequestHandler` renders that request from it, outside the
+  cache ([docs/DATA.md](docs/DATA.md), "An edit form with server validation").
+  The full-stack starter's `/edit/:slug` page uses it. A custom server passes
+  `actionStates` in the render context.
 - **Router.** Route `preload` with a `data` prop, `navigate(to,
   { flushSync })`, and `route.isNavigating` from the moment a navigation
   starts, including one started inside a transition.
@@ -449,7 +483,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 68 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 70 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
@@ -531,14 +565,19 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   module name such as `/@what/__proto__` no longer reaches what an object
   inherits, so no single request ends them. `nodeActionMiddleware` never
   rejects. The router's and the cache's URL parsing never throws on a
-  request's path.
+  request's path. HTTP/2 requests render and route like HTTP/1: pseudo-headers
+  are skipped, and a validated `:authority` is the host when Host is absent.
+  `ERR_REDIRECT_CYCLE` reports pathnames and route patterns, not the visitor's
+  query or fragment.
 - **Form data (security).** No-JS and enhanced form fields such as
   `constructor` and `__proto__` arrive as own fields. ISR loader `query`
   objects are null-prototype. A malformed cookie no longer fails every page. A
   cached ISR render sees exactly what its key is made of: the key holds the
   request's origin (scheme and host) as well as its path, so two hosts keep
   two entries and a Host one sender chose never reaches another host's
-  visitors; a repeated cookie name counts once, with its first value.
+  visitors; a repeated cookie name counts once, with its first value. A stored
+  ISR render sees the URL and params of its key: a trailing slash is dropped,
+  and HEAD renders as GET.
 - **Keyed hydration.** A server row is adopted only as its own key's row;
   rows in another order are moved and the rest rebuilt, with a report, so
   what was typed into a row stays with its key. A differing text takes exactly
@@ -552,7 +591,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   boundary's mismatch reaches `onHydrationError`, and a mismatch is reported
   once per region. Stale server attributes are removed from claimed elements.
   A custom element's own property is written on hydration even when the
-  server's attribute matches.
+  server's attribute matches. Hydration keeps what the user typed, checked or
+  selected before it ran, controlled or not, on every path, and replays
+  `input` and `change` for those fields, as React 19 does.
 - **Async values.** `settled()` waits for the reveal's effects and for
   streams, and never spins on a synchronous refetch. `refresh()` settles when
   the function answers at once or throws. Transitions that reach one binding
@@ -590,7 +631,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   select, every one its array names), so a form posted before hydration
   carries them. A later write to a select's value supersedes a deferred
   earlier one, and `false` clears it. An action result whose `then` getter
-  throws reaches `form:error`.
+  throws reaches `form:error`. Server rendering decides each `<option>`'s
+  `selected` from the `<select>` it sits in, including options a `<Suspense>`
+  streams inside a select, and never rewrites emitted markup, so a value or
+  title containing `selected` is kept. A controlled `<select>` follows its
+  value when its options change: added, removed or re-valued by a region,
+  `<For>`, `<Show>` or `.map()`. A `style` going from an object to `null` no
+  longer throws.
 - **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
   lands `undefined` is data. A superseded invalidation answers when its
   replacement lands. The query hooks and a `query()` on one key no longer
@@ -617,7 +664,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   array is reactive in JSX. A module of very deep expressions or very long
   chains of reassigned locals compiles, and its reads stay reactive. A
   differential test compiles thousands of generated modules both as analysed
-  and fully reactive, and checks that both render the same.
+  and fully reactive, and checks that both render the same. Tagged templates
+  (the `html` tag included) and array and object spreads in JSX expressions
+  are reactive unless the compiler proves them static.
 - **Server.** A component given one child receives the child itself, as on
   the client. SSR style objects drop the declarations the client's CSSOM
   would drop. A no-JS action sees `getRequest()` before its first `await`
@@ -629,11 +678,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   global `process` (`<form id="process">`) no longer switches what-core into
   development mode. An app's `Error.prepareStackTrace` that throws no longer
   breaks signal creation in development.
-- **create-what full-stack.** A production build serves and publishes only
-  the packages' production files (`dist/*.min.js`: no development tier, no
-  source maps) whatever the host's `NODE_ENV`, `node server.js` names its mode
-  on its first line, and `npm run smoke:clean` stops only its own checkout's
-  servers.
+- **create-what full-stack.** A production build serves and publishes only the
+  packages' production files (`dist/*.min.js`: no development tier, no source
+  maps) whatever the host's `NODE_ENV`, `node server.js` names its mode on its
+  first line, and `npm run smoke:clean` stops only its own checkout's servers.
+  Its scheduled warm-up of the home page no longer throws, and the entry it
+  renders is the one visitors read. `<Portal>` with no `target` renders into
+  `document.body`, and a selector that matches nothing reports
+  `ERR_PORTAL_TARGET_MISSING`. `what build` no longer changes whitespace
+  inside attribute values, `<pre>` and `<textarea>`.
 
 ### Performance
 
@@ -658,6 +711,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   0.14's time, and a page without devtools takes no stack trace per signal.
 - `jsx()` no longer allocates an array per element (h() SSR heap −10% at 1k
   rows).
+- The check that refuses an async value a second copy of what-core makes
+  during a server render (`ERR_FOREIGN_ENGINE_IN_SSR`) comes with the server
+  render, not with every async-capable value: about 120 B gzip off an app that
+  calls `computed()`.
+- A hydrating app that never sets a `<select>`'s value leaves out the option
+  marking hydration repeats for controlled selects (about 160 B gzip), and
+  browser bundles leave out the lookup a second copy adopts from a server
+  render.
 
 ## [0.14.0] - 2026-10-13
 

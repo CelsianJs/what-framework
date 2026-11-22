@@ -215,14 +215,14 @@ todos.set(t =&gt; t.map(item =&gt;
           <p>Two build-time rules apply to <code>&lt;Switch&gt;</code>: the compiler reads its arms statically, so write every <code>&lt;Match&gt;</code> out literally (arms produced by <code>{arms.map(...)}</code>, or a spread on <code>&lt;Switch&gt;</code>, are a build error), and each <code>&lt;Match&gt;</code> needs a <code>when</code> prop.</p>
 
           <h2 id="portal">Portal</h2>
-          <p>Render children into a different DOM node:</p>
+          <p>Render children into a different DOM node: <code>target</code>, an element or a CSS selector, and <code>document.body</code> when there is no <code>target</code>. This modal opens into the body and leaves it when it closes:</p>
 
 <pre><code><span class="keyword">import</span> { Portal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Modal</span>({ isOpen, onClose, children }) {
   <span class="keyword">return</span> (
     &lt;Show when={isOpen}&gt;
-      &lt;Portal target={document.body}&gt;
+      &lt;Portal&gt;
         &lt;div className=<span class="string">"modal-overlay"</span> onClick={onClose}&gt;
           &lt;div className=<span class="string">"modal"</span> onClick={e =&gt; e.stopPropagation()}&gt;
             {children}
@@ -233,7 +233,7 @@ todos.set(t =&gt; t.map(item =&gt;
   );
 }</code></pre>
 
-          <p>The prop is <code>target</code>, and it takes an element or a CSS selector string (<code>target="#modal-root"</code>). A target that does not resolve is not an error: Portal simply renders nothing.</p>
+          <p>The children are built under the portal's owner, so context and boundaries reach them, and they leave the target when the portal goes: here when <code>isOpen</code> turns false, and when the component unmounts. <code>target="#modal-root"</code> renders into that element; a selector that matches nothing renders nothing and reports <code>ERR_PORTAL_TARGET_MISSING</code> in development, since the element has to be in the page when the portal is built.</p>
 
           <p>Common uses for Portal:</p>
           <ul>

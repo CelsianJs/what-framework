@@ -29,7 +29,7 @@
 //     instead of reporting a too-small number.
 //     When the script metric is on, pages are served cross-origin isolated
 //     (COOP/COEP), which raises performance.now() resolution from 100 us to
-//     5 us; the gate path (dom-gate.mjs) keeps the old non-isolated serving.
+//     5 us; the gate path (dom-gate.mjs) turns it on.
 //   - CPU throttling (opt-in): Emulation.setCPUThrottlingRate through a
 //     Playwright CDP session, applied around each measured click only (prep
 //     runs unthrottled), as the official harness does. One uniform rate for

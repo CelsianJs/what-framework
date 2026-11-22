@@ -21,7 +21,7 @@
 
 import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
-import { createActionHandler, parseActionBody, readFetchBodyCapped } from '../action-handler.js';
+import { createActionHandler, parseActionBody, readActionStates, readFetchBodyCapped } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
 import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
@@ -122,6 +122,9 @@ function pageRequest(routeMatch, documentOptions) {
   const reqCtx = csrfToken
     ? { params, query, request, signal: request.signal, response, csrfToken }
     : { params, query, request, signal: request.signal, response };
+  // The state a form posted without JavaScript left for this render
+  // (action-handler.js readActionStates).
+  if (routeMatch.actionStates) reqCtx.actionStates = routeMatch.actionStates;
   const opts = csrfToken
     ? { ...documentOptions, csrfToken }
     : documentOptions;
@@ -270,12 +273,17 @@ function sharedRenderRequest(request, signal, varied) {
  * and page rendered as a document with `documentOptions`, answering with the
  * status, headers and redirect the loader and the page set on `response`.
  * An ISR engine's `render` (scheduled regeneration) takes it too, so a
- * regenerated page is rendered exactly as a requested one.
+ * regenerated page is rendered exactly as a requested one: the engine hands a
+ * regeneration with no request of its own a GET request for the path, at the
+ * origin of each entry it refreshes (what-isr isr.js).
  */
 export function createRouteRenderer(documentOptions = {}) {
   // `cacheCtx` is what the cache engine hands a render it may share; absent on
   // the direct path.
-  return async function renderRoute(routeMatch, cacheCtx) {
+  return async function renderRoute(match0, cacheCtx) {
+    // A match with no request (a regeneration a caller started itself) renders
+    // as a GET of its path; the ISR engine hands every regeneration one.
+    const routeMatch = match0.request ? match0 : { ...match0, request: new Request(new URL(match0.path || '/', 'http://localhost')) };
     const shared = cacheCtx && routeMatch.request
       ? sharedRenderRequest(routeMatch.request, cacheCtx.signal, variedHeaderNames(routeMatch.config))
       : null;
@@ -446,10 +454,28 @@ export function createRequestHandler(options = {}) {
     const config = route.page || { mode: route.mode || 'client' };
     const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
 
+    // A form posted without JavaScript came back here with what its action
+    // returned: this render is the visitor's own, never stored or served from
+    // the cache, and its response clears the state it read.
+    const reqHeaders = headersToObject(request.headers);
+    const posted = readActionStates(reqHeaders.cookie, reqHeaders['x-forwarded-proto'] === 'https'
+      || url.protocol === 'https:' || process.env.NODE_ENV === 'production');
+    const postedHeaders = posted ? { ...NO_STORE, 'set-cookie': posted.clear } : null;
+    if (posted) routeMatch.actionStates = posted.states;
+
     // ISR cache path (static/hybrid with a cache engine). Server-mode bypasses.
     // NOTE: cached HTML is shared across users, so the per-user CSRF token is
     // NOT embedded in the page here — clients read it from the cookie instead.
-    if (cache && config.mode !== 'server') {
+    if (cache && config.mode !== 'server' && !posted) {
+      // The cache key's path has no trailing slash (what-isr normalizePath):
+      // the render a key stores sees the params of that path, not the slash
+      // one visitor sent.
+      const keyPath = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+      const keyed = keyPath === pathname ? null : matchRoute(keyPath, routes);
+      if (keyed && keyed.route === route) {
+        routeMatch.path = keyPath;
+        routeMatch.params = keyed.params;
+      }
       // The cache engine resolves the route's declared `vary` names against
       // these. Without them it fails closed: warns and bypasses on every
       // request, which is how the vary control shipped never executing.
@@ -478,11 +504,11 @@ export function createRequestHandler(options = {}) {
       await stream.shellReady;
       if (response.location || NULL_BODY.has(response.status)) {
         stream.abort();
-        return new Response(null, { status: response.status, headers: responseHeaders(committedHeaders(response), NO_STORE, csrfHeaders) });
+        return new Response(null, { status: response.status, headers: responseHeaders(committedHeaders(response), NO_STORE, csrfHeaders, postedHeaders) });
       }
       return new Response(stream.readable, {
         status: response.status,
-        headers: responseHeaders(HTML_HEADERS, response.headers, NO_STORE, csrfHeaders),
+        headers: responseHeaders(HTML_HEADERS, response.headers, NO_STORE, csrfHeaders, postedHeaders),
       });
     }
 
@@ -497,6 +523,7 @@ export function createRequestHandler(options = {}) {
       out.headers,
       config.mode === 'server' ? NO_STORE : null,
       csrfHeaders,
+      postedHeaders,
     );
     const status = out.status || 200;
     return new Response(NULL_BODY.has(status) ? null : out.html, { status, headers });

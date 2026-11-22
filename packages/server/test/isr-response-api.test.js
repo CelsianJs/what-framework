@@ -164,29 +164,41 @@ describe('what a cached entry keeps', () => {
 });
 
 describe('a shared regeneration is not tied to one visitor', () => {
-  function slowRoute(log) {
+  // A loader that waits until the test lets it finish (or its render is
+  // told to stop), so no timer decides the order: under load a timer the
+  // test set can fire after one the loader set.
+  function slowRoute(log, release) {
     return [{
       path: '/slow',
       page: { mode: 'static' },
       loader: async ({ signal }) => {
         log.push('loader');
         signal.addEventListener('abort', () => log.push('aborted'));
-        await delay(30);
+        await Promise.race([release, new Promise((resolve) => signal.addEventListener('abort', resolve))]);
         return { at: 1 };
       },
       component: () => h('p', null, 'slow page'),
     }];
   }
 
+  // Until the regeneration has `waiters` requests waiting on it (a request's
+  // signal always is one: a Request made without one has its own).
+  async function waiting(cache, waiters) {
+    for (let i = 0; i < 2000 && [...cache._inFlight.values()][0]?.waiters !== waiters; i++) await delay(1);
+    assert.equal([...cache._inFlight.values()][0]?.waiters, waiters);
+  }
+
   it('the first visitor disconnecting does not fail the visitor still waiting', async () => {
     const log = [];
-    const { handle } = handlerFor(slowRoute(log));
+    let open;
+    const { cache, handle } = handlerFor(slowRoute(log, new Promise((resolve) => { open = resolve; })));
     const first = new AbortController();
     const a = handle(new Request('http://x/slow', { signal: first.signal }));
-    await delay(5);
+    await waiting(cache, 1);
     const b = handle(new Request('http://x/slow'));
-    await delay(5);
+    await waiting(cache, 2);
     first.abort();
+    open();
     const [ra, rb] = await Promise.allSettled([a, b]);
     assert.equal(ra.status, 'rejected');
     assert.equal(ra.reason.name, 'AbortError');
@@ -198,14 +210,14 @@ describe('a shared regeneration is not tied to one visitor', () => {
 
   it('when every waiting visitor has gone, the render is told to stop', async () => {
     const log = [];
-    const { handle } = handlerFor(slowRoute(log));
+    const { cache, handle } = handlerFor(slowRoute(log, new Promise(() => {})));
     const one = new AbortController();
     const two = new AbortController();
     const a = handle(new Request('http://x/slow', { signal: one.signal }));
-    await delay(5);
+    await waiting(cache, 1);
     const b = handle(new Request('http://x/slow', { signal: two.signal }));
     const settled = Promise.allSettled([a, b]);
-    await delay(5);
+    await waiting(cache, 2);
     one.abort();
     await delay(1);
     assert.deepEqual(log, ['loader']);

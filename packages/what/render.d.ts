@@ -33,6 +33,8 @@ export {
   _$htemplate,
   _$claim,
   _$next,
+  _$control,
+  _$claimControl,
   _$skip,
   _$hole,
   _$exit,

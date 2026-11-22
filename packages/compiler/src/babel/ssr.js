@@ -187,14 +187,30 @@ function appendElement(node, markup, state) {
     throw unsafeMarkup(node, state, `<${tag}> is not a tag name what-server can emit.`);
   }
   if (isForeignNs(node)) markup.foreign = true;
-  const attributes = readAttributes(node, state);
+  // An <option> is marked by the select it is placed in (what-server's html.js
+  // Options), so it is decided at run time. When its text is its value, the
+  // renderer has to write that text as text: its children, and the elements
+  // inside it, are the h() children they would be handed.
+  const option = tag === 'option' && !isForeignNs(node);
+  const asText = state._whatOptionText === true || (option && !hasAttribute(node, 'value'));
+  const attributes = readAttributes(node, state, option || asText);
   if (attributes.runtime) {
     let children = t.nullLiteral();
     if (node.children.length > 0 && !VOID_ELEMENTS.has(tag)) {
-      // The element's own namespace decides where its children sit.
-      const content = createMarkup(isForeignNs(node));
-      appendChildren(node, content, state);
-      children = markupExpression(content, state);
+      if (asText) {
+        const outer = state._whatOptionText;
+        state._whatOptionText = true;
+        try {
+          children = t.arrayExpression(childValues(node.children, state));
+        } finally {
+          state._whatOptionText = outer;
+        }
+      } else {
+        // The element's own namespace decides where its children sit.
+        const content = createMarkup(isForeignNs(node));
+        appendChildren(node, content, state);
+        children = markupExpression(content, state);
+      }
     }
     const element = call(state, '_$ssrElement', [t.stringLiteral(tag), attributes.props, children]);
     element._whatHtml = true;
@@ -241,12 +257,12 @@ function isRuntimeField(tag, names) {
 // the markup (isRuntimeField): which one it shows is decided where the values
 // are known (what-server's _field), by the rule every server renderer applies.
 /** @returns {{ runtime: boolean, props: any, list: any[] }} */
-function readAttributes(node, state) {
+function readAttributes(node, state, force = false) {
   const attrs = node.openingElement.attributes;
   const nameNode = node.openingElement.name;
   const field = t.isJSXIdentifier(nameNode) && FIELD_TAGS.has(nameNode.name);
   const entries = [];
-  let runtime = false;
+  let runtime = force;
   for (const attr of attrs) {
     if (t.isJSXSpreadAttribute(attr)) {
       runtime = true;
@@ -287,6 +303,11 @@ function readAttributes(node, state) {
     else byName.set(entry.name, entry);
   }
   return { runtime: false, props: null, list: [...byName.values()] };
+}
+
+// Whether the element names attribute `name` itself (not through a spread).
+function hasAttribute(node, name) {
+  return node.openingElement.attributes.some((attr) => t.isJSXAttribute(attr) && getAttrName(attr) === name);
 }
 
 function literal(value) {

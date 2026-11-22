@@ -261,7 +261,38 @@ mount(<Suspense fallback={<p>Loading…</p>}><Users /></Suspense>, '#app');
 | `Show` | Conditional component |
 | `For` | List component: `each` is an accessor (`each={items}`) or an array; compiled JSX makes an expression such as `each={items().filter(f)}` reactive like any other, and one that picks an accessor, `each={archived() ? done : open}`, reads the accessor it picks. With `key={(item) => item.id}` a row is built once per key and its item is an accessor, `item()`, that follows an item replaced under the key; without `key` the row gets the item itself. `.map()` with a `key` prop is the usual form in compiled JSX: its rows keep their DOM and follow a replaced item too |
 | `Switch` / `Match` | Conditional branch set |
-| `Portal` | Render children into another container |
+| `Portal` | Render children into `target` (an element or a CSS selector), `document.body` when there is none; see [Portal](#portal) |
+
+### Portal
+
+`<Portal target>` renders its children into `target`, an element or a CSS
+selector, and into `document.body` when there is no `target`. They are built
+under the portal's owner, so context and boundaries reach them, and they leave
+the target when the portal goes: its `<Show>` turns false, or its component
+unmounts. A selector that matches nothing renders nothing, and reports
+`ERR_PORTAL_TARGET_MISSING` in development. The server renders nothing for a
+portal; hydration builds it on the client, in its target.
+
+```jsx
+import { signal, Show, Portal } from 'what-framework';
+
+function Settings() {
+  const open = signal(false);
+  return (
+    <section>
+      <button onClick={() => open(true)}>Edit</button>
+      <Show when={open}>
+        <Portal>
+          <div role="dialog" aria-modal="true" class="modal">
+            <p>Settings</p>
+            <button onClick={() => open(false)}>Close</button>
+          </div>
+        </Portal>
+      </Show>
+    </section>
+  );
+}
+```
 
 ### Forwarding children into a boundary or a provider
 
@@ -584,7 +615,7 @@ Compatibility input is supported:
 | `getDiagnostics({ since? })` | Coded diagnostics development checks reported, after a cursor |
 | `subscribeDiagnostics(fn)` | Listen to every report; returns the unsubscribe function |
 | `clearDiagnostics()` | Forget buffered events |
-| `getErrorDefinition(code)` | The catalogue entry for an `ERR_*` code: template, suggestion, example |
+| `getErrorDefinition(code)` | The catalogue entry for an `ERR_*` code: template, suggestion, example in development; code, severity and template in the production build (`what_fix` and [ERRORS.md](ERRORS.md) carry the full entry) |
 | `WhatError` | The structured error class |
 
 Tools that render or classify errors (`ERROR_CODES`, `createWhatError`,

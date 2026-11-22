@@ -906,12 +906,12 @@ describe('Integration: Reactive props', () => {
     setStyle(el, 'padding: 2px');
     assert.equal(el.style.color, '', 'cssText replaced prior inline styles');
     assert.equal(el.style.padding, '2px');
-    // A following object applies its own keys; cssText-set keys are NOT tracked
-    // as a prior object, so they persist (cssText owns them) — only keys from a
-    // prior OBJECT are diffed/cleared. This matches the intended scope of the fix.
+    // An object after a string is the whole inline style too: the string's
+    // declarations go (every path writes styles through setStyle, as the h()
+    // path always did; style-transitions.test.js).
     setStyle(el, { color: 'black' });
     assert.equal(el.style.color, 'black');
-    assert.equal(el.style.padding, '2px', 'cssText-set padding persists (not object-tracked)');
+    assert.equal(el.style.padding, '', 'the string\'s padding is cleared');
   });
 });
 
