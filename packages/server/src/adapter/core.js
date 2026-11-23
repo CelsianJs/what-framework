@@ -27,6 +27,7 @@ import { generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
 import { _isDevMode } from '../html.js';
 import { requestScheme } from '../request-url.js';
+import { urlEncodedPairs } from '../fields.js';
 
 const ACTION_PATH = '/__what_action';
 const HTML_HEADERS = { 'content-type': 'text/html; charset=utf-8' };
@@ -405,7 +406,7 @@ export function createRequestHandler(options = {}) {
         method: 'POST',
         headers: headersToObject(request.headers),
         body: read.body,
-        query: Object.fromEntries(url.searchParams),
+        query: Object.fromEntries(urlEncodedPairs(url.search)),
         url: request.url,
         request,
       });

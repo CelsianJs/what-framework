@@ -365,7 +365,10 @@ _$ssr(_tmpl$0, props.id, () => t(), _$ssrText(name), () => count());
   (`{count()}`, `title={t()}`) is the thunk `h()` gets from the auto-thunk,
   rendered where the markup is placed; a component, a fragment, `<Show>`,
   `<Switch>` and `<For>` are the vnode or the reactive child they are with
-  `h()` and the DOM back end. JSX built in a loop, from a variable written again
+  `h()` and the DOM back end, but a fragment among an element's children is
+  those children in its place, as the DOM back end lays the element out, and a
+  keyed `.map()` is bracketed as the array the DOM back end's keyed list
+  hydrates, wherever it stands. JSX built in a loop, from a variable written again
   later, or inside a `try`, therefore means what it means on the client.
 - The result is compiled **Markup**: finished HTML, or HTML with the thunks,
   vnodes and reactive attributes between it, which the renderer that places it
@@ -492,7 +495,8 @@ front of it is numbered in order, but only while the walk has matched the
 server's structure; after a structural mismatch, or where the server rendered
 nothing at all, it is numbered under a prefix no server key has, and fetches.
 The built-ins what-compiler lowers away (`<Show>`, `<For>`, `<Switch>`,
-`<Match>`) take no step when they run as components, so a subtree has the same
+`<Match>`, and `<>`, which it renders as an array or its element's own
+children) take no step when they run as components, so a subtree has the same
 paths compiled and through h(). In development a value is adopted only when the
 server's component at that path has the same name, and otherwise the resource
 fetches and reports `ERR_HYDRATION_OWNER_MISMATCH`; a production build, whose
@@ -603,13 +607,22 @@ and every prop its caller wrote as JSX or handed on from its own props
 dom.js `_installLazyChildren`). A component that only places such a prop has
 each read compiled as a placing read where it stands (`_$place`, what-compiler's
 `deferPlacedProps`), which builds it there, so it claims inside the
-component's own element; a prop placed twice is built twice. Any other read
+component's own element; a prop placed twice is built twice. A build is
+untracked, so a `<Show>` or a condition it is placed in does not depend on
+the signals its JSX read; with no owner current it is the component's. A
+read that does not place it once its JSX is placed, or any after the
+component's run, gets a placeable, built where it is placed as an element is
+(its first placement takes a build still waiting for one); a prop the run
+never read is built once at that read, under the component's owner, to tell
+JSX from data. Any other read during the run
 (an inspection, an `h()` component's) builds it off the walk, as JSX that is
-not written in place in its parent (built ahead of time into a variable, say)
-is (`_$outside`): it takes the place of the server's rendering of it where it
-is placed, reported as a mismatch of kind `prebuilt`, and what the user
-changed in the server's form controls there (a value, checkedness, a
-selection, files) goes to the built controls of the same tag, type and name.
+not written in place in its parent (built ahead of time into a variable, or
+by a `.map()` into one) is (`_$outside`): it takes the place of the server's
+rendering of it where it is placed, reported as a mismatch of kind
+`prebuilt`, and what the user changed in the server's form controls there (a
+value, checkedness, a selection, files) goes to the built controls that
+correspond: the same tag, type, name and `form` attribute, in order where
+both hold as many, and never one inside a `<noscript>`.
 No node the server rendered is replaced without a report. An array of compiled members (a component's children,
 a fragment, a `<Show>`'s content, an array literal, the rows of an unkeyed
 `.map()` of components, a row of several nodes) claims in document
@@ -620,7 +633,14 @@ earlier member, or a component's own array markers could be taken for the
 array's, the array is built by `_$members` instead, its members created
 in order and each of the others adopted where it stands (`_$member`), inside
 the array's server markers; placing it afterwards adopts nothing again, and
-nor does placing the nodes a component adopted. `<Head>` builds its compiled
+nor does placing the nodes a component adopted. A component's several
+children have server markers of their own only where they are placed as the
+whole value of a component or a reactive child: placed in an element's hole,
+among a fragment's or an array's members, or as a boundary's or an `h()`
+element's children, the server writes them in place, the placing read says so
+(`_$place(props, key, 1)`), and their `_$members` takes none, so the markers
+of a first child that brings its own (a component that returns a fragment)
+stay that child's. `<Head>` builds its compiled
 children where it stands: a `<title>`, `<meta>` or `<link>` among them, which
 the server wrote into `<head>`, is built on the client, and the others claim
 in place. A part of
@@ -631,7 +651,7 @@ without the option, a component returns DOM it already built, before the walk
 can claim anything: `hydrate()` puts it in place of the server's copy and
 reports one `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`. The page works;
 the reuse is lost. A hydratable build carries the hydration runtime (about
-11.0 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
+11.3 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
 the same app mounted); a build without the option carries none of it.
 
 **Mismatches** are reported, never silently rewritten: one record per region

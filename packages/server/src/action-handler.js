@@ -505,20 +505,19 @@ export function nodeActionMiddleware(options = {}) {
 // Request the action sees (getRequest()) is this connection's: its scheme
 // (TLS or not), its Host header, and the endpoint's path.
 async function answerAction(req, res, handle, search, limit) {
-  const read = await readRawBody(req, limit);
-  if (read.tooLarge) {
-    const answer = tooLargeAnswer(req.headers, limit);
-    res.writeHead(answer.status, answer.headers);
-    res.end(answer.body);
-    return;
-  }
-  let body;
+  let body = UNPARSABLE_BODY;
   try {
+    const read = await readRawBody(req, limit);
+    if (read.tooLarge) {
+      const answer = tooLargeAnswer(req.headers, limit);
+      res.writeHead(answer.status, answer.headers);
+      res.end(answer.body);
+      return;
+    }
     body = await parseRequestBody(read.bytes, req.headers['content-type'] || '');
   } catch {
-    res.writeHead(400, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ message: 'Invalid request body' }));
-    return;
+    // A body that cannot be read (the client went away mid-upload) or does
+    // not parse: UNPARSABLE_BODY, which the handler answers with a 400.
   }
   const query = Object.fromEntries(urlEncodedPairs(search));
   const url = requestUrl(requestScheme(req.headers, req.socket && req.socket.encrypted ? 'https' : 'http'), nodeRequestHost(req.headers), req.url);
@@ -540,10 +539,11 @@ export function parseActionBody(raw, contentType) {
 }
 
 /**
- * The body of a request whose body did not parse as its content type says
- * (a JSON syntax error, a multipart body with the wrong boundary or cut
- * short): the readers hand it to the action handler in place of the body,
- * which answers 400 and calls no action. Never `{}`, which is an empty form.
+ * The body of a request whose body could not be read (its stream failed) or
+ * did not parse as its content type says (a JSON syntax error, a multipart
+ * body with the wrong boundary or cut short): every reader hands it to the
+ * action handler in place of the body, which answers 400 and calls no
+ * action. Never `{}`, which is an empty form.
  */
 export const UNPARSABLE_BODY = /* @__PURE__ */ Object.freeze({});
 
@@ -556,7 +556,11 @@ export const UNPARSABLE_BODY = /* @__PURE__ */ Object.freeze({});
  * content type does not describe.
  */
 export async function parseRequestBody(bytes, contentType) {
-  if (formBodyType(contentType) !== 'multipart') return parseActionBody(new TextDecoder().decode(bytes), contentType);
+  const type = formBodyType(contentType);
+  // An urlencoded body's bytes are the form's, a leading U+FEFF included (the
+  // standard parses bytes); a JSON body's leading BOM goes, as Request#json()
+  // drops it.
+  if (type !== 'multipart') return parseActionBody(new TextDecoder('utf-8', { ignoreBOM: type === 'urlencoded' }).decode(bytes), contentType);
   const fields = {};
   for (const [k, v] of await new Response(bytes, { headers: { 'content-type': contentType } }).formData()) addField(fields, k, v);
   return fields;
@@ -564,8 +568,8 @@ export async function parseRequestBody(bytes, contentType) {
 
 /**
  * A form body of `request`: null when its content type is no form's,
- * { tooLarge: true } over `limit`, { unparsable: true } for a body that is not
- * the form its content type says, else { fields }.
+ * { tooLarge: true } over `limit`, { unparsable: true } for a body that cannot
+ * be read or is not the form its content type says, else { fields }.
  *
  * @param {Request} request
  * @param {number} limit
@@ -574,9 +578,9 @@ export async function parseRequestBody(bytes, contentType) {
 export async function readFormBody(request, limit) {
   const contentType = request.headers.get('content-type') || '';
   if (formBodyType(contentType) === null) return null;
-  const read = await readFetchBodyCapped(request, limit);
-  if (read.tooLarge) return { tooLarge: true };
   try {
+    const read = await readFetchBodyCapped(request, limit);
+    if (read.tooLarge) return { tooLarge: true };
     return { fields: await parseRequestBody(read.bytes, contentType) };
   } catch {
     return { unparsable: true };
@@ -679,7 +683,7 @@ export function fetchActionHandler(options = {}) {
     }
     let query = {};
     try {
-      query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+      query = Object.fromEntries(urlEncodedPairs(new URL(request.url, 'http://localhost').search));
     } catch { /* no query */ }
     const out = await handle({ method: request.method, headers: request.headers, body, query, url: request.url, request });
     return new Response(out.body, { status: out.status, headers: out.headers });

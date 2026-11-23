@@ -949,6 +949,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       stepped = true;
       // The value is placed where it is evaluated: its JSX claims (transformJsxRoot).
       value._whatInPlace = true;
+      placeFlat(value);
       const flag = marker === undefined ? 3 : marker === null ? 2 : placeholder ? 1 : 0;
       const args = [t.identifier(elId), value, t.numericLiteral(flag)];
       const name = bindingMetadata(parentNode.openingElement.name.name, 'children', node, state);
@@ -1200,7 +1201,16 @@ function transformComponentFineGrained(path, state) {
       }
     }
 
-    let childrenArg = membersArray(members, state);
+    // Several children have markers of their own where they are placed as an
+    // array (the value of a component or of a reactive child, a member of an
+    // array), before those of a component among them; placed in an element's
+    // hole or among other members they have none, and the first may bring
+    // markers of its own (render.js _$members, dom.js _place). One child is
+    // handed over as itself, so it never has markers but its own.
+    const first = members[0];
+    let childrenArg = membersArray(members, state, false, true,
+      members.length > 1 && !createdClaims(first, state) && !t.isStringLiteral(first.expr));
+    if (isMembersCall(childrenArg, state)) childrenArg.arguments.push(t.numericLiteral(members.length > 1 ? 2 : 1));
     // An array built in order claims where it is built: where the component
     // places its children.
     if (deferChildren || !t.isArrayExpression(childrenArg)) {
@@ -1289,7 +1299,9 @@ function transformComponentFineGrained(path, state) {
 
     const islandArgs = [helper(state, '_$Island'), islandPropsExpr, transformComponentChildren()];
     const islandMeta = componentMetadata(node, state);
-    if (islandMeta) islandArgs.push(islandMeta);
+    // Hydratable output's component call takes the JSX's number before its
+    // development location (below); an island has none, as on the server.
+    if (islandMeta) islandArgs.push(...(state.hydratable ? [t.unaryExpression('void', t.numericLiteral(0))] : []), islandMeta);
     return t.callExpression(helper(state, '_$createComponent'), islandArgs);
   }
 
@@ -1409,7 +1421,7 @@ function transformComponentFineGrained(path, state) {
     // factory (render.js _$slots, dom.js _installLazyChildren). While
     // hydrating, the factory's JSX claims the server's nodes where the
     // component places it.
-    if (isSlotAttribute(node, attr, state) && (isJsxValue(value) || isPlacingRead(value))) {
+    if (isSlotAttribute(node, attr, state) && (yieldsJsx(value) || isPlacingRead(value))) {
       slots.push(t.objectProperty(propKey(attrName), t.arrowFunctionExpression([], value)));
       continue;
     }
@@ -1445,6 +1457,12 @@ function transformComponentFineGrained(path, state) {
 
   const componentArgs = [componentRef, propsExpr, childrenArg];
   const meta = componentMetadata(node, state);
+  // Hydratable output gives the component the number of the JSX that renders
+  // it (lists.js listSlot), the server target's too: its place among the keyed
+  // rows (what-core hydration-data.js). The root handed to hydrate() has none,
+  // as the page the server renders has none.
+  const site = state.hydratable && !isHydrateRoot ? listSlot(node) : null;
+  if (site !== null || (meta && state.hydratable && !isHydrateRoot)) componentArgs.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) componentArgs.push(meta);
   return t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
 }
@@ -1458,6 +1476,43 @@ function isJsxValue(node) {
 
 function isPlacingRead(node) {
   return t.isCallExpression(node) && node.callee._whatPlace === true;
+}
+
+// A value that renders JSX it builds: JSX, a condition with JSX in a branch,
+// an array literal holding some, or a `.map()` / `.flatMap()` whose callback
+// returns some (`items={links.map((l) => <li>{l}</li>)}`).
+function yieldsJsx(node) {
+  if (t.isJSXElement(node) || t.isJSXFragment(node)) return true;
+  if (t.isConditionalExpression(node)) return yieldsJsx(node.consequent) || yieldsJsx(node.alternate);
+  if (t.isLogicalExpression(node)) return yieldsJsx(node.right);
+  if (t.isArrayExpression(node)) return node.elements.some((m) => m !== null && yieldsJsx(t.isSpreadElement(m) ? m.argument : m));
+  if (!(t.isCallExpression(node) || t.isOptionalCallExpression(node))) return false;
+  const callee = node.callee;
+  if (!(t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) || callee.computed
+      || !t.isIdentifier(callee.property) || (callee.property.name !== 'map' && callee.property.name !== 'flatMap')) return false;
+  const fn = node.arguments[0];
+  return (t.isArrowFunctionExpression(fn) || t.isFunctionExpression(fn)) && returnsJsx(fn);
+}
+
+// Whether a function's result renders JSX it builds: its expression body, or
+// one of its own return statements.
+function returnsJsx(fn) {
+  if (!t.isBlockStatement(fn.body)) return yieldsJsx(fn.body);
+  let found = false;
+  const visit = (node) => {
+    if (found || node == null || typeof node.type !== 'string' || t.isFunction(node)) return;
+    if (t.isReturnStatement(node) && node.argument != null && yieldsJsx(node.argument)) {
+      found = true;
+      return;
+    }
+    for (const key of t.VISITOR_KEYS[node.type] || []) {
+      const child = node[key];
+      if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  };
+  fn.body.body.forEach(visit);
+  return found;
 }
 
 function transformForFineGrained(path, state) {
@@ -1826,7 +1881,9 @@ function collectControlFlowContent(children, state) {
       const text = normalizeJsxText(child.value);
       if (text) parts.push({ expr: t.stringLiteral(text), setup: [] });
     } else if (t.isJSXExpressionContainer(child)) {
-      if (!t.isJSXEmptyExpression(child.expression)) parts.push({ expr: child.expression, setup: [] });
+      // The lowering an element's or a fragment's expression child gets: a
+      // reactive one is a reactive child of its own, as the server renders it.
+      if (!t.isJSXEmptyExpression(child.expression)) parts.push(arrayMember(state, () => lowerFragmentExprChild(child.expression, state)));
     } else if (t.isJSXElement(child)) {
       parts.push(arrayMember(state, () => transformElementFineGrained({ node: child }, state)));
     } else if (t.isJSXFragment(child)) {
@@ -1990,7 +2047,8 @@ function orderedRows(expr, state, bracketed) {
       const id = t.identifier(uniqueName(state, '_m$'));
       // Its JSX is built where it stands (isInPlace).
       member._whatInPlace = true;
-      const value = t.isJSXElement(member) ? member : t.callExpression(helper(state, '_$member'), [member, t.numericLiteral(i)]);
+      placeFlat(member);
+      const value = t.isJSXElement(member) && !lowersToRegion(member, state) ? member : t.callExpression(helper(state, '_$member'), [member, t.numericLiteral(i)]);
       body.push(t.variableDeclaration('const', [t.variableDeclarator(id, value)]));
       return t.cloneNode(id);
     });
@@ -2021,6 +2079,15 @@ function orderedRows(expr, state, bracketed) {
   return t.callExpression(helper(state, '_$members'), [t.arrowFunctionExpression([], expr)]);
 }
 
+// Whether JSX lowers to what claims only where it is placed, not where it is
+// created: <For>, <Show> and <Switch> (transformElementFineGrained) are a list
+// or a reactive child.
+function lowersToRegion(node, state) {
+  const tag = node.openingElement.name.name;
+  if (tag === 'Switch') return !isForeignTag(tag, state) || hasLiteralMatchArms(node);
+  return (tag === 'For' || tag === 'Show') && !isForeignTag(tag, state);
+}
+
 export function transformFragmentFineGrained(path, state) {
   const { node } = path;
   const children = node.children;
@@ -2042,7 +2109,10 @@ export function transformFragmentFineGrained(path, state) {
   }
 
   if (members.length === 1) return members[0].expr;
-  return membersArray(members, state, path.parentPath ? followsOtherMarkers(path) : false);
+  // The server renders a fragment as the array a Fragment returns, which it
+  // brackets, unless it is a member of an array other code builds.
+  const nested = path.parentPath ? followsOtherMarkers(path) : false;
+  return membersArray(members, state, nested, !nested);
 }
 
 // Whether the fragment at `path` is a member of an array other code builds:
@@ -2090,8 +2160,10 @@ function arrayMember(state, transform) {
 // `nested`: it follows the markers of an array other code builds.
 // `bracketed`: the server writes its markers around it (a conditional's
 // content, the value of a reactive child), before those of a component in it.
-function membersArray(members, state, nested = false, bracketed = false) {
-  if (!state.hydratable || !claimsOutOfOrder(members, state, nested, bracketed)) return t.arrayExpression(members.map((m) => m.expr));
+// `always`: built with _$members whatever the order its members claim in.
+function membersArray(members, state, nested = false, bracketed = false, always = false) {
+  if (state.hydratable) for (const m of members) placeFlat(m.expr);
+  if (!state.hydratable || !(always || claimsOutOfOrder(members, state, nested, bracketed))) return t.arrayExpression(members.map((m) => m.expr));
   const own = members.reduce((n, m) => n + m.setup.length, 0);
   state._pendingSetup.splice(state._pendingSetup.length - own, own);
   const body = [];
@@ -2133,10 +2205,33 @@ function claimsOutOfOrder(members, state, nested, bracketed) {
   return false;
 }
 
+// The placing reads (_$place) a value holds where it is placed: placed in an
+// element's hole, or as a member of a fragment or an array, they are placed
+// where the server writes their members in place, with no markers of their
+// own (dom.js _place).
+function placeFlat(expr) {
+  if (t.isConditionalExpression(expr)) {
+    placeFlat(expr.consequent);
+    placeFlat(expr.alternate);
+  } else if (t.isLogicalExpression(expr)) {
+    placeFlat(expr.left);
+    placeFlat(expr.right);
+  } else if (t.isCallExpression(expr) && expr.callee._whatPlace === true && expr.arguments.length === 2) {
+    expr.arguments.push(t.numericLiteral(1));
+  }
+}
+
 const CLAIMING = ['_$claim', '_$claimControl', '_$createComponent', '_$members'];
 
 function isMembersCall(node, state) {
   return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$members') === node.callee.name;
+}
+
+// A call to one of the runtime helpers compiled output imports.
+function isHelperCall(node, state) {
+  if (!t.isIdentifier(node.callee)) return false;
+  for (const local of helperLocals(state).values()) if (local === node.callee.name) return true;
+  return false;
 }
 
 function isComponentCall(node, state) {
@@ -2213,7 +2308,7 @@ export function transformJsxRoot(path, state) {
   enterJsxRoot(path, state);
   state._pendingSetup = [];
   state._selectorIds = new Map();
-  const outside = state.hydratable && !isInPlace(path);
+  const outside = state.hydratable && !isInPlace(path, state);
   const transform = t.isJSXFragment(path.node) ? transformFragmentFineGrained : transformElementFineGrained;
   const transformed = transform(path, state);
   const pending = state._pendingSetup;
@@ -2303,19 +2398,31 @@ export function transformJsxRoot(path, state) {
 
 // Whether a JSX root is evaluated where it renders, so that a hydratable
 // build can claim the server's nodes for it as it is built: returned (from a
-// function, or as an arrow's body, e.g. a component, a .map() row or a region
+// function, or as an arrow's body, e.g. a component, a row or a region
 // thunk), or the value of a hole the compiler placed (_whatInPlace), through
-// conditionals, logical operators and array literals. Anything else (a
-// variable, a prop other than children, an argument) is built before it is
-// placed.
-function isInPlace(path) {
+// conditionals, logical operators and array literals. What a callback a call
+// takes returns (`links.map((l) => <li />)`) is where that call is: in place
+// in a hole, built before it is placed in a variable. Anything else (a
+// variable, an attribute that is not a slot, an argument) is built before it
+// is placed.
+function isInPlace(path, state) {
   let p = path;
   for (;;) {
     const parent = p.parentPath;
     if (!parent) return false;
     if (p.node._whatInPlace) return true;
-    if (parent.isReturnStatement()) return true;
-    if (parent.isArrowFunctionExpression() && p.key === 'body') return true;
+    /** @type {any} */
+    let fn = null;
+    if (parent.isReturnStatement()) fn = parent.getFunctionParent();
+    else if (parent.isArrowFunctionExpression() && p.key === 'body') fn = parent;
+    if (fn !== null) {
+      // A function the runtime calls where it renders (a component, a row, a
+      // region, a children factory, a slot) places what it returns.
+      const call = fn.parentPath;
+      if (fn.listKey !== 'arguments' || !(call.isCallExpression() || call.isOptionalCallExpression()) || isHelperCall(call.node, state)) return true;
+      p = call;
+      continue;
+    }
     const climbs = (parent.isConditionalExpression() && p.key !== 'test')
       || (parent.isLogicalExpression() && p.key === 'right')
       || (parent.isSequenceExpression() && p.key === parent.node.expressions.length - 1)

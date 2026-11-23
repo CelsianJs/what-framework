@@ -149,9 +149,11 @@ function addHtml(m, html) {
   else m.s += html;
 }
 
+// Markup a hole holds goes into the template's, but a list's, which is
+// rendered between its own markers (ssrList).
 function append(m, hole) {
   if (typeof hole === 'string') addHtml(m, hole);
-  else if (typeof hole === 'object' && hole !== null && Html.is(hole) && hole instanceof Markup) inline(m, hole);
+  else if (typeof hole === 'object' && hole !== null && Html.is(hole) && hole instanceof Markup && !hole.list) inline(m, hole);
   else defer(m, hole);
 }
 
@@ -272,9 +274,9 @@ export function ssrList(list, fn, asArray, keyFn, slot) {
     const keys = keyFn ? list.map((item) => keyFn(item)) : null;
     if (asArray && keys !== null) m.keys = rowKeys(keys);
     // A keyed list's rows are keyed rows (what-core hydration-data.js
-    // _enterRow): it takes its place as its first row renders, and the
-    // components a row renders count in that row.
-    const rowList = keys !== null && keys.length > 0 ? { keys, slot } : null;
+    // _enterRow): it takes its place where it starts, with no rows too, and
+    // the components a row renders take theirs in that row.
+    const rowList = keys !== null ? { keys, slot } : null;
     if (rowList !== null) defer(m, new RowEdge(rowList, undefined, 0, null));
     const outer = rows;
     rows = m;
@@ -362,16 +364,32 @@ class RowEdge extends Html {
 export function ssrFor(each, fn, key, fallback, slot) {
   return () => {
     const list = typeof each === 'function' ? each() : each;
-    if (!list || list.length === 0) return fallback;
+    if (!list || list.length === 0) return key ? emptyList(slot, fallback) : fallback;
     return ssrList(list, key ? (item, i) => fn(() => item, i) : fn, true, key, slot);
   };
 }
 
+// A keyed list with no rows, which takes its place (ssrList), and what shows
+// in its stead.
+function emptyList(slot, fallback) {
+  const m = new Markup('', false, false);
+  defer(m, new RowEdge({ keys: [], slot }, undefined, 0, null));
+  append(m, ssrText(fallback));
+  return finish(m);
+}
+
 // --- Components --------------------------------------------------------------
 
-/** `<Comp {...props}>children</Comp>`: a vnode, rendered where it is placed. */
-export function ssrComponent(Comp, props, children) {
-  return h(Comp, props, ...children);
+/**
+ * `<Comp {...props}>children</Comp>`: a vnode, rendered where it is placed.
+ * `site` is the number what-compiler gave the JSX, the DOM target's too
+ * (what-core hydration-data.js _assignOwnerPath); null when it has none,
+ * which still marks the vnode as compiled JSX's (stream.js takesSlot).
+ */
+export function ssrComponent(Comp, props, children, site) {
+  const vnode = h(Comp, props, ...children);
+  /** @type {any} */ (vnode)._site = site === undefined ? null : site;
+  return vnode;
 }
 
 /** `<>children</>`: a Fragment vnode, the h() spelling of the same JSX. */
@@ -379,9 +397,11 @@ export function ssrFragment(children) {
   return h(Fragment, null, ...children);
 }
 
-/** `<Comp client:mode />`: the island wrapper around the component. */
+/** `<Comp client:mode />`: the island wrapper around the component, compiled JSX's as ssrComponent's is. */
 export function ssrIsland(props, children) {
-  return h(_$Island, props, ...children);
+  const vnode = h(_$Island, props, ...children);
+  /** @type {any} */ (vnode)._site = null;
+  return vnode;
 }
 
 // --- Attributes ----------------------------------------------------------------

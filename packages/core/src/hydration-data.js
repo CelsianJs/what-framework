@@ -168,22 +168,23 @@ export function _ownerCounter(frame, root) {
  * (false for a built-in the compiler lowers away), and so has a hydration key
  * of its own.
  *
- * Once an app defines a server action, it also places the frame among the
- * keyed rows (placeInRow, below).
+ * Once an app defines a server action, it also gives the frame its place
+ * among the keyed rows (placeInRow, below); `site` is the number
+ * what-compiler gave the JSX that renders it, if any.
  */
-export function _assignOwnerPath(frame, parent, root) {
+export function _assignOwnerPath(frame, parent, root, site) {
   const holder = holderOf(parent, root);
   const prefix = parent ? parent._ownerPath || '' : '';
   if (frame.Component !== undefined && frame.Component._lowered === true) {
     frame._ownerPath = prefix;
     frame._ownerHolder = holder;
-    if (placeRow !== null) placeRow(frame, parent, null, prefix);
+    if (placeRow !== null) placeRow(frame, parent, null, site);
     return false;
   }
   const index = holder._ownerChildren || 0;
   holder._ownerChildren = index + 1;
   frame._ownerPath = formatId(prefix, index);
-  if (placeRow !== null) placeRow(frame, parent, holder, prefix);
+  if (placeRow !== null) placeRow(frame, parent, holder, site);
   return true;
 }
 
@@ -212,8 +213,7 @@ export function _nextOwnerKey(frame, root) {
 // first, each with its list's place in the component that renders it and
 // how many rows of that list had the same key before it, then the steps from
 // the innermost row down to the instance's component, and its place among
-// that component's. Position counts only below the innermost keyed row, and
-// outside keyed lists, where the identity is the owner path.
+// that component's. Outside keyed lists the steps start at the root.
 //
 // A keyed row is a member of an array (a reactive child's, a component's, a
 // keyed list's rows) or of an element's children whose key is a string or a
@@ -224,15 +224,20 @@ export function _nextOwnerKey(frame, root) {
 // reach it (_enterRow, _leaveRow), on the server and while hydrating alike,
 // on the object that counts the components of the frame rendering it.
 //
-// A list's place is where it stands, never how many lists came before it, so
-// a list that is empty in one render and not in the next moves no other: the
-// child slots from the innermost row (or the frame's output) down to the list,
-// as the vnode renderers walk them (each vnode, function or array member of an
-// element's children or of an array enters its index there, _enterRow),
-// then the number what-compiler gives each list it lowers, from where the
-// list is written in its source. Lists that still share a place (one call
-// site run twice in a frame, lists inside the rows of an unkeyed compiled
-// list) are told apart by the order they first enter a row in.
+// A component's step, like a list's place, is where it stands, never how many
+// components or lists came before it, so a component or a list that is in one
+// render and not in the next moves no other: the child slots from the
+// innermost row (or the frame's output) down to it, as the vnode renderers
+// walk them (each member of an element's children or of an array that can
+// hold a component or a list enters its index there: takesSlot in render.js
+// and in what-server, _enterRow), then the number what-compiler gives the JSX
+// that renders it, from where that is written in its source. A conditional
+// child keeps its
+// slot when it renders nothing, as an h() function child does (h() drops a
+// `false` or `null` child, which so holds no slot). What still shares a place
+// (one JSX site run more than once in a frame: a helper called twice, the
+// rows of an unkeyed compiled list) is told apart by the order it takes the
+// place in; a keyed list takes its place even when it is empty.
 //
 // The page carries no key: a key is written as its digest under the render's
 // salt (_rowKeyDigest, as a keyed list's keys comment writes it), and the
@@ -245,25 +250,24 @@ const isRowKey = (key) => typeof key === 'string' || (typeof key === 'number' &&
 
 // Installed with the keyed rows (_installRowKeys): placeInRow, and readRootRow
 // for a hydration root. An app with no server action carries neither.
-/** @type {((frame: any, parent: any, holder: any, prefix: string) => void) | null} */
+/** @type {((frame: any, parent: any, holder: any, site: number | undefined) => void) | null} */
 let placeRow = null;
 /** @type {((root: any, container: any) => void) | null} */
 let rootRow = null;
 
 // A frame's place among the keyed rows: `_rowIn`, the innermost keyed row
 // around it, and `_rowPath`, its steps counted from that row; outside keyed
-// rows, `_placePath`, its steps from the root. A step counts the components
-// before it in its scope (the frame counting it, `holder`, or the keyed row
-// open there) but those rendered inside a keyed row of that scope, which
-// come and go with the list's rows (`_inRows` and a row's `inRows`, counted
-// as each row is left, _leaveRow): an "add" form after a list is the same
-// form whatever the list holds. A component at the top of a row counts from
-// the row's start; a built-in the compiler lowers away (no `holder`) takes
-// no step.
-function placeInRow(frame, parent, holder, prefix) {
-  const row = holder === null ? undefined : rowOf(holder._row);
-  const step = holder === null ? '' : formatId('', /** @type {{ index: number }} */ (stepAt(frame._ownerPath, prefix.length)).index
-    - (row !== undefined ? row.base + row.inRows : holder._inRows || 0));
+// rows, `_placePath`, its steps from the root. Its step is its place in the
+// output of the frame rendering it (`holder`), from the start of the keyed
+// row open there or of the output (placeOf), ending at `X`. A built-in the
+// compiler lowers away (no `holder`) takes no step.
+function placeInRow(frame, parent, holder, site) {
+  const open = holder === null ? undefined : holder._row;
+  const row = rowOf(open);
+  // An island's content takes the place the root of the client's hydrate()
+  // into the island takes (_currentRowPath): no slot, no compiled number.
+  const step = holder === null ? '' : holder._islandHost === true ? placeOf(undefined, holder, undefined, 'X', frame._ownerPath)
+    : placeOf(open, row !== undefined ? row : holder, site, 'X', frame._ownerPath);
   if (row !== undefined) {
     frame._rowIn = row;
     frame._rowPath = step;
@@ -282,17 +286,21 @@ function stepsOf(frame) {
   return frame._placePath !== undefined && path[0] !== UNANCHORED ? frame._placePath : path;
 }
 
-// An island's root starts from the keyed rows its server wrote around it.
+// An island's root starts from the place its server wrote (_currentRowPath):
+// the keyed rows around it, or outside them its steps from the root.
 function readRootRow(root, container) {
   const row = root._ownerPath[0] !== UNANCHORED ? container.getAttribute('data-what-row') : null;
-  if (row !== null && ROW_PATH.test(row)) {
+  if (row === null || !ROW_PATH.test(row)) return;
+  if (row.includes('-')) {
     root._rowIn = { written: row };
     root._rowPath = '';
+  } else {
+    root._placePath = row;
   }
 }
 
 // What an island's data-what-row holds: digests, steps and the row marks
-// between them.
+// between them (a row's lead ends at `-`, which no step writes).
 const ROW_PATH = /^[0-9A-Za-z_.-]+$/;
 
 // The innermost keyed row of what is open in a frame's output (`open`: the
@@ -309,13 +317,14 @@ const rowOf = (open) => (open !== undefined && open.slot !== undefined ? open.ro
  * of the same key before it. A caller that enters only some of its rows
  * (compiled markup enters the rows it renders components in) gives the list
  * its rows' keys as `list.keys`, enters it once before the first row with no
- * key, and passes each row's place in `keys` as `index`. Returns what
+ * key, and passes each row's place in `keys` as `index`; a compiled list
+ * enters so even when it has no rows, so it takes its place. Returns what
  * _leaveRow puts back once the row is done. A key that is not a row key
  * (above) enters nothing, and the result is what is open there now. A null
  * `list` is a member that is no keyed row: with a number `key`, its index in
  * the element's children or the array being walked, it enters that slot (a
- * vnode, a function or an array member holds the lists below it there; a
- * slot around text holds none); with none, it enters nothing.
+ * member that can hold a component or a list, takesSlot, holds them below it
+ * there); with none, it enters nothing.
  */
 export function _enterRow(frame, root, list, key, index) {
   const holder = holderOf(frame === undefined ? _currentComponent() : frame, root);
@@ -325,7 +334,7 @@ export function _enterRow(frame, root, list, key, index) {
     return open;
   }
   const outer = rowOf(open);
-  list.place ??= placeOf(open, outer !== undefined ? outer : holder, list.slot);
+  list.place ??= placeOf(open, outer !== undefined ? outer : holder, list.slot, '', list);
   if (!isRowKey(key)) return open;
   let n;
   if (list.keys !== undefined) n = (list.counts ??= keyCounts(list.keys))[/** @type {number} */ (index)];
@@ -341,22 +350,31 @@ export function _enterRow(frame, root, list, key, index) {
     up = holder._rowIn !== undefined ? holder._rowIn : null;
     lead = up !== null ? holder._rowPath : stepsOf(holder);
   }
-  holder._row = { up, lead, list: list.place, key, n, base: holder._ownerChildren || 0, inRows: 0 };
+  holder._row = { up, lead, list: list.place, key, n };
   return open;
 }
 
-// A list's place: the slots open from the start of `scope` (its innermost
-// row, or the frame) down to it, and its compiled `number`; a second list in
-// `scope` at the same place adds how many took it before. Each step is
-// formatId's (self-delimiting); `Z` and `Y`, which open no step formatId
-// writes, mark the number and the count.
-function placeOf(open, scope, number) {
+// A place in `scope` (the innermost row, or the frame): the slots open from
+// its start down to `open`, the compiled `number`, then `end` (`X` ends a
+// component's step; a list's place is followed by its rows' keys). What
+// takes a place another took before it in `scope` adds how many did; `who`
+// taking it again (a component's retry, with its owner path) keeps its count.
+// Each slot and number is formatId's (self-delimiting); `Z`, `Y` and `X`,
+// which begin no step formatId writes, mark the number, the count and the end.
+function placeOf(open, scope, number, end, who) {
   let place = '';
   for (let s = open; s !== undefined && s.slot !== undefined; s = s.up) place = formatId('', s.slot) + place;
   if (number != null) place += 'Z' + formatId('', number);
+  place += end;
   const taken = scope._places ??= new Map();
-  const before = taken.get(place) || 0;
-  taken.set(place, before + 1);
+  const seen = taken.get(place);
+  let before = 0;
+  if (seen === undefined) taken.set(place, [1, who]);
+  else if (seen[1] === who) before = seen[0] - 1;
+  else {
+    before = seen[0]++;
+    seen[1] = who;
+  }
   return before === 0 ? place : place + 'Y' + formatId('', before);
 }
 
@@ -376,17 +394,7 @@ function keyCounts(keys) {
 
 /** @internal The row _enterRow entered in `frame`'s output is done: `saved` is what it returned. */
 export function _leaveRow(frame, root, saved) {
-  const holder = holderOf(frame === undefined ? _currentComponent() : frame, root);
-  const done = holder._row;
-  holder._row = saved;
-  // The components the keyed row rendered count for no later step of the
-  // scope around it (placeInRow).
-  if (done !== undefined && done.base !== undefined && done !== rowOf(saved)) {
-    const used = (holder._ownerChildren || 0) - done.base;
-    const outer = rowOf(saved);
-    if (outer !== undefined) outer.inRows += used;
-    else holder._inRows = (holder._inRows || 0) + used;
-  }
+  holderOf(frame === undefined ? _currentComponent() : frame, root)._row = saved;
 }
 
 /**
@@ -418,13 +426,30 @@ function rowPath(row, salt) {
 }
 
 /**
- * @internal The keyed rows around the component rendering now and its steps
- * below the innermost, under `salt`; null outside keyed rows. An island
- * writes it as data-what-row, for the root it hydrates into to start from.
+ * @internal The component rendering now is an island's wrapper on the
+ * server: the client hydrates the island's content as the root of a hydrate()
+ * call of its own, so what the wrapper renders takes the place that root's
+ * component takes there, with no slot and no compiled number (placeInRow).
+ * what-server's Island (through _currentRowPath) and compiled JSX's
+ * (components.js _$Island) both are.
+ */
+export function _islandHost() {
+  const frame = _currentComponent();
+  if (frame !== null) frame._islandHost = true;
+}
+
+/**
+ * @internal The place of the component rendering now: the keyed rows around
+ * it and its steps below the innermost, under `salt`, or outside keyed rows
+ * its steps from the root; null when no server action placed it. An island
+ * writes it as data-what-row, for the root it hydrates into to start from,
+ * and the component asking is that island's wrapper (_islandHost).
  */
 export function _currentRowPath(salt) {
   const frame = _currentComponent();
-  return frame === null || frame._rowIn === undefined ? null : rowPath(frame._rowIn, salt) + frame._rowPath;
+  if (frame === null || (frame._rowIn === undefined && frame._placePath === undefined)) return null;
+  frame._islandHost = true;
+  return frame._rowIn !== undefined ? rowPath(frame._rowIn, salt) + frame._rowPath : frame._placePath;
 }
 
 const SALT = /^[0-9A-Za-z_.]{11}$/;
@@ -552,7 +577,8 @@ function anchorPath(container) {
  * (_hydrationRoot) and what the server has where the component's output
  * starts: the key of the element there (a string, '' for an element or text
  * with none), or null when the server rendered nothing more there. `ordered`
- * says whether the walk has matched the server's structure so far. Returns 0
+ * says whether the walk has matched the server's structure so far, and `site`
+ * is the compiled JSX's number (_assignOwnerPath). Returns 0
  * for a built-in that takes no step (see _assignOwnerPath), 2 when the
  * server's key there cannot be this component's (it does not extend the
  * parent's path), else 1.
@@ -563,7 +589,7 @@ function anchorPath(container) {
  * client render) has no owner path, so nothing under it is numbered from the
  * server's: it fetches.
  */
-export function _assignHydrationOwnerPath(ctx, root, key, ordered) {
+export function _assignHydrationOwnerPath(ctx, root, key, ordered, site) {
   if (!isHydrating()) return 1;
   let parent = ctx.owner;
   while (parent && parent.Component === undefined) parent = parent.owner;
@@ -572,17 +598,14 @@ export function _assignHydrationOwnerPath(ctx, root, key, ordered) {
     return 1;
   }
   const frame = parent || root;
-  if (!_assignOwnerPath(ctx, frame, null)) return 0;
+  if (!_assignOwnerPath(ctx, frame, null, site)) return 0;
   const prefix = frame._ownerPath;
   // Under a prefix no server key has, nothing is the server's.
   if (prefix[0] === UNANCHORED) return 1;
   const step = key && key.startsWith(prefix) ? stepAt(key, prefix.length) : null;
   if (step !== null) {
-    const holder = holderOf(frame, null);
     ctx._ownerPath = key.slice(0, step.end);
-    holder._ownerChildren = step.index + 1;
-    // Its place among the keyed rows follows the step it took from the key.
-    if (placeRow !== null) placeRow(ctx, frame, holder, prefix);
+    holderOf(frame, null)._ownerChildren = step.index + 1;
     return 1;
   }
   if (key !== '' || !ordered) ctx._ownerPath = UNANCHORED + ctx._ownerPath;

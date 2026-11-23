@@ -5,13 +5,20 @@
 //   - form controls at the leaves (text inputs, textareas, checkboxes,
 //     selects), each with a name of its own;
 //   - text, a static expression and a reactive one (`{n()}`);
+//   - form controls with bindings: an event handler, a ref, a reactive
+//     attribute, `bind:value`;
 //   - elements and fragments, which hold nodes;
 //   - components the module declares, used side by side:
 //       a wrapper that destructures `children`, one that reads
 //       `props.children`, one with a named JSX slot (`header={…}`), one
 //       that hands a slot on to another, a render prop, children as a
 //       function, a component that returns a fragment (starting with text,
-//       an expression or an element), an array, or text;
+//       an expression or an element, or a label and its field), an array,
+//       or text;
+//   - a field component that returns a fragment beside controls with
+//     bindings, first, in the middle or last, inside a wrapper that
+//     destructures `children`, one that reads `props.children`, a <Form>,
+//     a <Show> or a provider;
 //   - conditionals (`&&`, `?:`, `<Show>`);
 //   - keyed and unkeyed `.map()` lists, reactive and over a plain array,
 //     whose rows hold nodes too, and array literals;
@@ -33,7 +40,9 @@ export function random(seed) {
 
 const PRELUDE = `
 import { signal, Show, Suspense, ErrorBoundary, createContext, useContext } from 'what-framework';
+import { Form } from 'what-framework/server';
 export const n = signal(0);
+export const v = signal('bound');
 export const show = signal(true);
 export const items = signal([1, 2]);
 const rows = [1, 2];
@@ -43,7 +52,7 @@ function Reader() { return <i class="ctx">{useContext(Ctx)}</i>; }
 
 /**
  * One case: { id, source } where source is a module exporting `Page`, `n`,
- * `show` and `items`.
+ * `v`, `show` and `items`.
  */
 export function generateCase(id, next) {
   const pick = (list) => list[Math.floor(next() * list.length)];
@@ -56,7 +65,29 @@ export function generateCase(id, next) {
   function node(depth, row = null) {
     const leaf = depth >= 3 || next() < 0.25;
     if (leaf) return leafNode(row);
-    return build(pick(['element', 'element', 'fragment', 'component', 'component', 'component', 'conditional', 'list', 'boundary']), depth, row);
+    return build(pick(['element', 'element', 'fragment', 'component', 'component', 'component', 'conditional', 'list', 'boundary', 'fields']), depth, row);
+  }
+
+  function fieldName(row) {
+    return row === null ? `"f${fields++}"` : `{"f${fields++}-" + ${row}}`;
+  }
+
+  // A control whose template has bindings.
+  function boundControl(row) {
+    const name = fieldName(row);
+    return pick([
+      () => `<input name=${name} onInput={(e) => e.target.setCustomValidity('')} />`,
+      () => `<input name=${name} ref={(el) => el} />`,
+      () => `<input name=${name} title={n() >= 0 ? "t" : "u"} />`,
+      () => `<input name=${name} bind:value={v} />`,
+    ])();
+  }
+
+  // A component that returns a label and its field as a fragment.
+  function fieldComponent(row) {
+    const name = `C${components.length}`;
+    components.push(`function ${name}({ name }) { return <><label>Label</label><input name={name} /></>; }`);
+    return `<${name} name=${fieldName(row)} />`;
   }
 
   function children(depth, row) {
@@ -67,7 +98,8 @@ export function generateCase(id, next) {
   }
 
   function leafNode(row) {
-    const name = row === null ? `"f${fields++}"` : `{"f${fields++}-" + ${row}}`;
+    if (next() < 0.15) return boundControl(row);
+    const name = fieldName(row);
     return pick([
       () => `<input name=${name} />`,
       () => `<textarea name=${name} />`,
@@ -106,6 +138,25 @@ export function generateCase(id, next) {
           () => `<div class="e${classes++}">{items().map((it) => ${component(depth, 'it', inner)})}</div>`,
           () => `<div class="e${classes++}">{rows.map((it) => ${component(depth, 'it', inner)})}</div>`,
           () => `<div class="e${classes++}">{[${wrapJsx(node(depth + 1, row))}, "text ", ${wrapJsx(node(depth + 1, row))}]}</div>`,
+        ])();
+      }
+      case 'fields': {
+        const parts = [boundControl(row), boundControl(row)];
+        parts.splice(Math.floor(next() * 3), 0, fieldComponent(row));
+        const inner = parts.join('');
+        const name = `C${components.length}`;
+        return pick([
+          () => {
+            components.push(`function ${name}({ children }) { return <form class="w">{children}</form>; }`);
+            return `<${name}>${inner}</${name}>`;
+          },
+          () => {
+            components.push(`function ${name}(props) { return <div class="w">{props.children}</div>; }`);
+            return `<${name}>${inner}</${name}>`;
+          },
+          () => `<Form action="/save">${inner}</Form>`,
+          () => `<Show when={show}>${inner}</Show>`,
+          () => `<Ctx.Provider value="v">${inner}</Ctx.Provider>`,
         ])();
       }
       case 'boundary':
@@ -177,10 +228,13 @@ export function structure(html) {
   return html.replace(/<!--[\s\S]*?-->/g, '').replace(/ data-hk="[^"]*"/g, '');
 }
 
+// The controls a user can change (a <Form>'s hidden fields are its own).
+const CONTROLS = 'input:not([type=hidden]), textarea, select';
+
 /** Apply an edit to every form control in `root`, as a user does while the page loads. */
 export function editControls(root) {
   const edits = [];
-  for (const el of root.querySelectorAll('input, textarea, select')) {
+  for (const el of root.querySelectorAll(CONTROLS)) {
     if (el.type === 'checkbox') el.checked = !el.checked;
     else if (el.localName === 'select') el.value = 'b';
     else el.value = `edited ${edits.length}`;
@@ -191,7 +245,7 @@ export function editControls(root) {
 
 /** What the controls in `root` show, as [name, value or checkedness]. */
 export function readControls(root) {
-  return [...root.querySelectorAll('input, textarea, select')].map((el) => [el.name, el.type === 'checkbox' ? el.checked : el.value]);
+  return [...root.querySelectorAll(CONTROLS)].map((el) => [el.name, el.type === 'checkbox' ? el.checked : el.value]);
 }
 
 /**

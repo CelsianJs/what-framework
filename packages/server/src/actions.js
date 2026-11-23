@@ -259,7 +259,10 @@ async function post(id, args, options) {
     });
 
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
+      // Whatever the refusal holds (the framework's JSON, a proxy's page,
+      // null), the call rejects with a coded error.
+      const parsed = await response.json().catch(() => null);
+      const body = parsed !== null && typeof parsed === 'object' ? parsed : {};
       // ERROR_CODES.PAYLOAD_TOO_LARGE for a body over the server's bodyLimit
       // (`limit`, its bytes), else ERROR_CODES.ACTION_FAILED; `status` is the
       // response's.
@@ -269,7 +272,7 @@ async function post(id, args, options) {
           code: 'ERR_PAYLOAD_TOO_LARGE', status: 413, limit,
         });
       }
-      throw Object.assign(new Error(body.message || 'Action failed'), { code: 'ERR_ACTION_FAILED', status: response.status });
+      throw Object.assign(new Error(typeof body.message === 'string' && body.message !== '' ? body.message : 'Action failed'), { code: 'ERR_ACTION_FAILED', status: response.status });
     }
     return [await response.json(), response.headers.get('x-what-redirect')];
   } catch (error) {

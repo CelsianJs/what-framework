@@ -23,7 +23,11 @@ before(async () => {
   globalThis.fetch = async (url, init) => {
     posts.push({ url, init, body: JSON.parse(init.body) });
     const answer = await new Promise((resolve) => { respond = resolve; });
-    return { ok: answer.ok !== false, status: answer.status ?? (answer.ok === false ? 500 : 200), headers: new Headers(), json: async () => answer.body };
+    const json = async () => {
+      if (answer.html !== undefined) throw new SyntaxError(`Unexpected token '<', "${answer.html.slice(0, 9)}"... is not valid JSON`);
+      return answer.body;
+    };
+    return { ok: answer.ok !== false, status: answer.status ?? (answer.ok === false ? 500 : 200), headers: new Headers(), json };
   };
   core = await import('what-core');
   data = await import('what-core/data');
@@ -150,6 +154,29 @@ describe('a server action on the client', () => {
     respond({ ok: false, status: 403, body: { message: 'Invalid CSRF token' } });
     await second;
     assert.deepEqual([error.code, error.status, error.message], ['ERR_ACTION_FAILED', 403, 'Invalid CSRF token']);
+  });
+
+  // A refusal whose body is not the framework's JSON (a proxy's page, null, a
+  // number, a message that is no string) still rejects with the coded error
+  // and its status, never a TypeError reading the body.
+  it('rejects any refusal with the coded error, whatever its body holds', async () => {
+    const call = server.action(async () => {}, { id: 'refused-bodies' });
+    const answers = [
+      [{ ok: false, status: 413, html: '<html><body>413 Request Entity Too Large</body></html>' }, ['ERR_PAYLOAD_TOO_LARGE', 413, undefined, 'Payload too large: the server accepts less in one request']],
+      [{ ok: false, status: 413, body: null }, ['ERR_PAYLOAD_TOO_LARGE', 413, undefined, 'Payload too large: the server accepts less in one request']],
+      [{ ok: false, status: 400, body: null }, ['ERR_ACTION_FAILED', 400, undefined, 'Action failed']],
+      [{ ok: false, status: 502, html: '<html>Bad Gateway</html>' }, ['ERR_ACTION_FAILED', 502, undefined, 'Action failed']],
+      [{ ok: false, status: 400, body: 7 }, ['ERR_ACTION_FAILED', 400, undefined, 'Action failed']],
+      [{ ok: false, status: 400, body: { message: { html: '<b>x</b>' } } }, ['ERR_ACTION_FAILED', 400, undefined, 'Action failed']],
+    ];
+    for (const [answer, expected] of answers) {
+      let error = null;
+      const done = call().catch((e) => { error = e; });
+      await tick();
+      respond(answer);
+      await done;
+      assert.deepEqual([error.code, error.status, error.limit, error.message], expected, JSON.stringify(answer));
+    }
   });
 });
 

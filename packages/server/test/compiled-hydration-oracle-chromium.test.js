@@ -2,8 +2,7 @@
 // Chromium, for the first CASES trees of its fixed seed: the same checks, with
 // the browser's own parser, form controls and comment handling. The server
 // markup is rendered here, in Node; the client builds run in the page with the
-// development runtime. A tree may diverge in Chromium only where it does in
-// JSDOM (the known cases the JSDOM run lists).
+// development runtime. Every tree passes, as in JSDOM.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,8 +24,6 @@ const browserAvailable = await chromiumLaunches(chromium);
 
 const CASES = 40;
 const SEED = 20261122;
-// The trees among the first CASES that diverge in JSDOM too.
-const KNOWN = new Set([23]);
 
 function cases() {
   const next = random(SEED);
@@ -52,8 +49,9 @@ async function serverMarkup(list) {
 }
 
 async function pageBundle(dir, list) {
-  const rewrite = (code) => code.replace(/(['"])what-framework(\/render)?\1/g, (_, q, sub) =>
-    JSON.stringify(path.join(root, 'packages/core/src', sub ? 'render.js' : 'index.js')));
+  const entries = { '': 'packages/core/src/index.js', '/render': 'packages/core/src/render.js', '/server': 'packages/server/src/index.js' };
+  const rewrite = (code) => code.replace(/(['"])what-framework(\/render|\/server)?\1/g, (_, q, sub = '') =>
+    JSON.stringify(path.join(root, entries[sub])));
   await quietly(() => list.forEach(({ source }, i) => writeFileSync(path.join(dir, `case${i}.mjs`), rewrite(compileJSX(source, { pluginOptions: { hydratable: true } })))));
   writeFileSync(path.join(dir, 'entry.mjs'), `
     import * as core from ${JSON.stringify(path.join(root, 'packages/core/src/index.js'))};
@@ -101,8 +99,10 @@ async function pageBundle(dir, list) {
       return findings;
     }
   `);
+  // `development`: the packages' sources, the files the cases import, so a
+  // <Form> from what-server shares the page's what-core.
   const bundle = await build({ entryPoints: [path.join(dir, 'entry.mjs')], bundle: true, format: 'iife', globalName: 'HydrationOracle', write: false,
-    define: { __WHAT_DEV__: 'true' }, logLevel: 'silent' });
+    conditions: ['development'], define: { __WHAT_DEV__: 'true' }, logLevel: 'silent' });
   return bundle.outputFiles[0].text;
 }
 
@@ -117,13 +117,16 @@ describe('compiled-JSX hydration oracle in Chromium', { skip: !browserAvailable 
       const page = await browser.newPage();
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
-      await page.setContent('<!doctype html><html><body></body></html>');
+      // A page with an origin, as an app's is: <Form> reads its CSRF cookie,
+      // which a document with none (about:blank) refuses.
+      await page.route('http://oracle.test/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
+      await page.goto('http://oracle.test/');
       await page.addScriptTag({ content: script });
       await page.evaluate(() => { console.warn = () => {}; console.error = () => {}; });
       const findings = await page.evaluate((m) => globalThis.HydrationOracle.run(m), markup);
       console.log(`hydration oracle (Chromium): ${CASES} cases, ${findings.length} findings (${findings.map((f) => `#${f.id} ${f.step}`).join(', ')})`);
       assert.deepEqual(errors, []);
-      assert.deepEqual(findings.filter((f) => !KNOWN.has(f.id)), [], 'only the trees that diverge in JSDOM too');
+      assert.deepEqual(findings, []);
     } finally {
       await browser.close();
       rmSync(dir, { recursive: true, force: true });

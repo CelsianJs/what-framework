@@ -11,19 +11,8 @@
 //   - after it, the page is structurally what a fresh mount() of the same
 //     tree renders.
 // CI runs a fixed seed; WHAT_HYDRATION_CASES and WHAT_HYDRATION_SEED run more
-// or other cases locally.
-//
-// Not every tree passes yet. At the fixed seed, KNOWN of the cases still
-// diverge, all in two classes the runtime cannot tell apart from the markers
-// alone (at 9fa0f6e8, 116 of the same 300 diverged):
-//   - a component's children whose first child is itself an array on the
-//     server (a fragment, a component that returns one), placed in an element
-//     or a fragment, where the server writes no markers around the children:
-//     the children's _$members takes the first child's markers for its own;
-//   - a keyed row whose component returns a boundary, and a boundary or a
-//     provider whose children begin with such an array.
-// The run fails when more than KNOWN diverge, and prints every divergence.
-const KNOWN = 25;
+// or other cases locally. Every tree passes, at any seed; the run fails on the
+// first divergence and prints every one.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -94,8 +83,7 @@ describe('compiled-JSX hydration oracle', () => {
     }
     console.log(`hydration oracle: ${CASES} cases, ${findings.length} findings`);
     for (const f of findings) console.log(`  #${f.id} ${f.step}: ${JSON.stringify(f.problems ?? f.replaced ?? f.error ?? '').slice(0, 200)}`);
-    const allowed = CASES === 300 && SEED === 20261122 ? KNOWN : 0;
-    assert.ok(findings.length <= allowed, `${findings.length} of ${CASES} cases diverge (${allowed} known):\n${findings.slice(0, 5).map((f) => JSON.stringify(f, null, 1)).join('\n')}`);
+    assert.equal(findings.length, 0, `${findings.length} of ${CASES} cases diverge:\n${findings.slice(0, 5).map((f) => JSON.stringify(f, null, 1)).join('\n')}`);
   });
 });
 

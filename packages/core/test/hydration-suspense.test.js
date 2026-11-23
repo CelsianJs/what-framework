@@ -497,3 +497,40 @@ describe('a streamed boundary that resumes late', () => {
     }
   });
 });
+
+// Where the walk finds no boundary markers for it (markup it did not match),
+// a <Suspense> adopts its children in place and puts its own markers around
+// them. Its children are adopted before its end marker exists, and they
+// reveal it as they are adopted: the reveal waits for that marker. Before, it
+// read the missing marker and threw, the boundary's component was dropped,
+// and the region the server wrote stayed up, dead: no update reached it.
+describe('a <Suspense> whose markers the walk does not find', () => {
+  it('adopts its children in place and stays a live region', () => {
+    const n = signal(0);
+    const Page = () => h('main', null, h(Suspense, { fallback: h('p', null, 'wait') }, h('input', { name: 'q' }), h('b', null, () => n())), h('div', { class: 'live' }, () => n()));
+    document.body.innerHTML = '<main><input name="q"><b>0</b><div class="live">0</div></main>';
+    const input = document.querySelector('[name=q]');
+    input.value = 'typed before hydration';
+    const errors = [];
+    const { error } = console;
+    console.error = (...args) => errors.push(args.join(' '));
+    let stop;
+    try {
+      stop = hydrate(h(Page), document.body);
+      flushSync();
+    } finally {
+      console.error = error;
+    }
+    try {
+      assert.deepEqual(errors, []);
+      assert.equal(document.querySelector('[name=q]'), input);
+      assert.equal(input.value, 'typed before hydration');
+      n(2);
+      flushSync();
+      assert.equal(document.querySelector('main b').textContent, '2');
+      assert.equal(document.querySelector('main').innerHTML, '<!--b--><input name="q"><b>2</b><!--/b--><div class="live">2</div>');
+    } finally {
+      stop();
+    }
+  });
+});

@@ -42,6 +42,7 @@ const CASES = [
   ['<VisuallyHidden>', `import { VisuallyHidden } from ${at('../../core/src/a11y.js')};`, `<VisuallyHidden><b>hidden</b></VisuallyHidden>`],
   ['<LiveRegion>', `import { LiveRegion } from ${at('../../core/src/a11y.js')};`, `<LiveRegion><b>live</b></LiveRegion>`],
   ['<Head>', `import { Head } from ${at('../../core/src/head.js')};`, `<Head><title>Page</title><meta name="description" content="d" /></Head><input name="title" /><b>after</b>`],
+  ['<Head>, with body children of its own', `import { Head } from ${at('../../core/src/head.js')};`, `<Head><title>Page</title><input name="title" /><b>inside</b></Head>`],
   ['<Select>', `import { Select } from ${at('../../core/src/form.js')};`, `<Select name="title"><option value="a">A</option><option value="typed before hydration">B</option></Select><b>after</b>`],
 ];
 
@@ -378,6 +379,207 @@ describe('JSX in a named prop, hydrated', () => {
       }
     });
   }
+});
+
+// A component that returns a label and its field as a fragment, among a
+// wrapper's children beside controls with bindings: a wrapper's children are
+// placed where the server writes them with no markers of their own (an
+// element's hole), so the field's fragment brings the only markers there.
+// Before, the children's _$members took them for its own: the controls after
+// the field were built again, and what the user typed or chose there before
+// the page's code ran was lost (a file chosen in an upload field among them).
+describe('a field component that returns a fragment, beside controls with bindings, hydrated', () => {
+  const BOUND = {
+    'an event handler': (name) => `<input name="${name}" onInput={(e) => e.target.setCustomValidity('')} />`,
+    'a ref': (name) => `<input name="${name}" ref={(el) => el} />`,
+    'a reactive attribute': (name) => `<input name="${name}" title={open() ? 'open' : 'closed'} />`,
+    'bind:value': (name) => `<input name="${name}" bind:value={text} />`,
+  };
+  const WRAPPERS = {
+    'a wrapper that destructures children': ['function Card({ children }) { return <form>{children}</form>; }', (inner) => `<Card>${inner}</Card>`],
+    'a wrapper that reads props.children': ['function Card(props) { return <div class="card">{props.children}</div>; }', (inner) => `<Card>${inner}</Card>`],
+    '<Form>': ['', (inner) => `<Form action="/save">${inner}</Form>`],
+    '<Show>': ['', (inner) => `<Show when={open}>${inner}</Show>`],
+    'a provider': ['', (inner) => `<Ctx.Provider value="v">${inner}</Ctx.Provider>`],
+  };
+  // Depth 2 and 3: the wrapper inside one or two components that place it.
+  const OUTER = ['', 'function Outer1({ children }) { return <section>{children}</section>; }', 'function Outer2(props) { return <article><Outer1>{props.children}</Outer1></article>; }'];
+  const nest = (depth, jsx) => (depth === 1 ? jsx : depth === 2 ? `<Outer1>${jsx}</Outer1>` : `<Outer2>${jsx}</Outer2>`);
+
+  for (const [wrapperName, [wrapper, wrap]] of Object.entries(WRAPPERS)) {
+    for (const depth of [1, 2, 3]) {
+      it(`in ${wrapperName}, ${depth} deep: the field first, in the middle or last, beside each kind of binding`, async () => {
+        for (const [bindingName, bound] of Object.entries(BOUND)) {
+          for (const [position, index] of [['first', 0], ['in the middle', 1], ['last', 2]]) {
+            const parts = [bound('b0'), bound('b1')];
+            parts.splice(index, 0, '<Field name="f" />');
+            const source = `
+              import { signal, Show, createContext } from 'what-framework';
+              import { Form } from ${at('../src/index.js')};
+              export const open = signal(true);
+              export const text = signal('bound');
+              const Ctx = createContext('none');
+              function Field({ name }) { return <><label>Label</label><input name={name} /></>; }
+              ${wrapper}
+              ${OUTER.slice(1, depth).join('\n')}
+              export function Page() { return <main>${nest(depth, wrap(parts.join('')))}<button>Go</button></main>; }`;
+            const label = `${bindingName}, the field ${position}`;
+            const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+            const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+            __resetHydrationData();
+            document.body.innerHTML = renderToHydratableString(h(server.Page));
+            const serverElements = [...document.body.querySelectorAll('*')];
+            const fields = [...document.querySelectorAll('input:not([type=hidden])')];
+            fields.forEach((field) => { field.value = `typed ${field.name}`; });
+            const problems = [];
+            const stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(`${info.kind} at ${info.path}`) });
+            try {
+              assert.deepEqual(problems, [], label);
+              assert.deepEqual(serverElements.filter((el) => !el.isConnected).map((el) => el.localName), [], `${label}: no server element is replaced`);
+              assert.equal(fields.length, 3, label);
+              assert.deepEqual(fields.map((field) => field.value), fields.map((field) => `typed ${field.name}`), `${label}: every early edit is kept`);
+            } finally {
+              stop();
+            }
+          }
+        }
+      });
+    }
+  }
+});
+
+// Arrays and fragments the server brackets, or does not, as the client
+// expects: each shape here hydrated with a mismatch, rebuilt nodes and lost
+// edits before (round 11, V11-COR F5-F7 and the oracle's seeds), and some left
+// a region that no longer updated.
+describe('fragments, keyed rows and array literals, hydrated in place', () => {
+  const SHAPES = {
+    'a component returning a fragment that starts with a component, before <Suspense>': `function Nav() { return <nav>n</nav>; } function Header() { return <><Nav /><section>s</section></>; } export function Page() { return <main><Header /><Suspense fallback={<p>w</p>}><input name="q" /></Suspense><p class="live">{n()}</p></main>; }`,
+    'the same before <ErrorBoundary>': `function Nav() { return <nav>n</nav>; } function Header() { return <><Nav /><hr /></>; } export function Page() { return <div><Header /><ErrorBoundary fallback={<p>f</p>}><input name="q" /></ErrorBoundary><p class="live">{n()}</p></div>; }`,
+    'keyed rows over a plain array whose component returns a fragment': `const rows = [1, 2]; function Tag({ it }) { return <><dt>{it}</dt><dd><input name={'q' + it} /></dd></>; } export function Page() { return <main><dl>{rows.map((it) => <Tag key={it} it={it} />)}</dl><p class="live">{n()}</p></main>; }`,
+    'an array literal holding <Show>, with text': `export function Page() { return <main><div>{[<b>x</b>, 'text ', <Show when={show}><i><input name="q" /></i></Show>]}</div><p class="live">{n()}</p></main>; }`,
+    'an array literal holding <Show> first': `export function Page() { return <main><div>{[<Show when={show}><i><input name="q" /></i></Show>, 'text ', <b>x</b>]}</div><p class="live">{n()}</p></main>; }`,
+    'an array literal holding <Show>, no text': `export function Page() { return <main><div>{[<b>x</b>, <Show when={show}><i><input name="q" /></i></Show>]}</div><p class="live">{n()}</p></main>; }`,
+    'one child, a fragment whose first member is a fragment, placed in an array a component returns': `function Wrap(props) { return [<em>one</em>, props.children]; } export function Page() { return <main><Wrap><><><b>a</b><input name="q" /></><i>x</i></></Wrap><p class="live">{n()}</p></main>; }`,
+    'a fragment among an element\'s children': `export function Page() { return <main><><><select name="s"><option value="a">A</option><option value="b">B</option></select></></><ErrorBoundary fallback={<p>f</p>}><input name="q" /></ErrorBoundary><p class="live">{n()}</p></main>; }`,
+    'a reactive expression in a <Show> arm': `export function Page() { return <main><Show when={show}>{show() ? <Suspense fallback={<p>w</p>}><input name="q" />{n()}</Suspense> : <p>x</p>}</Show><p class="live">{n()}</p></main>; }`,
+  };
+  for (const [shape, page] of Object.entries(SHAPES)) {
+    it(`${shape}: every server node is adopted, an early edit kept, and the page updates`, async () => {
+      const source = `
+        import { signal, Show, Suspense, ErrorBoundary } from 'what-framework';
+        export const n = signal(0);
+        export const show = signal(true);
+        ${page}`;
+      const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+      const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+      __resetHydrationData();
+      document.body.innerHTML = renderToHydratableString(h(server.Page));
+      const serverElements = [...document.body.querySelectorAll('*')];
+      const fields = [...document.querySelectorAll('input, select')];
+      fields.forEach((field) => { field.value = field.localName === 'select' ? 'b' : `typed ${field.name}`; });
+      const problems = [];
+      const errors = [];
+      const { error } = console;
+      console.error = (...args) => errors.push(args.join(' '));
+      let stop;
+      try {
+        stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(`${info.kind} at ${info.path}`) });
+      } finally {
+        console.error = error;
+      }
+      try {
+        assert.deepEqual(problems, []);
+        assert.deepEqual(errors, []);
+        assert.deepEqual(serverElements.filter((el) => !el.isConnected).map((el) => el.localName), [], 'no server element is replaced');
+        assert.deepEqual(fields.map((field) => field.value), fields.map((field) => (field.localName === 'select' ? 'b' : `typed ${field.name}`)));
+        client.n(5);
+        const { flushSync } = await import('what-core');
+        flushSync();
+        assert.equal(document.querySelector('.live').textContent, '5');
+      } finally {
+        stop();
+        client.n(0);
+      }
+    });
+  }
+});
+
+// JSX a .map() builds is where the .map() is: in a prop, a slot like any
+// other JSX prop, built where the component places it; in a variable, built
+// before it is placed, so reported where it takes the server's place. What
+// the user changed in a control there goes only to the control that
+// corresponds to it: the same tag, type, name and form attribute, in order
+// where both trees hold as many.
+describe('JSX a .map() builds, and the controls it carries to', () => {
+  async function hydrated(body, edit) {
+    const source = `export function Page() { ${body} }`;
+    const server = await loadCompiled(source, { pluginOptions: { generate: 'ssr' } });
+    const client = await loadCompiled(source, { pluginOptions: { hydratable: true } });
+    __resetHydrationData();
+    globalThis.__clientSide = false;
+    document.body.innerHTML = renderToHydratableString(h(server.Page));
+    const before = [...document.querySelectorAll('input')];
+    edit(before);
+    globalThis.__clientSide = true;
+    const problems = [];
+    const stop = hydrate(h(client.Page), document.body, { onHydrationError: (info) => problems.push(info.kind) });
+    const after = [...document.querySelectorAll('input')];
+    return { problems, before, after, values: after.map((i) => [i.name, i.value]), stop };
+  }
+  const type = (inputs) => inputs.forEach((input) => { input.value = 'typed ' + input.name; });
+
+  it('a .map() in a prop: built where the component places it, adopting the server\'s controls', async () => {
+    const r = await hydrated(`function Rows({ rows }) { return <form>{rows}</form>; }
+      return <main><Rows rows={['a', 'b'].map((k) => <input name={k} />)} /></main>;`, type);
+    try {
+      assert.deepEqual(r.problems, []);
+      assert.deepEqual(r.after, r.before, 'the server\'s inputs are adopted');
+      assert.deepEqual(r.values, [['a', 'typed a'], ['b', 'typed b']]);
+    } finally { r.stop(); }
+  });
+
+  for (const [shape, body] of [
+    ['a keyed .map() in a variable', `const rows = ['a', 'b'].map((k) => <input key={k} name={k} />); return <form>{rows}<p>end</p></form>;`],
+    ['a .map() of components in a variable', `function I({ k }) { return <input name={k} />; } const rows = ['a', 'b'].map((k) => <I k={k} />); return <form>{rows}</form>;`],
+  ]) {
+    it(`${shape}: reported as prebuilt, and what the user typed is kept`, async () => {
+      const r = await hydrated(body, type);
+      try {
+        assert.ok(r.problems.length > 0 && r.problems.every((kind) => kind === 'prebuilt'), JSON.stringify(r.problems));
+        assert.deepEqual(r.values, [['a', 'typed a'], ['b', 'typed b']]);
+      } finally { r.stop(); }
+    });
+  }
+
+  it('a component whose output begins with text, built before it is placed, is reported too', async () => {
+    const r = await hydrated(`function Note() { return <>note <i>i</i><input name="a" /></>; } const f = <Note />; return <form>{f}</form>;`, type);
+    try {
+      assert.deepEqual(r.problems, ['prebuilt']);
+      assert.deepEqual(r.values, [['a', 'typed a']]);
+    } finally { r.stop(); }
+  });
+
+  it('a control only the client renders, first: each value lands on the control of its own name', async () => {
+    const r = await hydrated(`const f = <div>{globalThis.__clientSide ? <input name="extra" /> : null}<input name="a" /><input name="b" /></div>; return <form>{f}</form>;`, type);
+    try {
+      assert.deepEqual(r.values, [['extra', ''], ['a', 'typed a'], ['b', 'typed b']]);
+    } finally { r.stop(); }
+  });
+
+  it('more controls of one name on the client than on the server: none of them gets the value, never the wrong one', async () => {
+    const r = await hydrated(`const f = <div>{globalThis.__clientSide ? <input name="q" class="added" /> : null}<input name="q" /></div>; return <form>{f}</form>;`, type);
+    try {
+      assert.deepEqual(r.values, [['q', ''], ['q', '']]);
+    } finally { r.stop(); }
+  });
+
+  it('a control of another form (its form attribute) does not take the value', async () => {
+    const r = await hydrated(`const f = <div><input name="q" form={globalThis.__clientSide ? 'other' : undefined} /></div>; return <form>{f}</form>;`, type);
+    try {
+      assert.deepEqual(r.values, [['q', '']]);
+    } finally { r.stop(); }
+  });
 });
 
 process.on('exit', () => env.cleanup());

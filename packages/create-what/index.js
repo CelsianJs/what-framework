@@ -1360,7 +1360,7 @@ export default function EditPost() {
     h(Head, { title: \`Edit \${post.title} — ${packageName}\` }),
     h('h1', {}, 'Edit post'),
     h(ErrorBoundary, { fallback: ({ error, reset }) => h('p', { role: 'alert' },
-      error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : \`Could not save: \${error.message}\`,
+      error.code !== 'ERR_PAYLOAD_TOO_LARGE' ? \`Could not save: \${error.message}\` : error.limit !== undefined ? \`Too large: the limit is \${error.limit} bytes.\` : error.message,
       ' ', h('button', { type: 'button', onClick: reset }, 'Try again')) },
       h(PostForm, { post })),
     h('p', {}, h('a', { href: \`/blog/\${post.slug}\` }, '← Back'))

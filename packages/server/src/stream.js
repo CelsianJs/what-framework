@@ -298,14 +298,19 @@ function push(seg, node, owner) {
 
 // The members of an array or of an element's children, each with a key (a
 // keyed list's, or a vnode's) between the markers of a keyed row, and any
-// other that can hold a list (takesSlot) between those of its slot (a null
-// list, what-core hydration-data.js _enterRow), entered as the stream reaches
-// it.
+// other that can hold a component or a list (takesSlot) between those of its
+// slot (a null list, what-core hydration-data.js _enterRow), entered as the
+// stream reaches it. A keyed list with no rows still takes its place.
 function pushChildren(seg, children, owner) {
   const keys = children._keys;
   const slots = _tracksRows();
   /** @type {object | null} */
   let list = null;
+  if (slots && keys !== undefined && keys.length === 0) {
+    const end = mark(ROW_END, { entered: false, saved: undefined });
+    push(seg, end, owner);
+    push(seg, mark(ROW, { list: { slot: children._slot }, key: undefined, end }), owner);
+  }
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
@@ -324,17 +329,18 @@ function pushChildren(seg, children, owner) {
 }
 
 /**
- * Whether a member of children the renderers walk can hold a keyed list in
- * the frame rendering it, and so enters its slot (what-core hydration-data.js
- * _enterRow; hydration enters one for every member, and a slot that holds no
- * list changes no place): a function or an array, a built-in the compiler
- * lowers away (its output is that frame's), or an element with a child that
- * is not text. A component's lists are its own frame's.
+ * Whether a member of children the renderers walk can hold a component or a
+ * keyed list in the frame rendering it, and so enters its slot (what-core
+ * hydration-data.js _enterRow; hydration enters the same, render.js
+ * takesSlot): a function or an array, a component (it takes its place in that
+ * slot), or an element with a child that is not text. A component compiled
+ * JSX renders (ssr-runtime.js ssrComponent) takes its place by its number:
+ * the client builds it with the rest of the compiled JSX, in no slot.
  */
 export function takesSlot(child) {
   if (typeof child === 'function' || Array.isArray(child)) return true;
   if (!isVNode(child)) return false;
-  if (typeof child.tag === 'function') return /** @type {any} */ (child.tag)._lowered === true;
+  if (typeof child.tag === 'function') return /** @type {any} */ (child)._site === undefined;
   const kids = child.children;
   if (kids) {
     for (let i = 0; i < kids.length; i++) {
@@ -570,12 +576,11 @@ function stepFunction(seg, fn, owner, attempts) {
   const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
-  const inRows = holder._inRows;
   let value;
   try {
     value = inFrame(owner, fn._mapArray ? () => _mapArrayToArray(fn) : fn);
   } catch (error) {
-    if (isThenable(error)) return suspend(seg, fn, owner, attempts, [children, resources, inRows], error);
+    if (isThenable(error)) return suspend(seg, fn, owner, attempts, [children, resources], error);
     _claimThrow(error);
     // A throwing child renders an empty region, as in renderToString: one bad
     // binding must not take its component down with it.
@@ -601,10 +606,9 @@ function stepComponent(seg, node, owner, attempts) {
   const holder = _ownerCounter(owner || null, seg.r.ctx);
   const children = holder._ownerChildren;
   const resources = holder._ownerResources;
-  const inRows = holder._inRows;
   const frame = _beginComponentSSR(node.tag, owner);
   // A built-in the compiler lowers away has no key (hydration-data.js).
-  const stepped = _assignOwnerPath(frame, owner, seg.r.ctx);
+  const stepped = _assignOwnerPath(frame, owner, seg.r.ctx, node._site);
   const outer = seg.key;
   if (stepped) seg.key = frame._ownerPath;
   let result;
@@ -613,7 +617,7 @@ function stepComponent(seg, node, owner, attempts) {
     result = _runComponentAsync(frame, () => node.tag(_componentProps(node)));
   } catch (error) {
     seg.key = outer;
-    if (isThenable(error)) return suspend(seg, node, owner, attempts, [children, resources, inRows], error);
+    if (isThenable(error)) return suspend(seg, node, owner, attempts, [children, resources], error);
     throw error;
   } finally {
     _endComponentSSR(frame);
@@ -634,9 +638,10 @@ function stepComponent(seg, node, owner, attempts) {
 // Something suspended: wait for it, then run the same node again in place.
 // `children` and `resources` are the owner's counters before the attempt (see
 // hydration-data.js in what-core); restoring them gives the retry the same
-// owner path and resource keys, so it finds what the first attempt started.
-function suspend(seg, node, owner, attempts, [children, resources, inRows], thenable) {
-  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources, inRows, row: openRow(seg, owner) }), owner);
+// owner path and resource keys, so it finds what the first attempt started,
+// and the same place among the keyed rows.
+function suspend(seg, node, owner, attempts, [children, resources], thenable) {
+  push(seg, mark(RETRY, { node, attempts: attempts + 1, children, resources, row: openRow(seg, owner) }), owner);
   return thenable;
 }
 
@@ -652,7 +657,6 @@ function retry(seg, marker, owner) {
   holder._ownerChildren = marker.children;
   holder._ownerResources = marker.resources;
   _leaveRow(owner || null, seg.r.ctx, marker.row);
-  holder._inRows = marker.inRows;
   return typeof node === 'function'
     ? stepFunction(seg, node, owner, attempts)
     : stepComponent(seg, node, owner, attempts);

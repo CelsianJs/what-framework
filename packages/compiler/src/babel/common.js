@@ -503,13 +503,16 @@ export function deferPlacedProps(fnPath, state) {
   fnPath.scope.crawl();
 }
 
-// A callback a method calls (`.map(row => …)`, `.then(…)`) or the row
-// function of a <For>: its parameter is an item, not props, and the list
-// lowerings read a row's fields themselves (lists.js).
+// A callback a method calls (`.map(row => …)`, `.then(…)`), the row
+// function of a <For>, or a function an attribute passes (a <For>'s `key`,
+// an event handler, a render prop): its parameter is an item or an event,
+// not props, and the list lowerings read a row's fields themselves
+// (lists.js).
 function isRowFunction(fnPath, state) {
   const parent = fnPath.parentPath;
   if (parent.isCallExpression() && fnPath.listKey === 'arguments') return t.isMemberExpression(parent.node.callee) || t.isOptionalMemberExpression(parent.node.callee);
-  return parent.isJSXExpressionContainer() && parent.parentPath.isJSXElement() && isLoweredTag(parent.parentPath.node, 'For', state);
+  if (!parent.isJSXExpressionContainer()) return false;
+  return parent.parentPath.isJSXAttribute() || (parent.parentPath.isJSXElement() && isLoweredTag(parent.parentPath.node, 'For', state));
 }
 
 // The properties of `pattern` whose every read places the value (`placed`:

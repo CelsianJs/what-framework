@@ -25,13 +25,18 @@ export function addField(fields, key, value) {
 // The name/value pairs of an urlencoded string, exactly as URLSearchParams
 // reads them (a leading `?` dropped, `+` a space, `%XX` a byte, the bytes
 // UTF-8 with U+FFFD for what is not, a pair with no `=` an empty value), in
-// time linear in its length on every Node version. Every form body and query
-// string the framework reads from a request goes through here: on Node
-// 24.22.3 URLSearchParams is quadratic in the pairs that have no `=`, and a
-// 1 MB body of `a&a&…` held the event loop for seconds before any check ran.
+// time linear in its length on every Node version. Every form body the server
+// reads goes through here, and every query string of the action endpoint (the
+// Node middleware, fetchActionHandler, the request handler): on Node 24.22.3
+// URLSearchParams is quadratic in the pairs that have no `=`, and a 1 MB body
+// of `a&a&…` held the event loop for seconds before any check ran. A page's
+// query (what-router's parseQuery, which runs in the browser too) and cache
+// keys read the URL itself, which the server's header limit bounds.
 
 const utf8 = /* @__PURE__ */ new TextEncoder();
-const utf8Text = /* @__PURE__ */ new TextDecoder();
+// A part's bytes decode on their own, so a leading U+FEFF is a character of
+// the part, as the standard decodes it, never a byte order mark to drop.
+const utf8Text = /* @__PURE__ */ new TextDecoder('utf-8', { ignoreBOM: true });
 
 // `each(name, value)` for every pair of `input`, in order.
 function eachUrlEncoded(input, each) {

@@ -771,9 +771,19 @@ options.
   where it stands. A prop placed twice in one run is built twice, as `h()` and
   the server render it, children included (0.15 moved one set of nodes to the
   last place). `<ErrorBoundary>` and `<Suspense>` read `fallback` when they
-  show it. This affects code that relied on a JSX prop being built before the
-  component ran, or on the same nodes being moved: read the prop where the
-  JSX is wanted, and pass data, not JSX, to a component that inspects it.
+  show it. A `.map()` or an array literal that returns JSX
+  (`items={links.map((l) => <li>{l}</li>)}`) is such a prop too. Building one
+  reads no signal into the `<Show>` or condition it is placed in, so a write
+  to a signal its JSX read when it was built leaves it in place. Read after
+  the component's run without being placed (a test in `onMount`, a handler
+  that shows it in a dialog), a JSX prop runs its components no second time:
+  it gives a placeable, a truthy value built where it is placed (a prop the
+  run never read is built once, owned by the component, to tell JSX from
+  data). This affects code that relied on a JSX prop being built before
+  the component ran, on the same nodes being moved, or on inspecting a JSX
+  prop after the run (`props.children.length` in an effect): read the prop
+  where the JSX is wanted, inspect it during the run, and pass data, not JSX,
+  to a component that inspects it.
 
 ### Diagnostics
 
@@ -803,16 +813,16 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 8729 B |
-| The create-what counter, runtime JSX | 6702 B | 8774 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5763 B |
+| A counter written with `h()` | 6601 B | 8856 B |
+| The create-what counter, runtime JSX | 6702 B | 8898 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5929 B |
 
-The compiled counter, what the scaffold ships, is 1968 B (25%) smaller in
+The compiled counter, what the scaffold ships, is 1802 B (23%) smaller in
 0.15: compiled output no longer carries the vnode reconciler, and an app that
 makes no computed no longer carries the engine's pull phase. 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 2956 B, for the new engine, the engine hooks async
+counter still grows by 3083 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -824,15 +834,15 @@ same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out.
 Loading the dist straight into a browser without a bundler fetches more,
 smaller files. This affects an app written with `h()` that has a size budget:
-compiled with what-compiler, the same counter is 5763 B.
+compiled with what-compiler, the same counter is 5929 B.
 
 Three kinds of app grow more than the counters:
 
 - **An app that calls `computed()`** brings the async core with it
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
-  9637 B, against 7979 B in 0.14 (+1658 B).
+  9752 B, against 7979 B in 0.14 (+1773 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 19621 B, the same app mounted without hydration 8325 B.
+  hydrating counter is 19990 B, the same app mounted without hydration 8436 B.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
   export of what-core, what-router and what-server has three: `production`
@@ -844,12 +854,12 @@ Three kinds of app grow more than the counters:
   `bun build --production` select `module`, and each defines
   `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with
   `--production`), `"development"` otherwise. So `esbuild app.js --bundle
-  --minify` builds the `h()` counter at 8746 B, and an unminified esbuild or
+  --minify` builds the `h()` counter at 8868 B, and an unminified esbuild or
   rolldown build with no `NODE_ENV` of your own is a development build, with
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`
   nor `module` bundles `src/` and its development tier (esbuild
-  `--conditions=browser`: 34524 B), whatever `process.env.NODE_ENV` says. Add
+  `--conditions=browser`: 34691 B), whatever `process.env.NODE_ENV` says. Add
   `production` to such a list.
 - **Development builds report diagnostics in every bundler.** The source reads
   its flag through what-core's `#env` import, by the same conditions: under

@@ -3,7 +3,7 @@ import { report, setNextBinding } from './diagnostics.js';
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
@@ -303,20 +303,36 @@ export function _runInComponentSSR(frame, fn) {
 // JSX that compiled code hands a component, as its children or through any
 // other prop (`slots`, a key -> factory map: render.js _$slots), arrives as a
 // zero-arg factory instead of built DOM. This defines a getter over each
-// factory on target and returns a function that ends the current read burst
-// (or null when there is none).
+// factory on target and returns the function that ends the component's run
+// for them, called with the component's owner (or null when there is none).
 //
-// The burst is the component's own execution. A read where the value is
-// placed (compiled code reads it with _place) builds it there, so the same
-// children placed twice are two copies, as h() and the server render them.
-// Any other read (an inspection: `children.length`, a test, an alias) builds
-// it once for the burst, and the first placement after it takes that build:
-// a component that inspects its children and then renders them renders the
-// nodes it inspected. Outside the burst every read builds afresh, because
-// realized children are single-use DOM: a DocumentFragment is drained by its
-// first insertion and removed nodes have had their effects disposed, so a
-// component that re-reads props.children from a reactive thunk must get a
-// freshly built subtree rather than the corpse of the previous one.
+// Such a value is built where it is placed, once per placement, as an h()
+// vnode is, and building it reads no signal into the scope around the place
+// (a <Show>, a condition, an effect): the reactive reads of its JSX track
+// inside it.
+// - A read where the value is placed (compiled code reads it with _place)
+//   builds it there, under the owner of that place, so the same children
+//   placed twice are two copies, as h() and the server render them, and
+//   children a condition shows again are built again.
+// - Any other read during the run (an inspection: `children.length`, a test,
+//   an alias) builds it once, and the first placement after it takes that
+//   build: a component that inspects its children and then renders them
+//   renders the nodes it inspected.
+// - Once its JSX is placed, and after the run (a test in onMount or
+//   useEffect, a read in an event handler, a hand-written thunk), a read that
+//   does not place it gets a placeable: the same truthy value at every read,
+//   built where it is placed, as a vnode is. Its first placement takes a
+//   build still waiting for one; every later placement builds afresh (built
+//   DOM is single-use: a fragment is drained by its first insertion). A test
+//   in onMount is true without running the components again, and a handler
+//   that shows it in a dialog shows a copy owned by that place. A prop the
+//   run never read is built at the first such read, once, under the
+//   component's owner (its context, its error boundary), to know whether it
+//   is JSX.
+// - A build with no owner current (JSX built in an event handler places the
+//   value) is the component's.
+// A value that is not JSX (a prop handed on: data, a function) is given as
+// it is.
 //
 // While hydrating, a placement builds where the walk stands, so its JSX
 // claims the server's nodes for it. Any other read builds off the walk
@@ -341,41 +357,62 @@ export function _setOutsideRead(fn) {
   outsideRead = fn;
 }
 
-/** Compiled code's read of `props[key]` where the value is placed. */
-export function _place(props, key) {
+// Whether what is built now is placed where the server wrote its members in
+// place, with no array markers of its own around them: compiled children in
+// an element's hole or among a fragment's or an array's members, a boundary's
+// or an h() element's children. A component's several children are an array
+// the server brackets only where it is the whole value of a component or of
+// a reactive child; their _$members (render.js) asks.
+let flat = false;
+
+/**
+ * Compiled code's read of `props[key]` where the value is placed. `inPlace`
+ * is 1 where the server writes the value with no markers of its own around it.
+ */
+export function _place(props, key, inPlace) {
   placing = true;
+  const outer = flat;
+  flat = inPlace === 1;
   try {
     return props[key];
   } finally {
     placing = false;
+    flat = outer;
   }
 }
 
+/** `build()`, placed where the server wrote it with no markers of its own (_place). */
+export function _placeFlat(build) {
+  const outer = flat;
+  flat = true;
+  try {
+    return build();
+  } finally {
+    flat = outer;
+  }
+}
+
+/** Whether the children built now are placed with no markers of their own (_place); asked once, by their _$members. */
+export function _takeFlat() {
+  const was = flat;
+  flat = false;
+  return was;
+}
+
 export function _installLazyChildren(Component, target, lazyChildren, slots) {
-  // The burst's cache: for each prop, its key, then what its reads built, and
-  // 1 while that build waits for its placement (an inspection made it), 2 once
-  // it is placed. Emptied when the burst ends.
-  /** @type {any[] | null} */
-  let cache = [];
+  // cache[0] is the component's owner once its run is over, null during it.
+  // Then, for each prop: its factory, what its reads got (PLACED once its JSX
+  // is placed), 0 while unread, 1 while that waits for its placement, 2 once
+  // placed, and its placeable.
+  /** @type {any[]} */
+  const cache = [null];
   const define = (key, factory) => {
-    const at = /** @type {any[]} */ (cache).push(key, undefined, 0) - 3;
+    const at = cache.push(factory, undefined, 0, null) - 4;
     Object.defineProperty(target, key, {
       get() {
         const place = placing;
         placing = false;
-        if (cache !== null) {
-          const state = cache[at + 2];
-          if (place ? state === 1 : state !== 0) {
-            if (place) cache[at + 2] = 2;
-            return cache[at + 1];
-          }
-        }
-        const value = place || outsideRead === null ? factory() : outsideRead(factory);
-        if (cache !== null) {
-          cache[at + 1] = value;
-          cache[at + 2] = place ? 2 : 1;
-        }
-        return value;
+        return readLazy(cache, at, place);
       },
       enumerable: true,
       configurable: true,
@@ -386,7 +423,53 @@ export function _installLazyChildren(Component, target, lazyChildren, slots) {
     else define('children', lazyChildren);
   }
   if (slots) for (const key in slots) define(key, slots[key]);
-  return /** @type {any[]} */ (cache).length === 0 ? null : () => { cache = null; };
+  return cache.length === 1 ? null : (owner) => { cache[0] = owner; };
+}
+
+// What a prop's reads got once its JSX is placed: its nodes are not kept.
+const PLACED = {};
+
+// A placing read (and a placeable's placement) takes the build that waits
+// for its placement, else builds anew, under the owner of the place (the
+// component's when there is none). Any other read gets what a read got, else
+// a build (the component's after its run, off the walk while hydrating) that
+// waits for its placement; once its JSX is placed, and for any JSX after the
+// run, the placeable.
+function readLazy(cache, at, place) {
+  const home = cache[0];
+  let value = cache[at + 1];
+  const state = cache[at + 2];
+  if (place) {
+    if (state !== 1) value = buildLazy(cache[at], home !== null && getOwner() === null ? home : null);
+    cache[at + 1] = holdsNodes(value) ? PLACED : value;
+    cache[at + 2] = 2;
+    return value;
+  }
+  if (state === 0) {
+    const build = () => buildLazy(cache[at], home);
+    value = cache[at + 1] = outsideRead === null ? build() : outsideRead(build);
+    cache[at + 2] = 1;
+  }
+  if (value !== PLACED && (home === null || !holdsNodes(value))) return value;
+  if (cache[at + 3] === null) {
+    // An array holding its build: a signal stores it as it is (a function
+    // would be called as an updater), and every render path builds it there.
+    const build = () => readLazy(cache, at, true);
+    build._lazyChildren = true;
+    cache[at + 3] = [build];
+  }
+  return cache[at + 3];
+}
+
+function buildLazy(factory, owner) {
+  return owner !== null ? _runOwned(owner, factory) : untrack(factory);
+}
+
+// Whether a value holds built DOM (an element, a component's fragment, the
+// array a fragment or a .map() gives), not data a prop hands on (an object, a
+// function, a vnode, which is built where it is placed).
+function holdsNodes(value) {
+  return _isDomNode(value) || (Array.isArray(value) && value.some(holdsNodes));
 }
 
 // --- _handleNavigationSignal(error) ---

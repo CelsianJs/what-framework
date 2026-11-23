@@ -260,7 +260,7 @@ function _renderHydratable(vnode) {
   if (typeof vnode.tag === 'function') {
     const Component = vnode.tag;
     const ctx = _beginComponentSSR(Component);
-    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext())) {
+    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site)) {
       try {
         return _renderHydratable(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
       } finally {
@@ -306,8 +306,9 @@ function optionContent(props, children, render) {
 
 // The members of an array or of an element's children, each with a key
 // (a keyed list's, or a vnode's) as a keyed row (what-core hydration-data.js
-// _enterRow), and any other that can hold a list (stream.js takesSlot) in its
-// slot (a null list), in the frame rendering them.
+// _enterRow), and any other that can hold a component or a list (stream.js
+// takesSlot) in its slot (a null list), in the frame rendering them. A keyed
+// list with no rows still takes its place.
 function renderChildren(children, render) {
   if (!children) return '';
   const keys = children._keys;
@@ -315,6 +316,7 @@ function renderChildren(children, render) {
   let out = '';
   /** @type {object | null} */
   let list = null;
+  if (slots && keys !== undefined && keys.length === 0) _enterRow(undefined, /** @type {object} */ (getServerContext()), { slot: children._slot }, undefined);
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
@@ -442,7 +444,7 @@ function _renderString(vnode) {
   if (typeof vnode.tag === 'function') {
     const Component = vnode.tag;
     const ctx = _beginComponentSSR(Component);
-    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext());
+    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site);
     try {
       return _renderString(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
     } finally {

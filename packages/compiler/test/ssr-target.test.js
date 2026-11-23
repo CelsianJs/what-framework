@@ -85,13 +85,13 @@ const _tmpl$0 = ["<b>", "</b>"];
 const a = _$ssrComponent(Card, {
   title: "x",
   n: n()
-}, ["body ", _$ssr(_tmpl$0, _$ssrText(x))]);`],
+}, ["body ", _$ssr(_tmpl$0, _$ssrText(x))], 10);`],
   ["component spread", String.raw`const a = <C {...p} a={1} />;`, String.raw`
 import { ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const a = _$ssrComponent(C, {
   ...p,
   a: 1
-}, []);`],
+}, [], 10);`],
   ["keyed map", String.raw`const a = <ul>{items().map(it => <li key={it.id}>{it.n}</li>)}</ul>;`, String.raw`
 import { ssr as _$ssr, ssrRow as _$ssrRow, ssrText as _$ssrText, ssrList as _$ssrList } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<ul>", "</ul>"];
@@ -101,7 +101,7 @@ const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, _$ssrT
 import { ssr as _$ssr, ssrText as _$ssrText, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<p>", "", "</p>"];
 const _tmpl$1 = /* @__PURE__ */_$ssr(["<b>no</b>"]);
-const a = _$ssr(_tmpl$0, () => ok() ? _$ssrComponent(A, null, []) : _tmpl$1, _$ssrText(x && _$ssrComponent(A, null, [])));`],
+const a = _$ssr(_tmpl$0, () => ok() ? _$ssrComponent(A, null, [], 21) : _tmpl$1, _$ssrText(x && _$ssrComponent(A, null, [], 45)));`],
   ["fragment", String.raw`const a = <>a{b()}<i /></>;`, String.raw`
 import { ssr as _$ssr, ssrFragment as _$ssrFragment } from "what-framework/ssr-runtime";
 const _tmpl$0 = /* @__PURE__ */_$ssr(["<i></i>"]);
@@ -112,7 +112,7 @@ const _tmpl$0 = /* @__PURE__ */_$ssr(["<p>wait</p>"]);
 import { Suspense } from 'what-framework';
 const a = _$ssrComponent(Suspense, {
   fallback: _tmpl$0
-}, [_$ssrComponent(Rows, null, [])]);`],
+}, [_$ssrComponent(Rows, null, [], 86)], 53);`],
   ["island", String.raw`const a = <Counter client:idle start={1} />;`, String.raw`
 import { ssrIsland as _$ssrIsland } from "what-framework/ssr-runtime";
 const a = _$ssrIsland({
@@ -137,7 +137,7 @@ const a = _$ssrFor(rows, r => _$ssr(_tmpl$0, () => r().name), r => r.id, null, 4
   ["list in component children", String.raw`const a = <Box>{items().map(i => <li key={i}>{i}</li>)}</Box>;`, String.raw`
 import { ssrRow as _$ssrRow, ssrText as _$ssrText, ssrList as _$ssrList, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<li>", "</li>"];
-const a = _$ssrComponent(Box, null, [() => _$ssrList(items(), i => _$ssrRow(_tmpl$0, _$ssrText(i)), true, i => i, 16)]);`],
+const a = _$ssrComponent(Box, null, [() => _$ssrList(items(), i => _$ssrRow(_tmpl$0, _$ssrText(i)), true, i => i, 16)], 10);`],
   ["switch", String.raw`import { Switch, Match } from 'what-framework'; const a = <Switch fallback={<i>none</i>}><Match when={a()}>A</Match><Match when={b()}><b>B</b></Match></Switch>;`, String.raw`
 import { ssr as _$ssr } from "what-framework/ssr-runtime";
 const _tmpl$0 = /* @__PURE__ */_$ssr(["<b>B</b>"]);

@@ -305,11 +305,12 @@ export function markRowItemReads(mapFn, keyValue) {
   if (reads !== null) for (const [holder, slot] of reads) holder[slot]._whatRowItem = true;
 }
 
-// The number of the keyed list written at `node` (a `.map()` call, a <For>):
-// where it starts in the source, the same for both targets, so the server's
-// list and the client's have one place among their component's lists however
-// many of the others are empty (what-core hydration-data.js _enterRow). Null
-// for a node no source holds.
+// The number of the keyed list (a `.map()` call, a <For>) or the component
+// written at `node`: where it starts in the source, the same for both
+// targets, so the server's and the client's have one place in their
+// component's output however many others are empty (what-core
+// hydration-data.js _enterRow, _assignOwnerPath). Null for a node no source
+// holds.
 export function listSlot(node) {
   return typeof node.start === 'number' ? t.numericLiteral(node.start) : null;
 }

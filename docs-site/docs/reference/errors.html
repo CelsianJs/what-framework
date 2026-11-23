@@ -764,7 +764,7 @@ export default function Home() { return &lt;h1&gt;Hi&lt;/h1&gt;; }</code></pre>
           <h2 id="ERR_PAYLOAD_TOO_LARGE">ERR_PAYLOAD_TOO_LARGE</h2>
           <p class="subtitle">A call over the limit-byte bodyLimit was refused.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>The action call's body (every field and file in it) was over the server's bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed. Raise bodyLimit for uploads, check a file's size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an &lt;ErrorBoundary&gt; around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server's 413 page, which names the limit.</p>
+          <p>The action call's body (every field and file in it) was over the server's bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed (none when a proxy or the platform answered the 413 itself: its message then says the server accepts less). Raise bodyLimit for uploads, check a file's size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an &lt;ErrorBoundary&gt; around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server's 413 page, which names the limit.</p>
 <pre><code>// Good - refuse a file over the limit before the form is sent:
 const MAX_UPLOAD = 1_000_000; // the server's bodyLimit, less room for the other fields
 const avatar = &lt;input type=&quot;file&quot; name=&quot;avatar&quot; onChange={(e) =&gt; {
@@ -775,7 +775,7 @@ const avatar = &lt;input type=&quot;file&quot; name=&quot;avatar&quot; onChange=
 // Good - and the error reaches a boundary around the component whose
 // useActionState dispatched the action:
 const page = &lt;ErrorBoundary fallback={({ error, reset }) =&gt; (
-  &lt;p role=&quot;alert&quot;&gt;{error.code === 'ERR_PAYLOAD_TOO_LARGE' ? `Too large: the limit is ${error.limit} bytes.` : error.message}
+  &lt;p role=&quot;alert&quot;&gt;{error.code === 'ERR_PAYLOAD_TOO_LARGE' &amp;&amp; error.limit !== undefined ? `Too large: the limit is ${error.limit} bytes.` : error.message}
     &lt;button onClick={reset}&gt;Try again&lt;/button&gt;&lt;/p&gt;
 )}&gt;
   &lt;Signup /&gt;

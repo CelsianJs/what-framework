@@ -180,11 +180,11 @@ export function _$hole(parent: Node, value: unknown, flag: number, devName?: str
 export function _$exit(): void;
 export function _$hcreateComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 export function _$outside<T>(build: () => T): T;
-/** @internal A hydratable array whose members claim the server's nodes in document order as `build` creates them. */
+/** @internal A hydratable array whose members claim the server's nodes in document order as `build` creates them. `nested` 1: it follows another array's markers; 2: a component's children, with markers of their own only where their placement has them (`_$place`). */
 export function _$members<T>(build: () => T, nested?: number): T;
 /** @internal A `_$members` member that is not an element or a component, adopted where it stands while hydrating. */
 export function _$member<T>(value: T, index: number): T;
 /** @internal Compiled JSX: `props` carrying `slots`, the factories of the props its JSX passed as JSX or forwarded, which the component reads as lazy getters. */
 export function _$slots<P extends object>(props: P, slots: Record<string, () => unknown>): P;
-/** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. */
-export function _$place(props: object, key: string): unknown;
+/** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. `inPlace` 1: where the server writes it with no markers of its own (an element's hole, a fragment's or an array's members). */
+export function _$place(props: object, key: string, inPlace?: 1): unknown;

@@ -298,9 +298,11 @@ function Settings() {
 
 Compiled JSX hands a component its children unbuilt, and every other prop
 written as JSX too (`header={<Nav />}`, `fallback={<p>failed</p>}`, a
-condition such as `toolbar={user ? <Search /> : null}`): each is built where
-the component reads it. A component that only places such a prop builds it
-where it renders, however it reads it:
+condition such as `toolbar={user ? <Search /> : null}`, an array literal or a
+`.map()` that returns JSX, such as `items={links.map((l) => <li>{l}</li>)}`):
+each is built where the component reads it, as an `h()` element is built
+where it is placed. A component that only places such a prop builds it where
+it renders, however it reads it:
 
 ```jsx
 function Layout({ header, children, ...rest }) {
@@ -332,6 +334,34 @@ before the page's code ran stays. Within one run of the component, a prop
 placed twice is built twice (as `h()` and the server render it), and one
 read again later (a condition shown again) is built again.
 
+Building such a prop reads no signal into the scope it is placed in. Placed in
+a `<Show>` or a reactive condition (`{() => open() ? body : null}`), a write
+to a signal its JSX read when it was built (`body={<EditForm item={selected()} />}`,
+a value that is frozen, as with `h()`) leaves it as it is, with what the user
+typed in it; the reactive reads inside its JSX update in place.
+
+A read of such a prop after the component's run that does not place it (a
+test in `onMount` or `useEffect`, a read in an event handler that shows it
+elsewhere) never runs its components a second time and never builds it with
+no owner:
+
+- Its JSX is given as a placeable: a truthy value, the same at every read,
+  which is built where it is placed, as an element is. `if (props.icon)` in
+  `onMount` is true and builds nothing; a dialog that stores `props.content`
+  in a signal and shows it shows a copy owned by the dialog's place, disposed
+  when it is hidden. The first placement takes a build a read made and
+  nothing placed yet; every later one builds afresh.
+- A prop the run never read is built at the first such read, once, to tell
+  JSX from data: owned by the component, it sees the component's context, its
+  error reaches the component's `<ErrorBoundary>`, and it is disposed with the
+  component.
+- A prop handed on that is not JSX (data, a function) is given as it is.
+
+Inspect a JSX prop during the run, or alias it there
+(`const panels = props.panels`, then `{() => panels[tab()]}`): after the run
+a read of its JSX gets the placeable, an opaque array of one member, and once
+it is placed so does a read during the run.
+
 Inspecting such a prop builds it before it is placed: `children.length`,
 `Array.isArray(children)`, `children.map(...)`, a truthiness test such as
 `{header && <div>{header}</div>}`, a local alias (`const kids = children`) or
@@ -343,7 +373,12 @@ and two things follow:
   kind `prebuilt` in development (and to `onHydrationError`), and what the
   user typed or chose in a form control there is kept on the new control.
   The same holds for JSX written in a variable before it is placed
-  (`const icon = <Icon />`), passed as an argument or inside an object.
+  (`const icon = <Icon />`, `const options = opts.map((o) => <option>{o}</option>)`),
+  passed as an argument or inside an object. The state goes to the control
+  that corresponds: the same tag, type, name and `form` attribute (and value,
+  for a checkbox or a radio), in order where the two copies hold as many; a
+  control that does not correspond (one more of a name on the client, one in
+  a `<noscript>` written by stored HTML) gets nothing.
   It adopts when it is first read where it is placed, such as
   `<ul>{props.children}</ul>`. Pass a component the data it has to inspect as
   a prop (`<Tabs items={tabs} />`) instead of as JSX.

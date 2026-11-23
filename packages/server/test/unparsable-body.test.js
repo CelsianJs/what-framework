@@ -110,3 +110,69 @@ describe('a body that does not parse', () => {
     assert.equal(runs.length, 1);
   });
 });
+
+// A body whose stream fails while it is read (a client that goes away
+// mid-upload) is one that does not parse, on every reader: no action runs
+// with `{}`, which is an empty form. Before, a no-JS form post naming its
+// action in the query ran it with `{}` through a reader that turned the
+// failure into an empty body.
+describe('a body whose stream fails while it is read', () => {
+  const failing = (text) => new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode(text)); },
+    pull(c) { c.error(new Error('connection reset')); },
+  });
+  const post = (path, headers, text) => new Request(`http://app.test${path}`, { method: 'POST', headers, body: failing(text), duplex: 'half' });
+
+  it('runs no action and answers 400 on the fetch entry points', async () => {
+    runs.length = 0;
+    const formHandler = S.createFormPostHandler({ csrf: false });
+    for (const type of ['application/json', 'application/x-www-form-urlencoded', `multipart/form-data; boundary=${B}`]) {
+      const call = { 'content-type': type, 'x-what-action': 'unparsable/save', 'sec-fetch-site': 'same-origin' };
+      assert.equal((await core(post('/__what_action', call, '{"args":[{"title":"hel'))).status, 400, `createRequestHandler, ${type}`);
+      assert.equal((await fetchHandler(post('/__what_action', call, 'title=hel'))).status, 400, `fetchActionHandler, ${type}`);
+    }
+    const form = { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin' };
+    const viaQuery = await core(post('/__what_action?action=unparsable/save', form, 'title=hel'));
+    assert.equal(viaQuery.status, 400, 'a no-JS form post naming its action in the query');
+    assert.match(viaQuery.headers.get('content-type'), /text\/html/);
+    assert.equal((await fetchHandler(post('/__what_action?action=unparsable/save', form, 'title=hel'))).status, 400);
+    assert.equal(await formHandler({ method: 'POST', headers: form, request: post('/p', form, '_action=unparsable/save&title=hel') }), null, 'createFormPostHandler names no action');
+    assert.equal((await core(post('/p', form, '_action=unparsable/save&title=hel'))).status, 200, 'a page POST reaches the page');
+    assert.deepEqual(runs, []);
+  });
+
+  it('runs no action and answers 400 on the Node middleware', async () => {
+    runs.length = 0;
+    const { Readable } = await import('node:stream');
+    for (const headers of [
+      { 'content-type': 'application/json', 'x-what-action': 'unparsable/save', 'sec-fetch-site': 'same-origin', host: 'app.test' },
+      { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin', host: 'app.test' },
+    ]) {
+      const req = new Readable({ read() { this.push('title=hel'); this.destroy(new Error('connection reset')); } });
+      Object.assign(req, { method: 'POST', url: '/__what_action?action=unparsable/save', headers, socket: {} });
+      const answer = await new Promise((resolve) => {
+        const res = { headersSent: false, writeHead(status) { this.status = status; }, end() { resolve(this.status); }, destroy() { resolve('destroyed'); } };
+        middleware(req, res, () => resolve('next'));
+      });
+      assert.equal(answer, 400, headers['content-type']);
+    }
+    assert.deepEqual(runs, []);
+  });
+});
+
+// The action endpoint's query is read by the framework's linear parser
+// (fields.js), as its bodies are: a fetch handler sees the whole URL, which
+// no header limit bounds, and Node 24's URLSearchParams is quadratic in
+// pairs with no `=`.
+describe("the action endpoint's query", () => {
+  it('is parsed in time linear in its length', async () => {
+    const query = 'a&'.repeat(512 * 1024);
+    for (const [label, handle] of [['fetchActionHandler', fetchHandler], ['createRequestHandler', core]]) {
+      const started = performance.now();
+      const answer = await handle(new Request(`http://app.test/__what_action?${query}`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: '{}' }));
+      const elapsed = performance.now() - started;
+      assert.equal(answer.status, 400, label);
+      assert.ok(elapsed < 1000, `${label} took ${Math.round(elapsed)} ms`);
+    }
+  });
+});

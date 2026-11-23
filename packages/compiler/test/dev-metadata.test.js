@@ -77,7 +77,7 @@ describe('development metadata: what is emitted', () => {
 
   it('names server components too', () => {
     const ssr = dev('const a = <Card title="x" />;', { pluginOptions: { generate: 'ssr' } });
-    assert.match(ssr, /_\$ssrComponent\(Card, \{\s*title: "x"\s*\}, \[\], "Card@src\/App\.jsx:1:11"\)/);
+    assert.match(ssr, /_\$ssrComponent\(Card, \{\s*title: "x"\s*\}, \[\], 10, "Card@src\/App\.jsx:1:11"\)/);
   });
 });
 

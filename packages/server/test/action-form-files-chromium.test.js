@@ -61,7 +61,7 @@ const compiledSource = (at) => `
   function Recipe({ check }) {
     return <main><ErrorBoundary fallback={({ error, reset }) => (
       <p role="alert">
-        {error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
+        {error.code === 'ERR_PAYLOAD_TOO_LARGE' && error.limit !== undefined ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
         <button onClick={reset}>Try again</button>
       </p>
     )}>
@@ -73,7 +73,20 @@ const compiledSource = (at) => `
   // A field built before it is placed (an inspected prop): it takes the
   // server's place while hydrating, with the file chosen in the server's.
   function Inspecting({ field }) { return <div class="inspecting">{field ? field : null}</div>; }
-  export function InspectedUpload() { return <main><Inspecting field={<input type="file" name="avatar" />} /></main>; }`;
+  export function InspectedUpload() { return <main><Inspecting field={<input type="file" name="avatar" />} /></main>; }
+  // The recipe's file input after a field component that returns a label and
+  // its input as a fragment, inside <Form>: the form's children are placed
+  // where the server wrote them, and the field's fragment brings the only
+  // markers there.
+  function Field({ name }) { return <><label>Title</label><input name={name} /></>; }
+  export function FieldUpload() {
+    const [, save] = useActionState(signup, null);
+    return <main><Form action={save} enctype="multipart/form-data">
+      <Field name="email" />
+      <input type="file" name="avatar" onChange={(e) => e.target.setCustomValidity('')} />
+      <button type="submit">Upload</button>
+    </Form></main>;
+  }`;
 
 const avatar = { name: 'avatar.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') };
 
@@ -85,14 +98,14 @@ let release = null;
 
 before(async () => {
   if (!browserAvailable) return;
-  const { CompiledSignup, CheckedRecipe, BoundaryRecipe, InspectedUpload } = await loadCompiled(compiledSource((file) => pathToFileURL(file).href), { pluginOptions: { generate: 'ssr' } });
+  const { CompiledSignup, CheckedRecipe, BoundaryRecipe, InspectedUpload, FieldUpload } = await loadCompiled(compiledSource((file) => pathToFileURL(file).href), { pluginOptions: { generate: 'ssr' } });
   const client = await build({
     stdin: {
       contents: `
         import { h, hydrate } from 'what-core';
         import { SignupPage } from ${JSON.stringify(fixture)};
         ${compileJSX(compiledSource((file) => file), { pluginOptions: { hydratable: true } })}
-        const pages = { '/compiled': CompiledSignup, '/recipe': CheckedRecipe, '/boundary': BoundaryRecipe, '/inspected': InspectedUpload };
+        const pages = { '/compiled': CompiledSignup, '/recipe': CheckedRecipe, '/boundary': BoundaryRecipe, '/inspected': InspectedUpload, '/field-upload': FieldUpload };
         window.__problems = [];
         hydrate(h(pages[location.pathname] ?? SignupPage), document.body, { onHydrationError: (info) => window.__problems.push(info.kind) });
         window.__hydrated = true;
@@ -112,6 +125,7 @@ before(async () => {
       { path: '/recipe', component: CheckedRecipe, page: { mode: 'server' } },
       { path: '/boundary', component: BoundaryRecipe, page: { mode: 'server' } },
       { path: '/inspected', component: InspectedUpload, page: { mode: 'server' } },
+      { path: '/field-upload', component: FieldUpload, page: { mode: 'server' } },
       { path: '/welcome', component: () => h('h1', null, 'Welcome'), page: { mode: 'server' } },
     ],
     document: { clientEntry: '/client.js' },
@@ -233,6 +247,25 @@ describe('the upload recipe in Chromium, a file over the limit', { skip: !browse
       await context.close();
     }
   });
+
+  it("a proxy's own 413 (a page with no limit): the boundary shows the error's message", async () => {
+    received.length = 0;
+    const { context, page, errors } = await open('/boundary');
+    try {
+      await page.route('**/__what_action', (route) => route.fulfill({ status: 413, contentType: 'text/html', body: '<html><body><h1>413 Request Entity Too Large</h1></body></html>' }));
+      await page.locator('[name=email]').fill('name@example.test');
+      await page.locator('[name=avatar]').setInputFiles(big(1024));
+      await page.getByRole('button', { name: 'Create account' }).click();
+      await page.getByRole('alert').waitFor();
+      const text = await page.getByRole('alert').textContent();
+      assert.match(text, /Payload too large: the server accepts less in one request/);
+      assert.doesNotMatch(text, /undefined/);
+      assert.deepEqual(received, [], 'the action did not run');
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+  });
 });
 
 describe('a file input built before it is placed, in Chromium', { skip: !browserAvailable }, () => {
@@ -254,6 +287,32 @@ describe('a file input built before it is placed, in Chromium', { skip: !browser
         return { same: input === window.__server, files: [...input.files].map((f) => f.name), problems: window.__problems };
       });
       assert.deepEqual(after, { same: false, files: ['avatar.svg'], problems: ['prebuilt'] });
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+describe('a file input after a field component that returns a fragment, in <Form>, in Chromium', { skip: !browserAvailable }, () => {
+  it('keeps the server\'s field and the file chosen before hydration, with no mismatch', async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    try {
+      let open = () => {};
+      release = new Promise((resolve) => { open = resolve; });
+      await page.goto(origin + '/field-upload', { waitUntil: 'commit' });
+      await page.locator('[name=email]').fill('ada@example.com');
+      await page.locator('[name=avatar]').setInputFiles(avatar);
+      await page.locator('[name=avatar]').evaluate((input) => { window.__server = input; });
+      open();
+      release = null;
+      await page.waitForFunction(() => window.__hydrated === true);
+      const after = await page.evaluate(() => {
+        const input = document.querySelector('[name=avatar]');
+        return { same: input === window.__server, files: [...input.files].map((f) => f.name), email: document.querySelector('[name=email]').value, problems: window.__problems };
+      });
+      assert.deepEqual(after, { same: true, files: ['avatar.svg'], email: 'ada@example.com', problems: [] });
     } finally {
       await context.close();
     }

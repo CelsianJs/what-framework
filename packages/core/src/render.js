@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -197,9 +197,9 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
   try {
     const result = _runOwned(owner, Component, props);
     if (__DEV__ && result != null && typeof result.then === 'function') devAsyncComponent(Component);
-    // Anything that reads props.children from here on is a later render pass
-    // and must build its own children.
-    if (endChildrenPass !== null) endChildrenPass();
+    // Its JSX props are read after its run from here on (dom.js
+    // _installLazyChildren).
+    if (endChildrenPass !== null) endChildrenPass(owner);
     _runOwned(owner, appendOutput, result, container, isSvg);
   } catch (error) {
     _disposeOwner(owner);
@@ -2939,7 +2939,9 @@ function adopt(value) {
     return;
   }
   if (type === 'function') {
-    if (value._lazyChildren) adopt(value());
+    // Compiled children placed among other members (a boundary's, an h()
+    // element's): the server wrote them in place.
+    if (value._lazyChildren) adopt(_placeFlat(value));
     else if (value._mapArray) adoptList(value);
     else adoptRegion(value);
     return;
@@ -2950,19 +2952,22 @@ function adopt(value) {
     // returned) is walked between its markers, so what follows it starts
     // after its closing one: a boundary or a region after it finds its own
     // opening marker there. One whose first node claimed the server's in
-    // place (the nodes a component adopted, which it returns) was walked as
-    // it was built: markers at the cursor are the next value's.
+    // place (the nodes a component adopted, which it returns, first in it or
+    // in an array first in it) was walked as it was built: markers at the
+    // cursor are the next value's.
     const at = nextOwn(cur);
-    const first = value[0];
+    let first = value[0];
+    while (Array.isArray(first)) first = first[0];
     const claimed = _isDomNode(first) && first.parentNode === cur.p;
     const close = at !== null && isMarker(at, ARRAY_OPEN) && !claimed ? closeOf(at, ARRAY_CLOSE) : null;
     if (close !== null) within(at, close, adoptEach, value);
     else {
       adoptEach(value);
-      // Its claims stepped past the server's opening marker: the closing
-      // one, where the walk stands now, is passed too, so what follows
-      // finds its own markers.
-      const open = claimed ? first.previousSibling : null;
+      // Its claims stepped past the server's opening marker (the first of
+      // the nodes a component adopted, when its claim passed it): the
+      // closing one, where the walk stands now, is passed too, so what
+      // follows finds its own markers.
+      const open = !claimed ? null : isMarker(first, ARRAY_OPEN) ? first : first.previousSibling;
       if (open !== null && isMarker(open, ARRAY_OPEN) && nextOwn(cur) === closeOf(open, ARRAY_CLOSE)) cur.n = cur.n.nextSibling;
     }
     return;
@@ -2979,16 +2984,37 @@ function adopt(value) {
 }
 
 // The members of an array or of an element's children, a vnode with a key
-// as a keyed row (hydration-data.js _enterRow), and any other in its slot, as
-// what-server renders them (it enters none around text, which holds no list).
+// as a keyed row (hydration-data.js _enterRow), and any other that can hold
+// a component or a list in its slot (takesSlot), as what-server renders them.
 function adoptEach(values) {
   /** @type {object | null} */
   let list = null;
   for (let i = 0; i < values.length; i++) {
     const value = values[i];
     const key = isVNode(value) ? value.key : null;
-    adoptRow(key != null ? list ??= {} : null, key ?? i, adopt, value);
+    if (key != null) adoptRow(list ??= {}, key, adopt, value);
+    else if (takesSlot(value)) adoptRow(null, i, adopt, value);
+    else adopt(value);
   }
+}
+
+// Whether a member can hold a component or a list in the frame adopting it,
+// by what-server's rule (stream.js takesSlot): a function, an array, a
+// component, or an element with a child that is not text. The factory of
+// compiled children is the server's markup, which takes none.
+function takesSlot(value) {
+  if (typeof value === 'function') return !value._lazyChildren;
+  if (Array.isArray(value)) return true;
+  if (!isVNode(value)) return false;
+  if (typeof value.tag === 'function') return true;
+  const kids = value.children;
+  if (kids) {
+    for (let i = 0; i < kids.length; i++) {
+      const kid = kids[i];
+      if (typeof kid === 'function' || (typeof kid === 'object' && kid !== null)) return true;
+    }
+  }
+  return false;
 }
 
 // The keyed rows hydration enters (hydration-data.js _enterRow and
@@ -3076,46 +3102,57 @@ function placeBuilt(c, value) {
 }
 
 // What the user changed in the server's form controls in `server` (the
-// element and its descendants) goes to the built controls in `built` of the
-// same tag, type and name, taken in order: the walk shows it once it is done
-// (walkDone), and a file input gets the files chosen in it.
+// element and its descendants) goes to the built controls in `built` that
+// correspond: the walk shows it once it is done (walkDone), and a file input
+// gets the files chosen in it. Controls correspond when they have the same
+// tag, type, name and form attribute (and value, for a checkbox or a radio),
+// taken in document order where both trees hold as many such controls; where
+// they do not, nothing is carried for them, never what another control
+// holds. A control in a <noscript> corresponds to none: the server's document
+// parsed that as text, a built tree (cloned from a template) as controls.
 function carryFields(server, built) {
   const from = controlsIn(server);
-  if (from.length === 0) return;
+  if (from.size === 0) return;
   const to = controlsIn(built);
   restoreFields = _restoreFields;
-  let j = 0;
-  for (const f of from) {
-    let k = j;
-    while (k < to.length && !(to[k].localName === f.localName && to[k].type === f.type && to[k].name === f.name)) k++;
-    if (k === to.length) continue;
-    const t = to[k];
-    j = k + 1;
-    if (f.type === 'file') {
-      if (f.files !== null && f.files.length > 0) t.files = f.files;
-    } else if (f.type === 'radio') {
-      if (f.checked !== f.defaultChecked) session.fields.push([t, f.checked]);
-    } else {
-      const changed = [];
-      _changedFields(f, changed, session.radios);
-      for (const [, shown, live] of changed) {
-        if (live === undefined) session.fields.push([t, shown]);
-        else if (t.options.length === shown.length) {
-          t._$chosen = true;
-          session.fields.push([t, [...t.options], live]);
-        }
+  for (const [key, list] of from) {
+    const into = to.get(key);
+    if (into !== undefined && into.length === list.length) list.forEach((f, i) => carryField(f, into[i]));
+  }
+}
+
+function carryField(f, t) {
+  if (f.type === 'file') {
+    if (f.files !== null && f.files.length > 0) t.files = f.files;
+  } else if (f.type === 'radio') {
+    if (f.checked !== f.defaultChecked) session.fields.push([t, f.checked]);
+  } else {
+    const changed = [];
+    _changedFields(f, changed, session.radios);
+    for (const [, shown, live] of changed) {
+      if (live === undefined) session.fields.push([t, shown]);
+      else if (t.options.length === shown.length) {
+        t._$chosen = true;
+        session.fields.push([t, [...t.options], live]);
       }
     }
   }
 }
 
-// In document order, which a selector list on a detached tree does not give
-// in every DOM (jsdom).
+// The form controls of `el` and its descendants outside a <noscript>, by what
+// makes them correspond (carryFields), each list in document order, which a
+// selector list on a detached tree does not give in every DOM (jsdom).
 function controlsIn(el) {
-  if (FIELD_TAGS.has(el.localName)) return [el];
-  const controls = [];
-  for (const d of el.getElementsByTagName('*')) if (FIELD_TAGS.has(d.localName)) controls.push(d);
-  return controls;
+  /** @type {Map<string, any[]>} */
+  const found = new Map();
+  for (const d of FIELD_TAGS.has(el.localName) ? [el] : el.getElementsByTagName('*')) {
+    if (!FIELD_TAGS.has(d.localName) || d.closest('noscript') !== null) continue;
+    const key = [d.localName, d.type, d.name, d.getAttribute('form'), d.type === 'checkbox' || d.type === 'radio' ? d.value : ''].join('\0');
+    const list = found.get(key);
+    if (list === undefined) found.set(key, [d]);
+    else list.push(d);
+  }
+  return found;
 }
 
 // Remove `text` from the server's text at the cursor; false when it is not
@@ -3152,7 +3189,7 @@ function notHydratable() {
 function adoptVNode(vnode) {
   const tag = vnode.tag;
   if (typeof tag === 'function') {
-    adoptComponent(...componentArgs(vnode), vnode._loc);
+    adoptComponent(...componentArgs(vnode), undefined, vnode._loc);
     return;
   }
   if (tag === '__errorBoundary') {
@@ -3284,9 +3321,13 @@ function componentArgs(vnode) {
 // gave its frame (hydration-data.js), so its keyless resources adopt the
 // server's values; its body runs once and its output claims the server's
 // nodes. Returns the top-level nodes it adopted, which is what compiled code
-// receives (_$hcreateComponent).
-function adoptComponent(Component, props, endChildrenPass, devLoc) {
+// receives (_$hcreateComponent). `site` is the compiled JSX's number
+// (hydration-data.js _assignOwnerPath).
+function adoptComponent(Component, props, endChildrenPass, site, devLoc) {
   if (__DEV__) Object.freeze(props);
+  // What the placement building it said of the server's markers is for the
+  // children it places, not for this component's output (dom.js _place).
+  _takeFlat();
   const owner = _componentOwner(Component);
   if (__DEV__) {
     if (devLoc) owner.devLoc = devLoc;
@@ -3298,7 +3339,7 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
   const serverKey = serverKeyAt(c);
   // A built-in the compiler lowers away has no key: the next component's, or
   // its parent's, still waits for the first element.
-  const stepped = _assignHydrationOwnerPath(owner, session.ownerRoot, serverKey, session.ordered);
+  const stepped = _assignHydrationOwnerPath(owner, session.ownerRoot, serverKey, session.ordered, site);
   const key = owner._ownerPath;
   if (stepped !== 0) pendingKey = key !== undefined && key[0] !== '~' ? key : null;
   if (stepped === 2 && !session.lenient) {
@@ -3310,8 +3351,8 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
   const anchor = anchorOf(c);
   try {
     const result = _runOwned(owner, Component, props);
-    if (endChildrenPass !== null) endChildrenPass();
-    _runOwned(owner, adopt, result);
+    if (endChildrenPass !== null) endChildrenPass(owner);
+    _runOwned(owner, adoptOutput, result);
   } catch (error) {
     pendingKey = outerKey;
     _disposeOwner(owner);
@@ -3330,6 +3371,13 @@ function adoptComponent(Component, props, endChildrenPass, devLoc) {
     _devAnchor(nodes[0], owner);
   }
   return nodes;
+}
+
+// A component's output. Children it returns as they came (the factory a
+// component that defers its children gets) are its output, an array the
+// server brackets as any a component returns.
+function adoptOutput(result) {
+  adopt(typeof result === 'function' && result._lazyChildren ? result() : result);
 }
 
 // --- Regions ---
@@ -3665,6 +3713,8 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
         throw error;
       }
       order = close !== null ? inServerOrder(at, close, newItems, keyFn) : null;
+      // The list takes its place with no rows too, as the server's does.
+      if (list !== null && rowEntry !== null) rowEntry(undefined, session.ownerRoot, list, undefined);
       const adopted = order === null ? newItems : order.map((i) => newItems[i]);
       if (close !== null) within(at, close, adoptRows, adopted);
       else adoptRows(adopted);
@@ -3774,7 +3824,6 @@ function awaitStream(at, close, adoptFallback, resume) {
   const owner = getOwner();
   const holder = _ownerCounter(_currentComponent(), session.ownerRoot);
   const counter = holder._ownerChildren;
-  const inRows = holder._inRows;
   const { root, onError, ownerRoot } = session;
   within(at, close, () => {
     const pc = cur;
@@ -3792,7 +3841,6 @@ function awaitStream(at, close, adoptFallback, resume) {
     if (at.parentNode === null || (owner !== null && _isDisposed(owner))) return;
     runWithOwner(owner, () => resume((fn) => resumeIn(newSession(root, onError, ownerRoot), at, close, () => {
       holder._ownerChildren = counter;
-      holder._inRows = inRows;
       fn();
     })));
   };
@@ -3874,7 +3922,7 @@ function hydrateErrorBoundary(vnode) {
     const dispose = createRoot((dispose) => {
       getOwner()._onError = handleError;
       try {
-        for (const child of children) adopt(child);
+        adoptEach(children);
       } catch (error) {
         handleError(error);
       }
@@ -4069,7 +4117,7 @@ function hydrateSuspense(vnode) {
     try {
       childrenArm = createRoot((dispose) => {
         b.attach(getOwner(), true);
-        for (const child of children) adopt(child);
+        adoptEach(children);
         return dispose;
       });
     } finally {
@@ -4121,9 +4169,18 @@ function hydrateSuspense(vnode) {
       end = parent.insertBefore(document.createComment(BOUNDARY_CLOSE), /** @type {Node} */ (next(c)).nextSibling);
       within(start, end, childrenOrFallback);
     } else {
+      // The children are adopted before the region they end has an end: what
+      // they reveal or conceal while they are adopted waits for it.
+      const { show, conceal } = b;
+      let held = /** @type {(() => void) | null} */ (null);
+      b.show = () => { held = show; };
+      b.conceal = () => { held = conceal; };
       adoptChildren(false);
       splitHere(c);
       end = parent.insertBefore(document.createComment(BOUNDARY_CLOSE), c.n);
+      b.show = show;
+      b.conceal = conceal;
+      if (held !== null) held();
       settle();
     }
     return;
@@ -4520,14 +4577,14 @@ export function _$exit() {
   cur = outer.pop();
 }
 
-/** _$createComponent for hydratable output: while hydrating, the component adopts the server's nodes and the nodes come back as an array. */
-export function _$hcreateComponent(Component, props, children, devLoc) {
+/** _$createComponent for hydratable output: while hydrating, the component adopts the server's nodes and the nodes come back as an array. `site` is the number what-compiler gave the JSX (hydration-data.js _assignOwnerPath). */
+export function _$hcreateComponent(Component, props, children, site, devLoc) {
   const c = cur;
   if (c === null || !c.h) return _$createComponent(Component, props, children, devLoc);
   const proto = Component.prototype;
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
   const merged = Object.assign(Object.create(null), props);
-  return adoptComponent(Component, merged, lazyProps(Component, merged, props, children), devLoc);
+  return adoptComponent(Component, merged, lazyProps(Component, merged, props, children), site, devLoc);
 }
 
 /**
@@ -4537,12 +4594,14 @@ export function _$hcreateComponent(Component, props, children, devLoc) {
  * hydrating it is built between the server's array markers, and placing it
  * afterwards adopts nothing again. `nested` 1: a member of an array other
  * code builds (a row a `.map()` callback returns), whose markers come first,
- * so the walk steps over them all.
+ * so the walk steps over them all. 2: a component's children, which have
+ * markers of their own only where their placement is the whole value of a
+ * component or a reactive child (dom.js _place).
  */
 export function _$members(build, nested) {
   const c = cur;
   if (c === null || !c.h) return build();
-  const at = nested === 1 ? null : nextOwn(c);
+  const at = nested === 2 ? (_takeFlat() ? null : nextOwn(c)) : nested === 1 ? null : nextOwn(c);
   const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;
   /** @type {any} */
   let value;

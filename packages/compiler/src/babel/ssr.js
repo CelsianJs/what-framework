@@ -353,7 +353,13 @@ function appendChildren(node, markup, state) {
     appendRawText(node, tag, markup, state);
     return;
   }
-  for (const child of node.children) {
+  appendChildList(node.children, markup, state);
+}
+
+// An element's children; a fragment among them is its children, in its place,
+// as the DOM target lays them out (dom.js layoutChildren).
+function appendChildList(children, markup, state) {
+  for (const child of children) {
     if (t.isJSXText(child)) {
       const text = normalizeJsxText(child.value);
       if (text) addText(markup, escapeHtml(text));
@@ -367,7 +373,9 @@ function appendChildren(node, markup, state) {
       addHole(markup, childHole(expr, state));
     } else if (t.isJSXElement(child) && !isComponentElement(child)) {
       appendElement(child, markup, state);
-    } else if (t.isJSXElement(child) || t.isJSXFragment(child)) {
+    } else if (t.isJSXFragment(child)) {
+      appendChildList(child.children, markup, state);
+    } else if (t.isJSXElement(child)) {
       addHole(markup, jsxValue(child, { node: child }, state));
     }
   }
@@ -471,7 +479,10 @@ function ssrListOf(mapCall, state, asArray) {
   if (keyed) markRowItemReads(found.mapFn, found.keyValue);
   // A row that is the callback's whole result goes straight into the list.
   if (found.mapFn.body === found.returnExpr && !isComponentElement(found.returnExpr)) found.returnExpr._whatRow = true;
-  const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(asArray)];
+  // A keyed list is the DOM target's keyed list wherever it stands (dom.js
+  // tryLowerMapToMapArray), which hydrates between its own markers: it is
+  // bracketed as an array even where a plain child's rows are flattened.
+  const args = [mapCall.callee.object, found.mapFn, t.booleanLiteral(asArray || keyed)];
   // The key function the DOM target's list keys its rows with (dom.js
   // tryLowerMapCall), for the keys the hydratable markup carries, and the
   // list's number, the DOM target's too (lists.js listSlot).
@@ -561,6 +572,10 @@ function componentValue(node, state) {
   }
 
   const args = [componentCallee(opening.name), properties.length ? t.objectExpression(properties) : t.nullLiteral(), children];
+  // The number of the JSX, the DOM target's too (lists.js listSlot): the
+  // component's place among the keyed rows (what-core hydration-data.js).
+  const site = listSlot(node);
+  if (site !== null || meta) args.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) args.push(meta);
   return call(state, '_$ssrComponent', args);
 }

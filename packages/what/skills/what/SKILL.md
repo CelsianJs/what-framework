@@ -141,7 +141,8 @@ with a file input takes `enctype: 'multipart/form-data'`: the action gets the
 file as a `File`, with and without JavaScript, within the server's
 `bodyLimit` (1 MB by default). A file input with nothing chosen is an empty
 `File` (test `size === 0`). A call over the limit rejects with
-`ERR_PAYLOAD_TOO_LARGE` (`error.limit` is the bytes allowed), which reaches
+`ERR_PAYLOAD_TOO_LARGE` (`error.limit` is the bytes allowed, none from a
+proxy's own 413: show `error.message` then), which reaches
 the `<ErrorBoundary>` around the component whose `useActionState` dispatched
 it: check a file's size on its input before the form is sent
 (`setCustomValidity`), and wrap that component in a boundary that says so.

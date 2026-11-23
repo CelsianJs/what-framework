@@ -59,10 +59,12 @@ export declare function ssrFor<T>(
   slot?: number,
 ): () => unknown;
 
+/** `site`: where the JSX starts in its source, the number the DOM target's component call carries too (its place among the keyed rows). */
 export declare function ssrComponent<P = any>(
   component: (props: P) => any,
   props: P | null,
   children: unknown[],
+  site?: number,
   devLocation?: string,
 ): VNode<any>;
 export declare function ssrFragment(children: unknown[]): VNode<any>;

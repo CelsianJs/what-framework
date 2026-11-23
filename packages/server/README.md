@@ -446,7 +446,9 @@ export const signup = action(async (previous, fields) => {
 
 A body over `bodyLimit` runs nothing. Without JavaScript the visitor gets the
 server's 413 page, which names the limit. With JavaScript the call rejects with
-`ERR_PAYLOAD_TOO_LARGE` (`status` 413, `limit` the bytes allowed), which, as any
+`ERR_PAYLOAD_TOO_LARGE` (`status` 413, `limit` the bytes allowed; a proxy's or
+platform's own 413 carries no `limit`, and the message then says the server
+accepts less in one request), which, as any
 error an action throws, reaches the nearest `<ErrorBoundary>` above the
 component that dispatched it: a page with none shows nothing. Check a file's size before the form is sent, which keeps what the
 visitor typed and tells them why, and put the form in a boundary for the rest
@@ -471,7 +473,7 @@ function Signup() {
 // action: that component is where the action's error is thrown.
 <ErrorBoundary fallback={({ error, reset }) => (
   <p role="alert">
-    {error.code === 'ERR_PAYLOAD_TOO_LARGE' ? `Too large: the limit is ${error.limit} bytes.` : error.message}
+    {error.code === 'ERR_PAYLOAD_TOO_LARGE' && error.limit !== undefined ? `Too large: the limit is ${error.limit} bytes.` : error.message}
     <button onClick={reset}>Try again</button>
   </p>
 )}>
@@ -483,10 +485,13 @@ Which form is "that form" is the hook's key. Inside a keyed list (a `<For key>`
 row, a `.map()` row with a `key`) the key follows the row's key, as React's key
 path does, so a record's editor gets its own result back when records were
 added, removed or reordered between the page and the post. Another form of the
-same action keeps its own state. A list's place is where it is written, so a
-list before it that is empty in one render and not in the other (a Pinned list
-the record joins, a section shown while it has rows) moves no other list's
-rows. Forms that repeat without a key are told apart by position only, and a
+same action keeps its own state. A list's or a component's place is where it
+is written, so a list or a component before it that is there in one render and
+not in the other (a Pinned table the record joins, a section shown while it
+has rows) moves no other list's rows. A helper function called twice in a
+component renders the same JSX twice, told apart by order: write it as a
+component when one of its calls is conditional (docs/DATA.md). Forms that
+repeat without a key are told apart by position only, and a
 change in their order in between hands the result to the form now in that
 place. A row key is a string or a finite number. The page carries it as a
 digest under the render's salt, which hides a long random key but not one

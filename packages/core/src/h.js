@@ -89,10 +89,21 @@ export const _vnode = /* @__PURE__ */ vnodeProducer(function _vnode(tag, props, 
   return new VNode(tag, props, children, null);
 });
 
-// Fragment — just returns children
-export function Fragment({ children }) {
-  return children;
+// The built-ins what-compiler lowers away (compiled JSX renders <Show>,
+// <For>, <Switch> and <Match> as a conditional or a list, and `<>` as an array
+// or as its element's own children, with no component of its own) take no
+// step in owner paths when they run as components, so a subtree has the same
+// paths and hydration keys whichever way each side rendered it
+// (hydration-data.js _assignOwnerPath).
+export function lowered(Component) {
+  Component._lowered = true;
+  return Component;
 }
+
+// Fragment — just returns children
+export const Fragment = /* @__PURE__ */ lowered(function Fragment({ children }) {
+  return children;
+});
 
 // Children are kept as they are, objects included: a vnode, a DOM node (JSX
 // built before it was placed) and compiled server markup are all objects, and

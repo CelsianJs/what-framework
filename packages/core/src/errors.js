@@ -688,7 +688,7 @@ globalThis.crypto ??= webcrypto;`,
     code: 'ERR_PAYLOAD_TOO_LARGE',
     severity: 'error',
     template: 'A call over the {{limit}}-byte bodyLimit was refused.',
-    suggestion: 'The action call\'s body (every field and file in it) was over the server\'s bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed. Raise bodyLimit for uploads, check a file\'s size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an <ErrorBoundary> around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server\'s 413 page, which names the limit.',
+    suggestion: 'The action call\'s body (every field and file in it) was over the server\'s bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed (none when a proxy or the platform answered the 413 itself: its message then says the server accepts less). Raise bodyLimit for uploads, check a file\'s size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an <ErrorBoundary> around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server\'s 413 page, which names the limit.',
     codeExample: `// Good - refuse a file over the limit before the form is sent:
 const MAX_UPLOAD = 1_000_000; // the server's bodyLimit, less room for the other fields
 const avatar = <input type="file" name="avatar" onChange={(e) => {
@@ -699,7 +699,7 @@ const avatar = <input type="file" name="avatar" onChange={(e) => {
 // Good - and the error reaches a boundary around the component whose
 // useActionState dispatched the action:
 const page = <ErrorBoundary fallback={({ error, reset }) => (
-  <p role="alert">{error.code === 'ERR_PAYLOAD_TOO_LARGE' ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
+  <p role="alert">{error.code === 'ERR_PAYLOAD_TOO_LARGE' && error.limit !== undefined ? \`Too large: the limit is \${error.limit} bytes.\` : error.message}
     <button onClick={reset}>Try again</button></p>
 )}>
   <Signup />

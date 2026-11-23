@@ -509,6 +509,13 @@ function jsxChildren(children) {
   return out;
 }
 
+// An element's children as both targets lay them out: a fragment among them
+// is its own children, in its place (dom.js layoutChildren, ssr.js
+// appendChildList), so its h() spelling spreads them into the element's.
+function inElement(children) {
+  return children.flatMap((child) => (child.kind === 'fragment' ? inElement(jsxChildren(child.children)) : [child]));
+}
+
 function emitH(spec) {
   switch (spec.kind) {
     case 'raw': return q(spec.text);
@@ -521,7 +528,8 @@ function emitH(spec) {
     case 'imported': return spec.ref;
     case 'cond': {
       const [a, b] = spec.arms || ['b', 'i'];
-      return `(() => s[${spec.signal}]() ? h(${q(a)}, {}, ${emitH(spec.then)}) : h(${q(b)}, {}, ${emitH(spec.else)}))`;
+      const arm = (child) => inElement([child]).map(emitH).join(', ');
+      return `(() => s[${spec.signal}]() ? h(${q(a)}, {}, ${arm(spec.then)}) : h(${q(b)}, {}, ${arm(spec.else)}))`;
     }
     // Raw text written side by side in JSX is one text child, so the
     // fragment's children are counted as JSX counts them: a component hands a
@@ -566,7 +574,7 @@ function emitH(spec) {
           ? `${q(a.name)}: ${q(a.static)}`
           : `${q(a.name)}: (() => s[${a.signal}]())`;
       }).join(', ');
-      const kids = spec.children.map(emitH).join(', ');
+      const kids = inElement(spec.children).map(emitH).join(', ');
       return `h(${q(spec.tag)}, {${props}}${kids ? `, ${kids}` : ''})`;
     }
   }
@@ -1352,7 +1360,7 @@ function semH(spec) {
     case 'component': return `h(${spec.comp}, null${spec.children.length ? `, ${kids(spec.children)}` : ''})`;
     case 'held': return spec.which;
     case 'async': return 'h(AsyncBox, null)';
-    default: return `h(${q(spec.tag)}, {${spec.attrs.map(semAttrH).join(', ')}}${spec.children.length ? `, ${kids(spec.children)}` : ''})`;
+    default: return `h(${q(spec.tag)}, {${spec.attrs.map(semAttrH).join(', ')}}${spec.children.length ? `, ${kids(inElement(spec.children))}` : ''})`;
   }
 }
 

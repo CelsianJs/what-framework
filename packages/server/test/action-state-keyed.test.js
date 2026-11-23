@@ -22,7 +22,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 import { compileJSX } from '../../../test-utils/compile.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
 
-const { h, For, useActionState, useLoaderData, hydrate } = await import('what-core');
+const { h, For, Suspense, ErrorBoundary, useActionState, useLoaderData, hydrate, applyStreamedBoundaries } = await import('what-core');
 const { __resetHydrationData } = await import('what-core/internal');
 const { Form, action, createRequestHandler } = await import('../src/index.js');
 const { Island } = await import('../src/islands.js');
@@ -443,4 +443,219 @@ describe('a form after a keyed list, the list changed between the page and the p
       });
     }
   }
+});
+
+// A component's place is where it is written, as a list's is: the slot it
+// stands in and the number what-compiler gives its JSX, never how many
+// components came before it. So a section before the posted list that is
+// shown in one render and not in the other (a Pinned table the record joins),
+// a helper that renders two lists from one call site, or a boundary around
+// the list, moves no form; and the page that comes back hydrates into the
+// server's keys, buffered and streamed. Before, the step a component took
+// counted the components before it, so a conditional component before a list
+// component sent the result to no form or to the other list's row, and an
+// h() <Suspense> or <ErrorBoundary> hydrated its keyed rows under another
+// place than the server's.
+describe('a component\'s place is where it is written', () => {
+  let pinned = [];
+  const placesLoader = () => ({
+    records: records.map((r) => ({ ...r, key: r.id })),
+    pinned: records.filter((r) => pinned.includes(r.id)).map((r) => ({ ...r, id: `pinned/${r.id}`, key: r.id })),
+  });
+  const imports = `
+    import { Suspense, ErrorBoundary, useActionState, useLoaderData } from 'what-framework';
+    import { Form } from ${JSON.stringify(import.meta.resolve('../src/index.js'))};
+    import { rename } from ${JSON.stringify(import.meta.resolve('./fixtures/keyed-rename.js'))};
+    function Editor({ record }) {
+      const [state, save] = useActionState(rename, null);
+      return <Form action={save} data-form={record.id}>
+        <input type="hidden" name="id" value={record.id} />
+        <input name="title" defaultValue={state()?.fields?.title ?? record.title} />
+        {state()?.error ? <p role="alert">{state().error}</p> : null}
+      </Form>;
+    }
+    function Table({ rows }) { return <ul>{rows.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul>; }`;
+  const COMPILED = {
+    'a conditional component before a list component': `export function Page() { const d = useLoaderData(); return <main>{d.pinned.length > 0 && <Table rows={d.pinned} />}<Table rows={d.records} /></main>; }`,
+    'one helper rendering two lists': `export function Page() { const d = useLoaderData(); const list = (rows) => <ul>{rows.map((r) => <li key={r.key}><Editor record={r} /></li>)}</ul>; return <main>{list(d.pinned)}{list(d.records)}</main>; }`,
+    'a conditional component before a list component in <Suspense>': `export function Page() { const d = useLoaderData(); return <main><Suspense fallback={<p>wait</p>}>{d.pinned.length > 0 && <Table rows={d.pinned} />}<Table rows={d.records} /></Suspense></main>; }`,
+  };
+  const row = (r) => h('li', { key: r.key }, h(Editor, { record: r }));
+  function HTable({ rows }) { return h('ul', null, rows.map(row)); }
+  const H = {
+    'a conditional component before a list component, as a function child': () => {
+      const d = useLoaderData();
+      return h('main', null, () => (d.pinned.length > 0 ? h(HTable, { rows: d.pinned }) : null), h(HTable, { rows: d.records }));
+    },
+    'a list in <Suspense> after a conditional list, as a function child': () => {
+      const d = useLoaderData();
+      return h('main', null, () => (d.pinned.length > 0 ? h('ul', null, d.pinned.map(row)) : null), h(Suspense, { fallback: h('p', null, 'wait') }, h('ul', null, d.records.map(row))));
+    },
+    'a list in <ErrorBoundary> after a conditional list, as a function child': () => {
+      const d = useLoaderData();
+      return h('main', null, () => (d.pinned.length > 0 ? h('ul', null, d.pinned.map(row)) : null), h(ErrorBoundary, { fallback: h('p', null, 'failed') }, h('ul', null, d.records.map(row))));
+    },
+  };
+  const CHANGES = [['fills', [], ['bravo-record-2']], ['empties', ['bravo-record-2'], []], ['stays', [], []]];
+  const actionOf = (compiled) => (compiled ? 'records/compiled-rename' : 'records/rename');
+
+  async function roundTrip(serverPage, clientPage, compiled, page, before, after) {
+    pinned = before;
+    const handle = createRequestHandler({ routes: [{ path: '/admin', component: serverPage, loader: placesLoader, page }] });
+    const form = (await pageOf(handle)).find((f) => f.id === 'bravo-record-2');
+    pinned = after;
+    const html = await (await post(handle, { _action: actionOf(compiled), _state: 'null', _actionKey: form.key, id: form.id, title: 'x' })).text();
+    const alerted = forms(html).filter((f) => f.alerts.length > 0).map((f) => f.id);
+    const env = installDOM();
+    try {
+      __resetHydrationData();
+      document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+      applyStreamedBoundaries();
+      const keys = [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value);
+      const problems = [];
+      const stop = hydrate(h(clientPage, { loaderData: placesLoader() }), document.body, { onHydrationError: (info) => problems.push(info.kind) });
+      const hydrated = {
+        problems,
+        keys: [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value).join() === keys.join(),
+        alerted: [...document.querySelectorAll('[role=alert]')].map((el) => el.closest('form').dataset.form),
+      };
+      stop();
+      return { alerted, hydrated };
+    } finally {
+      env.cleanup();
+    }
+  }
+
+  const expected = { alerted: ['bravo-record-2'], hydrated: { problems: [], keys: true, alerted: ['bravo-record-2'] } };
+  for (const [shape, body] of Object.entries(COMPILED)) {
+    it(`compiled JSX, ${shape}: the result comes back to the posted row, and the page hydrates into the server's keys`, async () => {
+      const server = await loadCompiled(imports + body, { pluginOptions: { generate: 'ssr' } });
+      const client = await loadCompiled(imports + body, { pluginOptions: { hydratable: true } });
+      const { setRecords } = await import('./fixtures/keyed-rename.js');
+      for (const [renderer, page] of RENDERERS) {
+        for (const [change, before, after] of CHANGES) {
+          records = initial();
+          setRecords(records);
+          assert.deepEqual(await roundTrip(server.Page, client.Page, true, page, before, after), expected, `${renderer}, the earlier list ${change}`);
+        }
+      }
+    });
+  }
+  for (const [shape, Page] of Object.entries(H)) {
+    it(`h(), ${shape}: the result comes back to the posted row, and the page hydrates into the server's keys`, async () => {
+      for (const [renderer, page] of RENDERERS) {
+        for (const [change, before, after] of CHANGES) {
+          records = initial();
+          assert.deepEqual(await roundTrip(Page, Page, false, page, before, after), expected, `${renderer}, the earlier list ${change}`);
+        }
+      }
+    });
+  }
+
+  it('an island outside keyed rows hydrates into the server\'s key: its root starts from the place the server wrote', async () => {
+    function Other() { return h('p', null, 'other'); }
+    function Page() {
+      useLoaderData();
+      return h('main', null, h(Other), h('section', null, h(Other), h(Island, { name: 'editor', props: {} }, h(Editor, { record: { id: 'bravo-record-2', title: 'Bravo' } }))));
+    }
+    const handle = handlerFor(Page, { mode: 'server', stream: false });
+    const form = (await pageOf(handle))[0];
+    const html = await (await post(handle, { _action: 'records/rename', _state: 'null', _actionKey: form.key, id: form.id, title: 'x' })).text();
+    const env = installDOM();
+    try {
+      __resetHydrationData();
+      document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+      const host = document.querySelector('[data-island]');
+      assert.ok(host.hasAttribute('data-what-row'), 'the island writes its place');
+      const key = host.querySelector('[name=_actionKey]').value;
+      const problems = [];
+      const stop = hydrate(h(Editor, { record: { id: 'bravo-record-2', title: 'Bravo' } }), host, { onHydrationError: (info) => problems.push(info.kind) });
+      assert.deepEqual(problems, []);
+      assert.equal(host.querySelector('[name=_actionKey]').value, key);
+      assert.equal(host.querySelector('[role=alert]').textContent, 'Title needs three characters');
+      stop();
+    } finally {
+      env.cleanup();
+    }
+  });
+});
+
+// An island's content is hydrated by a hydrate() call of its own: compiled
+// JSX's (`<Editor client:load />`) under the island's owner once the page has
+// hydrated, what-server's registered <Island> by hydrateIslands() from the
+// place the server wrote. On the server the content is the wrapper's element's
+// child, so it takes the place that root's component takes there, inside a
+// keyed row and outside one, buffered and streamed. Before, the compiled
+// island's content took a slot in its wrapper's element on the server and
+// none on the client: its form posted under another key, and the result was
+// lost when the island hydrated.
+describe('an island\'s keys, inside and outside keyed rows', () => {
+  const fixture = JSON.stringify(import.meta.resolve('./fixtures/keyed-rename.js'));
+  const SOURCE = `
+    import { useLoaderData } from 'what-framework';
+    import { IslandEditor } from ${fixture};
+    export function InRows() { const d = useLoaderData(); return <ul>{d.records.map((r) => <li key={r.id}><IslandEditor client:load id={r.id} /></li>)}</ul>; }
+    export function Outside() { const d = useLoaderData(); return <main>{d.records.length > 3 && <p>many</p>}<section><IslandEditor client:load id="bravo-record-2" /></section></main>; }`;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  // A no-JS post from the form of `id` after a record was added above, then
+  // the response hydrated with `start`; returns what the page shows.
+  async function postAndHydrate(serverPage, page, id, start) {
+    const { setRecords } = await import('./fixtures/keyed-rename.js');
+    records = initial();
+    setRecords(records);
+    const handle = createRequestHandler({ routes: [{ path: '/admin', component: serverPage, loader, page }] });
+    const form = (await pageOf(handle)).find((f) => f.id === id);
+    assert.ok(form?.key, 'the form has a key');
+    records.unshift({ id: 'aardvark-record-0', title: 'Aardvark' });
+    const html = await (await post(handle, { _action: 'records/compiled-rename', _state: 'null', _actionKey: form.key, id, title: 'x' })).text();
+    const env = installDOM();
+    try {
+      __resetHydrationData();
+      document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+      applyStreamedBoundaries();
+      const keys = [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value);
+      const problems = [];
+      const stop = await start((info) => problems.push(info.kind));
+      await settle();
+      const shown = {
+        alerted: [...document.querySelectorAll('[role=alert]')].map((el) => el.closest('form').dataset.form),
+        keys: [...document.querySelectorAll('[name=_actionKey]')].map((el) => el.value).join() === keys.join(),
+        problems,
+      };
+      stop?.();
+      return shown;
+    } finally {
+      env.cleanup();
+    }
+  }
+
+  for (const [renderer, page] of RENDERERS) {
+    for (const [where, name] of [['inside a keyed row', 'InRows'], ['outside keyed rows', 'Outside']]) {
+      it(`compiled client:load, ${where}, ${renderer}: the posted result stays after the island hydrates, under the server's key`, async () => {
+        const server = await loadCompiled(SOURCE, { pluginOptions: { generate: 'ssr' } });
+        const client = await loadCompiled(SOURCE, { pluginOptions: { hydratable: true } });
+        const shown = await postAndHydrate(server[name], page, 'bravo-record-2',
+          (onHydrationError) => hydrate(h(client[name], { loaderData: loader() }), document.body, { onHydrationError }));
+        assert.deepEqual(shown, { alerted: ['bravo-record-2'], keys: true, problems: [] });
+      });
+    }
+  }
+
+  it('what-server\'s registered <Island>, inside a keyed row and outside one: the same after hydrateIslands()', async () => {
+    const { IslandEditor } = await import('./fixtures/keyed-rename.js');
+    const { island, hydrateIslands } = await import('../src/islands.js');
+    island('keyed-island-editor', async () => ({ default: IslandEditor }), { mode: 'load' });
+    const editor = (id) => h(Island, { name: 'keyed-island-editor', props: { id } }, h(IslandEditor, { id }));
+    const PAGES = {
+      'inside a keyed row': () => h('ul', null, useLoaderData().records.map((r) => h('li', { key: r.id }, editor(r.id)))),
+      'outside keyed rows': () => h('main', null, () => (useLoaderData().records.length > 3 ? h('p', null, 'many') : null), h('section', null, editor('bravo-record-2'))),
+    };
+    for (const [where, Page] of Object.entries(PAGES)) {
+      for (const [renderer, page] of RENDERERS) {
+        const shown = await postAndHydrate(Page, page, 'bravo-record-2', () => { hydrateIslands(); });
+        assert.deepEqual(shown, { alerted: ['bravo-record-2'], keys: true, problems: [] }, `${where}, ${renderer}`);
+      }
+    }
+  });
 });

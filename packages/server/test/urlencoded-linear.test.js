@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { urlEncodedPairs } from '../src/fields.js';
-import { parseActionBody } from '../src/action-handler.js';
+import { parseActionBody, parseRequestBody } from '../src/action-handler.js';
 
 const URLENCODED = 'application/x-www-form-urlencoded';
 
@@ -24,13 +24,15 @@ function random(seed) {
 }
 
 // The WHATWG application/x-www-form-urlencoded parser, step by step on the
-// input's UTF-8 bytes (with URLSearchParams' leading `?` dropped): the
+// input's UTF-8 bytes (with URLSearchParams' leading `?` dropped), each part
+// decoded by the Encoding Standard's UTF-8 decoder (utf8Decode): the
 // reference on every Node. Node 20's and 22's own URLSearchParams decode some
 // escapes wrongly (NUL characters for bytes that are not UTF-8, U+FFFD for an
 // incomplete escape after a decoded one), and every version tested decodes a
 // character written as itself next to escapes wrongly (U+D7FF as U+FFFD, an
 // emoji as NUL), so URLSearchParams is a second reference from Node 24 on, for
-// ASCII input.
+// ASCII input. TextDecoder is no reference either: by default it drops a
+// leading U+FEFF.
 function reference(input) {
   const bytes = new TextEncoder().encode(String(input).replace(/^\?/, ''));
   const decode = (part) => {
@@ -45,7 +47,7 @@ function reference(input) {
         out.push(b);
       }
     }
-    return new TextDecoder().decode(new Uint8Array(out));
+    return utf8Decode(out);
   };
   const pairs = [];
   let from = 0;
@@ -59,9 +61,59 @@ function reference(input) {
   }
   return pairs;
 }
+// The Encoding Standard's UTF-8 decoder, byte by byte: U+FFFD for each
+// maximal subpart of an ill-formed sequence, and no byte order mark dropped.
+function utf8Decode(bytes) {
+  let text = '';
+  let needed = 0;
+  let seen = 0;
+  let point = 0;
+  let lower = 0x80;
+  let upper = 0xbf;
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i];
+    if (needed === 0) {
+      if (byte <= 0x7f) {
+        text += String.fromCharCode(byte);
+      } else if (byte >= 0xc2 && byte <= 0xdf) {
+        needed = 1;
+        point = byte & 0x1f;
+      } else if (byte >= 0xe0 && byte <= 0xef) {
+        if (byte === 0xe0) lower = 0xa0;
+        if (byte === 0xed) upper = 0x9f;
+        needed = 2;
+        point = byte & 0xf;
+      } else if (byte >= 0xf0 && byte <= 0xf4) {
+        if (byte === 0xf0) lower = 0x90;
+        if (byte === 0xf4) upper = 0x8f;
+        needed = 3;
+        point = byte & 0x7;
+      } else {
+        text += '�';
+      }
+      continue;
+    }
+    if (byte < lower || byte > upper) {
+      needed = seen = point = 0;
+      lower = 0x80;
+      upper = 0xbf;
+      text += '�';
+      i--;
+      continue;
+    }
+    lower = 0x80;
+    upper = 0xbf;
+    point = (point << 6) | (byte & 0x3f);
+    if (++seen === needed) {
+      text += String.fromCodePoint(point);
+      needed = seen = point = 0;
+    }
+  }
+  return needed === 0 ? text : text + '�';
+}
 const nodeMatchesStandard = Number(process.versions.node.split('.')[0]) >= 24;
 
-const PIECES = ['a', 'b', 'Z', '0', '9', '=', '&', '&&', '+', '%', '%2', '%25', '%41', '%C3%A9', '%F0%9F%98%80', '%ZZ', '%e9', '%c3', '%ff', '%F0%9F%98', '?', ' ', '\u00e9', '\u{1F600}', '\u00a0', '\ud7ff', '\ue000', '==', 'a=b', '%3D', '%26', '%2B'];
+const PIECES = ['a', 'b', 'Z', '0', '9', '=', '&', '&&', '+', '%', '%2', '%25', '%41', '%C3%A9', '%F0%9F%98%80', '%ZZ', '%e9', '%c3', '%ff', '%F0%9F%98', '?', ' ', '\u00e9', '\u{1F600}', '\u00a0', '\ud7ff', '\ue000', '==', 'a=b', '%3D', '%26', '%2B', '%EF%BB%BF', '%ef%bb', '\ufeff', '%EF%BB%BF%EF%BB%BF'];
 
 describe('urlencoded parsing', () => {
   it('gives what the standard and URLSearchParams give, over edge cases and 20,000 random strings', () => {
@@ -79,6 +131,21 @@ describe('urlencoded parsing', () => {
       assert.deepEqual(pairs, reference(input), JSON.stringify(input));
       if (nodeMatchesStandard && [...input].every((c) => c.charCodeAt(0) < 128)) assert.deepEqual(pairs, [...new URLSearchParams(input)], JSON.stringify(input));
     }
+  });
+
+  it('keeps a U+FEFF that begins a name or a value, as every WHATWG reader does', () => {
+    assert.deepEqual(urlEncodedPairs('%EF%BB%BF_action=bom/run&role=%EF%BB%BFadmin'), [['﻿_action', 'bom/run'], ['role', '﻿admin']]);
+    assert.deepEqual(urlEncodedPairs('﻿a%41=﻿%42'), [['﻿aA', '﻿B']]);
+    assert.deepEqual(urlEncodedPairs('%EF%BB%BF_action=bom/run'), [...new URLSearchParams('%EF%BB%BF_action=bom/run')]);
+  });
+
+  it('keeps a U+FEFF that begins a request body, as Request#formData() does; a JSON body drops it, as Request#json() does', async () => {
+    const bytes = new TextEncoder().encode('\ufeff_action=bom/run&role=user');
+    const platform = Object.fromEntries(await new Request('http://app.test/', { method: 'POST', headers: { 'content-type': URLENCODED }, body: bytes }).formData());
+    const fields = await parseRequestBody(bytes, URLENCODED);
+    assert.deepEqual({ ...fields }, platform);
+    assert.ok(!Object.hasOwn(fields, '_action'), 'no action is named');
+    assert.deepEqual(await parseRequestBody(new TextEncoder().encode('\ufeff{"args":[1]}'), 'application/json'), { args: [1] });
   });
 
   it('decodes bytes that are not UTF-8 as the standard says: U+FFFD for each bad sequence', () => {

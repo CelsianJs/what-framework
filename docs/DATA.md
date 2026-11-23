@@ -343,18 +343,26 @@ export default function EditPost() {
   keyed list (a `<For key>` row, a `.map()` row with a `key`, any vnode with a
   key) it is the keys of the keyed rows around the hook, outermost first, then
   the hook's place below the innermost row; outside keyed lists it is the
-  hook's place in the component tree (its component's owner path and its
-  order there). So in a list of inline editors keyed by record, a record's
-  form gets its own result back when a teammate added, removed or reordered
-  records between the render that served the form and the one that answers
-  it, with JavaScript or without. A list's place is where it is written (the
-  element or the `.map()` that holds it), never how many lists came before
-  it, so a list before it that is empty in one render and not in the other (a
-  Pinned list the record joins, a `{rows.length > 0 && <ul>…</ul>}` section)
-  moves no other list's rows. With `h()`, which drops a `false` or `null` child
-  and spreads an array into its parent's children, such a child before the
-  list's element moves the element: write a conditional sibling as a function
-  child (`() => flash() && h('p', null, flash())`), which keeps its place.
+  hook's place in the component tree. So in a list of inline editors keyed by
+  record, a record's form gets its own result back when a teammate added,
+  removed or reordered records between the render that served the form and
+  the one that answers it, with JavaScript or without. A component's place,
+  like a list's, is where it is written (the element child or the JSX that
+  renders it, in each component around it), never how many components or
+  lists came before it, so a list or a component before it that is there in
+  one render and not in the other (a Pinned table the record joins,
+  `{pinned.length > 0 && <Table rows={pinned} />}`, a
+  `{rows.length > 0 && <ul>…</ul>}` section) moves no other's rows. With
+  `h()`, which drops a `false` or `null` child and spreads an array into its
+  parent's children, such a child before the list's element moves the
+  element: write a conditional sibling as a function child
+  (`() => flash() && h('p', null, flash())`), which keeps its place. A helper
+  function that returns JSX, called more than once in a component
+  (`list(pinned)`, `list(records)`), renders the same JSX each time, so its
+  renders are told apart by their order: a call that renders in one render
+  and not in the other (`{pinned.length > 0 && list(pinned)}`) moves the
+  forms of the calls after it. Write such a helper as a component
+  (`<List rows={pinned} />`), whose place is where each use is written.
   Forms that repeat without a key (several in
   one component, an unkeyed list) are told apart by position only: if their
   order changed between the two renders, the result goes to the form now in
@@ -392,8 +400,9 @@ export default function EditPost() {
   reaches the nearest `<ErrorBoundary>` as any error an action throws (a page
   with none shows nothing). Check a file's size on its input before the form
   is sent (`setCustomValidity`, which keeps the form and tells the visitor),
-  and put the form's component in a boundary that names `error.limit` (the
-  server README has the recipe). Without the multipart `enctype` a form posts a file's name
+  and put the form's component in a boundary that names `error.limit` (a
+  proxy's own 413 carries none: show `error.message` then; the server README
+  has the recipe). Without the multipart `enctype` a form posts a file's name
   alone, with JavaScript too, as the browser's own submit does. What the
   action returns never carries a file back: a `File` in it is `null` in the
   state, with and without JavaScript (JSON has no form for its bytes), so the

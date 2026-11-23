@@ -1,7 +1,7 @@
 // What Framework - Component Utilities
 // memo, lazy, Suspense, ErrorBoundary
 
-import { h, _vnode } from './h.js';
+import { h, _vnode, lowered } from './h.js';
 import {
   signal, effect, untrack, getOwner, runWithOwner, createRoot, onCleanup, _handleError, _isDisposed, HANDLED,
   _trackWork, _beginWork, _retryErrors, _errorSource, _setUserEffectGate, _releaseUserEffect,
@@ -11,6 +11,7 @@ import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
 import { hydrate, insert, _enableSuspense, _hydrationErrorHook } from './render.js';
 import { createDOM, _handleNavigationSignal, _place } from './dom.js';
+import { _islandHost } from './hydration-data.js';
 
 // --- memo ---
 // In the run-once model, components execute exactly once and never re-render.
@@ -84,16 +85,6 @@ export function lazy(loader) {
 // the vnode renderer with it.
 function deferChildren(Component) {
   Component._deferChildren = true;
-  return Component;
-}
-
-// The built-ins what-compiler lowers away (compiled JSX renders <Show>,
-// <For>, <Switch> and <Match> as a conditional or a list, with no component
-// of its own) take no step in owner paths when they run as components, so a
-// subtree has the same paths and hydration keys whichever way each side
-// rendered it (hydration-data.js _assignOwnerPath).
-function lowered(Component) {
-  Component._lowered = true;
   return Component;
 }
 
@@ -618,6 +609,9 @@ export const _$Island = /* @__PURE__ */ deferChildren(function Island({ componen
   const childList = children == null ? [] : (Array.isArray(children) ? children : [children]);
 
   if (isServerRender()) {
+    // The client hydrates the content as a root of its own, under this
+    // component's owner: it takes that root's place among the keyed rows.
+    _islandHost();
     return h(
       'div',
       { ...marker, 'data-island-props': serializeIslandProps(props) },

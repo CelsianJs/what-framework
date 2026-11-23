@@ -227,6 +227,35 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`hydrate()`, `mount()` and what-react's roots throw
   `ERR_MOUNT_TARGET_MISSING`** for a `null` container or a selector that
   matches nothing, instead of a WeakMap `TypeError`.
+- **Action keys and hydration keys are structural.** A component's place
+  among keyed rows is its place in its parent's output and its JSX's source
+  position, never a count of the components before it, on the server, the
+  stream and hydration alike. A form served by the previous version and
+  posted to this one finds no state for its key and re-renders as on a first
+  visit. `Fragment` takes no step in owner paths. *Migration:* none; it
+  happens once per open page across the deploy.
+- **A `<Show>` or `<Switch>` arm's reactive expression is a reactive child of
+  its own**: `<Show when={x}>{count()}</Show>` updates the text without
+  rebuilding the arm. *Migration:* code that relied on the arm rebuilding
+  reads the value in a component the arm renders.
+- **Server markup:** a fragment among an element's children is written in
+  place with no array markers, and a keyed `.map()` is written with its list
+  markers and keys wherever it stands. *Migration:* build client and server
+  with this compiler and runtime together.
+- **After a component's run, a read of a JSX prop that does not place it
+  gives a placeable**: an opaque value, the same every time, built where it
+  is placed, under that place's owner, context and error boundary. The same
+  holds during the run once the prop is placed. A presence test in `onMount`
+  or `useEffect` is true without running the prop's components, and a
+  handler that shows it in a dialog builds it there. *Migration:* inspect a
+  JSX prop during the run, or alias it there (`const panels = props.panels`);
+  pass data, not JSX, to a component that inspects it.
+- **A JSX prop is built untracked**: a `<Show>` or condition around its place
+  no longer depends on the signals its JSX read when built, so it is not
+  rebuilt when they change. Its own reactive reads update in place.
+- **An array literal of JSX, or a `.map()` returning JSX, passed in a prop is
+  lazy** like any JSX prop. *Migration:* none for a component that places it;
+  one that inspects it inspects it during its run.
 
 ### Breaking: server rendering
 
@@ -413,6 +442,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Every form POST to a page is read under `bodyLimit`** on every platform,
   including a page whose loader reads its own upload: over the limit it gets
   the 413 page.
+- **A request body whose stream fails while it is read is a 400** on every
+  entry point and runs no action, including a no-JS post that names its
+  action in the query on the Node adapter (it ran the action with `{}`).
 
 ### Breaking: compiler
 
@@ -566,7 +598,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
   `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
-  docs/ERRORS.md (5.3 KB gzip instead of 22.0 KB).
+  docs/ERRORS.md (5.3 KB gzip instead of 22.1 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
   Suspense and action events) and `what_why` (why a run, a skipped effect or a
   mount happened, back to the write or landing). Async flight details and
@@ -832,6 +864,41 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `File` (`size` 0), not `''`. The server README hydrates the built-in
   document at `document.body`. SECURITY.md gives measured per-request memory
   for form parsing in place of "about three times `bodyLimit`".
+- **No-JS form results land on the right row in more layouts:** a
+  conditional component before its list
+  (`{pinned.length > 0 && <Table rows={pinned} />}<Table rows={records} />`,
+  and the h() function child), one helper rendering two lists, and a list in
+  an h() `<Suspense>` or `<ErrorBoundary>`. An island's `useActionState`
+  outside a keyed list hydrates into the server's key.
+- **A field component that returns a fragment** (`<><label>…</label><input /></>`)
+  followed by other controls hydrates in place inside `<Form>`, a wrapper, a
+  `<Show>` or a provider: what the user typed or chose before the page's code
+  ran is kept, a chosen file included. Before, the controls after it were
+  built again and an upload field lost its file.
+- **A layout whose header returns a fragment starting with a component,
+  followed by `<Suspense>` or `<ErrorBoundary>`, hydrates in place.** Before,
+  hydrating threw while revealing the boundary and left its content dead.
+  Keyed rows of a fragment-returning component, a fragment among an element's
+  children, `<Show>`/`<For>` in an array literal and a reactive expression in
+  a `<Show>` arm are adopted in place too. The compiled-JSX hydration oracle
+  now finds no divergence in 14,300 generated trees over 8 seeds.
+- **JSX passed to a component and placed in a `<Show>` or a reactive
+  condition keeps what the user typed** when a signal its JSX read changes
+  (`<Modal body={<EditForm item={selected()} />} />`), as with `h()`.
+- **A JSX prop read after the component's run** (a test in `onMount`, a
+  handler that shows it in a dialog, a read after an `await`) is no longer
+  built with no owner: before, it got every context's default, its effects
+  outlived the page and its errors skipped the `<ErrorBoundary>`.
+- **`items={links.map((l) => <li>{l}</li>)}` and JSX array props hydrate in
+  place.** JSX a `.map()` builds into a variable is reported `prebuilt` with
+  form state kept. Form state moves only to the control that corresponds to
+  it (tag, type, name and `form` attribute), never into a `<noscript>`.
+- **Form bodies keep a leading U+FEFF**, as every WHATWG reader does, and a
+  refused action call rejects with its coded error whatever its body is (a
+  proxy's page, `null`). The upload recipe and the starter show the error's
+  message when a proxy's own 413 carries no `limit`.
+- **A compiled `client:load` island inside keyed rows keeps its no-JS
+  result** after hydration, under the server's keys.
 
 ### Performance
 
