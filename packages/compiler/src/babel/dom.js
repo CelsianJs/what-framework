@@ -1,7 +1,7 @@
 // The DOM back end: JSX lowered to cloned templates, fine-grained bindings and
 // keyed list inserters (what-framework/render).
 
-import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, markupName, isEnumeratedAttr } from 'what-core/internal/markup-rules';
+import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,

@@ -8,6 +8,13 @@ JSX compiler for [What Framework](https://whatfw.com). Transforms JSX into optim
 npm install what-compiler --save-dev
 ```
 
+Install it at the release of what-framework and what-core: its output runs
+only on the runtime of its own release. The packages declare each other as
+peers, so npm refuses an install that mixes releases. Where the install allows
+one (pnpm, Yarn, Bun, `--legacy-peer-deps`), the Vite plugin, and the Babel
+plugin on Node 20.16+ and 22.3+, stop before compiling with
+`ERR_COMPILER_RUNTIME_MISMATCH`, naming both versions.
+
 ## Vite Plugin
 
 The recommended way to use the compiler. Add it to your Vite config:

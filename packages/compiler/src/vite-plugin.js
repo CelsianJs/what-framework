@@ -9,12 +9,14 @@
  */
 
 import path from 'path';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
 import { setupErrorOverlay } from './error-overlay.js';
-import { IMPORT_CHANGES } from 'what-core/internal';
+import { IMPORT_CHANGES } from './tables/import-changes.js';
+import { runtimeMismatch } from './release.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
@@ -215,6 +217,10 @@ export default function whatVitePlugin(options = {}) {
     name: 'vite-plugin-what',
 
     configResolved(config) {
+      // What the app's compiled modules will import: the runtime of this
+      // compiler's release, or ERR_COMPILER_RUNTIME_MISMATCH before any build.
+      const mismatch = runtimeMismatch(config.root, fs);
+      if (mismatch) throw mismatch;
       rootDir = config.root;
       pagesDir = path.resolve(rootDir, pages);
       isDevMode = config.command === 'serve';

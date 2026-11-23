@@ -17,9 +17,11 @@ migration.
    `package.json` to the same 0.15 release in one install: `what-framework`,
    `what-compiler`, `what-core`, `what-router`, `what-server`, `what-isr`,
    `what-devtools`, `what-devtools-mcp`, `what-react`, `what-text` and
-   `eslint-plugin-what`. npm does not catch every package left behind:
-   what-text 0.14 accepts what-core 0.15 and then fails at import
-   ([Companion packages](#companion-packages)).
+   `eslint-plugin-what`. npm refuses to upgrade what-framework or
+   what-compiler alone (`ERESOLVE`); pnpm, Yarn and Bun install the mix, so
+   check both versions there ([The compiler](#the-compiler)). npm does not
+   catch every package left behind: what-text 0.14 accepts what-core 0.15 and
+   then fails at import ([Companion packages](#companion-packages)).
 2. **Recompile.** Build the app again with what-compiler 0.15. A library that
    ships JSX compiled by an older what-compiler needs a release compiled with
    0.15 ([The compiler](#the-compiler)).
@@ -697,9 +699,18 @@ options.
   `<mi>`) has no flag, so development throws `ERR_TEMPLATE_NAMESPACE` and
   production renders it as an unknown HTML element, which draws nothing. This
   affects every app and every library that publishes compiled What output.
-  Install what-compiler at the version of what-framework (what-framework 0.15
-  depends on both at that version), and publish libraries compiled with
-  what-compiler 0.15.
+  Install what-compiler at the version of what-framework, and publish
+  libraries compiled with what-compiler 0.15. what-compiler is a peer of
+  what-framework now, not a dependency, and what-framework an optional peer of
+  what-compiler, so npm refuses either one upgraded alone (`ERESOLVE`). An
+  install that does not enforce peers (pnpm, Yarn, Bun, or npm with
+  `--legacy-peer-deps` or `--force`) can still mix them. what-compiler 0.15
+  beside an older runtime then stops the build with
+  `ERR_COMPILER_RUNTIME_MISMATCH`, naming both versions; what-compiler 0.14 has
+  no such check, so what-framework 0.15 upgraded alone builds and fails as
+  above. List what-compiler in `devDependencies` if your build imports it: npm
+  and Bun install it with what-framework when you do not, Yarn does not, and
+  pnpm does not let the app import it.
 - **Server transforms compile for the server.** The Vite plugin's `ssr`
   option, on by default, compiles a module Vite transforms for the server with
   the server target, which every what-server renderer accepts. 0.14 refused
@@ -859,7 +870,7 @@ Three kinds of app grow more than the counters:
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`
   nor `module` bundles `src/` and its development tier (esbuild
-  `--conditions=browser`: 34691 B), whatever `process.env.NODE_ENV` says. Add
+  `--conditions=browser`: about 34 KB), whatever `process.env.NODE_ENV` says. Add
   `production` to such a list.
 - **Development builds report diagnostics in every bundler.** The source reads
   its flag through what-core's `#env` import, by the same conditions: under

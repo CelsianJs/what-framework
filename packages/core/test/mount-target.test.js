@@ -33,10 +33,18 @@ describe('a missing container', () => {
     stop();
   });
 
-  it('react-compat roots throw the same error', () => {
+  it('react-compat roots throw the same error, naming the function called', () => {
     assert.throws(() => ReactDOM.createRoot(null), missing('createRoot'));
-    assert.throws(() => ReactDOM.hydrateRoot(undefined, null), missing('createRoot'));
+    assert.throws(() => ReactDOM.hydrateRoot(undefined, null), (error) => missing('hydrateRoot')(error) && !error.message.includes('createRoot'));
     assert.throws(() => ReactDOM.render(null, null), missing('render'));
+  });
+
+  it('words it as mount() and hydrate() do in development', () => {
+    const message = (call) => { try { call(); } catch (error) { return error.message; } };
+    for (const value of [null, undefined]) {
+      assert.equal(message(() => ReactDOM.createRoot(value)), message(() => mount(h('p'), value)).replace('mount()', 'createRoot()'));
+      assert.equal(message(() => ReactDOM.hydrateRoot(value)), message(() => hydrate(h('p'), value)).replace('hydrate()', 'hydrateRoot()'));
+    }
   });
 
   it('is catalogued with a fix and an example', () => {

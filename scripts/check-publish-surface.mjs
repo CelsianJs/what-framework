@@ -169,6 +169,40 @@ console.log(
 }
 
 // ---------------------------------------------------------------------------
+// One release of compiler and runtime per install
+//
+// what-compiler's output imports what-framework/render, and npm satisfies a
+// dependency, or a peer it cannot share with the root, with a second copy
+// nested beside the package. Only a peer on both sides conflicts at the root,
+// so npm refuses `npm i what-compiler@latest` or `npm i what-framework@latest`
+// alone on an app of the previous release. (packages/core/test/
+// compiler-runtime-lockstep.test.js explains the layout.)
+// ---------------------------------------------------------------------------
+
+{
+  const manifest = (dir) => JSON.parse(readFileSync(join(repoRoot, 'packages', dir, 'package.json'), 'utf8'));
+  const compiler = manifest('compiler');
+  const framework = manifest('what');
+  const release = `^${compiler.version}`;
+  const peerProblems = [];
+  const peer = (pkg, name, optional) => {
+    const range = pkg.peerDependencies?.[name];
+    if (range !== release) peerProblems.push(`${pkg.name} peerDependencies["${name}"] is ${JSON.stringify(range ?? null)}, not "${release}"`);
+    if ((pkg.peerDependenciesMeta?.[name]?.optional === true) !== optional) peerProblems.push(`${pkg.name}'s peer ${name} must ${optional ? '' : 'not '}be optional`);
+    if (pkg.dependencies?.[name]) peerProblems.push(`${pkg.name} lists ${name} in dependencies, which npm nests instead of refusing a mix`);
+  };
+  peer(compiler, 'what-core', false);
+  peer(compiler, 'what-framework', true);
+  peer(framework, 'what-compiler', false);
+  if (peerProblems.length) {
+    console.error('\n[publish-surface] what-compiler and the runtime do not pin each other to one release:');
+    for (const item of peerProblems) console.error(`  - ${item}`);
+    process.exit(1);
+  }
+  console.log(`[publish-surface] OK: what-compiler and what-framework declare each other as peers at ${release}.`);
+}
+
+// ---------------------------------------------------------------------------
 // Dist-content allowlist
 //
 // scripts/build.js cleans dist/ on every run, so after a build the ONLY files

@@ -145,7 +145,9 @@
   "dependencies": {
     "what-core": "^0.14.0",
     "what-router": "^0.14.0",
-    "what-server": "^0.14.0",
+    "what-server": "^0.14.0"
+  },
+  "peerDependencies": {
     "what-compiler": "^0.14.0"
   }
 }

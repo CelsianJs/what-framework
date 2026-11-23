@@ -6,6 +6,7 @@
 //     (entry-client, styles, pages, framework modules) is 200
 //   - /new SSRs the no-JS progressive-enhancement fields (_action,
 //     what-csrf-token, _redirect) and a plain form-encoded POST creates a post
+//   - with JavaScript, a /new post the server refuses is shown in the form
 //   - unknown routes return a real 404 status and are never ISR-cached
 //   - the ISR cache still works for legit routes (second hit is a HIT)
 
@@ -15,6 +16,8 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const createWhat = resolve(repoRoot, 'packages/create-what/index.js');
@@ -202,6 +205,37 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
 
       const home = await (await fetch(BASE + '/')).text();
       assert.match(home, /No JS Boot Post/, 'action revalidated the cached home listing');
+    });
+
+    await t.test('with JavaScript, a /new post the server refuses is shown in the form', { skip: !(await chromiumLaunches(chromium)) && 'Chromium does not launch' }, async () => {
+      const browser = await chromium.launch();
+      try {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
+        await page.goto(BASE + '/new', { waitUntil: 'networkidle' });
+        await page.fill('input[name=title]', 'Over the limit');
+        await page.evaluate(() => { document.querySelector('textarea[name=body]').value = 'x'.repeat(2 * 1024 * 1024); });
+        const refused = page.waitForResponse((r) => r.url().endsWith('/__what_action'));
+        await page.click('button[type=submit]');
+        const { limit, code } = await (await refused).json();
+        assert.equal(code, 'ERR_PAYLOAD_TOO_LARGE');
+        const alert = page.locator('form [role=alert]');
+        await alert.waitFor();
+        assert.equal(await alert.textContent(), `Too large: the limit is ${limit} bytes.`);
+        assert.equal(new URL(page.url()).pathname, '/new', 'the visitor stays on the form');
+
+        // Any other refusal says the server's message, in the same place.
+        await page.route('**/__what_action', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'The database is down.' }) }));
+        await page.evaluate(() => { document.querySelector('textarea[name=body]').value = 'short'; });
+        await page.click('button[type=submit]');
+        await page.waitForFunction(() => document.querySelector('form [role=alert]').textContent.startsWith('Could not'));
+        assert.equal(await alert.textContent(), 'Could not publish: The database is down.');
+        assert.equal(await page.locator('form [role=alert]').count(), 1, 'one message, replaced');
+        assert.deepEqual(errors, []);
+      } finally {
+        await browser.close();
+      }
     });
 
     await t.test('unknown routes return 404 and are never ISR-cached', async () => {

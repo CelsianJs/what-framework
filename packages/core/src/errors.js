@@ -758,6 +758,19 @@ const _tmpl$0 = _$template("<circle r='1'></circle>");
 const _tmpl$0 = _$template("<svg><circle r='1'></circle></svg>", 2);`,
   },
 
+  COMPILER_RUNTIME_MISMATCH: {
+    code: 'ERR_COMPILER_RUNTIME_MISMATCH',
+    severity: 'error',
+    template: 'what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}): compiled output runs only on the runtime of its own release.',
+    suggestion: 'what-compiler\'s output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of "Before you start" in UPGRADING.md says.',
+    codeExample: `// Bad — the compiler upgraded alone, peer checks skipped:
+//   npm install -D what-compiler@latest --legacy-peer-deps
+//   what-compiler 0.15.0 beside what-framework 0.14.0: the build stops here
+
+// Good — every What package in one install, at one release:
+//   npm install what-framework@0.15.0 what-compiler@0.15.0`,
+  },
+
   NO_VNODE_RENDERER: {
     code: 'ERR_NO_VNODE_RENDERER',
     severity: 'error',

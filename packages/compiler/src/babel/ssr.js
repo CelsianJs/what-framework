@@ -35,7 +35,7 @@
 import {
   RAW_TEXT_ELEMENTS, TEXT_ONLY_ELEMENTS, LEADING_NEWLINE_ELEMENTS, SAFE_ATTR_NAME, SAFE_TAG_NAME, VOID_ELEMENTS, escapeHtml,
   FIELD_PROPS, FIELD_TAGS, isEnumeratedAttr, isNamespaceNeutralText, isRefusedAttr, isUrlAttr, markupName,
-} from 'what-core/internal/markup-rules';
+} from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
   addImports, checkElementName, checkStaticAttribute, checkStaticRawText, compileError,

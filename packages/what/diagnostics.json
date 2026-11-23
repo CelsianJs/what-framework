@@ -147,6 +147,19 @@
       "example": "// Bad — server transforms compiled as client output:\n// vite.config.js: plugins: [what({ ssr: false })]  +  vite build --ssr\nexport function Page() { return <h1>Hi</h1>; }   // refused at build time\n\n// Good — the default: server transforms use the server target:\n// vite.config.js: plugins: [what()]\nexport function Page() { return <h1>Hi</h1>; }   // renders on the server\n\n// Good — or h(), which renderToString understands:\nimport { h } from 'what-framework';\nexport function Title() { return h('h1', null, 'Hi'); }"
     },
     {
+      "code": "ERR_COMPILER_RUNTIME_MISMATCH",
+      "severity": "error",
+      "detects": [
+        "compile"
+      ],
+      "raisedBy": [
+        "what-compiler"
+      ],
+      "trigger": "what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}): compiled output runs only on the runtime of its own release.",
+      "fix": "what-compiler's output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of \"Before you start\" in UPGRADING.md says.",
+      "example": "// Bad — the compiler upgraded alone, peer checks skipped:\n//   npm install -D what-compiler@latest --legacy-peer-deps\n//   what-compiler 0.15.0 beside what-framework 0.14.0: the build stops here\n\n// Good — every What package in one install, at one release:\n//   npm install what-framework@0.15.0 what-compiler@0.15.0"
+    },
+    {
       "code": "ERR_COMPUTED_CYCLE",
       "severity": "error",
       "detects": [

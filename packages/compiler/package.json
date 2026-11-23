@@ -52,7 +52,13 @@
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0",
-    "what-core": "^0.14.0"
+    "what-core": "^0.14.0",
+    "what-framework": "^0.14.0"
+  },
+  "peerDependenciesMeta": {
+    "what-framework": {
+      "optional": true
+    }
   },
   "files": [
     "src",

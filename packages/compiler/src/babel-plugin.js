@@ -50,6 +50,7 @@ import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
 import { annotatePrimitive } from './babel/dev-metadata.js';
 import { resolveCallees } from './babel/reactivity.js';
+import { fileRuntimeMismatch } from './release.js';
 
 export default function whatBabelPlugin({ types }) {
   setTypes(types);
@@ -60,6 +61,8 @@ export default function whatBabelPlugin({ types }) {
     visitor: {
       Program: {
         enter(path, state) {
+          const mismatch = fileRuntimeMismatch(state.file?.opts?.filename);
+          if (mismatch) throw mismatch;
           const generate = state.opts?.generate ?? 'dom';
           if (generate !== 'dom' && generate !== 'ssr') {
             throw new Error(`[what-compiler] Unknown "generate" option ${JSON.stringify(generate)}: use "dom" or "ssr".`);

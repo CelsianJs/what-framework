@@ -1102,7 +1102,9 @@ call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
 The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
 \`/__what_action\` dispatches the action and redirects. With JavaScript,
-\`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload).
+\`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload),
+and a call the server refuses (a body over its limit, an action that throws)
+is shown in the form.
 
 The \`/edit/:slug\` editor shows a server validation error next to what the
 visitor typed, with and without JavaScript, and goes to the post once it is
@@ -1387,7 +1389,8 @@ function PostForm({ post }) {
 //     carry the action id (_action), the double-submit CSRF token
 //     (what-csrf-token) and the post-submit redirect (_redirect).
 //   - With JS: src/entry-client.js intercepts submit and posts JSON with the
-//     X-What-Action header (the action protocol), then navigates to the post.
+//     X-What-Action header (the action protocol), then navigates to the post,
+//     or shows in the form why the server refused the call.
 
 import { h, Head, useLoaderData } from 'what-framework';
 
@@ -1516,6 +1519,22 @@ function csrfToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// A call the server refuses is said in the form, above its button, as the
+// edit page's <ErrorBoundary> says it: a body over the server's bodyLimit is
+// answered 413 with { code: 'ERR_PAYLOAD_TOO_LARGE', limit }, an action that
+// throws 500 with { message }.
+function showRefusal(form, { code, limit, message }) {
+  let alert = form.querySelector('[role="alert"]');
+  if (!alert) {
+    alert = document.createElement('p');
+    alert.setAttribute('role', 'alert');
+    form.insertBefore(alert, form.querySelector('button[type="submit"]'));
+  }
+  alert.textContent = code === 'ERR_PAYLOAD_TOO_LARGE' && limit !== undefined
+    ? \`Too large: the limit is \${limit} bytes.\`
+    : \`Could not publish: \${message}\`;
+}
+
 for (const form of document.querySelectorAll('form[data-action]')) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1526,17 +1545,23 @@ for (const form of document.querySelectorAll('form[data-action]')) {
     const headers = { 'content-type': 'application/json', 'x-what-action': form.dataset.action };
     const token = csrfToken();
     if (token) headers['x-csrf-token'] = token;
-    const res = await fetch('/__what_action', {
-      method: 'POST',
-      headers,
-      credentials: 'same-origin',
-      body: JSON.stringify({ args: [args] }),
-    });
+    let res;
+    try {
+      res = await fetch('/__what_action', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({ args: [args] }),
+      });
+    } catch (err) {
+      showRefusal(form, { message: err.message });
+      return;
+    }
     const result = await res.json().catch(() => ({}));
     if (res.ok) {
       location.href = result.slug ? \`/blog/\${result.slug}\` : '/';
     } else {
-      console.error('[what] action failed:', result.message || res.status);
+      showRefusal(form, { ...result, message: result.message || \`the server answered \${res.status}\` });
     }
   });
 }

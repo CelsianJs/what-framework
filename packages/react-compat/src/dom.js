@@ -18,11 +18,12 @@ import {
 
 // ---- createRoot (React 18) ----
 
-// A root renders into a DOM element; anything else is a coded error, as
-// mount() and hydrate() throw it (what-core dom.js _mountTarget).
+// A root renders into a DOM element; anything else is a coded error naming
+// the function called, worded as mount() and hydrate() word it in
+// development (what-core dom.js _mountTarget).
 function rootContainer(container, fn) {
   if (container == null || typeof container.nodeType !== 'number') {
-    throw Object.assign(new Error(`[what] ${fn}() was given no container element: ${String(container)}.`), { code: 'ERR_MOUNT_TARGET_MISSING' });
+    throw Object.assign(new Error(`[what] ${fn}() got no container element: it was ${String(container)}`), { code: 'ERR_MOUNT_TARGET_MISSING' });
   }
   return container;
 }
@@ -55,7 +56,7 @@ export function createRoot(container) {
 // No true hydration — replaces server-rendered content with a fresh mount.
 
 export function hydrateRoot(container, initialChildren) {
-  const root = createRoot(container);
+  const root = createRoot(rootContainer(container, 'hydrateRoot'));
   root.render(initialChildren);
   return root;
 }

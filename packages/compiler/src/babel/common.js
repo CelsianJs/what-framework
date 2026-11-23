@@ -18,7 +18,7 @@ import {
   FIELD_PROPS,
   FIELD_TAGS,
   ATTRIBUTE_VALUE_TYPES,
-} from 'what-core/internal/markup-rules';
+} from '../tables/markup-rules.js';
 import { t } from './types.js';
 
 const EVENT_MODIFIERS = new Set(['preventDefault', 'stopPropagation', 'once', 'capture', 'passive', 'self']);

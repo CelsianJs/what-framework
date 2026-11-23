@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 71 of them: 42 errors and 29 warnings.
+Every code in What's error catalogue, all 72 of them: 43 errors and 29 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -56,6 +56,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
 | [`ERR_CLEANUP_WITHOUT_OWNER`](#err-cleanup-without-owner) | warning | onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs. |
 | [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler client output cannot be server-rendered: `file`. |
+| [`ERR_COMPILER_RUNTIME_MISMATCH`](#err-compiler-runtime-mismatch) | error | what-compiler `compiler` cannot build for `name` `version` (`file`): compiled output runs only on the runtime of its own release. |
 | [`ERR_COMPUTED_CYCLE`](#err-computed-cycle) | error | Computed "`name`" reads its own value, directly or through computeds that read it. |
 | [`ERR_CONTEXT_NOT_PROVIDED`](#err-context-not-provided) | warning | `context` was read with no provider above the component and has no default value, so useContext returned undefined. |
 | [`ERR_DERIVED_WITHOUT_STATE`](#err-derived-without-state) | warning | derived() for "`key`" takes no parameter, so it cannot read the store state. |
@@ -334,6 +335,25 @@ export function Page() { return <h1>Hi</h1>; }   // renders on the server
 // Good — or h(), which renderToString understands:
 import { h } from 'what-framework';
 export function Title() { return h('h1', null, 'Hi'); }
+```
+
+## ERR_COMPILER_RUNTIME_MISMATCH
+
+**Severity:** error
+  ·  **Raised by:** `what-compiler`
+  ·  **Detected:** compile
+
+> what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}): compiled output runs only on the runtime of its own release.
+
+what-compiler's output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of "Before you start" in UPGRADING.md says.
+
+```jsx
+// Bad — the compiler upgraded alone, peer checks skipped:
+//   npm install -D what-compiler@latest --legacy-peer-deps
+//   what-compiler 0.15.0 beside what-framework 0.14.0: the build stops here
+
+// Good — every What package in one install, at one release:
+//   npm install what-framework@0.15.0 what-compiler@0.15.0
 ```
 
 ## ERR_COMPUTED_CYCLE

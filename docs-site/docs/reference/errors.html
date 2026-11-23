@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 71 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 72 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 71 of them: 42 errors and 29 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 72 of them: 43 errors and 29 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -82,6 +82,7 @@
             <li><a href="#ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</a></li>
             <li><a href="#ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</a></li>
             <li><a href="#ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</a></li>
+            <li><a href="#ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</a></li>
             <li><a href="#ERR_COMPUTED_CYCLE">ERR_COMPUTED_CYCLE</a></li>
             <li><a href="#ERR_CONTEXT_NOT_PROVIDED">ERR_CONTEXT_NOT_PROVIDED</a></li>
             <li><a href="#ERR_DERIVED_WITHOUT_STATE">ERR_DERIVED_WITHOUT_STATE</a></li>
@@ -282,6 +283,17 @@ export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // renders on the s
 // Good — or h(), which renderToString understands:
 import { h } from 'what-framework';
 export function Title() { return h('h1', null, 'Hi'); }</code></pre>
+
+          <h2 id="ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</h2>
+          <p class="subtitle">what-compiler compiler cannot build for name version (file): compiled output runs only on the runtime of its own release.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p>what-compiler's output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of &quot;Before you start&quot; in UPGRADING.md says.</p>
+<pre><code>// Bad — the compiler upgraded alone, peer checks skipped:
+//   npm install -D what-compiler@latest --legacy-peer-deps
+//   what-compiler 0.15.0 beside what-framework 0.14.0: the build stops here
+
+// Good — every What package in one install, at one release:
+//   npm install what-framework@0.15.0 what-compiler@0.15.0</code></pre>
 
           <h2 id="ERR_COMPUTED_CYCLE">ERR_COMPUTED_CYCLE</h2>
           <p class="subtitle">Computed &quot;name&quot; reads its own value, directly or through computeds that read it.</p>

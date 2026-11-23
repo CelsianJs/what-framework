@@ -18,7 +18,7 @@
 // of `{rows.map(r => <tr/>)}`) is checked where it stands, and so is static
 // text written as one (`{"x"}`).
 
-import { VOID_ELEMENTS } from 'what-core/internal/markup-rules';
+import { VOID_ELEMENTS } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import { codedCompileError, isComponentElement, normalizeJsxText } from './common.js';
 

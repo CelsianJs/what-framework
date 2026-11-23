@@ -27,6 +27,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   run the same release, because the hydration protocol changed.
   *Migration:* move every What package to 0.15.0 in one install, and publish
   libraries compiled with what-compiler 0.15.
+- **what-compiler is a peer dependency of what-framework**, and what-framework
+  an optional peer of what-compiler, so npm refuses to upgrade either alone
+  (`ERESOLVE`); before, both installed beside each other and the build failed
+  with `"_$own" is not exported`, or built and drew some SVG as HTML.
+  what-compiler/vite and the Babel plugin also stop a build whose
+  what-framework or what-core is another release
+  (`ERR_COMPILER_RUNTIME_MISMATCH`, naming both versions). *Migration:* list
+  what-compiler in devDependencies if your build imports it (Yarn does not
+  install it for you, and pnpm does not expose it). An app upgraded with a
+  package manager other than npm, with only what-framework moved to 0.15, is
+  not caught: upgrade every What package together.
 - **The root entry has 58 names instead of 177.** The kits moved to
   `what-framework/a11y`, `/ui`, `/motion`, `/dom`, `/form`, `/data` and
   `/render`, each with a `what-core/<kit>` twin, and internals moved to
@@ -507,6 +518,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Added
 
+- **`ERR_COMPILER_RUNTIME_MISMATCH`**: what-compiler/vite and the Babel plugin
+  stop a build whose what-framework or what-core is a different release.
 - **Engine.** A push-pull signal engine with an owner tree, equality cut-off
   and evaluation on a bounded stack, and the new `createSelector`.
   Development code sits behind a build-time `__DEV__` and is absent from
@@ -591,7 +604,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 71 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 72 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
@@ -899,6 +912,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   message when a proxy's own 413 carries no `limit`.
 - **A compiled `client:load` island inside keyed rows keeps its no-JS
   result** after hydration, under the server's keys.
+- **The full-stack starter's `/new` form shows why the server refused a
+  post** (a 413 with the limit, another refusal, a failed request), and
+  what-react's `hydrateRoot()` names itself in `ERR_MOUNT_TARGET_MISSING`.
 
 ### Performance
 
