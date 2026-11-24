@@ -926,7 +926,9 @@ describe('react-compat basic', () => {
     const { createElement } = await import('../packages/react-compat/src/index.js');
     const vnode = createElement('div', { className: 'test' }, 'Hello');
     assert.equal(vnode.tag, 'div');
-    assert.ok(vnode.props.class === 'test', 'className should be normalized to class');
+    // React's shape: a host element's props keep `className` (the DOM writer maps it).
+    assert.equal(vnode.props.className, 'test');
+    assert.equal(vnode.props.class, undefined);
     assert.deepEqual(vnode.children, ['Hello']);
   });
 
@@ -969,7 +971,7 @@ describe('react-compat basic', () => {
     const original = createElement('div', { id: 'orig', className: 'a' }, 'child');
     const cloned = cloneElement(original, { className: 'b' });
     assert.equal(cloned.props.id, 'orig');
-    assert.equal(cloned.props.class, 'b'); // className normalized to class
+    assert.equal(cloned.props.className, 'b'); // kept as React keeps it
   });
 
   test('forwardRef creates component with $$typeof', async () => {
