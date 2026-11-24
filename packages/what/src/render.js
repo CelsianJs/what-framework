@@ -19,6 +19,8 @@ export {
   _$hfield,
   _$plain,
   _$hplain,
+  _$rowFields,
+  _$controlled,
   // O(1) selection, emitted for `sel() === row.key` in keyed .map() rows.
   createSelector,
   spread,

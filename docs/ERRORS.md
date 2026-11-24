@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 73 of them: 43 errors and 30 warnings.
+Every code in What's error catalogue, all 74 of them: 43 errors and 31 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -63,6 +63,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_DUPLICATE_ACTION_ID`](#err-duplicate-action-id) | error | Duplicate server action ID "`id`". |
 | [`ERR_DUPLICATE_KEY`](#err-duplicate-key) | warning | A keyed list has more than one item with the key `key`. |
 | [`ERR_EFFECT_DEP_NOT_FUNCTION`](#err-effect-dep-not-function) | warning | useEffect dependency at index `index` is a plain value, so the effect cannot re-run when it changes. |
+| [`ERR_EFFECT_DEP_NOT_SIGNAL`](#err-effect-dep-not-signal) | warning | useEffect dependency `index` is a function, never read. |
 | [`ERR_FOREIGN_ENGINE_IN_SSR`](#err-foreign-engine-in-ssr) | error | An async value was made by a second copy of what-core during a server render. |
 | [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action, its id, or a function. |
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
@@ -475,7 +476,7 @@ Every item with that key still gets a row of its own, and none is lost or leaked
 
 > useEffect dependency at index {{index}} is a plain value, so the effect cannot re-run when it changes.
 
-What tracks dependencies by calling them. A value in the deps array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal or a getter itself, not its current value. Omitting the array tracks whatever the effect reads.
+A dependency array lists signals and computeds, which the effect reads to track them. A value in the array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal itself, not its current value; for a prop or any other expression, a computed over it (useMemo(() => props.count)). Omitting the array tracks whatever the effect reads.
 
 ```jsx
 const [count, setCount] = useState(0);
@@ -488,6 +489,28 @@ useEffect(() => save(count()), [count]);
 
 // Good - or let the effect track what it reads:
 useEffect(() => save(count()));
+```
+
+## ERR_EFFECT_DEP_NOT_SIGNAL
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> useEffect dependency {{index}} is a function, never read.
+
+A function in a dependency array that is not a signal or a computed is never called, so the effect cannot re-run for what it reads. A dependency array re-runs the effect for the signals and computeds in it. Any other function is left alone: a deps array often holds setters and callbacks ([setCount], [load], [props.onClose]), and calling one to see what it reads would write state or start work on every run. If this one is a getter, list a computed over the same expression (useMemo(() => props.count)), or omit the array so the effect tracks what its callback reads. If it is a callback, leave it out: a component runs once, so a callback never changes. A function that takes arguments is never reported.
+
+```jsx
+// Bad - the arrow is never called, so the effect runs once:
+useEffect(() => save(props.count), [() => props.count]);
+
+// Good - a computed is a signal:
+const count = useMemo(() => props.count);
+useEffect(() => save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() => save(props.count));
 ```
 
 ## ERR_FOREIGN_ENGINE_IN_SSR

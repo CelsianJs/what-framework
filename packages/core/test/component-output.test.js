@@ -17,7 +17,7 @@ const { h, mount, flushSync } = await import('what-framework');
 const { __ownerOf, __ownerPath } = await import('what-core/internal');
 
 const mod = await loadCompiled(`
-  import { signal, mount, onCleanup, Show } from 'what-framework';
+  import { signal, effect, mount, onCleanup, Show } from 'what-framework';
   export const rows = signal([]);
   export const on = signal(true);
   export const log = [];
@@ -65,6 +65,35 @@ const mod = await loadCompiled(`
   }
   export const makeKept = () => <Kept />;
   export function Holder(props) { return props.node; }
+  // Holder built under no owner too: compiled mount(<Holder />, el).
+  function LoggedHolder(props) {
+    onCleanup(() => log.push('holder'));
+    return props.node;
+  }
+  export const mountHolder = (el, node) => mount(<LoggedHolder node={node} />, el);
+
+  // A component built under no owner, placed inside the element of another.
+  export const tick = signal(0);
+  function Side() {
+    onCleanup(() => log.push('side'));
+    effect(() => { log.push('side ran ' + tick()); });
+    return <aside>side</aside>;
+  }
+  const side = <Side />;
+  function Shell() {
+    onCleanup(() => log.push('shell'));
+    return <main><section>{side}</section></main>;
+  }
+  export const mountShell = (el) => mount(<Shell />, el);
+
+  // A text node a component returns, and an element two components return in turn.
+  export const cachedText = document.createTextNode('cached');
+  function TextNode() { return cachedText; }
+  export function HoldsText() { return <div class="holds-text"><TextNode /></div>; }
+  export function SwitchesText() { return <div class="switches-text">{on() ? <TextNode /> : 'plain'}</div>; }
+  export const shared = document.createElement('q');
+  export function First() { return shared; }
+  export function Second() { return shared; }
 `);
 
 const host = () => document.body.appendChild(document.createElement('div'));
@@ -170,4 +199,76 @@ test('a component built before its root is adopted by it, with or without marker
   assert.equal(el.textContent, 'kept');
   stopHolder();
   assert.deepEqual(mod.log, ['kept']);
+});
+
+test('an element a component built under no owner returned keeps that component when another one built under no owner returns it', () => {
+  mod.log.length = 0;
+  const el = host();
+  const stop = mod.mountHolder(el, mod.makeKept());
+  flushSync();
+  assert.equal(el.innerHTML, '<!--c:start--><em>kept</em><!--c:end-->', 'the second component brackets it: the element answers for the first');
+  stop();
+  assert.deepEqual(mod.log.sort(), ['holder', 'kept'], 'the root disposed both');
+});
+
+test('a component built under no owner inside another such component\'s element is adopted with it', () => {
+  const el = host();
+  const stop = mod.mountShell(el);
+  flushSync();
+  assert.equal(el.innerHTML, '<main><section><aside>side</aside></section></main>');
+  mod.log.length = 0;
+  mod.tick(1);
+  flushSync();
+  assert.deepEqual(mod.log, ['side ran 1']);
+
+  // Every component built under no owner has its root now, so a mount does not
+  // look for one: a node marked as such a component's is left as it is.
+  const marked = document.createElement('p');
+  marked._owner = { owner: {}, flags: 0 };
+  const other = host();
+  const stopOther = mount(h('div', {}, marked), other);
+  assert.notEqual(marked._owner, undefined, 'mount() did not walk its tree for components to adopt');
+  stopOther();
+
+  mod.log.length = 0;
+  stop();
+  assert.deepEqual(mod.log.sort(), ['shell', 'side'], 'both cleanups ran');
+  mod.log.length = 0;
+  mod.tick(2);
+  flushSync();
+  assert.deepEqual(mod.log, [], 'and the inner component\'s effect went with it');
+});
+
+test('a component that returns a text node is bracketed, and a region leaves that node as it is', () => {
+  const el = host();
+  const stop = mount(h(mod.HoldsText, {}), el);
+  flushSync();
+  assert.equal(el.querySelector('.holds-text').innerHTML, '<!--c:start-->cached<!--c:end-->');
+  stop();
+
+  mod.on(true);
+  const stopSwitch = mount(h(mod.SwitchesText, {}), el);
+  flushSync();
+  const box = el.querySelector('.switches-text');
+  assert.equal(box.textContent, 'cached');
+  mod.on(false);
+  flushSync();
+  assert.equal(box.textContent, 'plain');
+  assert.equal(mod.cachedText.data, 'cached', 'the region wrote its own text, not the component\'s node');
+  mod.on(true);
+  flushSync();
+  assert.equal(box.textContent, 'cached');
+  stopSwitch();
+});
+
+test('in development an element answers for the component that returns it now, once the one before is gone', () => {
+  const el = host();
+  const stopFirst = mount(h(mod.First, {}), el);
+  flushSync();
+  assert.equal(__ownerOf(mod.shared).Component.name, 'First');
+  stopFirst();
+  const stopSecond = mount(h(mod.Second, {}), el);
+  flushSync();
+  assert.equal(__ownerOf(mod.shared).Component.name, 'Second');
+  stopSecond();
 });

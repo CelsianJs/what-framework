@@ -7,9 +7,9 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -265,6 +265,17 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
 // Components built under no owner and not yet adopted.
 let detached = 0;
 
+// Components that suspended while they were built, and were left to be
+// rendered again in their place (renderWhenSettled). One that did so in a
+// list row may have bound plain fields of the row before it did
+// (bindRowField), which the row lets go of once it is built (rowBuilt,
+// dropFailedFields). A component that fails any other way leaves no such
+// field behind: the children of an error boundary inside the row are built
+// under a root of their own, which is not a component, so nothing there is a
+// field of the row; a boundary outside the row disposes the list; and a
+// navigation leaves the page.
+let failures = 0;
+
 /**
  * Give the components in `nodes` that were built under no owner to the
  * current owner (mount()'s or hydrate()'s root). Walks `nodes` only while such
@@ -280,8 +291,11 @@ function adoptIn(node) {
     node._owner = undefined;
     detached--;
     _adoptOwner(owner);
-    return;
   }
+  // On: an element that is a component's whole output holds what the
+  // component placed in it, which can be another component built under no
+  // owner (a module-scope `const side = <Side />`). A start comment holds
+  // nothing.
   for (let c = node.firstChild; c !== null && detached > 0; c = c.nextSibling) adoptIn(c);
 }
 
@@ -354,6 +368,7 @@ function renderWhenSettled(thenable, parentOwner, start, end, Component, props, 
       release();
     }));
   }
+  failures++;
   retried.showsFallback = !_isNotReady(thenable);
   if (__DEV__) retried.component = Component.displayName || Component.name || 'Anonymous';
   if (!_handlePending(parentOwner, retried) && __DEV__) {
@@ -676,17 +691,65 @@ function bindPlain(value, source, read, parent, marker, owner) {
       textWritten(parent, str);
       return null;
     }
-  } else if (source.building === true) {
-    const text = fieldText(value);
-    if (text !== null) {
-      // A field of the row, with what the binding belongs to: once that is
-      // disposed, the field is dead.
-      bindField(source, textAt(parent, text, marker), read, writePlain, _ownerRecord(owner));
-      textWritten(parent, text);
-      return null;
-    }
-  }
+  } else if (rowField !== null && rowField(value, source, read, parent, marker, owner)) return null;
   return plainRegion(value, read, parent, marker, owner);
+}
+
+// --- Plain children that are fields of a list row ---
+// Reached only through _$rowFields, which what-compiler writes in the options
+// of a keyed list whose rows can hold such a child (a component, or a plain
+// child that is more than one field of the item): a program with no such list
+// carries none of this, and a plain child that reads a row's item is then the
+// region any reactive child is.
+
+/** @type {((value: any, source: any, read: () => any, parent: Node, marker: any, owner: any) => boolean) | null} */
+let rowField = null;
+/** @type {((cell: any) => void) | null} */
+let sweepFields = null;
+// Whether what `owner` holds lives exactly as long as the row whose item
+// `cell` holds, for _$field: it is the row's scope, until a row can hold a
+// component (the same call installs both), whose children's fields live as
+// long as the row too.
+/** @type {(cell: any, owner: any) => boolean} */
+let fieldLives = (cell, owner) => owner === cell.building;
+
+/**
+ * @internal Let a plain child (_$plain) that reads only the item of the list
+ * row being built be a field of that row. Returns true: what-compiler writes
+ * the call as the value of an option of the list (`fields: _$rowFields()`).
+ */
+export function _$rowFields() {
+  rowField = bindRowField;
+  sweepFields = dropFailedFields;
+  fieldLives = _livesWithRow;
+  return true;
+}
+
+// A plain child whose first value came from `source`, the item of a list row,
+// alone: text that belongs to something that lives exactly as long as the row
+// (reactive.js _livesWithRow) is a field of the row, kept with what it
+// belongs to, under which it is read again. Anything else is not: a field of
+// something that goes before its row (the run of a region, an inner list's
+// row, a boundary's arm) would be held, and written, until the row's next
+// item. Returns whether it bound one.
+function bindRowField(value, source, read, parent, marker, owner) {
+  const text = fieldText(value);
+  if (text === null || !_livesWithRow(source, owner)) return false;
+  bindField(source, textAt(parent, text, marker), read, writePlain, _ownerRecord(owner));
+  textWritten(parent, text);
+  return true;
+}
+
+// The row whose item `cell` holds is built. Once a component has suspended
+// (`failures`), one may have done so while this row was built: the fields it
+// bound before it did are not in the row and belong to nothing.
+function dropFailedFields(cell) {
+  const fields = cell.fields;
+  if (failures === 0 || fields === null) return;
+  for (let i = 0; i < fields.length; i += 4) {
+    const owner = fields[i + 3];
+    if (owner !== null && _isDisposed(owner)) dropField(fields, i);
+  }
 }
 
 // The region a plain child is when it needs an effect, its first value shown:
@@ -705,17 +768,24 @@ function plainRegion(value, read, parent, marker, owner) {
   return run;
 }
 
-// A plain child that is a row's field (bindPlain): its row has another item.
-// It is read again as it was first read, under the owner it was created
-// under, unless that is gone; an error goes where an effect's goes, and the
-// field is read again for the row's next item.
-function writePlain(fields, i) {
-  const owner = fields[i + 3];
-  if (owner !== null && _isDisposed(owner)) {
-    dropField(fields, i);
-    return true;
-  }
+// A plain child that is a row's field (bindRowField): its row has another
+// item. It is read again, creating nothing (reactive.js _readAlone), and text
+// from the row's item alone is written to its node. Anything else (it read
+// something reactive, its value is not text, it threw) is read once more as
+// it was first read, as the first run of an effect under the owner it was
+// created under, which becomes the region it then needs (rebindPlain); an
+// error goes where an effect's goes, and the field is read again for the
+// row's next item.
+function writePlain(fields, i, item, cell) {
   const read = fields[i + 1];
+  const owner = fields[i + 3];
+  try {
+    const text = fieldText(_readAlone(read, cell));
+    if (text !== null) {
+      writeText(fieldNode(fields, i), text);
+      return true;
+    }
+  } catch { /* thrown again below, where an effect's first run fails or is held */ }
   try {
     runWithOwner(owner, () => _effectWhenNeeded(read, rebindPlain, fields, i));
   } catch (err) {
@@ -737,8 +807,7 @@ function rebindPlain(value, source, read, fields, i, owner) {
   if (source === null || source.fields === fields) {
     const text = fieldText(value);
     if (text !== null) {
-      if (node.data !== text) node.data = text;
-      if (node.parentNode !== null) textWritten(node.parentNode, text);
+      writeText(node, text);
       return null;
     }
   }
@@ -1355,11 +1424,17 @@ export function _mapArrayToArray(inserter) {
 // how a scan finds where one row ends and the next begins without mistaking a
 // nested list's rows, or a user comment, for a boundary.
 
-function buildRow(mapFn, value, idx, disposeArr, item) {
+function buildRow(mapFn, value, idx, disposeArr, item, cell) {
   return _createItemScope((dispose) => {
     disposeArr[idx] = dispose;
     return rowNode(mapFn(value, idx, item));
-  });
+  }, cell);
+}
+
+// The row whose item `cell` holds is built.
+function rowBuilt(cell) {
+  cell.building = false;
+  if (sweepFields !== null) sweepFields(cell);
 }
 
 // A row is normally one node already. Anything else (a string, an array, a
@@ -1378,8 +1453,8 @@ function rowNode(value) {
 function buildKeyedRow(endMarker, item, idx, keyedSignals, mapFn, mappedArr, disposeArr) {
   if (keyedSignals === RAW) return markRow(buildRow(mapFn, item, idx, disposeArr, item), endMarker, idx, mappedArr);
   const cell = _rowItem(item);
-  const node = buildRow(mapFn, keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), idx, disposeArr, item);
-  cell.building = false;
+  const node = buildRow(mapFn, keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), idx, disposeArr, item, cell);
+  rowBuilt(cell);
   disposeArr[idx]._item = cell;
   return markRow(node, endMarker, idx, mappedArr);
 }
@@ -1500,8 +1575,8 @@ function renewItem(parent, endMarker, slot, index, item, mapFn, mappedNodes, dis
   const node = _createItemScope((dispose) => {
     disposeFns[slot] = dispose;
     return rowNode(mapFn(cell, index, item));
-  });
-  cell.building = false;
+  }, cell);
+  rowBuilt(cell);
   disposeFns[slot]._item = cell;
   parent.insertBefore(markRow(node, endMarker, slot, mappedNodes), old);
   removeKeyedRow(parent, endMarker, old, oldDispose);
@@ -1918,6 +1993,13 @@ export function spread(el, props) {
     // A live prop is bound as an accessor of it.
     const value = live && key !== 'ref' && !_isEventProp(key) && _isLiveProp(props, key) ? () => props[key] : props[key];
 
+    // A field's value or checked that follows state is bound as an attribute
+    // of the field binds it, so the field shows it after its events.
+    if (fieldSpread !== null && typeof value === 'function' && (key === 'value' || key === 'checked')) {
+      fieldSpread(el, key, value);
+      continue;
+    }
+
     // Ref — the element, not a reactive getter.
     //
     // This is the one prop whose FUNCTION form is a callback taking the element
@@ -2067,9 +2149,11 @@ export function setProp(el, key, value) {
 // exactly like setProp treats them: wrap in an effect that re-applies the
 // resolved value.
 
+// The write is a binding's, which the last argument tells setValue and
+// setChecked (the other setters take two).
 function _wrapPropAccessor(el, accessor, apply) {
   if (__DEV__) setNextBinding(el, `${el.localName}.${apply.name}`);
-  effect(() => apply(el, accessor()));
+  effect(() => apply(el, accessor(), 1));
 }
 
 // class / className — hottest dynamic attribute in real apps. The compiler emits
@@ -2241,14 +2325,33 @@ export function setAttr(el, name, value) {
 // value and checked — a form field's state (dom.js Form fields): a property
 // write that a default never moves, null releasing the field. On an element
 // whose value is an attribute (an <option>, a checkbox's value), setProp.
-export function setValue(el, value) {
+// `bound`: 1 when the write is a binding's (the compiler's, in the effect it
+// wraps an expression that can read state in; an accessor's, which
+// _wrapPropAccessor applies). A field a binding that read state controls
+// shows what the binding holds after each of its events (dom.js
+// _controlFields).
+export function setValue(el, value, bound) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setValue);
+  if (bound === 1) _controlFields(el);
   if (!_setFieldProp(el, 'value', value)) setProp(el, 'value', value);
 }
 
-export function setChecked(el, value) {
+export function setChecked(el, value, bound) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setChecked);
+  if (bound === 1) _controlFields(el);
   if (!_setFieldProp(el, 'checked', value)) setProp(el, 'checked', value);
+}
+
+// What spread() hands a value or checked that follows state (a live prop, an
+// accessor) to, once a spread on a field exists: the binding an attribute of
+// the field would be.
+/** @type {((el: Element, key: string, accessor: () => any) => void) | null} */
+let fieldSpread = null;
+
+/** @internal Compiler output: `el`, an <input>, <textarea> or <select> whose props a spread sets (`_$spread(_$controlled(el), props)`). */
+export function _$controlled(el) {
+  fieldSpread = (field, key, accessor) => (key === 'value' ? setValue : setChecked)(field, accessor);
+  return el;
 }
 
 // --- delegateEvents(eventNames, root?) ---
@@ -4721,10 +4824,14 @@ function fieldText(value) {
 function writeField(fields, i, item) {
   const text = fieldText(fields[i + 1](item));
   if (text === null) return false;
-  const node = fieldNode(fields, i);
+  writeText(fieldNode(fields, i), text);
+  return true;
+}
+
+// `text` in a field's text node.
+function writeText(node, text) {
   if (node.data !== text) node.data = text;
   if (node.parentNode !== null) textWritten(node.parentNode, text);
-  return true;
 }
 
 // `node` shows a field of the row whose item `cell` holds: `write(fields, i,
@@ -4736,10 +4843,17 @@ function bindField(cell, node, read, write, owner) {
   else fields.push(node, read, write, owner);
 }
 
-/** A keyed row's plain field of its item, placed as insert() places a child (`marker`). */
-export function _$field(parent, cell, value, marker, read) {
+/**
+ * A keyed row's plain field of its item, placed as insert() places a child
+ * (`marker`). `elsewhere`: the compiler's 1 for a field that is not in the
+ * template its row's callback returns.
+ */
+export function _$field(parent, cell, value, marker, read, elsewhere) {
   const text = fieldText(value);
-  if (text === null) {
+  // Text that can go before its row does (in a region of the row that runs
+  // again, in a row of a list inside the row) is not the row's to write: its
+  // node would be held, and written, for as long as the row lives.
+  if (text === null || (elsewhere === 1 && !fieldLives(cell, getOwner()))) {
     insert(parent, () => read(_readRowItem(cell)), marker);
     return;
   }
@@ -4748,7 +4862,7 @@ export function _$field(parent, cell, value, marker, read) {
 }
 
 /** _$field for hydratable output: placed where `flag` says (_$hole), the server's text claimed while hydrating. */
-export function _$hfield(parent, cell, value, flag, read) {
+export function _$hfield(parent, cell, value, flag, read, elsewhere) {
   const c = cur;
   const text = fieldText(value);
   if (text === null || !c.h) {
@@ -4762,7 +4876,7 @@ export function _$hfield(parent, cell, value, flag, read) {
       marker = c.n;
       if (flag === 1) c.n = marker.nextSibling;
     }
-    _$field(parent, cell, value, marker, read);
+    _$field(parent, cell, value, marker, read, elsewhere);
     return;
   }
   bindField(cell, claimField(c, text), read, writeField, null);

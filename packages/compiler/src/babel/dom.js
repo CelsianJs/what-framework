@@ -202,17 +202,57 @@ function tryLowerMapCall(mapCall, state) {
   // (lists.js readItemThroughAccessor) and follows an item replaced under the
   // same key (mapArray's follow mode); a row that reads only the key gets the
   // raw item (`raw: true`).
-  const follow = readItemThroughAccessor(mapFn, keyValue, () => helper(state, '_$item'), uniqueName(state, '_item$'), uniqueName(state, '_i$'));
+  const cellName = uniqueName(state, '_item$');
+  const follow = readItemThroughAccessor(mapFn, keyValue, () => helper(state, '_$item'), cellName, uniqueName(state, '_i$'));
+  // The element the row's callback returns is built with the row, in the
+  // row's own scope: a field in its template is the row's (fieldCall).
+  if (follow) returnExpr._whatRowCell = cellName;
   const options = [
     t.objectProperty(t.identifier('key'), keyFn),
     t.objectProperty(t.identifier(follow ? 'follow' : 'raw'), t.booleanLiteral(true)),
   ];
+  if (follow && rowHoldsPlainFields(mapFn)) options.push(rowFieldsOption(state));
   // The server's list has the same number (lists.js listSlot).
   const slot = listSlot(mapCall);
   if (slot !== null) options.push(t.objectProperty(t.identifier('slot'), slot));
   const list = t.callExpression(helper(state, '_$mapArray'), [source, mapFn, t.objectExpression(options)]);
   list._whatList = true;
   return list;
+}
+
+// Whether a row built by `fn` (a keyed list's callback, its item reads already
+// lowered) can hold a plain child that is a field of the row (what-core
+// render.js _$plain, _$rowFields): it renders a component, which may read the
+// item it is handed in a child of its own, or it holds a child that only
+// reads, reads the item, and is not one field of it (`{row.a + row.b}`; one
+// field is _$field's). A row with neither reaches no such child.
+function rowHoldsPlainFields(fn) {
+  let found = false;
+  t.traverseFast(fn, (node) => {
+    if (found) return;
+    if (t.isJSXElement(node) && isComponentElement(node)) found = true;
+    else if (t.isJSXElement(node) || t.isJSXFragment(node)) {
+      found = node.children.some((child) => t.isJSXExpressionContainer(child) && isPlainRowRead(child.expression));
+    }
+  });
+  return found;
+}
+
+function isPlainRowRead(expr) {
+  if (!isPlainRead(expr) || rowField(expr) !== null) return false;
+  let reads = false;
+  t.traverseFast(expr, (node) => {
+    if (t.isCallExpression(node) && node.callee._whatRowItem === true) reads = true;
+  });
+  return reads;
+}
+
+// `fields: _$rowFields()`, in the options of a list whose rows can hold plain
+// fields: the call installs the code that binds them when the list is made,
+// so a program with no such list does not carry it. The runtime reads no
+// option of that name.
+function rowFieldsOption(state) {
+  return t.objectProperty(t.identifier('fields'), t.callExpression(helper(state, '_$rowFields'), []));
 }
 
 
@@ -379,7 +419,7 @@ export function transformElementFineGrained(path, state) {
   applyDynamicAttrs(statements, elId, attributes, state, tagName, node._whatNs);
 
   // Handle dynamic children
-  const rootFlags = (applyDynamicChildren(statements, elId, children, node, state) ? 1 : 0) | (writesContent(attributes) ? 2 : 0);
+  const rootFlags = (applyDynamicChildren(statements, elId, children, node, state, node._whatRowCell) ? 1 : 0) | (writesContent(attributes) ? 2 : 0);
   if (state.hydratable && rootFlags !== 0) acquire.arguments.push(t.numericLiteral(rootFlags));
 
   // Instead of wrapping in an IIFE, store setup statements for hoisting.
@@ -470,6 +510,8 @@ function buildRef(refExpr, elId, state) {
 // Other tags keep the generic setProp path (e.g. <div value={x}> sets an
 // attribute, <li value={n}> hits the `key in el` property branch).
 const VALUE_PROP_TAGS = new Set(['input', 'textarea', 'select', 'option']);
+// The form fields a `value` or `checked` prop controls.
+const FIELD_TAGS = new Set(['input', 'textarea', 'select']);
 
 function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   // Specialized monomorphic setters for statically-known attribute names.
@@ -479,7 +521,13 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   // SECURITY: URL attributes (href/src/action/formaction) and innerHTML/
   // dangerouslySetInnerHTML intentionally fall through to _$setProp — URL
   // sanitization and the { __html } enforcement live there.
-  function buildSetPropCall(propName, valueExpr) {
+  // `bound`: the call is made in the effect of a binding (bindingEffect).
+  function buildSetPropCall(propName, valueExpr, bound) {
+    // A value or checked a binding writes to a form field: the field shows it
+    // again after each of its events when the binding read state (what-core
+    // setValue, _controlFields). A value written once is where the field
+    // starts.
+    const binding = bound && FIELD_TAGS.has(tagName) ? [t.numericLiteral(1)] : [];
     if (propName === 'class') {
       // attributeName already mapped className → class. The template
       // decided this element's namespace, so only an SVG element needs the
@@ -496,7 +544,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       return t.callExpression(helper(state, '_$setStyle'), [t.identifier(elId), valueExpr]);
     }
     if (propName === 'value' && tagName && VALUE_PROP_TAGS.has(tagName)) {
-      return t.callExpression(helper(state, '_$setValue'), [t.identifier(elId), valueExpr]);
+      return t.callExpression(helper(state, '_$setValue'), [t.identifier(elId), valueExpr, ...binding]);
     }
     if (propName === 'checked' && tagName === 'input') {
       // Live property write — matches bind:checked semantics. (The old
@@ -504,7 +552,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       // which stops reflecting once the user has toggled the input.)
       // A helper (not a raw `.checked =`) so function values still get
       // reactive-accessor treatment, like every other setter.
-      return t.callExpression(helper(state, '_$setChecked'), [t.identifier(elId), valueExpr]);
+      return t.callExpression(helper(state, '_$setChecked'), [t.identifier(elId), valueExpr, ...binding]);
     }
     if (isEnumeratedAttr(propName)) {
       return t.callExpression(helper(state, '_$setAttr'), [
@@ -551,7 +599,10 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     if (t.isJSXSpreadAttribute(attr)) {
       statements.push(
         t.expressionStatement(
-          t.callExpression(helper(state, '_$spread'), [t.identifier(elId), attr.argument])
+          // A spread on a form field may bind its value or checked to state:
+          // the field then shows what they hold after its events (what-core
+          // _$controlled).
+          t.callExpression(helper(state, '_$spread'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId), attr.argument])
         )
       );
       continue;
@@ -726,7 +777,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
           isSignalIdentifier(expr.name, state.signalNames)
           ? t.callExpression(expr, [])
           : expr;
-        const effectCall = bindingEffect(t.arrowFunctionExpression([], buildSetPropCall(domName, valueExpr)), domName, attr);
+        const effectCall = bindingEffect(t.arrowFunctionExpression([], buildSetPropCall(domName, valueExpr, true)), domName, attr);
         // In dev mode, add a leading comment when the effect wrapping is uncertain
         // (non-signal function call whose args happen to contain signal reads)
         if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
@@ -966,7 +1017,9 @@ function writesContent(attributes) {
 // it), `_$hole(el, value, flag)` is a dynamic child, and `_$exit()` leaves the
 // element. Returns whether it emitted such steps, in which case the caller
 // enters the element when it takes it.
-function applyDynamicChildren(statements, elId, children, parentNode, state) {
+// `rowCell`: the item cell of the keyed row whose callback returns this
+// template, when it is one.
+function applyDynamicChildren(statements, elId, children, parentNode, state, rowCell) {
   const { entries } = layoutChildren(children, false, state);
   const hydratable = state.hydratable;
   // Static children since the last step (hydratable output).
@@ -1062,22 +1115,27 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
 
   // A plain field of a keyed row's item (`{row.label}`): a text node the
   // row's item cell writes (render.js _$field), read now from the item the
-  // row is built from, with its reader hoisted to the module.
+  // row is built from, with its reader hoisted to the module. A field in the
+  // template the row's callback returns is built with the row and goes with
+  // it. Anywhere else (a region of the row, a row of a list inside it, a
+  // component's children) it gets a last argument, 1: the runtime then binds
+  // it to the row only when what builds it lives as long as the row.
   function fieldCall(expr, root, marker, placeholder) {
     const id = uniqueName(state, '_f$');
     state.rowFieldReaders.push({ id, fn: t.arrowFunctionExpression([t.identifier('r')], withItem(expr, root, t.identifier('r'))) });
     const value = withItem(expr, root, t.identifier(root._whatRowItemName));
     const cell = t.cloneNode(root.arguments[0]);
+    const elsewhere = rowCell !== undefined && t.isIdentifier(cell, { name: rowCell }) ? [] : [t.numericLiteral(1)];
     if (hydratable) {
       flushSkip();
       stepped = true;
       const flag = marker === undefined ? 3 : marker === null ? 2 : placeholder ? 1 : 0;
-      return t.callExpression(helper(state, '_$hfield'), [t.identifier(elId), cell, value, t.numericLiteral(flag), t.identifier(id)]);
+      return t.callExpression(helper(state, '_$hfield'), [t.identifier(elId), cell, value, t.numericLiteral(flag), t.identifier(id), ...elsewhere]);
     }
     const at = marker === undefined ? t.unaryExpression('void', t.numericLiteral(0))
       : marker === null ? t.nullLiteral()
         : markerVars.has(marker) ? t.identifier(markerVars.get(marker)) : buildChildAccess(elId, marker);
-    return t.callExpression(helper(state, '_$field'), [t.identifier(elId), cell, value, at, t.identifier(id)]);
+    return t.callExpression(helper(state, '_$field'), [t.identifier(elId), cell, value, at, t.identifier(id), ...elsewhere]);
   }
 
   for (const entry of entries) {
@@ -1173,7 +1231,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       stepped = true;
       statements.push(t.variableDeclaration('const', [t.variableDeclarator(t.identifier(childElRef), next)]));
       applyDynamicAttrs(statements, childElRef, childEl.attributes, state, childEl.name.name, entry.node._whatNs);
-      const flags = (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state) ? 1 : 0) | (writesContent(childEl.attributes) ? 2 : 0);
+      const flags = (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state, rowCell) ? 1 : 0) | (writesContent(childEl.attributes) ? 2 : 0);
       if (flags !== 0) next.arguments.push(t.numericLiteral(flags));
       continue;
     }
@@ -1196,7 +1254,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       }
       const childEl = entry.node.openingElement;
       applyDynamicAttrs(statements, childElRef, childEl.attributes, state, childEl.name.name, entry.node._whatNs);
-      applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state);
+      applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state, rowCell);
     }
   }
   if (stepped) statements.push(t.expressionStatement(t.callExpression(helper(state, '_$exit'), [])));
@@ -1785,6 +1843,9 @@ function transformForFineGrained(path, state) {
     const args = [sourceExpr, renderFn];
     if (keyExpr) {
       const options = [t.objectProperty(t.identifier('key'), keyExpr)];
+      // A keyed <For> row reads its item with a call (`item()`), so only a
+      // component in it can hold a plain field of the row.
+      if (rowHoldsPlainFields(renderFn)) options.push(rowFieldsOption(state));
       const slot = listSlot(node);
       if (slot !== null) options.push(t.objectProperty(t.identifier('slot'), slot));
       args.push(t.objectExpression(options));
@@ -2671,8 +2732,10 @@ const RENDER_IMPORTS = [
   ['_$hfield', '_$hfield'],
   ['_$plain', '_$plain'],
   ['_$hplain', '_$hplain'],
+  ['_$rowFields', '_$rowFields'],
   ['_$createSelector', 'createSelector'],
   ['_$spread', 'spread'],
+  ['_$controlled', '_$controlled'],
   ['_$setProp', 'setProp'],
   ['_$memo', '_$memo'],
   ['_$lazyMemo', '_$lazyMemo'],

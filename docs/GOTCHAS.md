@@ -325,6 +325,7 @@ Do not name or id a form control `getAttribute`, `addEventListener`, `removeAttr
 In development mode, the runtime reports common mistakes as coded diagnostics: a console line starting with `[what] ERR_…`, and the same event in `getDiagnostics()`, `captureDiagnostics()` in tests and the `what_errors` MCP tool. Among them:
 - A signal converted to a string or a number without the call (`ERR_MISSING_SIGNAL_READ`)
 - A plain value in a `useEffect` dependency array, `[count()]` instead of `[count]` (`ERR_EFFECT_DEP_NOT_FUNCTION`)
+- A function in that array that is not a signal or a computed, `[() => props.count]` (`ERR_EFFECT_DEP_NOT_SIGNAL`, gotcha 25)
 - An effect that keeps re-triggering itself (`ERR_INFINITE_EFFECT`)
 - A context with no default read with no provider above it (`ERR_CONTEXT_NOT_PROVIDED`)
 - `onCleanup()` with no component or reactive owner to attach to (`ERR_CLEANUP_WITHOUT_OWNER`)
@@ -370,3 +371,115 @@ Agent: what_set_signal { signalId: 3, value: 42 }
 Agent: what_events { after: 120, types: ["write", "run"] }
   -> { "events": ["#121 write count=42", "#122 run renderCount#4 (6) ← count#3"], ... }
 ```
+
+## React Habits That Behave Differently
+
+Code a React developer writes by habit, with the hooks that keep React's names. Each of these compiles and runs.
+
+### 22. `useEffect` Runs a Parent's Effect Before Its Child's
+
+React runs effects children first on mount, so a parent's effect can count on its children's effects having run. What runs `useEffect` and `onMount` callbacks in the order the components were built: the parent's first, then each child's. (Cleanups on unmount run children first, as in React.) The pattern this breaks is a child that registers with its parent in an effect:
+
+```jsx
+import { createContext, useContext, useEffect } from 'what-framework';
+
+const TabsContext = createContext(null);
+
+function TabList(props) {
+  const tabs = [];
+  // Runs before any Tab's effect: `tabs` is still empty here.
+  useEffect(() => { props.onReady(tabs); }, []);
+  return <TabsContext value={tabs}>{props.children}</TabsContext>;
+}
+
+function Tab(props) {
+  const tabs = useContext(TabsContext);
+  useEffect(() => { tabs.push(props.id); }, []);
+  return <button>{props.children}</button>;
+}
+```
+
+Register in the child's body instead. A component runs once, so its body is the place for one-time setup, and every body has run before the first effect does; `onCleanup` takes the registration back when the child goes:
+
+```jsx
+import { onCleanup, useContext } from 'what-framework';
+
+function Tab(props) {
+  const tabs = useContext(TabsContext);
+  tabs.push(props.id);
+  onCleanup(() => tabs.splice(tabs.indexOf(props.id), 1));
+  return <button>{props.children}</button>;
+}
+```
+
+When children can also arrive later (behind a `<Show>`, a list, a `lazy()` component), keep the registry in a signal, so the parent's effect runs again for each one:
+
+```jsx
+import { signal, useEffect } from 'what-framework';
+
+function TabList(props) {
+  const tabs = signal([]);
+  useEffect(() => { props.onReady(tabs()); });
+  return <TabsContext value={tabs}>{props.children}</TabsContext>;
+}
+// In Tab: const tabs = useContext(TabsContext); tabs.set((list) => [...list, props.id]);
+```
+
+### 23. A Field Whose `value` or `checked` Is Bound to State Is Controlled
+
+As in React, a field whose `value` or `checked` follows state shows the state. After each `input` or `change` event of such a field, once the handlers and the updates they caused are done, the field is put back to the bound value if it shows something else:
+
+```jsx
+import { signal } from 'what-framework';
+
+function NameFields() {
+  const name = signal('Ada');
+  return (
+    <form>
+      {/* The handler refuses digits: a digit the user typed is taken out again. */}
+      <input value={name()} onInput={(e) => { if (!/\d/.test(e.target.value)) name(e.target.value); }} />
+      {/* No handler: the user cannot change this field. */}
+      <input value={name()} />
+      {/* A starting value the user is free to change: a default, not a value. */}
+      <input defaultValue={name()} />
+    </form>
+  );
+}
+```
+
+- This covers `<input>`, `<textarea>`, checkboxes, radios (the whole group goes back when a click in it was refused) and `<select>`, `multiple` included.
+- "Bound to state" means the binding read a signal, a computed, a store or a live prop when it wrote the value: `value={name()}`, `value={props.name}` in a component handed `name={name()}`, a signal given as it is (`value={name}`), or any of those reaching the field through a spread in a wrapper (`<input {...props} />`).
+- A value that read no state is only where the field starts, and the user's edit stands: a constant (`value="draft"`), and what a spread reads once from a plain object. The forms kit's `{...register('title')}` is such a spread, so a registered field is the user's.
+- A field that already shows the value is not written, so the caret stays where it is. Nothing is written while an input method (IME) is composing; the field is checked when the composition ends.
+- Write the state in the handler itself. A write after an `await`, in a timer or in a `startTransition` comes after the field went back, and puts the caret at the end.
+- A number field is compared as a number (`1.0` is `1`), and is left alone while the browser reports what it holds as bad input (`1.` on the way to `1.5`).
+- `defaultValue` and `defaultChecked` with no `value` leave the field to the user.
+- This is what compiled JSX does. A field made with an `h()` call (or by the JSX runtime, with no compiler) is not put back: it keeps an edit its handler refused until the binding writes another value, as every field did in 0.14.
+
+### 24. A Context Provider Follows Its `value`, a Reader's Body Does Not
+
+`<Theme value={theme()}>` follows `theme`: compiled JSX passes the value as a live prop, and the provider hands each new value to its readers. Where the reader reads it still matters, as for any signal (gotcha 12):
+
+```jsx
+function Toolbar() {
+  const theme = useContext(Theme);            // read once: the component runs once
+  return <div class={useContext(Theme)}>…</div>;  // read where it renders: follows the provider
+}
+```
+
+An `h(Theme, { value: theme() })` call evaluates its argument once, as every `h()` argument is. Pass the signal (`value: theme`): `useContext` then returns the accessor, and the reader calls it.
+
+### 25. A Function in a `useEffect` Dependency Array Is Not Called
+
+A dependency array re-runs the effect for the signals and computeds in it. Any other function is left alone, because the array of a ported effect holds setters and callbacks (`[setCount]`, `[load]`, `[props.onClose]`), which must not be called to see what they read. So an arrow written as a getter never re-runs the effect:
+
+```jsx
+useEffect(() => save(props.count), [() => props.count]);   // runs once; ERR_EFFECT_DEP_NOT_SIGNAL
+
+const count = useMemo(() => props.count);                  // a computed is a signal
+useEffect(() => save(count()), [count]);
+
+useEffect(() => save(props.count));                        // or no array: tracks what it reads
+```
+
+Development reports `ERR_EFFECT_DEP_NOT_SIGNAL` for a function in the array that takes no argument; one that takes arguments cannot be a getter and is not reported. A callback can be left out of the array: a component runs once, so it never changes.

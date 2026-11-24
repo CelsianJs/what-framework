@@ -86,9 +86,15 @@
 //     uncontrolled again, so a reset restores its default. A field it
 //     controlled shows nothing (an empty value, unchecked, no option
 //     selected); a field it never controlled is left as it is.
-//   - A user edit stays until the binding writes a value other than the one
-//     it last wrote (React would put the controlled value back after the
-//     event: What never re-renders, so an edit stands until the next write).
+//   - After a user edit of a field whose value or checked compiled JSX binds
+//     to state (a signal or an accessor, as an attribute or through a spread),
+//     once the edit's events are over, the field shows what its prop holds
+//     again, as React puts a controlled value back after the event (what-core
+//     dom.js showControlled). Any other edit stands until the binding writes
+//     a value other than the one it last wrote: one of a field whose value
+//     reads no state (a static value is where the field starts), one made
+//     before hydration (which dispatches nothing afterwards), and every edit
+//     of a field made with h(), which is not put back.
 //   - An option's `selected` prop is its default selectedness, like
 //     `defaultSelected` (the HTML attribute). React does not support it.
 //   - A select's value names the options it selects as the client's
@@ -397,8 +403,9 @@ function writeAll(shape, state, value) {
   bound(shape, value).forEach((v, i) => write(shape, state, i, v));
 }
 
-function reset(shape, state) {
-  state.live = fromDefaults(shape, state.dflt);
+// What the props hold is what the field shows: each binding's value over
+// what `state` shows now.
+function showHeld(shape, state) {
   state.held.forEach((value, i) => {
     if (value === undefined) return;
     if (shape.control === 'radio') {
@@ -410,14 +417,23 @@ function reset(shape, state) {
   });
 }
 
+function reset(shape, state) {
+  state.live = fromDefaults(shape, state.dflt);
+  showHeld(shape, state);
+}
+
 /** The value the binding starts with: the static value, or the signal's. */
 const startValue = (shape) => (shape.binding === 'none' ? undefined : shape.initial);
 
 /**
  * The steps of `shape`'s script and the state the model expects after each:
  * [{ step, live, dflt, data }]. The first step is the mount or the hydration.
+ * `putBack`: the client path puts the field back after an edit (compiled JSX
+ * does for a value bound to state, h() does not). `early`: the script's first
+ * edit is made before hydration, which dispatches nothing for it, so it
+ * stands.
  */
-export function expectations(shape) {
+export function expectations(shape, putBack = true, early = false) {
   const dflt = declaredDefault(shape);
   const width = shape.control === 'radio' ? RADIOS.length : 1;
   const state = { live: fromDefaults(shape, dflt), dflt, held: Array(width).fill(undefined), last: Array(width).fill(undefined) };
@@ -433,9 +449,13 @@ export function expectations(shape) {
   if (shape.relabel) steps.splice(1, 0, 'relabel');
   // A signal write of the value it holds notifies no one.
   let current = startValue(shape);
+  let stands = early;
   for (const step of steps) {
-    if (step === 'edit') state.live = edited(shape, state.live);
-    else if (step === 'reset') reset(shape, state);
+    if (step === 'edit') {
+      state.live = edited(shape, state.live);
+      if (putBack && !stands) showHeld(shape, state);
+      stands = false;
+    } else if (step === 'reset') reset(shape, state);
     else if (step === 'relabel') { /* the state stays */ }
     else if (!Object.is(current, shape.writes[step[1]])) {
       current = shape.writes[step[1]];
@@ -559,7 +579,10 @@ export function hComponent(h, shape, env) {
     if (shape.control === 'multiple') props.multiple = true;
     return props;
   };
-  return function Field({ v, o, l }) {
+  // A field made with h() is not put back after an edit (expectations).
+  Field.keepsEdits = true;
+  return Field;
+  function Field({ v, o, l }) {
     const field = (r) => {
       const props = propsOf(r);
       for (const [key, kind, value] of fieldProps(shape, r)) {
@@ -583,7 +606,7 @@ export function hComponent(h, shape, env) {
       fields = [h('select', field(), ...opts)];
     }
     return h('form', null, ...fields);
-  };
+  }
 }
 
 // The JSX of one prop: `key={...}`, or inside a spread `key: ...`.
@@ -723,7 +746,7 @@ export const editsEarly = (shape) => shape.late === undefined;
  * the page loads, and the first state checked is the edited one.
  */
 export async function runClient(env, shape, Component, html, early = false) {
-  const expected = expectations(shape);
+  const expected = expectations(shape, Component.keepsEdits !== true && isDynamic(shape), early);
   const v = isDynamic(shape) ? env.signal(shape.initial) : undefined;
   const o = env.signal(shape.late === undefined);
   const l = env.signal(false);

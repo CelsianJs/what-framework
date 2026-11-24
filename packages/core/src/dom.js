@@ -3,7 +3,7 @@ import { report, setNextBinding } from './diagnostics.js';
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode } from './vnode-renderer.js';
@@ -668,9 +668,17 @@ function applyProps(el, newProps, oldProps, isSvg) {
 //     and `checked` (an <input>) control what the field shows. They are
 //     written as properties, which mark the field changed, so a default
 //     written later never moves what it shows; a write of the value it wrote
-//     last is skipped, which leaves what the user has done since. The value a
-//     prop holds is what a form reset keeps (_resetForm), any value as its
-//     string (`true` is "true", as React writes it), checked as a boolean.
+//     last is skipped, which leaves the caret where it is. The value a prop
+//     holds is what a form reset keeps (_resetForm), any value as its string
+//     (`true` is "true", as React writes it), checked as a boolean. A field
+//     whose value or checked compiled JSX binds to state shows the state:
+//     after each of its input and change events, once its handlers and the
+//     updates they caused are done, it shows what the prop holds again
+//     (showControlled), as React restores a controlled field whose handler
+//     did not take the edit. Any other field keeps the edit until the prop's
+//     next write: one whose value reads no state (a constant, a value a
+//     spread read once, as `{...register('name')}` gives), and one made with
+//     h().
 //   - Null or undefined releases a field the prop controlled: it shows
 //     nothing (an empty value, unchecked, no option selected), and a reset
 //     restores its default. A field it never controlled is left as it is.
@@ -732,6 +740,73 @@ export function _setFieldProp(el, key, value) {
     if (el._$value !== str) el.value = (el._$value = str) ?? '';
   }
   return true;
+}
+
+// --- A controlled field shows what controls it ---
+//
+// The window of a field a prop controls hears every input, change and
+// compositionend event, in both phases: nothing is added per field, and any
+// other field is passed over at once. The bubble phase comes after
+// every handler, the element's own and the delegated ones, and after the
+// updates their writes caused when the browser dispatched the event (it runs
+// microtasks after each listener); for an event a script dispatched those are
+// still queued, ahead of the microtask taken here. A handler that stops the
+// event keeps it from the bubble phase, so the capture phase, which nothing
+// below the window can stop, schedules the same check as a task. While an
+// input method composes, the field holds text the prop never will: it is
+// left alone until the composition ends.
+//
+// Reached only from the bindings compiled JSX makes for a field's value and
+// checked (render.js setValue, setChecked, and a spread on a field,
+// _$controlled), so a program with no such binding does not carry it. A
+// binding that read state marks its field (`_$kept`), and only a marked field
+// is put back: the edit of any other field stands until its prop's next
+// write, whatever else the page holds.
+
+/**
+ * @internal Called by a binding of `el`'s value or checked, in its run, with
+ * the value read: when the run read state, `el` shows what its props hold
+ * after each of its events.
+ */
+export function _controlFields(el) {
+  if (!_tracking()) return;
+  el._$kept = true;
+  // A field cloned from a template is in the template's document, which has
+  // no window, until it is placed: its events will reach this one's.
+  const win = el.ownerDocument.defaultView || (typeof window !== 'undefined' ? window : null);
+  if (win === null || win._$controlled) return;
+  win._$controlled = true;
+  for (const type of ['input', 'change', 'compositionend']) {
+    win.addEventListener(type, controlledChanged, true);
+    win.addEventListener(type, controlledChanged);
+  }
+}
+
+function controlledChanged(e) {
+  const el = e.composedPath()[0];
+  if (e.isComposing || el == null || !el._$kept) return;
+  if (e.eventPhase === 1) setTimeout(showControlled, 0, el);
+  else queueMicrotask(() => showControlled(el));
+}
+
+// Show what the props of `el` hold, where the field shows something else.
+// Nothing is written to a field that already shows it, so the caret stays.
+// A number field is compared as a number, and left alone while what it holds
+// is not one yet ("1." on the way to "1.5", which it reports as bad input).
+// A radio is checked or unchecked with the rest of its group: checking one
+// unchecked the one a prop keeps checked.
+function showControlled(el) {
+  const value = el._$value;
+  if (value !== undefined) {
+    if (el.localName === 'select') markOptions(el, value, 'selected');
+    else if (el.value !== value && (el.type !== 'number' || (!el.validity.badInput && +el.value !== +value))) el.value = value;
+  }
+  if (el._$checked === undefined) return;
+  const group = el.type !== 'radio' || !el.name ? [el]
+    : el.form ? _formMember(el.form, 'elements') : el.getRootNode().querySelectorAll('input[type=radio]');
+  for (const field of group) {
+    if (field._$kept && field._$checked !== undefined && field.type === el.type && field.name === el.name && field.checked !== field._$checked) field.checked = field._$checked;
+  }
 }
 
 export function _setSelectValue(el, value) {

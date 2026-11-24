@@ -3,11 +3,12 @@
 // Components run ONCE. Hooks return signal accessors (functions) so the
 // fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
+import { signal, computed, effect, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { getLoaderData as _getLoaderData, getResource as _getResource, getResourceError as _getResourceError, _seedFor, _errorFromRecord } from './hydration-data.js';
 import { computed as asyncComputed } from './async.js';
 import { _enableSuspense } from './render.js';
+import { _isLiveProp } from './dom.js';
 import { report } from './diagnostics.js';
 
 // --- useLoaderData ---
@@ -111,8 +112,9 @@ export function useComputed(fn) {
 // model, deps-based re-running only works if deps are signal accessors:
 // - No deps (undefined): re-runs whenever a signal it read changes
 // - Empty deps []: runs once on mount, cleanup on unmount
-// - Deps [a, b]: re-runs when a signal among the deps changes; what the
-//   callback reads is untracked
+// - Deps [a, b]: re-runs when a signal or computed among the deps changes;
+//   what the callback reads is untracked. Any other function in the array is
+//   not called (reportPlainDeps)
 // A returned function is the cleanup, run before each re-run and on unmount.
 // The effect belongs to the component: unmounting disposes it.
 
@@ -120,12 +122,21 @@ export function useComputed(fn) {
 // and never changes. Kept out of line: written inline after another statement,
 // esbuild folds `if (seq, false) { loop }` without dropping the loop, which
 // kept this report() call and the whole catalogue in production bundles.
+//
+// A function that is not a signal or a computed is not called for what it
+// reads: a deps array written by React habit holds setters and callbacks
+// (`[setCount]`, `[load]`, `[props.onClose]`), and calling those as getters
+// would write state or start work on every run. One that takes no argument
+// may have been meant as a getter (`[() => props.count]`), so it is reported:
+// the effect never re-runs for it. One that takes arguments cannot be a
+// getter, and listing it is harmless (a component runs once, so a callback
+// never changes).
 function reportPlainDeps(deps) {
   for (let i = 0; i < deps.length; i++) {
     const dep = deps[i];
-    if (dep != null && typeof dep !== 'function') {
-      report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i } });
-    }
+    if (dep == null) continue;
+    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i } });
+    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i } });
   }
 }
 
@@ -263,15 +274,28 @@ export function useContext(context) {
 // Context values are wrapped in signals so consumers re-render when values change.
 // The context is its own provider, as in React 19 and Solid 2: <Ctx value={v}>
 // and <Ctx.Provider value={v}> render the same component.
+//
+// A provider follows its `value` prop as any component follows a prop:
+// compiled JSX hands `value={theme()}` over as a live prop (a getter, dom.js
+// _isLiveProp), which an effect of the provider reads, so the readers below
+// see each new value. The value is read once per change, not once per reader,
+// so `value={{ user: user(), setUser }}` is one object for all of them until
+// `user` changes. A value that is not live (a signal handed over as it is,
+// `value={theme}`; a constant; an h() call's argument) is stored as it is and
+// costs no effect.
 
 export function createContext(defaultValue) {
-  function context({ value, children }) {
+  function context(props) {
     const ctx = getCtx('Context.Provider');
     const values = ctx.context || (ctx.context = new Map());
     const current = values.get(context);
-    if (current === undefined) values.set(context, signal(value));
-    else current.set(value);
-    return children;
+    if (current !== undefined) current.set(props.value);
+    else {
+      const held = signal(props.value);
+      values.set(context, held);
+      if (_isLiveProp(props, 'value')) effect(() => held.set(props.value), __DEV__ ? { name: 'context value' } : undefined);
+    }
+    return props.children;
   }
   context._defaultValue = defaultValue;
   context._hasDefault = arguments.length > 0;

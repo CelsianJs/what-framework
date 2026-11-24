@@ -56,6 +56,11 @@ function Toolbar() {
 }
 ```
 
+A provider follows its value as in React: `<ThemeContext value={theme()}>`
+hands its readers each new theme. A reader's body runs once, so read the
+context where it renders (`<div class={useContext(ThemeContext)}>`) rather
+than into a variable first ([GOTCHAS 24](GOTCHAS.md#24-a-context-provider-follows-its-value-a-readers-body-does-not)).
+
 A context created without a default (`createContext()`) says its value must
 come from a provider: in development, reading it with no provider above reports
 `ERR_CONTEXT_NOT_PROVIDED` instead of silently returning `undefined`.
@@ -107,6 +112,20 @@ function Button() {
   };
 
   return <button onClick={handleClick}>Click me</button>;
+}
+```
+
+Controlled fields work as in React: a field whose `value` (or `checked`) is
+bound to state shows the state, so an edit the handler does not write back is
+undone, and such a field with no handler cannot be changed. Use `defaultValue`
+for a field the user owns. A value that reads no state (a constant, the
+forms kit's `{...register('name')}`) is only where the field starts
+([GOTCHAS 23](GOTCHAS.md#23-a-field-whose-value-or-checked-is-bound-to-state-is-controlled)).
+
+```jsx
+function Name() {
+  const [name, setName] = useState('');
+  return <input value={name()} onChange={(e) => setName(e.target.value)} />;
 }
 ```
 
@@ -332,6 +351,34 @@ useEffect(() => {
 ```
 
 A value in the array (`[count()]`) is read once and never changes, so the effect never re-runs: development reports `ERR_EFFECT_DEP_NOT_FUNCTION`, and eslint-plugin-what's `no-signal-read-in-effect-deps` flags it.
+
+Only signals and computeds in the array are read. Any other function is never called, because a ported array holds setters and callbacks (`[setCount]`, `[load]`): an arrow written as a getter, `[() => props.count]`, does not re-run the effect, and development reports `ERR_EFFECT_DEP_NOT_SIGNAL`. List a computed (`useMemo(() => props.count)`) or drop the array. Callbacks can be left out: a component runs once, so they never change.
+
+**Effects run parent first.** React runs a child's effect before its parent's on mount. What runs `useEffect` and `onMount` callbacks in the order the components were built: the parent's, then each child's (cleanups on unmount run children first, as in React). A child that registers with its parent in an effect therefore registers after the parent's effect ran:
+
+```jsx
+function TabList(props) {
+  const tabs = [];
+  useEffect(() => { props.onReady(tabs); }, []);   // runs first: tabs is empty
+  return <TabsContext value={tabs}>{props.children}</TabsContext>;
+}
+function Tab(props) {
+  const tabs = useContext(TabsContext);
+  useEffect(() => { tabs.push(props.id); }, []);   // runs after TabList's effect
+  return <button>{props.children}</button>;
+}
+```
+
+Register in the child's body, which runs once and before every effect, and take the registration back with `onCleanup`; or keep the registry in a signal the parent's effect reads ([GOTCHAS 22](GOTCHAS.md#22-useeffect-runs-a-parents-effect-before-its-childs)):
+
+```jsx
+function Tab(props) {
+  const tabs = useContext(TabsContext);
+  tabs.push(props.id);
+  onCleanup(() => tabs.splice(tabs.indexOf(props.id), 1));
+  return <button>{props.children}</button>;
+}
+```
 
 ### Conditional Rendering
 
@@ -567,7 +614,7 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 ## Migration Checklist
 
 1. Keep `useState` and `useReducer` destructuring: `const [val, setVal]` --> `val` is now an accessor, call `val()` to read
-2. `useEffect`: drop the dependency array and let the effect re-run on the signals it reads, or keep one that lists accessors (`[count]`, never `[count()]`, which reports `ERR_EFFECT_DEP_NOT_FUNCTION`); `[]` still runs once after mount
+2. `useEffect`: drop the dependency array and let the effect re-run on the signals it reads, or keep one that lists accessors (`[count]`, never `[count()]`, which reports `ERR_EFFECT_DEP_NOT_FUNCTION`, and never a getter arrow, which reports `ERR_EFFECT_DEP_NOT_SIGNAL`); `[]` still runs once after mount. A parent's effect runs before its children's: move a child's registration with its parent from an effect to the child's body
 3. `useMemo` and `useCallback` ignore their dependency arrays: delete them. `useMemo` returns an accessor, so read `total()`
 4. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 5. Call accessors where they render (`{count()}`, `class={active() ? 'on' : ''}`); the compiler makes those reactive. Write `() =>` yourself only when the read hides inside a call whose arguments call nothing

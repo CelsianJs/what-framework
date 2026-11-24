@@ -743,7 +743,9 @@ export function signal(initial, debugName) {
  * row took the item as a value (`taken`): replacing its item cannot reach what
  * it built. A read of one field (`key`: the compiler's `row.name`, a live()
  * view's property) records that field only (`keys`): a replacement that
- * leaves every recorded field as it was keeps the row.
+ * leaves every recorded field as it was keeps the row. `building` is true
+ * from the cell's creation, the row's scope once that exists
+ * (_createItemScope), and false when the row is built.
  * @param {any} item
  */
 export function _rowItem(item) {
@@ -798,9 +800,9 @@ function sameKeys(keys, prev, next) {
  * returns true instead when the row took its item as a value, or a field of it
  * the new item holds another value in, and has to be built again. `fields` holds the row's plain-field bindings (render.js
  * _$field, _$plain), four entries each (node, read, write, owner):
- * `write(fields, i, item)` shows the new item's value in the field at `i`
- * here, directly; a write that cannot show it (it returns false) also has the
- * row built again.
+ * `write(fields, i, item, node)` shows the new item's value in the field at
+ * `i` here, directly; a write that cannot show it (it returns false) also has
+ * the row built again.
  */
 export function _setRowItem(node, item, rebuildTaken) {
   const prev = node.value;
@@ -810,11 +812,60 @@ export function _setRowItem(node, item, rebuildTaken) {
   const fields = node.fields;
   if (fields !== null) {
     for (let i = 0; i < fields.length; i += 4) {
-      if (!fields[i + 2](fields, i, item) && rebuildTaken) return true;
+      if (!fields[i + 2](fields, i, item, node) && rebuildTaken) return true;
     }
   }
   notify(node, node, prev);
   return false;
+}
+
+/**
+ * @internal Whether what is created under `owner` (what ownerNow gives, as
+ * _effectWhenNeeded hands it on) lives exactly as long as the row that `cell`
+ * holds the item of: the row is being built, and `owner` is its scope, or a
+ * component with only components between it and that scope. A component is
+ * disposed by its owner alone, unless it suspends while it is built (render.js
+ * dropFailedFields lets go of what one bound), so nothing created there goes
+ * before the row does; anything else between them (the run of an effect, a
+ * boundary's arm, another list's row) can.
+ */
+export function _livesWithRow(cell, owner) {
+  const scope = cell.building;
+  for (let o = owner; o !== scope; o = o.owner) {
+    if (o == null || o.Component === undefined) return false;
+  }
+  return true;
+}
+
+// What _readAlone tracks a read with: one node for every read, and disposed,
+// so nothing is created under it and no write reaches it.
+/** @type {any} */
+const probe = { flags: DISPOSED, depHead: null, depTail: null };
+
+/**
+ * @internal `read()`, for a field of the row whose item `cell` holds
+ * (render.js writePlain), creating nothing: its value when it read nothing
+ * reactive but that item, else `_readAlone` itself, the value dropped. The
+ * item is read as the code building a row reads it, recording nothing; what
+ * else it read is let go of before this returns. A read that throws throws
+ * here.
+ */
+export function _readAlone(read, cell) {
+  const prevSub = activeSub;
+  const { builder, building, taken } = cell;
+  cell.builder = activeSub = probe;
+  cell.building = cell.taken = true;
+  ++cycle;
+  try {
+    const value = read();
+    return probe.depHead === null ? value : _readAlone;
+  } finally {
+    activeSub = prevSub;
+    cell.builder = builder;
+    cell.building = building;
+    cell.taken = taken;
+    unlinkAllDeps(probe);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3245,10 +3296,15 @@ export function createRoot(fn) {
 // Lightweight scope for list items: not registered with the parent owner (the
 // list reconciler disposes it explicitly, and a row outlives the run of the
 // list's effect that built it) and it does not untrack. It still points at its
-// parent, so errors from a row's effects reach the parent's handlers.
-export function _createItemScope(fn) {
+// parent, so errors from a row's effects reach the parent's handlers. `cell`
+// is the row's item (_rowItem), when it has one.
+export function _createItemScope(fn, cell) {
   const parent = ownerNow();
-  return runOwned(__DEV__ ? devRow(createOwner(parent, 0)) : createOwner(parent, 0), parent, fn);
+  const scope = __DEV__ ? devRow(createOwner(parent, 0)) : createOwner(parent, 0);
+  // What the row builds can tell that it lives as long as the row does
+  // (_livesWithRow).
+  if (cell !== undefined) cell.building = scope;
+  return runOwned(scope, parent, fn);
 }
 
 function devRow(row) {
@@ -3361,6 +3417,14 @@ export function _enterOwner(owner) {
 export function _exitOwner(saved) {
   currentOwner = saved.owner;
   ownerRun = saved.run;
+}
+
+/**
+ * @internal Whether the run that tracks reads now has read anything: what it
+ * writes then follows state (dom.js _controlFields).
+ */
+export function _tracking() {
+  return activeSub !== null && activeSub.depHead !== null;
 }
 
 /** True once `owner` (an owner record, effect or computed) is disposed. */

@@ -527,7 +527,7 @@ function Profile() {
     code: 'ERR_EFFECT_DEP_NOT_FUNCTION',
     severity: 'warning',
     template: 'useEffect dependency at index {{index}} is a plain value, so the effect cannot re-run when it changes.',
-    suggestion: 'What tracks dependencies by calling them. A value in the deps array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal or a getter itself, not its current value. Omitting the array tracks whatever the effect reads.',
+    suggestion: 'A dependency array lists signals and computeds, which the effect reads to track them. A value in the array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal itself, not its current value; for a prop or any other expression, a computed over it (useMemo(() => props.count)). Omitting the array tracks whatever the effect reads.',
     codeExample: `const [count, setCount] = useState(0);
 
 // Bad - count() is read once, the array holds a number:
@@ -538,6 +538,23 @@ useEffect(() => save(count()), [count]);
 
 // Good - or let the effect track what it reads:
 useEffect(() => save(count()));`,
+  },
+
+  EFFECT_DEP_NOT_SIGNAL: {
+    code: 'ERR_EFFECT_DEP_NOT_SIGNAL',
+    severity: 'warning',
+    // Short: the agents' index (skills/what-diagnostics) has a size limit.
+    template: 'useEffect dependency {{index}} is a function, never read.',
+    suggestion: 'A function in a dependency array that is not a signal or a computed is never called, so the effect cannot re-run for what it reads. A dependency array re-runs the effect for the signals and computeds in it. Any other function is left alone: a deps array often holds setters and callbacks ([setCount], [load], [props.onClose]), and calling one to see what it reads would write state or start work on every run. If this one is a getter, list a computed over the same expression (useMemo(() => props.count)), or omit the array so the effect tracks what its callback reads. If it is a callback, leave it out: a component runs once, so a callback never changes. A function that takes arguments is never reported.',
+    codeExample: `// Bad - the arrow is never called, so the effect runs once:
+useEffect(() => save(props.count), [() => props.count]);
+
+// Good - a computed is a signal:
+const count = useMemo(() => props.count);
+useEffect(() => save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() => save(props.count));`,
   },
 
   CONTEXT_NOT_PROVIDED: {

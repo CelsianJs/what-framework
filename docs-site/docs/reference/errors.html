@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 73 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 74 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 73 of them: 43 errors and 30 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 74 of them: 43 errors and 31 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -89,6 +89,7 @@
             <li><a href="#ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</a></li>
             <li><a href="#ERR_DUPLICATE_KEY">ERR_DUPLICATE_KEY</a></li>
             <li><a href="#ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</a></li>
+            <li><a href="#ERR_EFFECT_DEP_NOT_SIGNAL">ERR_EFFECT_DEP_NOT_SIGNAL</a></li>
             <li><a href="#ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</a></li>
             <li><a href="#ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</a></li>
             <li><a href="#ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</a></li>
@@ -369,7 +370,7 @@ export const store = action(fn, { id: 'store-user' });</code></pre>
           <h2 id="ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</h2>
           <p class="subtitle">useEffect dependency at index index is a plain value, so the effect cannot re-run when it changes.</p>
           <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
-          <p>What tracks dependencies by calling them. A value in the deps array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal or a getter itself, not its current value. Omitting the array tracks whatever the effect reads.</p>
+          <p>A dependency array lists signals and computeds, which the effect reads to track them. A value in the array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal itself, not its current value; for a prop or any other expression, a computed over it (useMemo(() =&gt; props.count)). Omitting the array tracks whatever the effect reads.</p>
 <pre><code>const [count, setCount] = useState(0);
 
 // Bad - count() is read once, the array holds a number:
@@ -380,6 +381,20 @@ useEffect(() =&gt; save(count()), [count]);
 
 // Good - or let the effect track what it reads:
 useEffect(() =&gt; save(count()));</code></pre>
+
+          <h2 id="ERR_EFFECT_DEP_NOT_SIGNAL">ERR_EFFECT_DEP_NOT_SIGNAL</h2>
+          <p class="subtitle">useEffect dependency index is a function, never read.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A function in a dependency array that is not a signal or a computed is never called, so the effect cannot re-run for what it reads. A dependency array re-runs the effect for the signals and computeds in it. Any other function is left alone: a deps array often holds setters and callbacks ([setCount], [load], [props.onClose]), and calling one to see what it reads would write state or start work on every run. If this one is a getter, list a computed over the same expression (useMemo(() =&gt; props.count)), or omit the array so the effect tracks what its callback reads. If it is a callback, leave it out: a component runs once, so a callback never changes. A function that takes arguments is never reported.</p>
+<pre><code>// Bad - the arrow is never called, so the effect runs once:
+useEffect(() =&gt; save(props.count), [() =&gt; props.count]);
+
+// Good - a computed is a signal:
+const count = useMemo(() =&gt; props.count);
+useEffect(() =&gt; save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() =&gt; save(props.count));</code></pre>
 
           <h2 id="ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</h2>
           <p class="subtitle">An async value was made by a second copy of what-core during a server render.</p>

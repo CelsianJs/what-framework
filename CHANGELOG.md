@@ -92,6 +92,32 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   *Migration:* an effect that reads DOM a binding writes uses
   `{ phase: 'user' }`. A value another effect computes belongs in a signal or
   a `computed()`.
+- **A field whose `value` or `checked` is bound to state shows the state.**
+  After each `input` or `change` event of an `<input>`, `<textarea>` or
+  `<select>` whose `value` or `checked` compiled JSX binds to state
+  (`value={name()}`, a live prop, a signal given as it is, or one of those
+  through a spread in a wrapper), once its handlers and the updates they
+  caused are done, the field is put back to the bound value where it shows
+  something else: an edit the handler did not write to the state is undone, a
+  radio group goes back as a whole, a `<select multiple>` selects what its
+  array names, and such a field with no handler cannot be changed, as in
+  React. 0.14 left the edit in the field. A field that already shows the
+  value is not written (the caret stays), nothing is written while an input
+  method composes, and a field with `defaultValue` or `defaultChecked` and no
+  `value` is left to the user. A value that reads no state is still only
+  where the field starts: a constant, what a spread reads once (the forms
+  kit's `{...register('title')}`), and any field made with `h()`. Nothing is
+  added per field: the window hears the events once a binding controls one,
+  and an app with no compiled field binding does not carry the code.
+  *Migration:* a field bound to state only to start with something in it
+  takes `defaultValue`; a handler writes the state itself, not after an
+  `await` or in a timer.
+- **A context provider follows its `value`.** `<Theme value={theme()}>` in
+  compiled JSX hands the readers each new value (0.14 read it once), and an
+  object written there is one object for every reader until what it read
+  changes. A value that cannot change costs no effect. *Migration:* none for
+  `value={theme}` with readers that call the accessor; an `h()` call still
+  evaluates its argument once.
 - **`batch()` returns the callback's value.** A batch that ends inside an
   effect's run or a computed's evaluation leaves its effects to the flush
   already running. *Migration:* read the signals you wrote, rather than
@@ -224,6 +250,16 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **what-react:** `cloneElement(nonElement)` returns its argument, and
   `isValidElement` accepts only real elements. *Migration:* pass a real
   element, or call `createElement(obj.type, obj.props)` on purpose.
+- **what-react:** a host element's `props` keep `className` and `htmlFor`
+  (they were renamed to `class` and `for`), `Fragment` is React's symbol
+  (it was what-core's function), a controlled field whose `value` or
+  `checked` becomes `null` or `undefined` keeps what it shows (it was
+  emptied), a reducer or updater that throws does so while its component
+  renders (it threw from `dispatch`), passive cleanups of a removed
+  component run after the commit's layout effects, and unmount cleanups run
+  parents first. *Migration:* read `element.props.className`; compare a
+  fragment's type with `Fragment` from `react`; clear a controlled field
+  with `''`; catch a reducer's error in an error boundary.
 - **JSX passed in any prop is built where the component places it**, inside
   the component's run, as `children` are: its components run after the
   receiving component's body, are owned by it and see its context, and while
@@ -715,12 +751,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 72 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 74 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
-  `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT` and
-  `ERR_QUERY_OUTSIDE_RENDER`. The production build's catalogue keeps each
+  `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT`,
+  `ERR_QUERY_OUTSIDE_RENDER` and `ERR_EFFECT_DEP_NOT_SIGNAL` (a function in a
+  `useEffect` dependency array that is not a signal or a computed, such as
+  `[() => props.count]`: it is never called, so the effect ran once, and
+  until now nothing said so). The production build's catalogue keeps each
   code's severity and message and leaves the fix and example to `what_fix` and
   docs/ERRORS.md (5.3 KB gzip instead of 22.1 KB).
 - **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
@@ -789,6 +828,32 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (jsdom) no longer logs "Not implemented: window.scrollTo" on navigation.
 - **what-react writes `tabIndex` on SVG elements as `tabindex`**, the attribute
   that makes them focusable (recharts' chart surface).
+- **what-react matches React in the places a second review found it did
+  not** (the same components run on real React 19.3 and 18.3;
+  `REACT-COMPAT.md`, "What the second review found"). State updates are
+  queued and applied by the render, so a reducer or an updater that throws
+  reaches the error boundary. A controlled field is put back when its event's
+  dispatch ends, a `<select multiple>` follows its array value, a refused
+  click in a radio group leaves the group as its props say, and a field that
+  stops being controlled keeps what it shows. An uncontrolled `<select>`
+  starts on its first option or its `defaultValue` (it showed its last
+  option). `onChange` fires only when the value changed, and on a form above
+  a text field per keystroke. A commit runs every cleanup of a phase before
+  its effects, insertion effects before refs and layout effects, and an
+  unmount cleans up parents first with refs still set. Host elements keep
+  `className` and `htmlFor` in their props (a Radix `Slot` lost the child's
+  classes). `defaultProps` of function components apply (Radix Dialog did
+  not lock the page's scroll). `Children.toArray` and `map` give React's
+  keys. `Fragment`, `Context.Provider`, `Context.Consumer` and `forwardRef`
+  have the shapes `react-is` 18 checks. Each React event type gets its own
+  synthetic event, with `currentTarget` null outside a handler. A form
+  action runs when `onSubmit` only stops propagation. `componentDidCatch`
+  gets a component stack, `useDeferredValue` its initial value,
+  `getSnapshotBeforeUpdate` runs after `render()`, and an effect whose deps
+  changed in a render that suspended runs when the component is back. In
+  mixed mode a hook called on a namespace import (`rhf.useForm()`) makes its
+  file a React file, and a native component is handed several React children
+  as an array it can count and index.
 - **what-react follows React where popular packages depend on it** (found by
   the package matrix; `REACT-COMPAT.md` lists each cause). Children are
   matched by key or by index inside their own list, so an input no longer
@@ -1091,7 +1156,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   the row being built: the same 1,000 rows, showing two fields and one
   reactive class, keep 1,000 effects where they kept 3,000. The compiler
   places such a child with `_$plain`; a value that is not text, or that comes
-  to depend on a signal, is the effect it always was.
+  to depend on a signal, is the effect it always was. A field is the row's
+  only while what built it lives exactly as long as the row (the row's own
+  template, or a component with only components between it and the row):
+  text in a region of the row that runs again, in a row of an inner list or
+  in a component behind `<Show>` is an effect, so nothing of it is held or
+  written once it is gone, and the same rule now applies to an inline row's
+  `{row.label}`. Replacing a row's item creates nothing: 100 of 1,000
+  component rows replaced make and dispose no effect. The compiler writes
+  `fields: _$rowFields()` in the options of a list whose rows can hold such a
+  field, which is what brings the code in: an app with no such list does not
+  carry it.
 - The compiled create-what counter is smaller than 0.14's: compiled output
   no longer carries the vnode reconciler, and an app with no computed leaves
   out the engine's pull phase. Apps written with `h()`, and apps that use

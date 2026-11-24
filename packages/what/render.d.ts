@@ -10,6 +10,8 @@ export {
   _$hfield,
   _$plain,
   _$hplain,
+  _$rowFields,
+  _$controlled,
   createSelector,
   spread,
   setProp,

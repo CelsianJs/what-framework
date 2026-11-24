@@ -71,8 +71,8 @@ export function setClassList(
 export function applyRef<T>(ref: T, el: Element): T | Element;
 export function setStyle(el: Element, value: string | object | null | undefined | (() => any)): void;
 export function setAttr(el: Element, name: string, value: any): void;
-export function setValue(el: Element, value: any): void;
-export function setChecked(el: Element, value: any): void;
+export function setValue(el: Element, value: any, bound?: 1): void;
+export function setChecked(el: Element, value: any, bound?: 1): void;
 
 /** O(1) keyed selection; see createSelector in the package index. */
 export function createSelector<T>(source: () => T): (key: T) => boolean;
@@ -176,6 +176,10 @@ export function _$hfield(parent: Node, cell: unknown, value: unknown, flag: numb
 export function _$plain(parent: Node, read: () => unknown, marker?: Node | null, devName?: string): void;
 /** @internal `_$plain` for hydratable output (`flag` as `_$hole`'s). */
 export function _$hplain(parent: Node, read: () => unknown, flag: number, devName?: string): void;
+/** @internal Compiler output: `el`, a form field whose props a spread sets; a field a `value` or `checked` among them binds to state shows it again after each of its events. */
+export function _$controlled<T extends Element>(el: T): T;
+/** @internal Compiler output, as the value of an option of a keyed list whose rows can hold a plain child that is a field of the row: installs the code that binds one. Returns true. */
+export function _$rowFields(): true;
 export function _$htemplate(html: string, flag?: number): (() => Node) & { root(): Node };
 export function _$claim(template: (() => Node) & { root(): Node }, flags?: number): any;
 export function _$next(skip: number, flags?: number): any;

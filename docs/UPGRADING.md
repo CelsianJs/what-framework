@@ -296,6 +296,41 @@ are the differences from 0.14.
 - A context is its own provider, as in React 19: `<Theme value="dark">` and
   `<Theme.Provider value="dark">` render the same component, so 0.14 code
   keeps working.
+- **A provider follows its `value`.** `<Theme value={theme()}>` in compiled
+  JSX hands the readers each new value, as any other prop written this way
+  stays live; the value is read once per change, so an object written there
+  (`value={{ user: user(), setUser }}`) is one object for every reader until
+  `user` changes. 0.14 read `value` once. A reader's `useContext(Theme)` in
+  its body is still a read in a component that runs once: read it where it
+  renders (`{useContext(Theme)}`), or pass the signal (`value={theme}`) and
+  call it. An `h(Theme, { value: theme() })` call evaluates its argument
+  once, as every `h()` argument is: pass the signal there.
+- **A field whose `value` or `checked` is bound to state shows the state.**
+  After each `input` or `change` event of an `<input>`, `<textarea>` or
+  `<select>` whose `value` (or `checked`) compiled JSX binds to state
+  (`value={name()}`, a live prop, a signal given as it is, or one of those
+  through a spread in a wrapper component), once the handlers and the
+  updates they caused are done, the field shows the bound value again: an
+  edit the handler did not write back to the state is undone, a radio group
+  goes back as a whole, and such a field with no handler cannot be changed by
+  the user, as in React. 0.14 left the edit in the field, which then
+  disagreed with the state. A field that already shows the value is not
+  written, so the caret stays; nothing is written while an input method
+  composes; a field with `defaultValue` or `defaultChecked` and no `value` is
+  the user's. A value that reads no state is still only where the field
+  starts: a constant (`value="draft"`), what a spread reads once from a
+  plain object (the forms kit's `{...register('title')}`), and every field
+  made with `h()`. This affects a field bound to state only to start with
+  something in it: write `defaultValue`. Write the state in the handler
+  itself, not after an `await` or in a timer, or the field goes back first.
+- **A function in a `useEffect` dependency array that is not a signal is
+  reported.** A dependency array re-runs the effect for the signals and
+  computeds in it. Any other function was, and is, never called (the array
+  of a ported effect holds setters and callbacks), so an arrow written as a
+  getter, `[() => props.count]`, never re-ran the effect, silently:
+  development now reports `ERR_EFFECT_DEP_NOT_SIGNAL` for a function that
+  takes no argument. List a computed (`useMemo(() => props.count)`), or omit
+  the array.
 - Reading a context created with `createContext()` (no default) with no
   provider above the reader reports `ERR_CONTEXT_NOT_PROVIDED` in development.
   Production still returns `undefined`. Give the context a default, or render
@@ -492,6 +527,16 @@ and navigations that are transitions. Each change below has its migration.
   and one that threw or suspended keep the comments. A test or a script that
   looks for the comments around a compiled component, or counts the nodes
   beside it, queries the element instead.
+- **One DOM element returned by two components is in one place.** A
+  component that returns an element it did not build (a node kept in a
+  variable, `props.node`) hands back that same node, and a node has one
+  place: when two reactive children of the same parent each show a component
+  that returns it, it moves to the second, and the first child's next content
+  is put where the node went, not where it was. The comments 0.14 put around
+  each component kept the two places apart; the element itself placed bare
+  (`{cond() ? node : null}`, twice) has always moved this way. Return an
+  element the component builds, or a copy (`node.cloneNode(true)`), when it
+  can be shown in more than one place.
 - **A keyed `.map()` row follows an item replaced under its key.** A row is
   kept, with its DOM, for as long as its key is in the list; when an immutable
   update or a refetch hands it a new object with the same key, compiled rows
@@ -946,6 +991,15 @@ Beyond that:
   `cloneElement` returns anything else unchanged, so JSON shaped like an
   element no longer becomes one. Pass a real element, or call
   `createElement(obj.type, obj.props)` on purpose.
+  A host element's `props` keep `className` and `htmlFor` (they were renamed
+  to `class` and `for`): read `element.props.className`. `Fragment` is
+  React's symbol, not what-core's function: compare a fragment element's
+  type with `Fragment` from `react`. A controlled field whose `value` or
+  `checked` becomes `null` or `undefined` keeps what it shows, as in React:
+  clear it with `''` or `false`. A reducer or a `useState` updater that
+  throws does so while its component renders, where an error boundary
+  catches it, not from the `dispatch` call. Cleanups of a removed subtree
+  run parents first, the passive ones after the commit's layout effects.
 
 ## MCP tools
 
