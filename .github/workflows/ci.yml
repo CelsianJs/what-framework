@@ -185,9 +185,12 @@ jobs:
       - name: React package matrix (--serve=${{ matrix.serve }})
         env:
           WHAT_REQUIRE_MATRIX: '1'
+          # Passed through the environment: a run script never has an
+          # expression substituted into it (workflow-inputs.test.js).
+          MATRIX_SERVE: ${{ matrix.serve }}
         run: |
           mkdir -p artifacts
-          node packages/react-compat/test/matrix-browser.mjs --serve=${{ matrix.serve }} --retries=1 --json=artifacts/react-matrix-${{ matrix.serve }}.json
+          node packages/react-compat/test/matrix-browser.mjs "--serve=$MATRIX_SERVE" --retries=1 "--json=artifacts/react-matrix-$MATRIX_SERVE.json"
 
       - name: Upload results
         if: always()
