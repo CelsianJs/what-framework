@@ -144,12 +144,12 @@ function Button(props: ButtonProps) {
 }
 ```
 
-Components run once and receive their props as the plain values the parent
-passed, so reading `props.label` and destructuring `{ label }` give the same
-thing. A prop that changes is typed and passed as an accessor
-(`variant={variant}`, not `variant={variant()}`), and the component calls it
-where it renders (`props.variant()`); `label` above is a value and never
-changes.
+Components run once. A prop whose value reads a signal (`label={name()}`) is
+passed live, as a getter, so its type is the value's type (`label: string`)
+and `props.label`, or a destructured `{ label }`, shows the current value
+where it renders. A prop can also be typed and passed as an accessor
+(`variant={variant}`), which the component calls where it renders
+(`props.variant()`).
 
 ### Typed Context
 

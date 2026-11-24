@@ -160,6 +160,27 @@ onMount(async () => {
 });`,
   },
 
+  REBUILT_COMPONENT: {
+    code: 'ERR_REBUILT_COMPONENT',
+    severity: 'warning',
+    template: 'A reactive region rebuilt <{{component}}> when it ran again, and the state <{{component}}> held is gone: "{{region}}" builds everything it returns anew on every run.',
+    suggestion: 'Write the branches as a JSX ternary or <Show> (<Switch>/<Match> for more than two), and read the changing value where the component takes it: `<Panel data={query.data()} />`, with a computed() for a derived value. The compiler then builds <Panel> once and updates its props in place. A block function child (`{() => { const d = q(); if (!d) return ...; return <Panel data={d} />; }}`) runs again whenever anything it read changes, and rebuilds what it returns.',
+    codeExample: `// Bad — the region runs again on every refetch and rebuilds <Chart>:
+<div>{() => {
+  if (query.isLoading()) return <Spinner />;
+  const counts = countByKind(query.data());
+  return <Chart counts={counts} />;
+}}</div>
+
+// Good — <Chart> is built once; its counts follow the data:
+const counts = computed(() => countByKind(query.data()));
+<div>
+  <Show when={!query.isLoading()} fallback={<Spinner />}>
+    <Chart counts={counts()} />
+  </Show>
+</div>`,
+  },
+
   ASYNC_EFFECT: {
     code: 'ERR_ASYNC_EFFECT',
     severity: 'warning',

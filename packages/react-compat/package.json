@@ -20,6 +20,11 @@
       "import": "./src/dom.js",
       "default": "./src/dom.js"
     },
+    "./mixed": {
+      "types": "./mixed.d.ts",
+      "import": "./src/mixed.js",
+      "default": "./src/mixed.js"
+    },
     "./jsx-runtime": {
       "types": "./jsx-runtime.d.ts",
       "import": "./src/jsx-runtime.js",
@@ -42,7 +47,9 @@
     "dom.d.ts",
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
-    "vite.d.ts"
+    "vite.d.ts",
+    "mixed.d.ts",
+    "MIXED.md"
   ],
   "keywords": [
     "react",
@@ -53,7 +60,8 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.14.0"
+    "what-core": "^0.14.0",
+    "@babel/core": "^7.23.0"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
@@ -67,5 +75,10 @@
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
-  "homepage": "https://react.whatfw.com"
+  "homepage": "https://react.whatfw.com",
+  "peerDependenciesMeta": {
+    "@babel/core": {
+      "optional": true
+    }
+  }
 }

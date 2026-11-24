@@ -40,8 +40,8 @@ import { t } from './types.js';
 import {
   addImports, checkElementName, checkStaticAttribute, checkStaticRawText, compileError,
   componentCallee, createEventHandler, getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers,
-  hasLiteralMatchArms, helper, helperLocals, isBindingAttribute, isComponentElement, isEventAttrName,
-  isForeignTag, normalizeJsxText, parseEventModifiers, propKey, readSwitch, uniqueName, unsafeMarkup,
+  controlFlowTag, helper, helperLocals, isBindingAttribute, isComponentElement, isEventAttrName,
+  isSlotAttribute, normalizeJsxText, parseEventModifiers, propKey, readSwitch, uniqueName, unsafeMarkup,
   checkIslandProp, directiveValue, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
@@ -156,17 +156,14 @@ export function transformSsrRoot(path, state) {
 // fragment, a reactive child for control flow.
 function jsxValue(node, path, state) {
   if (t.isJSXFragment(node)) return fragmentValue(node, state);
-  const tag = node.openingElement.name;
-  if (t.isJSXIdentifier(tag)) {
-    const name = tag.name;
-    if (!isForeignTag(name, state)) {
-      if (name === 'For') return forValue(node, path, state);
-      if (name === 'Show') return showValue(node, path, state);
-    }
-    if (name === 'Switch' && (!isForeignTag(name, state) || hasLiteralMatchArms(node))) {
-      const value = switchValue(node, path, state);
-      if (value) return value;
-    }
+  // What's control flow, under the name the file imported it as
+  // (common.js controlFlowTag), as the DOM back end dispatches it.
+  const flow = controlFlowTag(node, state);
+  if (flow === 'For') return forValue(node, path, state);
+  if (flow === 'Show') return showValue(node, path, state);
+  if (flow === 'Switch') {
+    const value = switchValue(node, path, state);
+    if (value) return value;
   }
   if (isComponentElement(node)) return componentValue(node, state);
   const markup = createMarkup();
@@ -555,7 +552,7 @@ function componentValue(node, state) {
       continue;
     }
     if (directive) checkIslandProp(name, attr.value, node, state);
-    properties.push(t.objectProperty(propKey(name), getAttributeValue(attr.value)));
+    properties.push(t.objectProperty(propKey(name), slotValue(node, attr, getAttributeValue(attr.value), state)));
   }
   const children = t.arrayExpression(childValues(node.children, state));
   const meta = componentMetadata(node, state);
@@ -578,6 +575,30 @@ function componentValue(node, state) {
   if (site !== null || meta) args.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) args.push(meta);
   return call(state, '_$ssrComponent', args);
+}
+
+// A ternary with a reactive test handed to a component as JSX
+// (`header={b() ? <X /> : <Y />}`): a function child, as the DOM back end
+// hands it (dom.js slotFactory), so the component places a region the
+// hydratable renderers bracket and hydration adopts the client's.
+function slotValue(node, attr, value, state) {
+  if (!t.isConditionalExpression(value) || !isSlotAttribute(node, attr, state) || !everyArmIsJsx(value)) return value;
+  const tests = [];
+  const leaves = [];
+  (function walk(e) {
+    if (t.isConditionalExpression(e)) {
+      tests.push(e.test);
+      walk(e.consequent);
+      walk(e.alternate);
+    } else leaves.push(e);
+  })(value);
+  if (!tests.some((test) => isPotentiallyReactive(test, state.signalNames, state.importedIdentifiers))) return value;
+  return t.arrowFunctionExpression([], value);
+}
+
+function everyArmIsJsx(expr) {
+  if (t.isConditionalExpression(expr)) return everyArmIsJsx(expr.consequent) && everyArmIsJsx(expr.alternate);
+  return t.isJSXElement(expr) || t.isJSXFragment(expr);
 }
 
 // bind:value / bind:checked on a component: the value and its change handler,

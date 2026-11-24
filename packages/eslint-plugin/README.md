@@ -31,7 +31,7 @@ a TypeScript parser layered on top, such as typescript-eslint.
 |---|---|
 | `what.configs.compiler` | For projects compiled with what-compiler, as a create-what SPA is: turns off the rules the compiler makes unnecessary (`reactive-jsx-children`, `no-camelcase-events`, `signal-call-in-jsx`) and declares `For`, `Show`, `Switch` and `Match` as globals, since the compiler lowers them without an import |
 | `what.configs.recommended` | For JSX without the compiler (the automatic runtime, as the islands template uses) and `h()` code: most rules warn; `no-moved-imports`, `no-effect-self-write` and `no-set-in-computed` are errors |
-| `what.configs.strict` | Every rule `recommended` turns on, as an error, plus `prefer-set`, `signal-debug-name` and `prefer-computed` as warnings |
+| `what.configs.strict` | Every rule `recommended` turns on, as an error, plus `prefer-set` and `signal-debug-name` as warnings |
 
 Rules that match a catalogue code carry it in `meta.docs.code`.
 what-devtools-mcp's `what_lint` runs these same rules, with the `compiler`
@@ -150,11 +150,16 @@ function Bio(props) {
 }
 ```
 
-### `what/signal-debug-name` and `what/prefer-computed`
+### `what/signal-debug-name`
 
-Hints, off except in `strict`: a module-scope `signal()` without a debug name
-shows as `signal_N` in devtools, and an effect whose only job is to write one
-signal is a `computed()`.
+A hint, off except in `strict`: a module-scope `signal()` without a debug name
+shows as `signal_N` in devtools.
+
+### `what/prefer-computed`
+
+A warning in every preset: an effect whose only job is to write one signal is
+a derived value. `computed()` says so directly, evaluates lazily and cannot
+loop.
 
 ### `what/no-uncalled-signals`
 
@@ -370,10 +375,13 @@ option: the compiler turns `{count()}` into a binding itself.
 
 ### `what/no-signal-write-in-render`
 
-Flags a signal write that runs while a component renders: in its body, or in
-a callback that runs right there (an IIFE, `untrack()`, `batch()`, an array
-method). A write in an event handler (inline or named), an effect, `onMount`
-or a store action runs later and is fine (`ERR_SIGNAL_WRITE_IN_RENDER`).
+Flags a signal write that runs while a component renders: in its body, in a
+callback that runs right there (an IIFE, `untrack()`, `batch()`, an array
+method), or in render code in its JSX (a function child `{() => ...}`, or a
+host element's attribute function that is not an event handler or a ref),
+which also runs again whenever what it reads changes. A write in an event
+handler (inline or named), an effect, `onMount` or a store action runs later
+and is fine (`ERR_SIGNAL_WRITE_IN_RENDER`).
 
 <!-- snippet: bad lint=ERR_SIGNAL_WRITE_IN_RENDER -->
 ```jsx
@@ -490,7 +498,7 @@ count.set(5);
   'what/effect-cleanup': 'warn',
   'what/no-unsafe-innerhtml': 'warn',
   'what/signal-debug-name': 'off',
-  'what/prefer-computed': 'off',
+  'what/prefer-computed': 'warn',
   'what/no-async-component': 'warn',
   'what/no-promise-in-usememo': 'warn',
   'what/no-optimistic-snapshot': 'warn',
@@ -542,7 +550,7 @@ count.set(5);
   'what/effect-cleanup': 'warn',
   'what/no-unsafe-innerhtml': 'warn',
   'what/signal-debug-name': 'off',
-  'what/prefer-computed': 'off',
+  'what/prefer-computed': 'warn',
   'what/no-async-component': 'warn',
   'what/no-promise-in-usememo': 'warn',
   'what/no-optimistic-snapshot': 'warn',

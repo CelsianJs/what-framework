@@ -71,6 +71,18 @@ describe('eslint-plugin-what', () => {
     it('allows signal reads (0 args)', () => {
       assert.strictEqual(lint('function App() { const count = signal(0); return <p>{count()}</p>; }').length, 0);
     });
+
+    it('warns on a write in a JSX function child or a host attribute function: they run when the component renders', () => {
+      const region = lint('function App() { const tab = signal(0); return <div>{() => { tab(0); return <p />; }}</div>; }');
+      assert.strictEqual(region.length, 1);
+      const attr = lint('function App() { const tab = signal(0); return <div class={() => (tab(1), "x")} />; }');
+      assert.strictEqual(attr.length, 1);
+    });
+
+    it('allows writes in event handlers, refs and functions handed to components', () => {
+      const code = 'function App() { const tab = signal(0); return <div onClick={() => tab(1)} ref={(el) => tab(2)}><List render={() => tab(3)} /></div>; }';
+      assert.strictEqual(lint(code).length, 0);
+    });
   });
 
   describe('no-camelcase-events', async () => {

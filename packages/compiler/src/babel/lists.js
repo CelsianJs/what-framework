@@ -258,10 +258,14 @@ export function readItemThroughAccessor(mapFn, keyValue, read, cellName, indexNa
   const reads = rowItemReads(mapFn, keyValue);
   if (reads === null) return false;
   const itemName = mapFn.params[0].name;
-  for (const [holder, slot] of reads) {
+  for (const [holder, slot, field] of reads) {
     const callee = read();
     callee._whatRowItem = true;
-    const call = t.callExpression(callee, [t.identifier(cellName)]);
+    // `row.name` reads the field `name`: a read while the row is built records
+    // that field, not the whole item (what-core _readRowItem), so a replaced
+    // item whose `name` is the same keeps the row.
+    const args = field !== undefined ? [t.identifier(cellName), t.stringLiteral(field)] : [t.identifier(cellName)];
+    const call = t.callExpression(callee, args);
     // The item the row was built from, for the bindings of its plain fields.
     call._whatRowItemName = itemName;
     holder[slot] = call;
@@ -322,8 +326,11 @@ export function isKeyedRow(found) {
 }
 
 // The reads of a keyed row's item other than its key expression, as
-// [holder, field] pairs, or null when there is none or the row cannot read
-// its item through a cell (see readItemThroughAccessor).
+// [holder, slot, field] triples, or null when there is none or the row cannot
+// read its item through a cell (see readItemThroughAccessor). `field` is the
+// item's property a member read reads (`row.name`, `row['name']`), undefined
+// for a read of the whole item or of a method it calls (`row.total()` may
+// read any field through `this`).
 function rowItemReads(mapFn, keyValue) {
   const param = mapFn.params[0];
   if (!t.isIdentifier(param)) return null;
@@ -347,9 +354,23 @@ function rowItemReads(mapFn, keyValue) {
       case 'JSXIdentifier':
         if (node.name === name) unsafe = true;
         return;
+      case 'JSXAttribute':
+        // An attribute's name is not a read of the item: `<Row item={item} />`
+        // reads the item in its value only.
+        visit(node.value, node, 'value');
+        return;
       case 'MemberExpression':
       case 'OptionalMemberExpression':
-        visit(node.object, node, 'object');
+        if (t.isIdentifier(node.object, { name })) {
+          const called = (slot === 'callee' && (t.isCallExpression(holder) || t.isOptionalCallExpression(holder) || t.isNewExpression(holder)))
+            || (slot === 'tag' && t.isTaggedTemplateExpression(holder));
+          const key = !node.computed && t.isIdentifier(node.property) ? node.property.name
+            : node.computed && (t.isStringLiteral(node.property) || t.isNumericLiteral(node.property)) ? String(node.property.value)
+              : undefined;
+          reads.push([node, 'object', called ? undefined : key]);
+        } else {
+          visit(node.object, node, 'object');
+        }
         if (node.computed) visit(node.property, node, 'property');
         return;
       case 'ObjectProperty':

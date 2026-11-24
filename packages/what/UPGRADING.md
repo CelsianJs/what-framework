@@ -2,7 +2,7 @@
 # Upgrading to 0.15
 
 0.15 reshapes the public surface. The root entry, `what-framework`, went from
-177 names to <!-- root-count -->58<!-- /root-count -->: reactivity, async values, components and
+177 names to <!-- root-count -->59<!-- /root-count -->: reactivity, async values, components and
 boundaries, hooks, context, stores, `Head`, `mount`/`hydrate` and the
 diagnostics read API. The domain kits moved
 to subpaths, names that meant something else in React were renamed, and
@@ -142,7 +142,7 @@ The root entry never exported these: they are new in 0.15, part of what `what-co
 
 | Imported from | Names |
 |---|---|
-| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `_actionStateKey`, `_actionKeySalt`, `_currentRowPath`, `_enterRow`, `_installRowKeys`, `_leaveRow`, `_renderSalt`, `_tracksRows`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_engine`, `_runComponentAsync`, `_runComponentSync`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_formMember`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode`, `_mountPortal` |
+| `what-core/internal` | `__depsOf`, `__subsOf`, `__currentEffect`, `__ownerOf`, `__ownerPath`, `reportDiagnostic`, `IMPORT_CHANGES`, `_escapeHtml`, `_runInComponentSSR`, `_assignOwnerPath`, `_ownerCounter`, `_currentOwnerPath`, `_actionStateKey`, `_actionKeySalt`, `_currentRowPath`, `_enterRow`, `_installRowKeys`, `_leaveRow`, `_renderSalt`, `_tracksRows`, `__flushOutsideServerContext`, `__outsideServerContext`, `__markServerProcess`, `_rowKeyDigest`, `_engine`, `_runComponentAsync`, `_runComponentSync`, `__invalidateFromDevtools`, `_tagQueries`, `_formStatus`, `_formStatusContext`, `_resetForm`, `_formMember`, `_devAction`, `__DEV__`, `_urgent`, `_currentTransition`, `_onCommit`, `_pathLoaded`, `_contextOf`, `_provide`, `_isServerProcess`, `isVNode`, `_claimRegion`, `_afterWalk`, `_devHoldsState`, `_mountPortal` |
 
 <!-- import-changes:end -->
 

@@ -369,16 +369,81 @@ let flat = false;
  * Compiled code's read of `props[key]` where the value is placed. `inPlace`
  * is 1 where the server writes the value with no markers of its own around it.
  */
-export function _place(props, key, inPlace) {
+export function _place(props, key, inPlace, fallback) {
+  // A live prop (`label={name()}` compiles to a getter, see _isLiveProp) is
+  // placed as a reactive child: the place reads the getter again whenever
+  // what it read changes. `fallback` is a destructured prop's default
+  // (`({ label = 'x' })`), taken where the value is undefined.
+  const fallsBack = arguments.length > 3;
+  if (_isLiveProp(props, key)) {
+    const read = fallsBack ? () => { const v = props[key]; return v === undefined ? fallback : v; } : () => props[key];
+    // A prop handed on to a component (`<Leaf counts={props.data} />`) is a
+    // lazy slot whose factory is this call: readLazy recognises the read and
+    // passes the live prop through, the value to a read and this to a place.
+    read._forward = true;
+    return read;
+  }
   placing = true;
   const outer = flat;
   flat = inPlace === 1;
   try {
-    return props[key];
+    const v = props[key];
+    return fallsBack && v === undefined ? fallback : v;
   } finally {
     placing = false;
     flat = outer;
   }
+}
+
+// --- Live props ---
+// Compiled JSX passes a component a prop whose value reads a signal
+// (`<Badge on={count() > 0} />`) as a getter over the expression, in an
+// object with no prototype (`{ __proto__: null, get on() { … } }`), so the
+// component sees the current value wherever it reads `props.on`: a JSX
+// binding that reads it re-runs when `count` changes, as it would for
+// `count()` written there. Every props object What builds has no prototype:
+// the copy a component runs with, a spread's merge (render.js _$merge) and a
+// rest element (_$omit). A getter on one of them is kept by every copy and
+// merge; a getter on any other object (a user's object spread into props) is
+// read once, as Object.assign reads it. The lazy getters _installLazyChildren
+// defines for children and slots are not live props: a read of one builds
+// JSX (they carry _lazy).
+
+/** Whether `props[key]` is a live prop: a getter, not a lazy JSX one, of a props object What built. */
+export function _isLiveProp(props, key) {
+  if (props == null || typeof props !== 'object' || Object.getPrototypeOf(props) !== null) return false;
+  const d = Object.getOwnPropertyDescriptor(props, key);
+  return d !== undefined && d.get !== undefined && /** @type {any} */ (d.get)._lazy !== true;
+}
+
+/**
+ * A copy of `props` with no prototype, without the keys in `omit` (a rest
+ * element, render.js _$omit). A props object What built keeps its getters
+ * (live props, lazy children); any other object is copied by value, as
+ * Object.assign copies it.
+ */
+export function _copyProps(props, omit) {
+  const out = Object.create(null);
+  if (props == null) return out;
+  const own = Object.getPrototypeOf(props) === null;
+  if (!own && !omit) return Object.assign(out, props);
+  for (const key in props) {
+    if ((own || Object.hasOwn(props, key)) && !(omit && omit.includes(key))) _copyProp(out, props, key, own);
+  }
+  return out;
+}
+
+/** `src[key]` onto `out`: a getter of a props object What built (`own`) as the getter, never read; anything else as its value. */
+export function _copyProp(out, src, key, own) {
+  const get = own ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
+  if (get) Object.defineProperty(out, key, { get, enumerable: true, configurable: true });
+  else _setOwnProp(out, key, src[key]);
+}
+
+/** `props[key] = value` on a props object that may hold a getter under `key` (a forwarded live prop, lazy children). */
+export function _setOwnProp(props, key, value) {
+  if (key in props) Object.defineProperty(props, key, { value, writable: true, enumerable: true, configurable: true });
+  else props[key] = value;
 }
 
 /** `build()`, placed where the server wrote it with no markers of its own (_place). */
@@ -408,15 +473,15 @@ export function _installLazyChildren(Component, target, lazyChildren, slots) {
   const cache = [null];
   const define = (key, factory) => {
     const at = cache.push(factory, undefined, 0, null) - 4;
-    Object.defineProperty(target, key, {
-      get() {
-        const place = placing;
-        placing = false;
-        return readLazy(cache, at, place);
-      },
-      enumerable: true,
-      configurable: true,
-    });
+    /** @type {(() => any) & { _lazy?: boolean }} */
+    const get = function () {
+      const place = placing;
+      placing = false;
+      return readLazy(cache, at, place);
+    };
+    // Not a live prop (_isLiveProp): a read of it builds JSX.
+    get._lazy = true;
+    Object.defineProperty(target, key, { get, enumerable: true, configurable: true });
   };
   if (lazyChildren) {
     if (Component._deferChildren) target.children = lazyChildren;
@@ -428,6 +493,9 @@ export function _installLazyChildren(Component, target, lazyChildren, slots) {
 
 // What a prop's reads got once its JSX is placed: its nodes are not kept.
 const PLACED = {};
+// The state of a slot that forwards a live prop (_place's read, `_forward`):
+// every read reads it through, a place gets the read as a reactive child.
+const FORWARDS = 3;
 
 // A placing read (and a placeable's placement) takes the build that waits
 // for its placement, else builds anew, under the owner of the place (the
@@ -439,16 +507,21 @@ function readLazy(cache, at, place) {
   const home = cache[0];
   let value = cache[at + 1];
   const state = cache[at + 2];
+  // A forwarded live prop (`<Leaf counts={props.data} />`, data.counts a
+  // getter): the child reads the current value wherever it reads it, never
+  // the read function, and a place shows it as a reactive child.
+  if (state === FORWARDS) return place ? value : value();
   if (place) {
     if (state !== 1) value = buildLazy(cache[at], home !== null && getOwner() === null ? home : null);
     cache[at + 1] = holdsNodes(value) ? PLACED : value;
-    cache[at + 2] = 2;
+    cache[at + 2] = value?._forward ? FORWARDS : 2;
     return value;
   }
   if (state === 0) {
     const build = () => buildLazy(cache[at], home);
     value = cache[at + 1] = outsideRead === null ? build() : outsideRead(build);
     cache[at + 2] = 1;
+    if (value?._forward) return (cache[at + 2] = FORWARDS, value());
   }
   if (value !== PLACED && (home === null || !holdsNodes(value))) return value;
   if (cache[at + 3] === null) {
@@ -496,8 +569,8 @@ function createComponent(vnode, parent, isSvg) {
   const proto = Component.prototype;
   if (proto && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
 
-  const mergedProps = Object.assign(Object.create(null), props);
-  if (children.length > 0) mergedProps.children = children.length === 1 ? children[0] : children;
+  const mergedProps = _copyProps(props);
+  if (children.length > 0) _setOwnProp(mergedProps, 'children', children.length === 1 ? children[0] : children);
   const lazyChildren = props && props._$lazyChildren;
   const slots = props && props._$slots;
   const endChildrenPass = lazyChildren || slots ? _installLazyChildren(Component, mergedProps, lazyChildren, slots) : null;

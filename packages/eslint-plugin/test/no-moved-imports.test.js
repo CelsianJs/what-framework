@@ -143,3 +143,30 @@ test('it is an error in every preset, and its code is in the catalogue', () => {
   assert.equal(code, 'ERR_MOVED_IMPORT');
   assert.ok(Object.values(ERROR_CODES).some((def) => def.code === code));
 });
+
+test('a dynamic import of the root entry: destructured, read as a member, or in .then()', () => {
+  const awaited = lint("export async function load() { const { useQuery, setQueryData } = await import('what-framework'); return [useQuery, setQueryData]; }");
+  assert.deepEqual(awaited.messages.map((m) => m.message), [
+    `"useQuery" is not exported by what-framework. ${answer('useQuery')}`,
+    `"setQueryData" is not exported by what-framework. ${answer('setQueryData')}`,
+  ]);
+  assert.match(awaited.output, /await import\('what-framework\/data'\)/, 'every name moved to /data: the import takes that path');
+
+  const member = lint("export async function f() { return (await import('what-framework')).useForm; }");
+  assert.equal(member.messages.length, 1);
+  assert.equal(member.output.includes("import('what-framework')"), true, 'a member read is reported, not rewritten');
+
+  const then = lint("export const p = import('what-framework').then(({ useForm }) => useForm);");
+  assert.equal(then.messages.length, 1);
+  assert.match(then.output, /import\('what-framework\/form'\)/);
+
+  const thenMember = lint("export const p = import('what-framework').then((m) => m.useForm);");
+  assert.equal(thenMember.messages.length, 1);
+  assert.match(thenMember.output, /import\('what-framework\/form'\)/);
+
+  const mixed = lint("export async function f() { const { signal, useForm } = await import('what-framework'); return [signal, useForm]; }");
+  assert.equal(mixed.messages.length, 1, 'only the moved name');
+  assert.equal(mixed.output.includes("import('what-framework')"), true, 'a name that stays keeps the root import: reported only');
+
+  assert.deepEqual(lint("export const p = import('what-framework').then((m) => m.signal);").messages, []);
+});

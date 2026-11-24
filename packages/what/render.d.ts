@@ -20,6 +20,7 @@ export {
   setChecked,
   applyRef,
   _$memo,
+  _$lazyMemo,
   _$Island,
   delegateEvents,
   _$own,
@@ -43,5 +44,7 @@ export {
   _$members,
   _$member,
   _$slots,
+  _$merge,
+  _$omit,
   _$place,
 } from 'what-core/render';

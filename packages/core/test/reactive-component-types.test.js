@@ -6,7 +6,7 @@ import { tscDiagnose } from '../../../scripts/lib/tsc-diagnose.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const positive = `
-  import { signal, h, mount, lazy, memo, type Component } from 'what-framework';
+  import { signal, h, mount, lazy, memo, Show, Switch, Match, type Component } from 'what-framework';
   import { Router, type RouteConfig, type RouteMiddleware } from 'what-framework/router';
   import type { RouteMiddleware as CoreRouteMiddleware } from 'what-router';
   const visible = signal(true);
@@ -24,6 +24,11 @@ const positive = `
   const Nested = () => () => () => <Gate label="nested" />;
   const Children: Component = ({ children }) => children;
   const Deferred = lazy(async () => ({ default: Gate }));
+  const Picked = lazy(() => import('./lazy-target').then((m) => ({ default: m.Chart })));
+  const pickedOk = <Picked size={3} />;
+  const maybeUser = signal<{ name: string } | null>(null);
+  const shownByValue = <Show when={maybeUser()} fallback={<i />}><b /></Show>;
+  const matchedByValue = <Switch><Match when={maybeUser()}><b /></Match></Switch>;
   const MemoGate = memo(Gate);
   const guard: RouteMiddleware = ({ path, params }) => path === '/private' ? '/login' : true;
   const audit: RouteMiddleware = () => {};
@@ -39,7 +44,10 @@ const positive = `
   mount(h(Gate, { label: 'mounted' }), document.body);
 `;
 
+const lazyTarget = `export function Chart(props: { size: number }) { return <b>{props.size}</b>; }`;
+
 const negative = {
+  'lazy-props.tsx': `import { lazy } from 'what-framework'; const Picked = lazy(() => import('./lazy-target').then((m) => ({ default: m.Chart }))); export const app = <Picked size="big" />;`,
   'object.tsx': `const Bad = () => ({ invalid: true }); export const app = <Bad />;`,
   'promise.tsx': `const Bad = async () => <div />; export const app = <Bad />;`,
   'thunk-object.tsx': `const Bad = () => () => ({ invalid: true }); export const app = <Bad />;`,
@@ -65,7 +73,7 @@ for (const [source, jsx] of [
 ]) {
   test(`reactive component contracts remain precise: ${source}, ${jsx}`, () => {
     const diagnostics = tscDiagnose({
-      files: { 'positive.tsx': positive, ...negative },
+      files: { 'positive.tsx': positive, 'lazy-target.tsx': lazyTarget, ...negative },
       writeRoot: HERE,
       compilerOptions: { jsx, jsxImportSource: source, skipLibCheck: false },
     });

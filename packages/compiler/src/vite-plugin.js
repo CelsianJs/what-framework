@@ -22,6 +22,8 @@ const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
 const SERVER_ACTION_MODULE_RE = /(?:from\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"]|import\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"])/;
 const SCRIPT_MODULE_RE = /\.[cm]?[jt]sx?$/;
+// what-react's mixed JSX plugin ends a React file's output with this comment.
+const REACT_SOURCE_MARKER = '/* what-react: react source */';
 
 function patternMatches(pattern, value) {
   if (!pattern) return false;
@@ -111,6 +113,43 @@ const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b
 // does not) needs `hydratable: true`. Hydrating
 // server markup with JSX compiled without it reports an ERR_HYDRATION_MISMATCH
 // of kind not-hydratable and renders the page again on the client.
+
+// --- Development locations ---
+//
+// Vite transforms .jsx/.tsx with esbuild (oxc on Vite 8) before this plugin
+// runs, and that reprints the file: comments go, TypeScript is stripped, lines
+// move. A development location (a diagnostic's `at`, what devtools show) is
+// mapped back through the transforms' combined source map to the line and
+// column as written.
+let traceMapping;
+function loadTraceMapping() {
+  if (traceMapping !== undefined) return traceMapping;
+  const here = createRequire(import.meta.url);
+  const attempts = [
+    () => here('@jridgewell/trace-mapping'),
+    // @babel/core depends on it (through @jridgewell/remapping), reachable
+    // from there under a strict layout.
+    () => createRequire(createRequire(here.resolve('@babel/core')).resolve('@jridgewell/remapping'))('@jridgewell/trace-mapping'),
+  ];
+  traceMapping = null;
+  for (const attempt of attempts) {
+    try { traceMapping = attempt(); break; } catch { /* next */ }
+  }
+  return traceMapping;
+}
+
+function sourceLocFor(ctx) {
+  const tm = loadTraceMapping();
+  if (tm === null || typeof ctx?.getCombinedSourcemap !== 'function') return undefined;
+  let map;
+  try { map = ctx.getCombinedSourcemap(); } catch { return undefined; }
+  if (!map || !map.mappings) return undefined;
+  const traced = new tm.TraceMap(map);
+  return (line, column) => {
+    const at = tm.originalPositionFor(traced, { line, column });
+    return at && at.line != null ? { line: at.line, column: at.column } : null;
+  };
+}
 
 function rendersOnServer(config) {
   return config.appType === 'custom' || Boolean(config.build && (config.build.ssr || config.build.ssrManifest));
@@ -278,6 +317,9 @@ export default function whatVitePlugin(options = {}) {
       const isScriptModule = SCRIPT_MODULE_RE.test(cleanId);
       const hasServerActions = isScriptModule && SERVER_ACTION_MODULE_RE.test(code);
       if (exclude && patternMatches(exclude, cleanId)) return null;
+      // A React file of a mixed app (what-react's plugin, MIXED.md): its JSX
+      // is lowered to what-react already and follows React's rules.
+      if (code.includes(REACT_SOURCE_MARKER)) return null;
 
       // A name the root entry (what-framework, what-core) no longer exports
       // fails here with the answer IMPORT_CHANGES records for it
@@ -347,6 +389,7 @@ export default function whatVitePlugin(options = {}) {
               hydratable: generate === 'dom' && hydratableOutput,
               production,
               devMetadata: isDevMode && !production,
+              sourceLoc: isDevMode && !production ? sourceLocFor(this) : undefined,
               autoSelector,
               projectRoot: rootDir || process.cwd(),
               onActionId: registerActionId,

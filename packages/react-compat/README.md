@@ -12,7 +12,25 @@ npm install what-react what-core
 
 ## Setup
 
-Add the Vite plugin -- one line is all you need:
+### A native What app that uses React packages (recommended)
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
+import { reactCompat } from 'what-react/vite';
+
+export default defineConfig({
+  plugins: [what(), reactCompat()],
+});
+```
+
+Your files stay native What. A React component used as a tag in a native file
+(`<BarChart data={rows()} />` from recharts) renders as a React island; a file
+that imports `react` or calls a React package's hook is a React file. See
+[MIXED.md](./MIXED.md).
+
+### Every file React (migrating a React app as it is)
 
 ```js
 // vite.config.js
@@ -23,6 +41,8 @@ export default defineConfig({
   plugins: [reactCompat()],
 });
 ```
+
+Add `what()` later and files that do not import React become native What.
 
 The plugin handles everything automatically:
 - Aliases `react` and `react-dom` imports to `what-react`
@@ -116,6 +136,7 @@ reactCompat({
 |---|---|
 | `what-react` | React API (hooks, createElement, Component, etc.) |
 | `what-react/dom` | ReactDOM API (createRoot, createPortal, etc.) |
+| `what-react/mixed` | Native and React components in one tree (what the mixed plugin compiles to; types for mixed apps) |
 | `what-react/jsx-runtime` | JSX automatic runtime |
 | `what-react/jsx-dev-runtime` | JSX dev runtime |
 | `what-react/vite` | Vite plugin |

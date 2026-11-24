@@ -741,31 +741,69 @@ export function signal(initial, debugName) {
  * the code building it rather than by a binding of the row (a component's
  * prop, a statement in the row's body) subscribes nothing and records that the
  * row took the item as a value (`taken`): replacing its item cannot reach what
- * it built.
+ * it built. A read of one field (`key`: the compiler's `row.name`, a live()
+ * view's property) records that field only (`keys`): a replacement that
+ * leaves every recorded field as it was keeps the row.
  * @param {any} item
  */
 export function _rowItem(item) {
-  return { value: item, subHead: null, subTail: null, flags: 0, builder: activeSub, building: true, taken: false, fields: null };
+  return { value: item, subHead: null, subTail: null, flags: 0, builder: activeSub, building: true, taken: false, keys: null, fields: null };
 }
 
-/** @internal Read a list row's item (see _rowItem). */
-export function _readRowItem(node) {
-  if (node.building && (activeSub === null || activeSub === node.builder)) node.taken = true;
-  else if (activeSub !== null) link(node, activeSub);
+// The field a read of a row's item is for, while a live() view reads one
+// (_readKey); null while it only asks whether the item has a field (a peek,
+// which records nothing); undefined otherwise.
+/** @type {string | null | undefined} */
+let readingKey;
+
+/** @internal Read a list row's item (see _rowItem), for its field `key` when given. */
+export function _readRowItem(node, key) {
+  if (node.building && (activeSub === null || activeSub === node.builder)) {
+    const field = key !== undefined ? key : readingKey;
+    if (node.taken || field === null) { /* the whole item already, or a peek */ }
+    else if (field === undefined) node.taken = true;
+    else if (node.keys === null) node.keys = [field];
+    else if (!node.keys.includes(field)) node.keys.push(field);
+  } else if (activeSub !== null) link(node, activeSub);
   return node.value;
 }
 
 /**
+ * @internal `read()` for the field `key` of what it returns (live.js): a row
+ * item it reads while its row is built records that field, not the item.
+ * `key` null: a peek, which records nothing (whether the value has a field).
+ */
+export function _readKey(key, read) {
+  const outer = readingKey;
+  readingKey = key;
+  try {
+    return read();
+  } finally {
+    readingKey = outer;
+  }
+}
+
+// Whether a row whose building code read `keys` of its item reads the same
+// values from `next`.
+function sameKeys(keys, prev, next) {
+  if (prev == null || next == null) return false;
+  for (let i = 0; i < keys.length; i++) {
+    if (!Object.is(prev[keys[i]], next[keys[i]])) return false;
+  }
+  return true;
+}
+
+/**
  * @internal Hand a list row its new item (see _rowItem). With `rebuildTaken`,
- * returns true instead when the row took its item as a value, and has to be
- * built again. `fields` holds the row's plain-field bindings (render.js
+ * returns true instead when the row took its item as a value, or a field of it
+ * the new item holds another value in, and has to be built again. `fields` holds the row's plain-field bindings (render.js
  * _$field) as [target, read, write] triples, written here directly; a write
  * that cannot show its new value also has the row built again.
  */
 export function _setRowItem(node, item, rebuildTaken) {
   const prev = node.value;
   if (prev === item) return false;
-  if (rebuildTaken && node.taken) return true;
+  if (rebuildTaken && (node.taken || (node.keys !== null && !sameKeys(node.keys, prev, item)))) return true;
   node.value = item;
   const fields = node.fields;
   if (fields !== null) {
@@ -2716,6 +2754,9 @@ function runEffect(e) {
 
 function executeEffect(e) {
   const causes = __DEV__ && devTracksCauses() ? devCauses(e) : null;
+  // The components the last run built that held state: a run that builds one
+  // of them again lost that state (ERR_REBUILT_COMPONENT).
+  const held = __DEV__ && e.owned !== null ? devStatefulComponents(e.owned) : null;
   if (e.owned !== null) {
     disposeRun(e);
     if (e.flags & DISPOSED) return;               // a cleanup it owned disposed it
@@ -2757,6 +2798,7 @@ function executeEffect(e) {
   } else if ((e.flags & STABLE) === 0) {
     purgeDeps(e);
   }
+  if (__DEV__ && held !== null && (e.flags & DISPOSED) === 0) devRebuilt(e, held);
   if (__DEV__ && __devtools) devHook('onEffectRun', e, { causes });
 }
 
@@ -3454,6 +3496,7 @@ export function _devError(err, context) {
 function devSignal(sig, node, debugName) {
   node.sig = sig;
   const where = ownerNow();
+  devMarkState(where);
   if (where !== null && typeof WeakRef !== 'undefined') node.devOwnerRef = new WeakRef(where);
   if (debugName) sig._debugName = debugName;
   if (devSplit(debugName)[1] === null) sig._devLoc = devSplit(_devCallSite('', signal, 'signals'))[1];
@@ -3843,6 +3886,64 @@ export function _devAsyncWork(owner, promise) {
   // The rejection is passed on, so a failed callback is unhandled exactly as
   // it is in production.
   promise.then(done, (err) => { done(); throw err; });
+}
+
+// --- Rebuilt components (development) ---
+//
+// A component holds state when its body (or an effect it owns) creates a
+// signal, or when it says so (_devHoldsState: what-react's islands, whose
+// state lives in React). A reactive region that runs again builds what it
+// returns anew, and a component of the same function it built last time
+// starts over: the state is gone, which React's reconciler would have kept.
+// The compiler keeps a component across runs for <Show> and for a JSX
+// ternary (it memoizes the condition and passes live props), so the report
+// names that rewrite.
+
+function devMarkState(where) {
+  for (let o = where; o != null; o = o.owner) {
+    if (o.Component !== undefined) {
+      o.devState = true;
+      return;
+    }
+  }
+}
+
+/** @internal Development: the component running now holds state outside What's signals (what-react's islands). */
+export function _devHoldsState() {
+  if (__DEV__) devMarkState(ownerNow());
+}
+
+function devHeldState(o) {
+  if (o.devState === true) return true;
+  for (let c = o.firstChild; c !== null; c = c.nextSibling) if (devHeldState(c)) return true;
+  return false;
+}
+
+function devStatefulComponents(record) {
+  /** @type {Function[] | null} */
+  let list = null;
+  for (let o = record.firstChild; o !== null; o = o.nextSibling) {
+    if (o.Component !== undefined && devHeldState(o)) (list ??= []).push(o.Component);
+  }
+  return list;
+}
+
+function devRebuilt(e, held) {
+  const record = e.owned;
+  if (record === null) return;
+  for (let o = record.firstChild; o !== null; o = o.nextSibling) {
+    if (o.Component === undefined || !held.includes(o.Component)) continue;
+    const component = o.Component.displayName || o.Component.name || 'Component';
+    const region = devName(e);
+    const where = __ownerPath(o);
+    report('ERR_REBUILT_COMPONENT', {
+      data: { component, region },
+      subject: { kind: 'effect', name: region },
+      owner: where,
+      loc: e.devName ? devSplit(e.devName)[1] : where.loc,
+    });
+    return;
+  }
 }
 
 function devOrphan(e) {

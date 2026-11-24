@@ -250,7 +250,8 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
     slot.subscribe = undefined;
     slot._pending = null;
   }
-  const value = getSnapshot();
+  // On the server, React reads getServerSnapshot when there is one.
+  const value = inst._server && typeof _getServerSnapshot === 'function' ? _getServerSnapshot() : getSnapshot();
   slot.value = value;
   slot.getSnapshot = getSnapshot;
 

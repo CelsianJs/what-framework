@@ -286,16 +286,15 @@ function generateViteConfig({ reactCompat, cssApproach }) {
 
   imports.push(`import { defineConfig } from 'vite';`);
 
+  // The What compiler compiles the app's JSX. With React support, what-react's
+  // plugin runs React libraries on what-react and lets native files and React
+  // files share one app: a React component in a native file is a React island
+  // (what-react's MIXED.md).
+  imports.push(`import what from 'what-compiler/vite';`);
+  plugins.push('what()');
   if (reactCompat) {
-    // React compat projects use the what-react Vite plugin instead of the
-    // What compiler. The what-react plugin aliases react/react-dom imports
-    // to what-react, which runs React code on What Framework's signal engine.
     imports.push(`import { reactCompat } from 'what-react/vite';`);
     plugins.push('reactCompat()');
-  } else {
-    // Standard What Framework projects use the What compiler for JSX
-    imports.push(`import what from 'what-compiler/vite';`);
-    plugins.push('what()');
   }
 
   // MCP DevTools — auto-injects devtools client in dev mode for AI agent debugging
@@ -564,60 +563,30 @@ mount(<App />, '#app');
 `;
 }
 
+// The React template: a native What app (what-compiler) that uses a React
+// library. main.jsx is native; BearCounter.jsx calls zustand's hook, so
+// what-react's plugin makes it a React file, and <BearCounter /> in the
+// native App becomes a React island (what-react's MIXED.md).
 function generateMainWithReactCompat({ cssApproach }) {
-  // React compat demo: uses zustand (a real React library) to show it works
-  // with What Framework under the hood.
+  const header = `import { mount, signal } from 'what-framework';
+import { BearCounter } from './BearCounter.jsx';
+`;
+  const note = `// App is a native What component: it runs once, and {count()} updates only
+// that text. BearCounter is a React component (its file calls zustand's
+// hook), so it renders as a React island here: React rules inside it,
+// native rules around it.`;
+
   if (cssApproach === 'tailwind') {
-    return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  // useStore is a React hook from zustand — what-react makes it work seamlessly
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-      <p className="text-sm text-amber-700 font-medium">Zustand Store (React library)</p>
-      <p className="mt-1 text-2xl font-bold text-amber-900">{bears} bears</p>
-      <div className="mt-2 flex gap-2">
-        <button
-          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
-          onClick={increase}
-        >
-          Add bear
-        </button>
-        <button
-          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
-          onClick={reset}
-        >
-          Reset
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// App renders through what-react, so it is a React component: it re-renders
-// when its React state changes. The signal lives outside it, where a re-render
-// cannot recreate it, and is passed as a function child, which What keeps up
-// to date without re-rendering App.
-const count = signal(0, 'count');
-
+    return `${header}
+${note}
 function App() {
+  const count = signal(0, 'count');
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-lg">
         <h1 className="text-2xl font-bold text-slate-900">What Framework</h1>
-        <p className="mt-1 text-slate-500">React compat + Tailwind CSS.</p>
+        <p className="mt-1 text-slate-500">Native What + a React library, with Tailwind CSS.</p>
 
         <section className="mt-6 inline-flex items-center gap-3">
           <button
@@ -626,7 +595,7 @@ function App() {
           >
             -
           </button>
-          <output className="min-w-[2ch] text-center font-bold">{() => count()}</output>
+          <output className="min-w-[2ch] text-center font-bold">{count()}</output>
           <button
             className="w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-900 hover:border-blue-600 cursor-pointer"
             onClick={() => count(c => c + 1)}
@@ -646,9 +615,7 @@ mount(<App />, '#app');
   }
 
   if (cssApproach === 'stylex') {
-    return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-import * as stylex from '@stylexjs/stylex';
+    return `${header}import * as stylex from '@stylexjs/stylex';
 
 const styles = stylex.create({
   page: {
@@ -685,68 +652,21 @@ const styles = stylex.create({
     ':hover': { borderColor: '#2563eb' },
   },
   output: { minWidth: '2ch', textAlign: 'center', fontWeight: 700 },
-  zustandBox: {
-    marginTop: '1.5rem',
-    padding: '1rem',
-    background: '#fffbeb',
-    border: '1px solid #fde68a',
-    borderRadius: 12,
-  },
-  zustandLabel: { fontSize: '0.875rem', color: '#92400e', fontWeight: 500 },
-  zustandCount: { marginTop: '0.25rem', fontSize: '1.5rem', fontWeight: 700, color: '#78350f' },
-  zustandButtons: { marginTop: '0.5rem', display: 'flex', gap: '0.5rem' },
-  zustandBtn: {
-    padding: '0.25rem 0.75rem',
-    borderRadius: 8,
-    border: '1px solid #fbbf24',
-    background: '#ffffff',
-    color: '#78350f',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    ':hover': { borderColor: '#d97706' },
-  },
 });
 
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div {...stylex.props(styles.zustandBox)}>
-      <p {...stylex.props(styles.zustandLabel)}>Zustand Store (React library)</p>
-      <p {...stylex.props(styles.zustandCount)}>{bears} bears</p>
-      <div {...stylex.props(styles.zustandButtons)}>
-        <button {...stylex.props(styles.zustandBtn)} onClick={increase}>Add bear</button>
-        <button {...stylex.props(styles.zustandBtn)} onClick={reset}>Reset</button>
-      </div>
-    </div>
-  );
-}
-
-// App renders through what-react, so it is a React component: it re-renders
-// when its React state changes. The signal lives outside it, where a re-render
-// cannot recreate it, and is passed as a function child, which What keeps up
-// to date without re-rendering App.
-const count = signal(0, 'count');
-
+${note}
 function App() {
+  const count = signal(0, 'count');
+
   return (
     <main {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.shell)}>
         <h1 {...stylex.props(styles.heading)}>What Framework</h1>
-        <p {...stylex.props(styles.subtitle)}>React compat + StyleX.</p>
+        <p {...stylex.props(styles.subtitle)}>Native What + a React library, with StyleX.</p>
 
         <section {...stylex.props(styles.counter)}>
           <button {...stylex.props(styles.button)} onClick={() => count(c => c - 1)}>-</button>
-          <output {...stylex.props(styles.output)}>{() => count()}</output>
+          <output {...stylex.props(styles.output)}>{count()}</output>
           <button {...stylex.props(styles.button)} onClick={() => count(c => c + 1)}>+</button>
         </section>
 
@@ -760,50 +680,19 @@ mount(<App />, '#app');
 `;
   }
 
-  // React compat with vanilla CSS
-  return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  // useStore is a React hook from zustand — what-react makes it work seamlessly
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div className="zustand-demo">
-      <p className="zustand-label">Zustand Store (React library)</p>
-      <p className="zustand-count">{bears} bears</p>
-      <div className="zustand-buttons">
-        <button className="zustand-btn" onClick={increase}>Add bear</button>
-        <button className="zustand-btn" onClick={reset}>Reset</button>
-      </div>
-    </div>
-  );
-}
-
-// App renders through what-react, so it is a React component: it re-renders
-// when its React state changes. The signal lives outside it, where a re-render
-// cannot recreate it, and is passed as a function child, which What keeps up
-// to date without re-rendering App.
-const count = signal(0, 'count');
-
+  return `${header}
+${note}
 function App() {
+  const count = signal(0, 'count');
+
   return (
     <main className="app-shell">
       <h1>What Framework</h1>
-      <p>React compat enabled — use React libraries with signals.</p>
+      <p>Native What components, with a React library inside.</p>
 
       <section className="counter">
         <button onClick={() => count(c => c - 1)}>-</button>
-        <output>{() => count()}</output>
+        <output>{count()}</output>
         <button onClick={() => count(c => c + 1)}>+</button>
       </section>
 
@@ -813,6 +702,114 @@ function App() {
 }
 
 mount(<App />, '#app');
+`;
+}
+
+// src/BearCounter.jsx of the React template: a React file, written as any
+// React component is.
+function generateBearCounter({ cssApproach }) {
+  const store = `import { create } from 'zustand';
+
+// zustand is a React library. This file calls its hook, so it is a React
+// file: its components follow React's rules (hooks return values, the
+// component re-renders when its state changes).
+export const useStore = create((set) => ({
+  bears: 0,
+  increase: () => set((state) => ({ bears: state.bears + 1 })),
+  reset: () => set({ bears: 0 }),
+}));
+`;
+  if (cssApproach === 'tailwind') {
+    return `${store}
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+      <p className="text-sm text-amber-700 font-medium">Zustand store (React library)</p>
+      <p className="mt-1 text-2xl font-bold text-amber-900">{bears} bears</p>
+      <div className="mt-2 flex gap-2">
+        <button
+          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
+          onClick={increase}
+        >
+          Add bear
+        </button>
+        <button
+          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
+          onClick={reset}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
+`;
+  }
+  if (cssApproach === 'stylex') {
+    return `${store}import * as stylex from '@stylexjs/stylex';
+
+const styles = stylex.create({
+  box: {
+    marginTop: '1.5rem',
+    padding: '1rem',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: 12,
+  },
+  label: { fontSize: '0.875rem', color: '#92400e', fontWeight: 500 },
+  count: { marginTop: '0.25rem', fontSize: '1.5rem', fontWeight: 700, color: '#78350f' },
+  buttons: { marginTop: '0.5rem', display: 'flex', gap: '0.5rem' },
+  button: {
+    padding: '0.25rem 0.75rem',
+    borderRadius: 8,
+    border: '1px solid #fbbf24',
+    background: '#ffffff',
+    color: '#78350f',
+    cursor: 'pointer',
+    fontSize: '0.875rem',
+    ':hover': { borderColor: '#d97706' },
+  },
+});
+
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div {...stylex.props(styles.box)}>
+      <p {...stylex.props(styles.label)}>Zustand store (React library)</p>
+      <p {...stylex.props(styles.count)}>{bears} bears</p>
+      <div {...stylex.props(styles.buttons)}>
+        <button {...stylex.props(styles.button)} onClick={increase}>Add bear</button>
+        <button {...stylex.props(styles.button)} onClick={reset}>Reset</button>
+      </div>
+    </div>
+  );
+}
+`;
+  }
+  return `${store}
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div className="zustand-demo">
+      <p className="zustand-label">Zustand store (React library)</p>
+      <p className="zustand-count">{bears} bears</p>
+      <div className="zustand-buttons">
+        <button className="zustand-btn" onClick={increase}>Add bear</button>
+        <button className="zustand-btn" onClick={reset}>Reset</button>
+      </div>
+    </div>
+  );
+}
 `;
 }
 
@@ -934,8 +931,8 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
 
   if (reactCompat) {
     notes += `
-- React compat is enabled via \`what-react\`. Any React library (zustand, @tanstack/react-query, framer-motion, etc.) works out of the box.
-- The \`what-react/vite\` plugin handles all aliasing automatically.`;
+- React libraries work through \`what-react\`. Your files stay native What; a file that imports \`react\` or calls a React library's hook (like \`src/BearCounter.jsx\`) is a React file, and its components render as React islands inside native ones. See what-react's MIXED.md.
+- The \`what-react/vite\` plugin handles aliasing and pre-bundling automatically.`;
   }
 
   if (cssApproach === 'tailwind') {
@@ -2563,17 +2560,21 @@ To add an island: create it in \`src/islands/\`, register it by name in
 \`what-framework/server\`). The child is its server render and must match what the component
 renders in the browser. Pages are listed in \`routes\` in \`src/entry-server.js\`.`
       : reactCompat
-        ? `This is the SPA template with React compat: JSX goes through \`what-react\`, not
-\`what-compiler\`, so a component written in JSX is a React component. React's hooks
-return values and the component re-renders when its React state changes; a component
-built with \`h()\` from \`what-framework\` still runs ONCE. A signal in a React component
-lives outside it (or in a ref), and renders as a function child, which What keeps up to
-date without a re-render.
+        ? `This is the SPA template with React libraries. Components run ONCE: Vite +
+\`what-compiler\` compile the JSX of native files into fine-grained DOM operations.
+\`what-react\` runs React libraries, and a file is a React file when it imports \`react\`
+or calls a hook it imports from a React package (\`src/BearCounter.jsx\` calls zustand's
+\`useStore\`). In a React file, components follow React's rules: hooks return values and
+the component re-renders. A React component used as a tag in a native file renders as a
+React island: its props are values, built again when a signal they read changes, and its
+React state survives. Keep React hooks in React files; native files use \`signal()\`.
 
 \`\`\`jsx
-const count = signal(0, 'count');
-function Counter() {
-  return <output>{() => count()}</output>;
+// src/main.jsx (native)
+import { BearCounter } from './BearCounter.jsx';
+function App() {
+  const count = signal(0, 'count');
+  return <main><output>{count()}</output><BearCounter /></main>;
 }
 \`\`\`
 `
@@ -2693,7 +2694,8 @@ export default [
       esModuleInterop: true,
       resolveJsonModule: true,
       isolatedModules: true,
-      ...(isFullstack ? {} : { types: ['vite/client'] }),
+      // what-react/mixed: React components type-check as tags in native files.
+      ...(isFullstack ? {} : { types: reactCompat ? ['vite/client', 'what-react/mixed'] : ['vite/client'] }),
     },
     include: ['src'],
   }, null, 2) + '\n');
@@ -2721,6 +2723,7 @@ export default [
   } else {
     // src/main.jsx
     writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
+    if (reactCompat) writeFileSync(resolve(root, 'src', 'BearCounter.jsx'), generateBearCounter(options));
 
     // src/styles.css
     if (reactCompat && cssApproach === 'none') {
@@ -2737,7 +2740,7 @@ export default [
   console.log(`\nCreated ${root}.`);
 
   const features = [];
-  if (reactCompat) features.push('React compat (what-react + zustand demo)');
+  if (reactCompat) features.push('React libraries (what-react, zustand demo)');
   if (cssApproach === 'tailwind') features.push('Tailwind CSS v4');
   if (cssApproach === 'stylex') features.push('StyleX');
   if (features.length > 0) {

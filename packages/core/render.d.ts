@@ -99,6 +99,10 @@ export function _$mapKeyed<T>(
 // exported from the package index). Emitted by the compiler for branch
 // memoization of conditional JSX.
 export function _$memo<T>(fn: () => T): (() => T) & { peek(): T };
+// The lazy memo (a computed): the condition of a branch that may never be
+// reached, evaluated on its first read. Emitted for inner arms of ternary
+// chains, <Show> fallbacks and ternaries handed to a component as JSX.
+export function _$lazyMemo<T>(fn: () => T): () => T;
 
 export interface IslandProps {
   component: Component<any>;
@@ -186,5 +190,9 @@ export function _$members<T>(build: () => T, nested?: number): T;
 export function _$member<T>(value: T, index: number): T;
 /** @internal Compiled JSX: `props` carrying `slots`, the factories of the props its JSX passed as JSX or forwarded, which the component reads as lazy getters. */
 export function _$slots<P extends object>(props: P, slots: Record<string, () => unknown>): P;
+/** @internal Compiled JSX's spread props, merged in order into one props object with no prototype; getters of props objects What built stay getters (live props). */
+export function _$merge(...sources: unknown[]): Record<string, unknown>;
+/** @internal Compiled JSX's rest element of destructured props: `props` without `keys`, getters kept. */
+export function _$omit(props: unknown, keys: readonly string[]): Record<string, unknown>;
 /** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. `inPlace` 1: where the server writes it with no markers of its own (an element's hole, a fragment's or an array's members). */
 export function _$place(props: object, key: string, inPlace?: 1): unknown;

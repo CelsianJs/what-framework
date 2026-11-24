@@ -46,17 +46,26 @@ test('the StyleX scaffold uses a StyleX plugin npm installs next to its Vite', a
   }
 });
 
-test('the React-compat scaffold renders its signal as a function child the React component cannot reset', async () => {
+test('the React scaffold is a native app with a React file inside it', async () => {
   const { cwd, root } = await scaffoldSpa('compat-app', 'y\n1\n');
   try {
     const main = await readFile(join(root, 'src', 'main.jsx'), 'utf8');
-    assert.match(main, /^const count = signal\(0, 'count'\);$/m, 'the signal lives outside the React component');
-    assert.match(main, /<output>\{\(\) => count\(\)\}<\/output>/, 'and renders as a function child');
-    assert.doesNotMatch(main, /\{count\(\)\}/, 'a value read once by a React component never updates');
+    assert.match(main, /^import \{ BearCounter \} from '\.\/BearCounter\.jsx';$/m);
+    assert.match(main, /^ {2}const count = signal\(0, 'count'\);$/m, 'the native component owns its signal');
+    assert.match(main, /<output>\{count\(\)\}<\/output>/, 'and reads it as native JSX does');
+    assert.match(main, /<BearCounter \/>/);
+    assert.doesNotMatch(main, /from 'zustand'|useStore\(/, 'no React hook in the native file');
+    const counter = await readFile(join(root, 'src', 'BearCounter.jsx'), 'utf8');
+    assert.match(counter, /import \{ create \} from 'zustand';/);
+    assert.match(counter, /export function BearCounter\(\)/);
+    const vite = await readFile(join(root, 'vite.config.js'), 'utf8');
+    assert.match(vite, /plugins: \[what\(\), reactCompat\(\)/, 'the compiler for native files, what-react for React files');
+    const tsconfig = JSON.parse(await readFile(join(root, 'tsconfig.json'), 'utf8'));
+    assert.deepEqual(tsconfig.compilerOptions.types, ['vite/client', 'what-react/mixed']);
     for (const doc of ['CLAUDE.md', 'AGENTS.md']) {
       const text = await readFile(join(root, doc), 'utf8');
-      assert.match(text, /JSX goes through `what-react`/, `${doc} describes the compat authoring model`);
-      assert.doesNotMatch(text, /This is the SPA template: Vite \+ `what-compiler`/, `${doc} does not claim the compiler`);
+      assert.match(text, /a file is a React file when it imports `react`/, `${doc} describes the mixed authoring model`);
+      assert.doesNotMatch(text, /JSX goes through `what-react`/, `${doc} does not describe the old all-React setup`);
     }
   } finally {
     await rm(cwd, { recursive: true, force: true });

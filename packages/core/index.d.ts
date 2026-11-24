@@ -187,6 +187,15 @@ export function effect(fn: () => void | (() => void), opts?: EffectOptions): () 
  */
 export function createSelector<T>(source: () => T): (key: T) => boolean;
 /**
+ * A live view of the object `source` returns: `view.name` reads the current
+ * value's `name`, so JSX built once from the view (a table cell's render
+ * function handed a row) follows a value replaced under `source` instead of
+ * being built again. In a keyed row, reading `view.id` while the row is built
+ * records only `id`: a replaced item with the same `id` keeps the row and its
+ * state. Read-only; reads `undefined` while `source` returns null or undefined.
+ */
+export function live<T extends object>(source: () => T | null | undefined): T;
+/**
  * Group signal writes so effects run once, when the outermost batch ends.
  * Returns the callback's value.
  */
@@ -378,9 +387,13 @@ export function createResource<T = any, S = any>(
 
 // --- Components ---
 
-export function lazy<P>(
-  loader: () => Promise<{ default: Component<P> } | Component<P>>,
-): Component<P>;
+/**
+ * A component loaded on first render. Typed by the component the loader
+ * resolves to, so its props are inferred through
+ * `import('./Chart').then((m) => ({ default: m.Chart }))` as well.
+ */
+export function lazy<C extends (props: never) => VNodeChild>(loader: () => Promise<{ default: C }>): C;
+export function lazy<C extends (props: never) => VNodeChild>(loader: () => Promise<C>): C;
 export function memo<P>(component: Component<P>, areEqual?: (prev: P, next: P) => boolean): Component<P>;
 
 /**
@@ -411,8 +424,13 @@ export function ErrorBoundary(props: {
   children?: VNodeChild;
 }): VNode;
 
+/**
+ * Its children while `when` is truthy, else `fallback`. `when` is any value
+ * (`when={user()}`), or an accessor of one; the children are built once
+ * while it stays truthy.
+ */
 export function Show(props: {
-  when: boolean | (() => boolean);
+  when: unknown;
   fallback?: VNodeChild;
   children?: VNodeChild;
 }): VNode;
@@ -443,7 +461,7 @@ export function Switch(props: {
 }): VNode;
 
 export function Match(props: {
-  when: boolean | (() => boolean);
+  when: unknown;
   children?: VNodeChild;
 }): VNode;
 

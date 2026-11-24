@@ -734,7 +734,7 @@ function listenToHistory() {
       // Restore saved scroll position for the URL we're arriving at
       const saved = scrollPositions.get(newUrl);
       if (saved) {
-        requestAnimationFrame(() => window.scrollTo(saved.x, saved.y));
+        requestAnimationFrame(() => scrollToPoint(saved.x, saved.y));
       }
     });
   });
@@ -1392,9 +1392,9 @@ export function enableScrollRestoration() {
         // saved offset) is the worse answer to "I asked for #api".
         el?.scrollIntoView();
       } else if (saved) {
-        window.scrollTo(saved.x, saved.y);
+        scrollToPoint(saved.x, saved.y);
       } else if (!isFirstRun) {
-        window.scrollTo(0, 0);
+        scrollToPoint(0, 0);
       }
     });
   });
@@ -1405,6 +1405,14 @@ export function enableScrollRestoration() {
 // to happily, while querySelector('#1') THROWS "Invalid selector". The throw
 // happened inside a requestAnimationFrame callback, where nothing could catch
 // it, so a single numeric anchor took out the frame as an uncaught error.
+// Scroll the window to (x, y) unless it is there already: a scroll that moves
+// nothing is skipped (a DOM without layout, such as jsdom, reports every
+// scrollTo call as not implemented).
+function scrollToPoint(x, y) {
+  if (window.scrollX === x && window.scrollY === y) return;
+  window.scrollTo(x, y);
+}
+
 function queryFragment(hash) {
   try {
     return document.querySelector(hash);

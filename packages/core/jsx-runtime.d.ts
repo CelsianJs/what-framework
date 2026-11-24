@@ -198,10 +198,19 @@ interface WhatSVGAttributes extends WhatHTMLAttributes {
 }
 
 export namespace JSX {
-  type Element = VNode;
+  /**
+   * Empty in a native app. An app that mixes native and React files
+   * (what-react's MIXED.md) references `what-react/mixed`, which adds React's
+   * element shape here: JSX inside a React component's tag is a React
+   * element, and fits a React component's `children: ReactNode`.
+   */
+  interface ForeignElement {}
+  /** Empty in a native app. `what-react/mixed` adds React components (functions returning ReactNode, forwardRef and memo objects, classes). */
+  interface ForeignComponents {}
+  type Element = VNode & ForeignElement;
   // TS 5.1+ checks component returns separately from the JSX expression type.
   // `never` accepts each component's own props without erasing JSX prop checks.
-  type ElementType = string | ((props: never) => VNodeChild);
+  type ElementType = string | ((props: never) => VNodeChild) | ForeignComponents[keyof ForeignComponents];
   interface ElementChildrenAttribute {
     children: {};
   }

@@ -280,10 +280,12 @@ describe('component spread lowering shape', () => {
     const code = compileJSX(`
       function App({ a, b }) { return <Box {...a} mid="m" {...b} />; }
     `);
-    const merged = code.slice(code.indexOf('Object.assign'));
-    const iA = merged.indexOf(' a,');
+    // Merged with getters kept (render.js _$merge); `a` and `b` are read
+    // through props where they are used (common.js deferPlacedProps).
+    const merged = code.slice(code.indexOf('_$merge('));
+    const iA = merged.indexOf('_props.a,');
     const iMid = merged.indexOf('mid: "m"');
-    const iB = merged.indexOf(' b)');
+    const iB = merged.indexOf('_props.b)');
     assert.ok(iA >= 0, `the first spread must survive, got:\n${code}`);
     assert.ok(iB >= 0, `the second spread must survive, got:\n${code}`);
     assert.ok(iA < iMid && iMid < iB, `arguments must follow source order, got:\n${code}`);

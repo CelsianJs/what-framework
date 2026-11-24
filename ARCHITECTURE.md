@@ -102,11 +102,15 @@ markers.
 
 ### Components run once
 
-A component function body executes a single time. Props are a plain object
-with the values the parent passed (frozen in development), not a reactive
-proxy, so `props.label` and `const { label } = props` read the same thing and
-destructuring is fine. A value that changes is passed as its accessor
-(`label={label}`) and called where it renders (`{label()}`). The mistake this
+A component function body executes a single time. Props are an object with
+no prototype (frozen in development), not a reactive proxy. A prop whose
+value reads a signal is a getter over that expression (a live prop, compiled
+like Solid's), so a JSX binding that reads `props.label` re-runs when the
+signal changes; the compiler reads a destructured `{ label }` as
+`props.label` where it is used, and spreads and rest elements keep the
+getters (render.js `_$merge`, `_$omit`, dom.js `_isLiveProp`). A value can
+also be passed as its accessor (`label={label}`) and called where it renders
+(`{label()}`). The mistake this
 model invites is reading a signal without the call, or once in the body: an
 uncalled signal converted to text reports `ERR_MISSING_SIGNAL_READ`, and
 eslint-plugin-what's `no-uncalled-signals` and `signal-call-in-jsx` flag it.

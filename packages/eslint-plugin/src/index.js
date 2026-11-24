@@ -119,7 +119,7 @@ plugin.configs.recommended = {
     'what/effect-cleanup': 'warn',
     'what/no-unsafe-innerhtml': 'warn',
     'what/signal-debug-name': 'off',
-    'what/prefer-computed': 'off',
+    'what/prefer-computed': 'warn',       // an effect that only writes one signal is a computed()
     'what/no-async-component': 'warn',
     'what/no-promise-in-usememo': 'warn',
     'what/no-optimistic-snapshot': 'warn',
@@ -177,7 +177,7 @@ plugin.configs.compiler = {
     'what/effect-cleanup': 'warn',
     'what/no-unsafe-innerhtml': 'warn',
     'what/signal-debug-name': 'off',
-    'what/prefer-computed': 'off',
+    'what/prefer-computed': 'warn',       // an effect that only writes one signal is a computed()
     'what/no-async-component': 'warn',
     'what/no-promise-in-usememo': 'warn',
     'what/no-optimistic-snapshot': 'warn',

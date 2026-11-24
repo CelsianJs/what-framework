@@ -355,10 +355,55 @@ function isWhatTag(name, state) {
 // was imported from: a bare specifier can be a re-export of What's control
 // flow just as a relative one can, and nobody writes <Match> arms against a
 // third-party <Switch>. Unlike <Show> and <For>, <Switch> has no working
-// runtime path, so guessing wrong here renders the fallback forever.
-export function hasLiteralMatchArms(node) {
-  return node.children.some((child) =>
-    t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }));
+// runtime path, so guessing wrong here renders the fallback forever. An arm
+// written under the name What's Match was imported as counts too.
+export function hasLiteralMatchArms(node, state) {
+  return node.children.some((child) => t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name)
+    && (child.openingElement.name.name === 'Match' || (state != null && whatControlFlow(state).get(child.openingElement.name.name) === 'Match')));
+}
+
+// --- What's control flow, by where it was imported from ---
+//
+// <For>, <Show>, <Switch> and <Match> lower to inserters and conditionals
+// (dom.js transformElementFineGrained, ssr.js jsxValue). The tag is what the
+// file imported from What, under whatever name: `import { Switch as Branch }`
+// lowers `<Branch>` as a <Switch>, so a file can keep the name `Switch` for a
+// UI toggle of its own. A tag that was not imported from What keeps the old
+// rule: lowered by its name unless a package other than What exports it.
+
+const CONTROL_FLOW = new Set(['For', 'Show', 'Switch', 'Match']);
+
+/** The local names this file imports What's control flow under, to the name What exports. */
+function whatControlFlow(state) {
+  if (state._whatControlFlow) return state._whatControlFlow;
+  /** @type {Map<string, string>} */
+  const names = new Map();
+  for (const node of state.file?.ast?.program?.body ?? []) {
+    if (!t.isImportDeclaration(node) || node.importKind === 'type' || !isWhatModuleSource(node.source.value)) continue;
+    for (const spec of node.specifiers) {
+      if (!t.isImportSpecifier(spec) || spec.importKind === 'type') continue;
+      const imported = spec.imported.name ?? spec.imported.value;
+      if (CONTROL_FLOW.has(imported)) names.set(spec.local.name, imported);
+    }
+  }
+  state._whatControlFlow = names;
+  return names;
+}
+
+/**
+ * The control flow built-in the JSX element `el` is, as What exports it
+ * ('For', 'Show', 'Switch' or 'Match'), or null for any other element. A
+ * third party's <Switch> is What's only when its literal <Match> arms say so.
+ */
+export function controlFlowTag(el, state) {
+  const name = el && el.openingElement ? el.openingElement.name : null;
+  if (!t.isJSXIdentifier(name)) return null;
+  const local = name.name;
+  const imported = whatControlFlow(state).get(local);
+  if (imported !== undefined) return imported;
+  if (!CONTROL_FLOW.has(local)) return null;
+  if (!isForeignTag(local, state)) return local;
+  return local === 'Switch' && hasLiteralMatchArms(el, state) ? 'Switch' : null;
 }
 
 // --- The JSX handed straight to hydrate() ---
@@ -430,20 +475,31 @@ export function componentCallee(name) {
   return t.identifier(name.name);
 }
 
-// --- Props a component only places ---
+// --- Props a component reads where it uses them ---
 // Compiled JSX hands a component JSX as a getter that builds it when read:
 // its children (dom.js _installLazyChildren), and the JSX it passes in any
-// other prop (`header={<Nav />}`, _$slots). Destructuring such a prop, in
-// the parameter list or from props in the body, reads it there, before the
-// component's output exists: a boundary or a provider it is forwarded into
-// is not entered yet (the boundary never catches, the provider publishes too
-// late), and while hydrating the JSX is built off the walk and takes the
-// place of the server's nodes for it. When every read of a destructured prop
-// places it, each read becomes a placing read of `props.<key>` where it
-// stands, which builds the JSX where it renders, as `props.children` written
-// there does. A binding that is ever inspected (`children.length`,
-// `Array.isArray(children)`, a truthiness test, a local alias) keeps its
-// destructuring: inspecting builds the value.
+// other prop (`header={<Nav />}`, _$slots). It hands a prop whose value reads
+// a signal (`on={count() > 0}`) as a getter too, a live prop (what-core
+// dom.js _isLiveProp), which reads the expression again wherever it is read.
+// Destructuring a prop, in the parameter list or from props in the body,
+// reads its getter there, once, before the component's output exists: a
+// live prop would freeze at its first value, and JSX would be built before a
+// boundary or a provider it is forwarded into is entered (the boundary never
+// catches, the provider publishes too late) and, while hydrating, off the
+// walk, taking the place of the server's nodes for it.
+//
+// So a destructured prop is read where it is used instead:
+// - when every read of it places it, each read becomes a placing read of
+//   `props.<key>` where it stands, which builds JSX where it renders, as
+//   `props.children` written there does (and places a live prop as a
+//   reactive child);
+// - otherwise, in a function that renders JSX, each read becomes the read
+//   `props.<key>` where it stands, which the JSX bindings around it track
+//   (reactivity.js isPropsRead).
+// A binding that is reassigned, one with a default that is not a plain
+// literal (`items = []` would be a new array at every read), a nested
+// pattern, one used as a JSX tag (`<Icon />`) and a computed key keep their
+// destructuring, read once.
 //
 // The DOM back end also marks a read of `props.<key>` written by hand where
 // it is placed. A placing read is `_$place(props, "key")` (render.js), which
@@ -454,14 +510,19 @@ export function deferPlacedProps(fnPath, state) {
   const params = fnPath.node.params;
   if (params.length !== 1 || isRowFunction(fnPath, state)) return;
   const param = params[0];
+  const rendersJsx = containsJsx(fnPath.node);
   if (t.isObjectPattern(param)) {
-    const found = placedProps(fnPath, param, fnPath.scope, state);
+    const found = placedProps(fnPath, param, fnPath.scope, state, rendersJsx);
     if (found === null || !movesIntoBody(fnPath, found.others)) return;
     const propsId = fnPath.scope.generateUidIdentifier('props');
     if (param.typeAnnotation) propsId.typeAnnotation = param.typeAnnotation;
     readAtUse(fnPath, found, propsId, state);
     params[0] = propsId;
-    const declarators = otherProps(fnPath, found, propsId);
+    if (rendersJsx) fnPath.node._whatPropsParam = propsId.name;
+    // The parameter was a pattern: `props.<key>()` is a destructured
+    // accessor prop's call (auto-selector.js sourceOf).
+    fnPath.node._whatPropsPattern = true;
+    const declarators = otherProps(fnPath, found, propsId, state);
     if (declarators.length > 0) {
       if (!t.isBlockStatement(fnPath.node.body)) {
         fnPath.node.body = t.blockStatement([t.returnStatement(fnPath.node.body)]);
@@ -473,8 +534,15 @@ export function deferPlacedProps(fnPath, state) {
       fnPath.node._whatMovedProps = t.objectPattern(found.others);
     }
   } else if (t.isIdentifier(param)) {
-    const binding = fnPath.scope.getBinding(param.name);
+    let binding = fnPath.scope.getBinding(param.name);
     if (!binding || binding.constantViolations.length > 0) return;
+    // Its reads `props.<key>` in JSX are bindings (reactivity.js isPropsRead).
+    if (rendersJsx) fnPath.node._whatPropsParam = param.name;
+    if (rendersJsx && inlinePropAliases(fnPath, binding)) {
+      fnPath.scope.crawl();
+      binding = fnPath.scope.getBinding(param.name);
+      if (!binding) return;
+    }
     const rewrites = [];
     const reads = [];
     for (const ref of binding.referencePaths) {
@@ -482,7 +550,7 @@ export function deferPlacedProps(fnPath, state) {
       if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
         // `const { children } = props` in the body.
         if (decl.parent.kind === 'var' || ref.getFunctionParent() !== fnPath) continue;
-        const found = placedProps(fnPath, decl.node.id, decl.scope, state);
+        const found = placedProps(fnPath, decl.node.id, decl.scope, state, rendersJsx);
         if (found !== null) rewrites.push([decl, found]);
       } else if (!state.ssr && decl.isMemberExpression() && ref.key === 'object' && !t.isNumericLiteral(decl.node.property)
           && propertyName(decl.node.property, decl.node.computed) !== null && placesValue(decl, fnPath, state)) {
@@ -492,7 +560,7 @@ export function deferPlacedProps(fnPath, state) {
     if (rewrites.length === 0 && reads.length === 0) return;
     for (const [decl, found] of rewrites) {
       readAtUse(fnPath, found, param, state);
-      const declarators = otherProps(fnPath, found, param);
+      const declarators = otherProps(fnPath, found, param, state);
       if (declarators.length > 0) decl.replaceWithMultiple(declarators);
       else decl.remove();
     }
@@ -501,6 +569,90 @@ export function deferPlacedProps(fnPath, state) {
     return;
   }
   fnPath.scope.crawl();
+}
+
+// --- Aliases of a prop ---
+//
+// `const ev = props.ev;` and then `{ev.label}` read the prop's getter once,
+// where the alias is declared, so the JSX showed the first value forever (in
+// a keyed row, the row's first item). React evaluates it on every render. An
+// alias that is a `const` holding a member chain off props (`props.ev`,
+// `props.ev.item`, `props.ev?.item`, literal keys only), declared in the
+// component's own body and never reassigned, is read as that chain where
+// each read stands: the way a destructured prop is (readAtUse), so a read in
+// JSX is a live binding. An alias of an alias resolves the same way. Any
+// other initializer (a call, arithmetic, `let`) is read once, as before.
+
+/** Rewrite the prop aliases of the component `fnPath` whose props are `binding`; whether any was. */
+function inlinePropAliases(fnPath, binding) {
+  let changed = false;
+  for (let pass = 0; pass < 8; pass++) {
+    const aliases = [];
+    for (const ref of binding.referencePaths) {
+      const alias = propAlias(ref, fnPath);
+      if (alias !== null && !aliases.some((a) => a.binding === alias.binding)) aliases.push(alias);
+    }
+    if (aliases.length === 0) break;
+    for (const { decl, binding: alias, init } of aliases) {
+      for (const read of alias.referencePaths) {
+        if (read.parentPath.isObjectProperty({ shorthand: true }) && read.key === 'value') read.parent.shorthand = false;
+        read.replaceWith(t.cloneNode(init, true));
+      }
+      decl.remove();
+    }
+    changed = true;
+    fnPath.scope.crawl();
+    const next = fnPath.scope.getBinding(/** @type {any} */ (binding.identifier).name);
+    if (!next) break;
+    binding = next;
+  }
+  return changed;
+}
+
+// The alias `const name = <ref>.a.b` that the props reference `ref` starts,
+// as { decl, binding, init }, or null.
+function propAlias(ref, fnPath) {
+  let top = ref;
+  for (;;) {
+    const parent = top.parentPath;
+    if (!(parent.isMemberExpression() || parent.isOptionalMemberExpression()) || top.key !== 'object') break;
+    if (parent.node.computed && propertyName(parent.node.property, true) === null) return null;
+    top = parent;
+  }
+  if (top === ref) return null;
+  const decl = top.parentPath;
+  if (!decl.isVariableDeclarator() || top.key !== 'init' || !t.isIdentifier(decl.node.id)) return null;
+  if (decl.parent.kind !== 'const' || decl.getFunctionParent() !== fnPath) return null;
+  const alias = decl.scope.getBinding(decl.node.id.name);
+  if (!alias || alias.constantViolations.length > 0 || alias.referencePaths.length === 0) return null;
+  // A tag (`<ev.Icon />`) names a component, not a value to read live.
+  if (alias.referencePaths.some((read) => read.isJSXIdentifier())) return null;
+  // JSX handed in a prop is built when it is read (render.js _$slots): an
+  // alias of it, read in the run, is that build, which a thunk running later
+  // indexes (`{() => panels[at()]}`, core test lazy-props). So `children`,
+  // which is always JSX, and an alias read with a computed key keep the
+  // value they read in the run.
+  const first = t.isMemberExpression(top.node) || t.isOptionalMemberExpression(top.node) ? firstKey(top.node) : null;
+  if (first === 'children') return null;
+  if (alias.referencePaths.some((read) => (read.parentPath.isMemberExpression() || read.parentPath.isOptionalMemberExpression())
+      && read.key === 'object' && read.parent.computed && propertyName(read.parent.property, true) === null)) return null;
+  return { decl, binding: alias, init: top.node };
+}
+
+// The first key read off the root of the member chain `node` (`props.a.b` → 'a').
+function firstKey(node) {
+  while (t.isMemberExpression(node.object) || t.isOptionalMemberExpression(node.object)) node = node.object;
+  return propertyName(node.property, node.computed);
+}
+
+// Whether a function renders JSX: JSX anywhere in its body, nested callbacks
+// included (`items.map((i) => <li />)`).
+function containsJsx(fn) {
+  let found = false;
+  t.traverseFast(fn.body, (node) => {
+    if (node.type === 'JSXElement' || node.type === 'JSXFragment') found = true;
+  });
+  return found;
 }
 
 // A callback a method calls (`.map(row => …)`, `.then(…)`), the row
@@ -515,34 +667,40 @@ function isRowFunction(fnPath, state) {
   return parent.parentPath.isJSXAttribute() || (parent.parentPath.isJSXElement() && isLoweredTag(parent.parentPath.node, 'For', state));
 }
 
-// The properties of `pattern` whose every read places the value (`placed`:
-// each with its key, binding and literal default), else null when there are
-// none. `others` are the pattern's other properties, and `rest` its rest
-// element.
-function placedProps(fnPath, pattern, scope, state) {
+// The properties of `pattern` read where they are used (`placed`: each read
+// places the value; `live`: in a function that renders JSX, read as
+// `props.<key>`; each with its key, binding and literal default), else null
+// when there are none. `others` are the pattern's other properties, and
+// `rest` its rest element.
+function placedProps(fnPath, pattern, scope, state, rendersJsx) {
   const counts = new Map();
   for (const prop of pattern.properties) {
     const name = t.isObjectProperty(prop) ? propertyName(prop.key, prop.computed) : null;
     if (name !== null) counts.set(name, (counts.get(name) || 0) + 1);
   }
   const placed = [];
+  const live = [];
   const others = [];
   for (const prop of pattern.properties) {
-    const entry = t.isObjectProperty(prop) ? placedProp(fnPath, prop, scope, state) : null;
+    const entry = t.isObjectProperty(prop) ? readProp(fnPath, prop, scope) : null;
     // A second key would still read the getter where it is destructured.
-    if (entry !== null && counts.get(entry.key) === 1) placed.push(entry);
+    if (entry === null || counts.get(entry.key) !== 1) others.push(prop);
+    else if (entry.binding.referencePaths.every((ref) => placesValue(ref, fnPath, state))) placed.push(entry);
+    else if (rendersJsx && entry.binding.referencePaths.every((ref) => !ref.isJSXIdentifier())) live.push(entry);
     else others.push(prop);
   }
-  if (placed.length === 0) return null;
+  if (placed.length === 0 && live.length === 0) return null;
   const last = others[others.length - 1];
   const rest = t.isRestElement(last) ? last : null;
   // The rest object is built by naming the keys it leaves out.
   if (rest !== null && (!t.isIdentifier(rest.argument)
       || others.some((p) => t.isObjectProperty(p) && propertyName(p.key, p.computed) === null))) return null;
-  return { placed, others, rest };
+  return { placed, live, others, rest };
 }
 
-function placedProp(fnPath, prop, scope, state) {
+// A destructured prop that can be read where it is used: a static key bound
+// to a name that is never reassigned, with no default or a plain literal one.
+function readProp(fnPath, prop, scope) {
   const key = propertyName(prop.key, prop.computed);
   if (key === null) return null;
   let local = prop.value;
@@ -557,7 +715,6 @@ function placedProp(fnPath, prop, scope, state) {
   if (!t.isIdentifier(local)) return null;
   const binding = scope.getBinding(local.name);
   if (!binding || binding.constantViolations.length > 0) return null;
-  if (!binding.referencePaths.every((ref) => placesValue(ref, fnPath, state))) return null;
   return { key, binding, fallback };
 }
 
@@ -616,9 +773,7 @@ function placingAttribute(el, attr, state) {
 // A built-in the DOM back end lowers (dom.js transformElementFineGrained):
 // What's own <For>, <Show> or <Switch>, never a third party's of that name.
 function isLoweredTag(el, tag, state) {
-  const name = el.openingElement.name;
-  if (!t.isJSXIdentifier(name, { name: tag })) return false;
-  return !isForeignTag(tag, state) || (tag === 'Switch' && hasLiteralMatchArms(el));
+  return controlFlowTag(el, state) === tag;
 }
 
 /**
@@ -629,7 +784,7 @@ function isLoweredTag(el, tag, state) {
  * any attribute of an island or of a built-in the DOM back end lowers.
  */
 export function isSlotAttribute(el, attr, state) {
-  if (!isComponentElement(el) || ['For', 'Show', 'Switch', 'Match'].some((tag) => isLoweredTag(el, tag, state))) return false;
+  if (!isComponentElement(el) || controlFlowTag(el, state) !== null) return false;
   const attrs = el.openingElement.attributes;
   const name = getAttrName(attr);
   // A later spread or a later attribute of the same name decides the value.
@@ -643,11 +798,14 @@ export function isSlotAttribute(el, attr, state) {
 // `props[key]` read where it is placed: `_$place(props, "key")` for the DOM
 // back end (the reactivity analysis reads it as `props.key`), `props.key` for
 // the server's.
-function placingRead(propsId, key, state) {
+function placingRead(propsId, key, state, fallback = null) {
   if (state.ssr) return t.memberExpression(t.cloneNode(propsId), propKey(key), !t.isIdentifier(propKey(key)));
   const callee = helper(state, '_$place');
   callee._whatPlace = true;
-  return t.callExpression(callee, [t.cloneNode(propsId), t.stringLiteral(key)]);
+  const args = [t.cloneNode(propsId), t.stringLiteral(key)];
+  // `({ label = 'x' })`: the default, applied where the value is undefined.
+  if (fallback !== null) args.push(t.unaryExpression('void', t.numericLiteral(0)), t.cloneNode(fallback));
+  return t.callExpression(callee, args);
 }
 
 // Moving a parameter pattern into the body changes what its defaults and
@@ -668,18 +826,33 @@ function movesIntoBody(fnPath, others) {
 }
 
 // Each read of a placed binding becomes a placing read of `props.<key>`
-// where it stands. With a default, one read into a temporary: a read once
-// the component has returned builds the value again.
+// where it stands, and each read of a live one the read `props.<key>`. With
+// a default, one read into a temporary: a read once the component has
+// returned builds the value again.
 function readAtUse(fnPath, found, propsId, state) {
-  for (const { key, binding, fallback } of found.placed) {
+  const entries = [
+    ...found.placed.map((entry) => [entry, () => placingRead(propsId, entry.key, state)]),
+    ...found.live.map((entry) => [entry, () => propRead(propsId, entry.key)]),
+  ];
+  for (const [{ key, binding, fallback }, read] of entries) {
+    for (const ref of binding.referencePaths) {
+      // `{ id }` in an object literal names the prop's value.
+      if (ref.parentPath.isObjectProperty({ shorthand: true }) && ref.key === 'value') ref.parent.shorthand = false;
+    }
     if (fallback === null) {
-      for (const ref of binding.referencePaths) ref.replaceWith(placingRead(propsId, key, state));
+      for (const ref of binding.referencePaths) ref.replaceWith(read());
+      continue;
+    }
+    if (!state.ssr && found.placed.some((entry) => entry.binding === binding)) {
+      // The DOM back end's placing read takes the default (dom.js _place),
+      // which a live prop applies at each read.
+      for (const ref of binding.referencePaths) ref.replaceWith(placingRead(propsId, key, state, fallback));
       continue;
     }
     const temp = fnPath.scope.generateUidIdentifier(key);
     for (const ref of binding.referencePaths) {
       ref.replaceWith(t.conditionalExpression(
-        t.binaryExpression('===', t.assignmentExpression('=', t.cloneNode(temp), placingRead(propsId, key, state)), t.unaryExpression('void', t.numericLiteral(0))),
+        t.binaryExpression('===', t.assignmentExpression('=', t.cloneNode(temp), read()), t.unaryExpression('void', t.numericLiteral(0))),
         t.cloneNode(fallback),
         t.cloneNode(temp),
       ));
@@ -688,16 +861,25 @@ function readAtUse(fnPath, found, propsId, state) {
   }
 }
 
+// `props.<key>`, a live read (not a placing one).
+function propRead(propsId, key) {
+  const k = propKey(key);
+  return t.memberExpression(t.cloneNode(propsId), k, !t.isIdentifier(k));
+}
+
 // Declarators for the pattern's other properties, read from `source`. The
 // rest object names the keys it leaves out instead: destructuring a placed
 // prop into nothing would read it.
-function otherProps(fnPath, found, source) {
+function otherProps(fnPath, found, source, state) {
   const named = found.rest === null ? found.others : found.others.slice(0, -1);
   const declarators = [];
   if (named.length > 0) declarators.push(t.variableDeclarator(t.objectPattern(named), t.cloneNode(source)));
   if (found.rest !== null) {
-    const excluded = [...found.placed.map((p) => p.key), ...named.map((p) => propertyName(p.key, p.computed))].map((name) => t.stringLiteral(name));
-    const without = t.callExpression(fnPath.hub.addHelper('objectWithoutProperties'), [t.cloneNode(source), t.arrayExpression(excluded)]);
+    const excluded = [...found.placed.map((p) => p.key), ...found.live.map((p) => p.key), ...named.map((p) => propertyName(p.key, p.computed))].map((name) => t.stringLiteral(name));
+    // The DOM back end's rest keeps live props live (render.js _$omit); the
+    // server renders once and reads them.
+    const omit = state.ssr ? fnPath.hub.addHelper('objectWithoutProperties') : helper(state, '_$omit');
+    const without = t.callExpression(omit, [t.cloneNode(source), t.arrayExpression(excluded)]);
     declarators.push(t.variableDeclarator(found.rest.argument, without));
   }
   return declarators;
@@ -1009,9 +1191,8 @@ export function readSwitch(path, state) {
   // A <Switch> that got here on its arms alone came from the same foreign
   // specifier its arms did, so its <Match> is ours by the same reasoning.
   const armsProveIt = isForeignTag(node.openingElement.name.name, state);
-  const isMatch = (child) =>
-    t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' }) &&
-    (armsProveIt || !isForeignTag('Match', state));
+  const isMatch = (child) => t.isJSXElement(child) && (controlFlowTag(child, state) === 'Match'
+    || (armsProveIt && t.isJSXIdentifier(child.openingElement.name, { name: 'Match' })));
   if (!node.children.some(isMatch) && !isWhatTag(node.openingElement.name.name, state)) return null;
 
   const unsupported = (why) => {

@@ -17,6 +17,8 @@ export { computed, refresh, isPending, startTransition, useTransition, useOptimi
 export { useActionState, useFormStatus } from './actions.js';
 // O(1) keyed selection: isSelected(key) re-runs only the readers of the keys a change involves.
 export { createSelector } from './selector.js';
+// A live view of the value an accessor returns, for render functions handed a row.
+export { live } from './live.js';
 
 // Rendering. h is also a compiler target: compiled JSX imports it from here.
 export { h, Fragment, html } from './h.js';

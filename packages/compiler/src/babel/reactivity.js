@@ -53,7 +53,7 @@ export function isSignalIdentifier(name, signalNames) {
 // Walks the scope chain from the given path upward, collecting signals
 // defined in each lexical scope (function/block).
 export function collectSignalNamesFromScope(path) {
-  /** @type {Set<string> & { fromDestructuredProps?: Set<string>, scope?: any, calls?: any[] }} */
+  /** @type {Set<string> & { fromDestructuredProps?: Set<string>, propsObjects?: Set<string>, scope?: any, calls?: any[] }} */
   const signalNames = new Set();
   // Names that came from a DESTRUCTURED PROP rather than a signal() call.
   //
@@ -71,6 +71,13 @@ export function collectSignalNamesFromScope(path) {
   // both a plain value and an accessor.
   const propNames = new Set();
   signalNames.fromDestructuredProps = propNames;
+  // The props parameters of the functions around: `props` of `(props) => …`,
+  // and the one deferPlacedProps (common.js) made of a destructured pattern.
+  // A read `props.<key>` may be a live prop's getter (what-core dom.js
+  // _isLiveProp), so it is reactive (isPropsRead).
+  /** @type {Set<string>} */
+  const propsObjects = new Set();
+  signalNames.propsObjects = propsObjects;
   // Where the names were collected: a call is resolved from here to the
   // function it calls (see callReadsInside).
   signalNames.scope = path.scope;
@@ -79,10 +86,11 @@ export function collectSignalNamesFromScope(path) {
   let scope = path.scope;
   while (scope) {
     const own = scopeNamesCache !== null ? scopeNamesCache.get(scope) : undefined;
-    const { signals, props } = own || ownSignalNames(scope);
-    if (scopeNamesCache !== null && own === undefined) scopeNamesCache.set(scope, { signals, props });
+    const { signals, props, propsObject } = own || ownSignalNames(scope);
+    if (scopeNamesCache !== null && own === undefined) scopeNamesCache.set(scope, { signals, props, propsObject });
     for (const name of signals) signalNames.add(name);
     for (const name of props) propNames.add(name);
+    if (propsObject !== null) propsObjects.add(propsObject);
     scope = scope.parent;
   }
 
@@ -158,7 +166,21 @@ function ownSignalNames(scope) {
     // it is still the same props destructuring and classifies the same way.
     if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
   }
-  return { signals, props };
+  return { signals, props, propsObject: (fnNode && fnNode._whatPropsParam) || null };
+}
+
+// A read of a component's props object (`props.on`, `props.user.name`): its
+// root is the props parameter deferPlacedProps (common.js) marked, which the
+// read's scope still binds to that parameter.
+function isPropsRead(expr, signalNames) {
+  const objects = signalNames.propsObjects;
+  if (objects === undefined || objects.size === 0) return false;
+  let root = expr;
+  while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
+  if (!t.isIdentifier(root) || !objects.has(root.name)) return false;
+  const binding = bindingOf(root, signalNames.scope);
+  return binding !== null && binding.kind === 'param' && binding.path.parentPath != null
+    && binding.path.parentPath.node._whatPropsParam === root.name;
 }
 
 // A `collectSignalNames` wrapper lived here, commented "legacy wrapper for
@@ -273,7 +295,8 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   // declares) and the read may run an accessor of it. A read of a value the
   // compiler did not see built (a prop, a parameter) is a plain read.
   if (t.isMemberExpression(expr) || t.isOptionalMemberExpression(expr)) {
-    return isPotentiallyReactive(expr.object, signalNames, importedIds) ||
+    return isPropsRead(expr, signalNames) ||
+           isPotentiallyReactive(expr.object, signalNames, importedIds) ||
            (expr.computed && isPotentiallyReactive(expr.property, signalNames, importedIds)) ||
            mayRunAccessor(expr, signalNames.scope, importedIds);
   }
@@ -1859,7 +1882,7 @@ export function resolveCallees(program, callPaths, importedIds) {
 // before any JSX is lowered (lowering rewrites a row callback's parameters):
 // a module of thousands of functions reads its top-level bindings once, not
 // once per function.
-/** @type {WeakMap<object, { signals: string[], props: string[] }> | null} */
+/** @type {WeakMap<object, { signals: string[], props: string[], propsObject: string | null }> | null} */
 let scopeNamesCache = null;
 
 // A `when` prop's shape determines how the condition is formed:
@@ -1892,7 +1915,10 @@ export function buildWhenCondition(whenExpr, state) {
     return whenExpr;
   }
   const root = plainMemberChainRoot(whenExpr);
-  if (root && isUnprovenBinding(root.name)) return resolveAccessorAtRuntime(whenExpr);
+  // `props.when` may hold an accessor, as a destructured `when` may (which
+  // common.js deferPlacedProps reads as `props.when`).
+  const viaProps = root && state.signalNames && state.signalNames.propsObjects && state.signalNames.propsObjects.has(root.name);
+  if (root && (isUnprovenBinding(root.name) || viaProps)) return resolveAccessorAtRuntime(whenExpr);
   return whenExpr;
 }
 

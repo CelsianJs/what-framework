@@ -9,6 +9,7 @@
  * as a store action.
  *
  * Bad:  function App() { count(count() + 1); return ... }
+ * Bad:  function App() { return <div>{() => { tab(0); return ... }}</div> }
  * Good: function App() { return <button onclick={() => count(c => c + 1)} /> }
  * Good: function App() { function add() { count(1); } return <button onclick={add} /> }
  * Good: effect(() => { count(0); })
@@ -30,12 +31,28 @@ function isComponent(fn) {
   return fn.parent?.type === 'ExportDefaultDeclaration';
 }
 
+// A function What runs as part of rendering: a JSX function child (a
+// region, `{() => ...}`), or the value of a host element's attribute that is
+// not an event handler or a ref (`class={() => ...}`). It runs when the
+// component renders and again whenever what it reads changes, so a write in it
+// is a write during render (and often a loop).
+function isRenderRegion(fn) {
+  const container = fn.parent;
+  if (container?.type !== 'JSXExpressionContainer') return false;
+  const owner = container.parent;
+  if (owner?.type === 'JSXElement' || owner?.type === 'JSXFragment') return true;
+  if (owner?.type !== 'JSXAttribute' || owner.name.type !== 'JSXIdentifier') return false;
+  const tag = owner.parent?.name;
+  const host = tag?.type === 'JSXIdentifier' && /^[a-z]/.test(tag.name);
+  return host && !/^on/i.test(owner.name.name) && owner.name.name !== 'ref';
+}
+
 /** The component whose render executes `node`, or null. */
 function renderingComponent(node) {
   for (let n = node.parent; n; n = n.parent) {
     if (!FUNCTION_TYPES.has(n.type)) continue;
     if (isComponent(n)) return n;
-    if (!runsInPlace(n)) return null;
+    if (!runsInPlace(n) && !isRenderRegion(n)) return null;
   }
   return null;
 }

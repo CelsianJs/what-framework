@@ -212,6 +212,49 @@ function run(e) {
   };
 }
 
+// --- Structural sharing ---
+// TanStack Query's default (and what SWR's deep compare gives): a fetch that
+// answers data equal to what the cache holds keeps the cached references, and
+// one that changes part of it keeps every part it did not change. A refetch of
+// a list with the same rows hands a keyed .map() the same row objects, so no
+// row shows a replaced item and nothing its rows built (a component's state,
+// an open menu) is rebuilt; a changed row is a new object, its neighbours are
+// not. Only arrays and plain objects are compared; anything else is taken as
+// it arrives.
+
+function isPlainObject(v) {
+  if (v === null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/** `next`, reusing every part of `prev` it equals (prev itself when all of it does). */
+export function replaceEqualDeep(prev, next) {
+  if (prev === next) return prev;
+  const array = Array.isArray(prev) && Array.isArray(next);
+  if (!array && !(isPlainObject(prev) && isPlainObject(next))) return next;
+  const prevKeys = array ? null : Object.keys(prev);
+  const prevSize = array ? prev.length : prevKeys.length;
+  const nextKeys = array ? null : Object.keys(next);
+  const nextSize = array ? next.length : nextKeys.length;
+  const copy = array ? new Array(nextSize) : {};
+  let equal = 0;
+  for (let i = 0; i < nextSize; i++) {
+    const key = array ? i : nextKeys[i];
+    const was = prev[key];
+    const shared = (array || Object.prototype.hasOwnProperty.call(prev, key)) ? replaceEqualDeep(was, next[key]) : next[key];
+    copy[key] = shared;
+    if (shared === was && (array ? i < prevSize : Object.prototype.hasOwnProperty.call(prev, key))) equal++;
+  }
+  return prevSize === nextSize && equal === prevSize ? prev : copy;
+}
+
+// The option's value as the share function the fetch applies (null: none).
+function sharing(option) {
+  if (option === false || option == null) return null;
+  return typeof option === 'function' ? option : replaceEqualDeep;
+}
+
 // Whether anything would show a fetch nothing asked for by name.
 function wanted(e) {
   if (getServerContext() !== null) return true;
@@ -295,7 +338,16 @@ function watch(at, promise) {
 
 function callFetcher(e, f) {
   const conf = f.conf;
-  if (e.kind === PLAIN) return conf.run(e.key, f.ac.signal);
+  if (e.kind === PLAIN) {
+    const result = conf.run(e.key, f.ac.signal);
+    const share = conf.share;
+    if (share == null) return result;
+    // Structural sharing: what the fetch answers keeps every part of the
+    // cached value it equals, compared when it lands.
+    return result != null && typeof result.then === 'function'
+      ? result.then((next) => share(valueOf(e), next))
+      : share(valueOf(e), result);
+  }
   const base = valueOf(e) ?? { pages: [], pageParams: [] };
   const op = f.op || { param: conf.initialPageParam, place: 'first' };
   // Through the flight's link, as retrying() holds it (see there).
@@ -721,7 +773,10 @@ function observe(kind, key, conf, opts) {
 function stale(e, o) {
   if (e.flight !== null || e.hydrated) return false;
   if (e.error !== undefined || valueOf(e) === undefined) return true;
-  return Date.now() - e.updatedAt > o.staleTime;
+  // Stale once its age reaches staleTime, as in TanStack Query: with the
+  // default 0 a value is stale at once, even one written this millisecond
+  // (setQueryData, then a mount in the same tick, did not refetch).
+  return Date.now() - e.updatedAt >= o.staleTime;
 }
 
 // What a hook shows of the entry its key names now. Tracked: it re-runs when a
@@ -922,11 +977,13 @@ export function useQuery(options) {
     keepPreviousData = false,
     initialData,
     initialDataUpdatedAt,
+    structuralSharing = true,
   } = options;
 
   const gate = createGate(enabled);
   const o = observe(PLAIN, queryKey, {
     run: (k, abortSignal) => queryFn({ queryKey: asArray(k), signal: abortSignal }),
+    share: sharing(structuralSharing),
     retry,
     retryDelay,
   }, { gate, staleTime, gcTime, initialData, initialDataUpdatedAt, onSuccess, onError, onSettled });
@@ -934,9 +991,21 @@ export function useQuery(options) {
   if (refetchOnReconnect) onWindow(o, ['online'], (e) => stale(e, o));
   poll(o, refetchInterval);
 
+  // select(), memoized on its input as TanStack Query does: the same cached
+  // value gives the same selected value, so readers see no change.
+  let selectedFrom = IDLE;
+  let selected;
+  const selectOf = (v) => {
+    if (!select) return v;
+    if (v !== selectedFrom) {
+      selectedFrom = v;
+      selected = select(v);
+    }
+    return selected;
+  };
   const view = () => {
     const s = stateOf(o);
-    if (s.value != null) return { data: select ? select(s.value) : s.value, placeholder: false, s };
+    if (s.value != null) return { data: selectOf(s.value), placeholder: false, s };
     // keepPreviousData (or placeholderData: (previous) => ...): the data of
     // the key this query named before, while the new one loads.
     const before = o.previous !== null && o.previous !== s.e ? valueOf(o.previous) : undefined;
@@ -954,22 +1023,34 @@ export function useQuery(options) {
     return s.fetching || (s.first && gate.peek()) ? 'loading' : 'idle';
   };
 
+  // Each accessor is a computed: a fetch that starts or lands without changing
+  // what one returns (a background refetch of equal data, with structural
+  // sharing) re-runs nothing that reads it. A region that reads data() keeps
+  // what it rendered, as a React component keeps its children's state when
+  // it renders the same elements again.
+  const dataOf = computed(() => view().data);
+  const placeholderOf = computed(() => view().placeholder);
+  const statusOf = computed(status);
+  const errorOf = computed(() => stateOf(o).error);
+  const fetchingOf = computed(() => stateOf(o).fetching);
+  const updatedAtOf = computed(() => {
+    const e = stateOf(o).e;
+    return e !== null ? e.updatedAt : 0;
+  });
+
   return {
-    data: () => view().data,
-    error: () => stateOf(o).error,
-    status,
-    fetchStatus: () => (stateOf(o).fetching ? 'fetching' : 'idle'),
-    isLoading: () => status() === 'loading',
-    isError: () => status() === 'error',
-    isSuccess: () => status() === 'success',
-    isIdle: () => status() === 'idle',
-    isFetching: () => stateOf(o).fetching,
-    isPlaceholderData: () => view().placeholder,
+    data: () => dataOf(),
+    error: () => errorOf(),
+    status: () => statusOf(),
+    fetchStatus: () => (fetchingOf() ? 'fetching' : 'idle'),
+    isLoading: () => statusOf() === 'loading',
+    isError: () => statusOf() === 'error',
+    isSuccess: () => statusOf() === 'success',
+    isIdle: () => statusOf() === 'idle',
+    isFetching: () => fetchingOf(),
+    isPlaceholderData: () => placeholderOf(),
     isEnabled: () => gate(),
-    dataUpdatedAt: () => {
-      const e = stateOf(o).e;
-      return e !== null ? e.updatedAt : 0;
-    },
+    dataUpdatedAt: () => updatedAtOf(),
     // An explicit request: never gated by `enabled`, never answered from the
     // freshness window. Resolves with the data it fetched.
     refetch: () => {
@@ -996,10 +1077,12 @@ export function useSWR(key, fetcher, options = {}) {
     keepPreviousData = false,
     onSuccess,
     onError,
+    structuralSharing = true,
   } = options;
 
   const o = observe(PLAIN, key, {
     run: (k, abortSignal) => fetcher(k, { signal: abortSignal }),
+    share: sharing(structuralSharing),
     retry: 1,
     retryDelay: defaultRetryDelay,
   }, { staleTime: dedupingInterval, onSuccess, onError, lenient: true });
@@ -1022,14 +1105,20 @@ export function useSWR(key, fetcher, options = {}) {
     return e.flight !== null ? outcome(e, e.flight) : refetchOf(e, o);
   };
 
+  // Computeds, as useQuery's: a fetch that changes none of them re-runs no reader.
+  const dataOf = computed(data);
+  const errorOf = computed(() => stateOf(o).error);
+  const loadingOf = computed(() => {
+    const s = stateOf(o);
+    return s.value == null && s.fetching;
+  });
+  const validatingOf = computed(() => stateOf(o).fetching);
+
   return {
-    data,
-    error: () => stateOf(o).error,
-    isLoading: () => {
-      const s = stateOf(o);
-      return s.value == null && s.fetching;
-    },
-    isValidating: () => stateOf(o).fetching,
+    data: () => dataOf(),
+    error: () => errorOf(),
+    isLoading: () => loadingOf(),
+    isValidating: () => validatingOf(),
     // mutate(data, shouldRevalidate = true): put data in the cache for every
     // reader of the key, then fetch it again. mutate() alone revalidates.
     mutate: (...args) => {
@@ -1295,7 +1384,7 @@ export function invalidatePath(path) {
 export function prefetchQuery(key, fetcher, options = {}) {
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
   if (e.observers.size === 0) {
-    e.conf = { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), retry: options.retry ?? 1, retryDelay: defaultRetryDelay };
+    e.conf = { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay };
   }
   const v = valueOf(e);
   let done;

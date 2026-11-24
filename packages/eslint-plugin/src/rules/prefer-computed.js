@@ -3,7 +3,7 @@
  *
  * An effect whose only job is to write one signal from others is a derived
  * value: computed() expresses it directly, evaluates lazily and cannot loop.
- * Off in the recommended and compiler presets, a warning in strict.
+ * A warning in every preset.
  *
  * Bad:  effect(() => { total(items().length); });
  * Good: const total = computed(() => items().length);

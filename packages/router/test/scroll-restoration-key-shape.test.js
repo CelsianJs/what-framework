@@ -339,6 +339,19 @@ describe('enableScrollRestoration hash precedence', () => {
     el.remove();
   });
 
+  it('skips a scroll that would not move the page (a DOM without layout calls every scrollTo unimplemented)', async () => {
+    setScroll(0, 0);
+    scrollCalls = [];
+    await navigate('/never-visited-at-top');
+    await flush();
+    assert.deepEqual(scrollCalls, [], 'already at the top: no scrollTo');
+
+    setScroll(0, 90);
+    await navigate('/never-visited-scrolled');
+    await flush();
+    assert.deepEqual(lastScroll(), [0, 0], 'scrolled down: back to the top');
+  });
+
   it('does not scroll to the top on its first run', async () => {
     // The first run is the url the document loaded with, not a navigation this
     // router performed. The browser has already positioned the document, and

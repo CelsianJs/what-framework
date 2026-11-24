@@ -571,7 +571,7 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 3. `useMemo` and `useCallback` ignore their dependency arrays: delete them. `useMemo` returns an accessor, so read `total()`
 4. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 5. Call accessors where they render (`{count()}`, `class={active() ? 'on' : ''}`); the compiler makes those reactive. Write `() =>` yourself only when the read hides inside a call whose arguments call nothing
-6. Pass a changing value to a child as its accessor (`<Child count={count} />`, not `count={count()}`) and call it in the child; destructuring props is fine
+6. Props written as in React stay live: `<Child count={count()} />` updates the child's `{props.count}` (or a destructured `{count}`) where it renders, and the child keeps its state. A value the child computes in its body outside JSX is read once: write it in JSX or in `computed()`. Passing the accessor itself (`count={count}`, called as `count()` in the child) also works
 7. Keep `.map()` with a `key` prop for lists, on the accessor: `{items().map(item => <li key={item.id}>…</li>)}`
 8. Replace `React.lazy` with `lazy` from what-framework (same API)
 9. Update imports: `react` --> `what-framework`. React's hooks keep their names there; the domain kits are subpaths (`what-framework/form`, `/data`, `/a11y`, `/ui`, `/motion`, `/dom`)

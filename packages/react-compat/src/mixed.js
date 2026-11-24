@@ -1,0 +1,270 @@
+/**
+ * what-react/mixed — native What components and React components in one tree.
+ *
+ * What the what-react Vite plugin compiles plain JSX to when an app mixes the
+ * two (see MIXED.md):
+ *
+ * - In a native file, a JSX element whose tag comes from React (an npm
+ *   package that depends on react, or a file of the app that imports react)
+ *   becomes an island: `<ReactIsland view={() => createElement(...)} />`.
+ *   Everything inside that element follows React's rules: props are values,
+ *   built again whenever a signal they read changes, and the React tree is
+ *   reconciled, so its state survives.
+ * - A native component rendered inside a React tree (in an island, or in a
+ *   file that imports react) becomes `createElement(native(Comp), props)`.
+ *   It runs once, as native components do, and keeps its state; each React
+ *   render hands it the new prop values, which it reads as live props.
+ *
+ * Context crosses both ways: a React tree inside a native component inside a
+ * React tree finds the providers above it, and a native component inside a
+ * React tree finds the What context of the native code around the island.
+ */
+
+import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup, Fragment } from 'what-core';
+import { isVNode, _provide, __DEV__, getServerContext } from 'what-core/internal';
+import { _$createComponent } from 'what-core/render';
+import { createElement } from './index.js';
+import {
+  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode,
+} from './runtime.js';
+import { serverTree } from './server.js';
+
+export { createElement, Fragment };
+
+// =====================================================================
+// React inside native
+// =====================================================================
+
+/**
+ * A React element tree placed by native code. `view` returns what-react
+ * elements; it is called again whenever a signal it read changes.
+ * `svg` says the island stands inside an <svg> element.
+ */
+export function ReactIsland(props) {
+  if (typeof document === 'undefined' || getServerContext() != null) return serverIsland(props.view);
+  return _island(props.view, props.svg === true);
+}
+
+// On the server: the island's HTML, rendered once with React's rules
+// (server.js), as an array. What-server's hydratable renderers bracket an
+// array a component returns (<!--[]-->…<!--/[]-->), also when it is empty,
+// and hydration hands that bracket to the island whole (runtime.js
+// adoptIsland), a keyed row's included.
+function serverIsland(view) {
+  const parent = _hostInstance();
+  try {
+    return [serverTree(view(), parent)];
+  } catch (error) {
+    // The island renders in the browser instead; the page still renders.
+    if (__DEV__) console.warn('[what-react] A React island could not render on the server, so it renders in the browser:', error && error.message ? error.message : error);
+    return [null];
+  }
+}
+
+// =====================================================================
+// Native inside React
+// =====================================================================
+
+const nativeWrappers = new WeakMap();
+
+/**
+ * The React component that renders the native What component `Comp`. The
+ * same function for the same component, so React keeps its instance.
+ */
+export function native(Comp) {
+  let wrapper = nativeWrappers.get(Comp);
+  if (wrapper === undefined) {
+    wrapper = function NativeComponent(props) {
+      return renderNative(_getCurrentInstance(), Comp, props);
+    };
+    wrapper.displayName = Comp.displayName || Comp.name || 'NativeComponent';
+    wrapper._whatNative = Comp;
+    nativeWrappers.set(Comp, wrapper);
+  }
+  return wrapper;
+}
+
+/**
+ * `native()` for a component a React file imports: the import is read when
+ * the element renders, never while the module is evaluated, so an import
+ * cycle cannot hand over a binding that is not initialized yet.
+ */
+export function nativeRef(get, name) {
+  const wrapper = function NativeComponent(props) {
+    return renderNative(_getCurrentInstance(), get(), props);
+  };
+  wrapper.displayName = name || 'NativeComponent';
+  wrapper._whatNative = true;
+  wrapper._getNative = get;
+  return wrapper;
+}
+
+function renderNative(inst, Comp, props) {
+  let leaf = inst._leaf;
+  if (leaf !== undefined && leaf.Comp === Comp && leaf.update(props)) return leaf.node;
+  if (leaf !== undefined) {
+    // Another component (a hot update), or a prop it never had: build it again.
+    if (__DEV__ && leaf.Comp === Comp) {
+      console.warn(`[what-react] <${Comp.displayName || Comp.name || 'Component'}> was rebuilt: a React parent passed it a prop it did not have when it mounted. Pass every prop from the first render (undefined is fine) to keep its state.`);
+    }
+    leaf.dispose();
+  }
+  leaf = inst._leaf = createLeaf(inst, Comp, props);
+  inst._dispose = () => leaf.dispose();
+  return leaf.node;
+}
+
+// Whether a value is something React renders (an element, a node, or a list
+// holding one), which a native component has to place through React's
+// reconciler to keep React state and context.
+function isRich(value) {
+  if (value == null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) if (isRich(value[i])) return true;
+    return false;
+  }
+  return isVNode(value) || typeof value.nodeType === 'number';
+}
+
+// A function a native component should always call in its latest version (an
+// event handler, an accessor), as opposed to a component it renders.
+function isCallback(value) {
+  return typeof value === 'function' && value._compatType === undefined && value.$$typeof === undefined
+    && !(value.prototype != null && (value.prototype.isReactComponent || value.prototype.render));
+}
+
+function nativeOwnerOf(inst) {
+  for (let p = inst; p != null; p = p.parent) {
+    if (p._nativeOwner !== undefined) return p._nativeOwner;
+  }
+  return null;
+}
+
+/**
+ * A native component mounted once for a compat instance. Its props object has
+ * a getter per prop: a plain value reads a signal the next React render
+ * writes; a callback is a stable function that calls the latest one; a React
+ * element (children, a slot prop) is a placeholder the native component
+ * places, filled by React's reconciler with the latest elements.
+ */
+function createLeaf(inst, Comp, first) {
+  /** @type {Record<string, any>} */
+  let current = first;
+  const keys = new Set(Object.keys(first));
+  /** @type {Map<string, any>} */
+  const cells = new Map();
+  /** @type {Map<string, any>} */
+  const slots = new Map();
+  /** @type {Map<string, Function>} */
+  const callbacks = new Map();
+  // No prototype: what-core takes such a props object as the component's own
+  // and keeps its getters (render.js ownProps), as it does compiled JSX's.
+  const live = Object.create(null);
+
+  const shown = (key, value) => {
+    if (isRich(value)) return slotFor(key, value).vnode;
+    if (isCallback(value)) {
+      let call = callbacks.get(key);
+      if (call === undefined) {
+        call = function (...args) {
+          const fn = current[key];
+          return typeof fn === 'function' ? fn.apply(this, args) : undefined;
+        };
+        callbacks.set(key, call);
+      }
+      return call;
+    }
+    return value;
+  };
+
+  const slotFor = (key, value) => {
+    let slot = slots.get(key);
+    if (slot === undefined) {
+      slot = { inst, value, mounts: new Set(), vnode: null };
+      slot.vnode = h(CompatSlot, { slot });
+      slots.set(key, slot);
+    } else {
+      slot.value = value;
+    }
+    return slot;
+  };
+
+  for (const key of keys) {
+    const cell = signal(shown(key, first[key]));
+    cells.set(key, cell);
+    Object.defineProperty(live, key, { get: () => cell(), enumerable: true, configurable: true });
+  }
+
+  let dispose = null;
+  const owner = nativeOwnerOf(inst.parent);
+  const node = _outsideRender(() => untrack(() => runWithOwner(owner, () => createRoot((d) => {
+    dispose = d;
+    // The native subtree's compat host: React trees placed in it find their
+    // context through this instance.
+    _provide(HOST, inst);
+    return _$createComponent(Comp, live, null);
+  }))));
+
+  return {
+    Comp,
+    node,
+    update(next) {
+      for (const key in next) if (!keys.has(key)) return false;
+      current = next;
+      untrack(() => batch(() => {
+        for (const key of keys) {
+          const value = next[key];
+          const cell = cells.get(key);
+          if (isRich(value)) {
+            const slot = slotFor(key, value);
+            for (const m of slot.mounts) patchSlot(slot, m);
+            if (cell.peek() !== slot.vnode) cell(() => slot.vnode);
+          } else {
+            const v = shown(key, value);
+            cell(() => v);
+          }
+        }
+      }));
+      return true;
+    },
+    dispose() {
+      const d = dispose;
+      dispose = null;
+      if (d !== null) d();
+    },
+  };
+}
+
+/**
+ * Where a native component places React elements it was handed: the slot's
+ * latest elements, reconciled in place, under the compat instance that
+ * handed them over and the What owner where they are placed.
+ */
+function CompatSlot(props) {
+  const slot = props.slot;
+  const frag = document.createDocumentFragment();
+  const start = document.createComment('w:s');
+  const end = document.createComment('/w:s');
+  frag.appendChild(start);
+  frag.appendChild(end);
+  // The elements' parent instance: the one that handed them over, seen from
+  // where they are placed (native components below are created there).
+  const parent = { parent: slot.inst, depth: slot.inst.depth + 1, _nativeOwner: getOwner() };
+  const m = { start, end, parent, rns: [] };
+  m.rns = untrack(() => runInCommit(() => patchChildren(frag, [], normalizeChildren(slot.value), end, false, parent)));
+  slot.mounts.add(m);
+  onCleanup(() => {
+    slot.mounts.delete(m);
+    runInCommit(() => {
+      for (const rn of m.rns) unmountRNode(rn, false);
+      m.rns = [];
+    });
+  });
+  return frag;
+}
+
+function patchSlot(slot, m) {
+  const parentDom = m.end.parentNode;
+  if (parentDom === null) return;
+  m.rns = patchChildren(parentDom, m.rns, normalizeChildren(slot.value), m.end, false, m.parent);
+}

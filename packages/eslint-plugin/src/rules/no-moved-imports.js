@@ -115,9 +115,77 @@ export default {
       }
     }
 
+    // A dynamic import of a root entry: the names it reads, in the shapes code
+    // writes them. `const { a } = await import(x)`, `(await import(x)).a`,
+    // `import(x).then(({ a }) => ...)` and `.then((m) => m.a)`.
+    function readNames(node) {
+      const names = [];
+      const fromPattern = (pattern) => {
+        if (pattern?.type !== 'ObjectPattern') return false;
+        for (const p of pattern.properties) {
+          if (p.type === 'Property' && !p.computed) names.push({ name: nameOf(p.key), node: p.key });
+          else return false; // a rest element reads names we cannot see
+        }
+        return true;
+      };
+      let expr = node;
+      let parent = node.parent;
+      if (parent.type === 'AwaitExpression') {
+        expr = parent;
+        parent = parent.parent;
+      }
+      if (parent.type === 'VariableDeclarator' && parent.init === expr) {
+        return fromPattern(parent.id) ? { names, whole: true } : null;
+      }
+      if (parent.type === 'MemberExpression' && parent.object === expr && !parent.computed) {
+        if (expr === node && nameOf(parent.property) === 'then' && parent.parent.type === 'CallExpression') {
+          const cb = parent.parent.arguments[0];
+          if (!cb || (cb.type !== 'ArrowFunctionExpression' && cb.type !== 'FunctionExpression')) return null;
+          const param = cb.params[0];
+          if (fromPattern(param)) return { names, whole: true };
+          if (param?.type !== 'Identifier') return null;
+          // `(m) => m.a`: each `m.<name>` read in the callback.
+          const scope = sourceCode.getScope ? sourceCode.getScope(cb) : null;
+          const variable = scope?.variables.find((v) => v.name === param.name);
+          for (const ref of variable?.references ?? []) {
+            const member = ref.identifier.parent;
+            if (member.type === 'MemberExpression' && member.object === ref.identifier && !member.computed) names.push({ name: nameOf(member.property), node: member.property });
+            else return { names, whole: false };
+          }
+          return { names, whole: true };
+        }
+        names.push({ name: nameOf(parent.property), node: parent.property });
+        return { names, whole: false };
+      }
+      return null;
+    }
+
+    function checkDynamic(node) {
+      const src = node.source;
+      if (src.type !== 'Literal' || !ROOT_ENTRIES.has(src.value)) return;
+      const read = readNames(node);
+      if (read === null) return;
+      const found = read.names.map((n) => ({ ...n, change: changeFor(n.name) })).filter((n) => n.change);
+      if (!found.length) return;
+      // Fixable when every name it reads moved to one destination: the import
+      // takes that path.
+      const destinations = new Set(found.map((f) => f.change.to));
+      const dest = read.whole && found.length === read.names.length && destinations.size === 1 && !found.some((f) => f.change.as) ? found[0].change.to : null;
+      const to = dest === null ? null : src.value === 'what-core' ? dest.replace(/^what-framework\//, 'what-core/') : dest;
+      for (const { name, node: at, change } of found) {
+        context.report({
+          node: at,
+          messageId: 'moved',
+          data: { name, source: src.value, answer: change.answer },
+          fix: to ? (fixer) => fixer.replaceText(src, `${src.raw[0]}${to}${src.raw[0]}`) : null,
+        });
+      }
+    }
+
     return {
       ImportDeclaration: check,
       ExportNamedDeclaration: check,
+      ImportExpression: checkDynamic,
     };
   },
 };

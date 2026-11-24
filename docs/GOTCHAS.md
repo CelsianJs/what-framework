@@ -88,7 +88,7 @@ A call with arguments is left unwrapped only when the compiler proves that nothi
 - Anything the compiler cannot prove is wrapped: a function it cannot see into (a parameter, `props.format('x')`, a value some call returned), a method called on a value it did not see made (`{row.padStart(3)}` for a parameter `row`: it could be any object's method), a getter or setter, a class instance, a function handed on to be called, a generator or async function, a default parameter, and a global the platform does not define. If it turns out constant, the cost is one effect that runs once.
 - A call whose argument reads an accessor (`{format(count())}`) is wrapped, and so is one handed a function whose body reads one anywhere: `{fmt(() => { const text = label(); return text; })}`.
 
-A property read with no call (`{model.text}`) is wrapped when its object is a signal read or an import, or when reading it may run code of the module: a getter that reads a signal, of an object this module builds or of a class it declares (a static one too), an instance of a class it declares, or a value whose members the module writes later or hands to a function from another module. The compiler follows the value from the read back to where it was made: through local names (`const alias = model`, `a || b`, `c ? a : b`, a later `x = model`), properties and elements of objects and arrays the module builds (`const item = view.item`, `list[0].text`), destructuring (`const { item } = view`, with its defaults), and what a function the module declares returns (`makeModel().text`, `pick(model).text`). A property of a value from outside the module is read once: a prop, a parameter, what an imported function or a hook returned (a store's `todos.remaining`). Read a getter of such a value inside a thunk: `{() => props.store.count}`.
+A property read with no call (`{model.text}`) is wrapped when its object is a signal read or an import, or when reading it may run code of the module: a getter that reads a signal, of an object this module builds or of a class it declares (a static one too), an instance of a class it declares, or a value whose members the module writes later or hands to a function from another module. The compiler follows the value from the read back to where it was made: through local names (`const alias = model`, `a || b`, `c ? a : b`, a later `x = model`), properties and elements of objects and arrays the module builds (`const item = view.item`, `list[0].text`), destructuring (`const { item } = view`, with its defaults), and what a function the module declares returns (`makeModel().text`, `pick(model).text`). A read of a component's props is a binding too: `{props.label}`, `class={props.on ? 'on' : 'off'}`, and a destructured `{ label }` (which the compiler reads as `props.label` where you use it), so a live prop stays live (section 12). A property of any other value from outside the module is read once: a parameter that is not props, what an imported function or a hook returned (a store's `todos.remaining`). Read a getter of such a value inside a thunk: `{() => store.count}`.
 
 ## 3. Don't Mutate Signal Values Directly
 
@@ -189,20 +189,29 @@ Avoid repeated per-element JS hover/focus style mutation handlers. Use CSS pseud
 
 ## 12. A Signal Read Outside JSX Is Not Reactive
 
-A signal passed into a child component reads reactively in JSX, whether you write the wrapper or not (see section 2). Pass the signal itself, not its value, and call it where it renders; destructuring the prop is fine:
+A prop written the way React code writes it stays live: `<Badge on={count() > 0} />` passes `on` as a getter over `count() > 0` (a live prop), so the child's `{props.on ? 'on' : 'off'}`, or `{on ? 'on' : 'off'}` with `on` destructured, updates when `count` changes. The child still runs once and keeps its own state. Passing the accessor itself also works, and the child calls it:
 
 ```jsx
 import { useSignal } from 'what-framework';
 
+function Badge({ on, label = 'none' }) {
+  return <b class={on ? 'on' : 'off'}>{label}</b>; // live, default included
+}
+
 function Child({ count }) {
-  return <p>{count()}</p>; // or <p>{() => count()}</p>
+  return <p>{count()}</p>; // an accessor passed as itself
 }
 
 function Parent() {
   const count = useSignal(0);
-  return <Child count={count} />;
+  return <>
+    <Badge on={count() > 0} label={count() > 9 ? 'many' : undefined} />
+    <Child count={count} />
+  </>;
 }
 ```
+
+A prop is live when its value reads a signal (a call, `props.x`, a store's member). A name (`count={count}`), a literal and a function are passed as they are. Forwarding keeps live props live: `<Inner {...props} />`, and a rest element `({ class: cls, ...rest }) => <button {...rest} />`. What stays read once is a value you compute in the component body outside JSX: `const doubled = props.n * 2` is the value at the first run, so write `{props.n * 2}` or `const doubled = computed(() => props.n * 2)`. A destructured prop keeps its destructuring, read once, when it is reassigned, nested (`{ user: { name } }`) or has a default that is not a plain literal (`items = []`); read `props.items ?? []` where you use it instead.
 
 What breaks reactivity is pulling the read out of the JSX into a plain variable: `const val = count(); return <p>{val}</p>;` reads once, at component setup, with nothing watching it, and so does passing `count={count()}` from the parent.
 
@@ -238,6 +247,29 @@ function Greeter({ name }) {
   return <h1>{() => `Hello, ${name()}`}</h1>;
 }
 ```
+
+### A block function child rebuilds what it returns
+
+The same holds for a region: `{() => { ... }}` runs again whenever anything it read changes, and builds everything it returns anew. A component it returns starts over and loses its state (a typed value, an open menu, a React island's state), where React would reconcile it. Write the branches as a JSX ternary or `<Show>` (`<Switch>`/`<Match>` for more), and read the changing value where the component takes it. The compiler memoizes the condition and passes the props live, so the component is built once and its props update in place:
+
+```jsx
+// Rebuilds <Chart> on every refetch (development reports ERR_REBUILT_COMPONENT):
+<div>{() => {
+  if (query.isLoading()) return <Spinner />;
+  const counts = countByKind(query.data());
+  return <Chart counts={counts} />;
+}}</div>
+
+// Builds <Chart> once; its counts follow the data:
+const counts = computed(() => countByKind(query.data()));
+<div>
+  <Show when={!query.isLoading()} fallback={<Spinner />}>
+    <Chart counts={counts()} />
+  </Show>
+</div>
+```
+
+A table that hands each row to a render function (`render: (row) => <Menu row={row} />`) has the same choice. Give the function `live(() => row)` (what-framework), and the cell is built once per row while `{row.name}` inside it follows a replaced item. A row is built again for a replaced item only when the code that built it read a field the new item changed (`row.kind` in a component body, say); a read of the whole item (`format(row)`, `row.describe()`) rebuilds it on any replacement. See [API.md, live views](API.md#live-views-live).
 
 ## 15. Conditional Signal Reads (Dynamic Dependencies)
 

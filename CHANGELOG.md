@@ -459,6 +459,22 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Breaking: compiler
 
+- **Component props are live.** A prop whose value reads a signal is passed
+  as a getter over the expression: `<Badge on={count() > 0} />` updates the
+  child's `{props.on}`, and a destructured `({ on })`, where it renders, and
+  the child still runs once and keeps its state. Before, the value was read
+  once and the prop froze with no warning. The compiler reads a destructured
+  prop as `props.<key>` where it is used (unless it is reassigned, nested, or
+  has a default that is not a plain literal), a read of props in JSX is a
+  binding, and `{...props}` spreads and rest elements keep the getters
+  (what-core `_$merge`, `_$omit`). Props objects What builds have no
+  prototype; `_$createComponent` takes one as the component's own, and h()
+  keeps the getters of one. Code that relied on a prop staying at its first
+  value reads it once in the body instead (`const first = props.value`).
+- **`<Row item={item} />` in a keyed `.map()` follows an item replaced under
+  its key.** An attribute named like the row's variable was taken as a read
+  of it, so the row kept the item it was built with.
+
 - **Server transforms compile for the server.** The Vite plugin's `ssr`
   option, on by default, compiles a module Vite transforms for the server
   with the server target, which every what-server renderer accepts.
@@ -517,6 +533,78 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   any name test, and the HMR socket accepts the same origins.
 
 ### Added
+
+- **`live(source)`**, a read-only live view of the object an accessor returns:
+  `view.name` reads the current value's `name`, through getters What reads as
+  live props. A table hands its column render functions `live(() => row)`, and
+  each cell is built once per row and keeps its state while its bindings follow
+  a replaced item (docs/API.md, live views). Found dogfooding Vura, which wrote
+  one for its Table.
+- **A keyed row is built again only for a field its building code read.** A
+  read of one field of the row's item while the row is built (`row.kind` in
+  the row's own code, a `kind={row.kind}` prop a row component reads in its
+  body, `view.kind` through a live view) records that field; a replaced item that leaves every
+  recorded field the same (`Object.is`) keeps the row, and its bindings follow
+  the new item. A read of the whole item (handed to a function, a method
+  called on it) still rebuilds the row on any replacement. Before, any read
+  rebuilt it: a Vura row component that named its signal after `ev.id` lost its
+  state on every refetch.
+- **`ERR_REBUILT_COMPONENT` (development).** A reactive region that runs
+  again and rebuilds a component holding state (it created a signal, or it is
+  a React island) reports it once per region, with the rewrite that keeps the
+  component: a JSX ternary or `<Show>`, with the changing value read in the
+  props. Found dogfooding Vura, whose data-driven tabs rebuilt their charts and
+  menus on every refetch.
+- **Structural sharing in `useQuery` and `useSWR`** (TanStack Query's
+  default, `structuralSharing`, default `true`): a refetch that answers data
+  equal to the cache keeps the cached references, and a changed list keeps
+  every row it did not change. Keyed rows follow an item replaced under their
+  key, so without it every background refetch of an unchanged list rebuilt
+  each row's rendered cells and lost their state (found dogfooding Vura's
+  dashboard: a revealed secret re-masked, an open row menu closed).
+- **`useQuery`/`useSWR` accessors are computeds**: a fetch that starts or
+  lands without changing what `data()`, `isLoading()` or `error()` return
+  re-runs nothing that reads them, so a region that reads them keeps what it
+  rendered across a background refetch; `select` is memoized on the cached
+  value, as in TanStack Query.
+- **`staleTime: 0` data is stale at once**, as in TanStack Query: a reader
+  mounted in the same millisecond as a `setQueryData` fetched nothing and never
+  followed the signals its `queryFn` reads.
+- **A forwarded live prop reaches the child as its value**
+  (`<Leaf counts={props.data} />` with `data` a live prop): the child read the
+  slot's read function, and now reads the value, live, wherever it reads it.
+- **what-devtools-mcp/vite looks for `what-devtools` where Vite resolves the
+  bootstrap's import** (a node_modules at or above the root), not through
+  `NODE_PATH`: under pnpm, whose bin shims set `NODE_PATH` to the hidden store,
+  a copy there passed the check and the dev server then failed on the import.
+- **vnodes render when what-core runs from source under Vite 5's SSR
+  transform** (Vitest 2 inlining a linked or monorepo copy): h.js installs the
+  vnode renderer through closures, so an import cycle that transform does not
+  hoist no longer leaves it undefined ("vnodeRows is not a function").
+
+- **React packages inside native What components, with plain JSX**
+  (what-react, `packages/react-compat/MIXED.md`). With what-compiler's
+  `what()` next to `reactCompat()`, files stay native What and a React
+  component used as a tag (`<BarChart data={sales()} />` from recharts) renders
+  as a React island: React's rules inside it, its props built again when a
+  signal they read changes, its React state kept. A file that imports `react`,
+  calls a React hook (from a React package, a store a React package builds, or
+  a custom hook calling one) or carries `@jsxImportSource react` is a React
+  file; a native component it renders runs once, keeps its state and reads its
+  props live. React components are found through re-export barrels; React
+  context and What context cross the boundary both ways; a React component in a
+  native keyed list keeps its row. Islands render on the server with React's
+  server rules (initial state, no effects, server snapshots, `<Suspense>`
+  fallbacks), native components inside them included; hydration hands each
+  island its server HTML and replaces it with the client render before the
+  next paint, with no mismatch. A Vite server build bundles the app's React
+  packages (`ssr.noExternal`) so they reach what-react. A signal read while a
+  React component renders re-renders it. TypeScript: `what-react/mixed` in `compilerOptions.types` makes React
+  components valid tags in native files; native-only apps keep What's stricter
+  component types. `reactCompat()` returns its plugins as an array.
+- **`create-what`'s React option scaffolds a native app with a React file in
+  it** (`what()` and `reactCompat()`, a native `main.jsx`, zustand in
+  `BearCounter.jsx`), instead of an app whose JSX all ran through what-react.
 
 - **`ERR_COMPILER_RUNTIME_MISMATCH`**: what-compiler/vite and the Babel plugin
   stop a build whose what-framework or what-core is a different release.
@@ -652,6 +740,35 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   after it is measured, so its warm-up measures that operation alone.
 
 ### Fixed
+
+- **Development locations name the line you wrote.** Vite reprints a
+  .jsx/.tsx file with esbuild (oxc on Vite 8) before what-compiler's plugin
+  runs, so every `file:line:col` in a diagnostic and in the devtools could
+  point a line or more away (a leading comment was enough). The plugin maps
+  each one back through the combined source map, and what-react's mixed JSX
+  keeps every statement on its source line.
+- **`<Show>` and `<Match>` take any value as `when`** in their types
+  (`when={user()}`), as they do at run time.
+- **`what/no-signal-write-in-render` checks render code in JSX:** a write in
+  a JSX function child (`{() => { tab(0); ... }}`) or in a host element's
+  non-event attribute function runs whenever the region does. **`what/prefer-
+  computed` warns in every preset**: an effect that only writes one signal is
+  a `computed()`.
+
+- **`what/no-moved-imports` covers dynamic imports.** `const { useQuery } =
+  await import('what-framework')`, `(await import(...)).name` and
+  `import(...).then(({ name }) => ...)` are reported, and rewritten when every
+  name they read moved to one subpath.
+- **`lazy()` infers the props of the component its loader resolves to**,
+  through `import('./Chart').then((m) => ({ default: m.Chart }))` as well.
+- **what-router skips a scroll that would not move the page**, so a test DOM
+  (jsdom) no longer logs "Not implemented: window.scrollTo" on navigation.
+- **what-react writes `tabIndex` on SVG elements as `tabindex`**, the attribute
+  that makes them focusable (recharts' chart surface).
+
+- **A `<Head>` title, meta or link whose hole reads a value goes to the head
+  on the server.** `<title>{name()}</title>` or `content={'about ' + name()}`
+  stayed in the body; the server now evaluates the hole once and moves the tag.
 
 - **Request isolation (security).** Loaders and actions run in their request's
   server context, so `prefetchQuery` and the query cache never serve one

@@ -5,9 +5,9 @@ import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, markupName, isEnume
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
-  getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, hasLiteralMatchArms,
+  getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, controlFlowTag,
   isBindingAttribute, isComponentElement, isConditionallyEvaluated, isDynamicAttr,
-  isEventAttrName, isFieldProp, isForeignTag, isHydrateRootArgument, isShadowedAttr, isSlotAttribute, isStaticChild,
+  isEventAttrName, isFieldProp, isHydrateRootArgument, isShadowedAttr, isSlotAttribute, isStaticChild,
   isVoidHtmlElement, normalizeJsxText, parseEventModifiers, propKey,
   addImports, helper, helperLocals, readSwitch, uniqueName,
   checkElementName, checkIslandProp, checkStaticAttribute, checkStaticRawText, directiveValue,
@@ -308,20 +308,14 @@ export function transformElementFineGrained(path, state) {
   const tagName = openingElement.name.name;
 
   // Control flow components, checked before generic isComponent since they start uppercase.
-  // A tag imported from somewhere other than What is that package's component,
-  // whatever it is called, so it goes to the component path untouched, unless
-  // its own arms prove otherwise.
-  if (!isForeignTag(tagName, state)) {
-    if (tagName === 'For') {
-      return transformForFineGrained(path, state);
-    }
-    if (tagName === 'Show') {
-      return transformShowFineGrained(path, state);
-    }
-  }
-  if (tagName === 'Switch' && (!isForeignTag(tagName, state) || hasLiteralMatchArms(node))) {
-    return transformSwitchFineGrained(path, state);
-  }
+  // What's own, under the name the file imported it as (common.js
+  // controlFlowTag); a tag imported from somewhere other than What is that
+  // package's component, whatever it is called, so it goes to the component
+  // path untouched, unless its own arms prove otherwise.
+  const flow = controlFlowTag(node, state);
+  if (flow === 'For') return transformForFineGrained(path, state);
+  if (flow === 'Show') return transformShowFineGrained(path, state);
+  if (flow === 'Switch') return transformSwitchFineGrained(path, state);
 
   if (isComponentElement(node)) {
     return transformComponentFineGrained(path, state);
@@ -820,11 +814,104 @@ function buildsDOM(node) {
   return false;
 }
 
+// --- Ternary trees ---
+//
+// `a() ? <A /> : b() ? <B /> : <C />` picks one of its leaves by its tests.
+// With only its first test memoized, the inner `b()` is read by the region
+// itself, and <C /> is built again whenever b's inputs change, truthiness or
+// not. The whole tree's choice is one memo instead: the tree with each leaf
+// replaced by its index (`a() ? 0 : b() ? 1 : 2`), which evaluates exactly
+// the tests the original evaluates, in its order, so a test an outer one
+// guards (`q.data().items.length` behind `q.isLoading()`) is never read
+// unguarded. The memo is lazy (_$lazyMemo), read first where the region
+// first runs, so a tree handed over unplaced (a <Show> fallback, a slot) is
+// not evaluated before its place renders. The region then reads the index
+// and builds a leaf only when the index changes: what <Switch> lowers to.
+
+function ternaryTree(expr, leaves, tests) {
+  if (!t.isConditionalExpression(expr)) {
+    leaves.push(expr);
+    return t.numericLiteral(leaves.length - 1);
+  }
+  tests.push(expr.test);
+  return t.conditionalExpression(expr.test, ternaryTree(expr.consequent, leaves, tests), ternaryTree(expr.alternate, leaves, tests));
+}
+
+/**
+ * `expr` (a ternary with a reactive test and a leaf that builds DOM) as a
+ * read of one lazy memo of the leaf it takes, the memo's declaration pushed
+ * onto `statements`; null for any other expression.
+ */
+function memoizeTernaryTree(expr, statements, state) {
+  if (!t.isConditionalExpression(expr)) return null;
+  const leaves = [];
+  const tests = [];
+  const selector = ternaryTree(expr, leaves, tests);
+  if (!tests.some((test) => isPotentiallyReactive(test, state.signalNames, state.importedIdentifiers))) return null;
+  if (!leaves.some(buildsDOM)) return null;
+  const id = state.nextMemoId();
+  statements.push(t.variableDeclaration('const', [
+    t.variableDeclarator(t.identifier(id), t.callExpression(helper(state, '_$lazyMemo'), [t.arrowFunctionExpression([], selector)])),
+  ]));
+  // A leaf `b() && <B />` keeps <B> the same way (memoizeLogical); its memo
+  // is lazy too, read only when the tree takes that leaf.
+  for (let i = 0; i < leaves.length; i++) leaves[i] = memoizeLogical(leaves[i], statements, state) ?? leaves[i];
+  let out = leaves[leaves.length - 1];
+  for (let i = leaves.length - 2; i >= 0; i--) {
+    out = t.conditionalExpression(t.binaryExpression('===', t.callExpression(t.identifier(id), []), t.numericLiteral(i)), leaves[i], out);
+  }
+  return out;
+}
+
+// --- `&&` and `||` ---
+//
+// `{user() && <Profile user={user()} />}` is how React code renders a part
+// that needs a value. Gated on the left VALUE, the region ran again, and
+// rebuilt <Profile> with its state, whenever user() returned another object.
+// The arm is picked by the left side's truthiness instead, a lazy memo, and
+// the left value itself is read only where it renders, React's way: falsy
+// for `&&` (`{count() && <X />}` with 0 renders "0"; false, null, undefined
+// and '' render nothing), truthy for `||`. `||` lowers so only when its right
+// side builds DOM and its left side does not (a left side that is JSX is
+// rendered, and built, on every read). The server renders `left && right`
+// itself, which is the same output.
+
+/**
+ * `expr` (a `&&`/`||` with a reactive left side and a right side that builds
+ * DOM) as a ternary over a lazy memo of the left side's truthiness, the
+ * memo's declaration pushed onto `statements`; null otherwise.
+ */
+function memoizeLogical(expr, statements, state) {
+  if (!t.isLogicalExpression(expr) || (expr.operator !== '&&' && expr.operator !== '||')) return null;
+  if (!isPotentiallyReactive(expr.left, state.signalNames, state.importedIdentifiers)) return null;
+  if (!buildsDOM(expr.right)) return null;
+  if (expr.operator === '||' && buildsDOM(expr.left)) return null;
+  const id = state.nextMemoId();
+  statements.push(t.variableDeclaration('const', [
+    t.variableDeclarator(t.identifier(id), t.callExpression(helper(state, '_$lazyMemo'), [
+      t.arrowFunctionExpression([], t.unaryExpression('!', t.unaryExpression('!', expr.left))),
+    ])),
+  ]));
+  const truthy = t.callExpression(t.identifier(id), []);
+  const left = t.cloneNode(expr.left, true);
+  return expr.operator === '&&'
+    ? t.conditionalExpression(truthy, expr.right, left)
+    : t.conditionalExpression(truthy, left, expr.right);
+}
+
 // If `expr` is a conditional (ternary / && / ||) with a reactive test and a
 // DOM-producing branch, hoist the test into `const _c$N = _$memo(...)` (pushed
 // onto `statements`) and return the expression rewritten to read the memo.
-// Otherwise returns `expr` unchanged.
+// A ternary with ternaries for arms is one memo of the arm it takes
+// (memoizeTernaryTree), and `&&`/`||` a memo of the left side's truthiness
+// (memoizeLogical). Otherwise returns `expr` unchanged.
 function memoizeBranchCondition(expr, statements, state) {
+  if (t.isConditionalExpression(expr) && (t.isConditionalExpression(expr.consequent) || t.isConditionalExpression(expr.alternate))) {
+    const tree = memoizeTernaryTree(expr, statements, state);
+    if (tree !== null) return tree;
+  }
+  const logical = memoizeLogical(expr, statements, state);
+  if (logical !== null) return logical;
   let testExpr = null;
   let isTernary = false;
   if (t.isConditionalExpression(expr)) {
@@ -860,8 +947,9 @@ function memoizeBranchCondition(expr, statements, state) {
   );
 
   const condRead = t.callExpression(t.identifier(condId), []);
+  // An arm `b() && <B />` keeps <B> by a lazy memo of its own (memoizeLogical).
   return isTernary
-    ? t.conditionalExpression(condRead, expr.consequent, expr.alternate)
+    ? t.conditionalExpression(condRead, memoizeLogical(expr.consequent, statements, state) ?? expr.consequent, memoizeLogical(expr.alternate, statements, state) ?? expr.alternate)
     : t.logicalExpression(expr.operator, condRead, expr.right);
 }
 
@@ -1125,6 +1213,31 @@ function buildChildAccess(elId, index) {
   return expr;
 }
 
+// The factory a slot prop's JSX is built by (render.js _$slots). A ternary
+// with a reactive test (`header={b() ? <X /> : <Y />}`) hands the component a
+// reactive child instead of the arm it found first: the arm is picked by a
+// lazy memo (memoizeTernaryTree) the slot creates when it builds, so the arm
+// placed stays while the choice holds and the other one shows when it
+// changes. Read once, as before, the slot showed its first arm forever.
+// what-server hands the same function (ssr.js slotValue), so hydration finds
+// the region it brackets. Only when every arm is JSX: a component may test
+// the prop instead of placing it (`props.icon ? ... : ...`), and an arm that
+// is null has to read as false there, which a function never does
+// (core test lazy-props, "a condition the run never read").
+function slotFactory(value, state) {
+  if (!everyArmIsJsx(value)) return t.arrowFunctionExpression([], value);
+  const setup = [];
+  const tree = memoizeTernaryTree(value, setup, state);
+  if (tree === null) return t.arrowFunctionExpression([], value);
+  return t.arrowFunctionExpression([], t.blockStatement([...setup, t.returnStatement(t.arrowFunctionExpression([], tree))]));
+}
+
+/** Whether every arm of the ternary `expr` is a JSX element or fragment. */
+function everyArmIsJsx(expr) {
+  if (t.isConditionalExpression(expr)) return everyArmIsJsx(expr.consequent) && everyArmIsJsx(expr.alternate);
+  return t.isJSXElement(expr) || t.isJSXFragment(expr);
+}
+
 function transformComponentFineGrained(path, state) {
   const { node } = path;
   const openingElement = node.openingElement;
@@ -1192,8 +1305,8 @@ function transformComponentFineGrained(path, state) {
         }
       } else if (t.isJSXElement(child)) {
         // <For>/<Show>/<Switch> lower to an inserter or a thunk (already lazy).
-        const childTag = child.openingElement.name.name;
-        if (childTag !== 'For' && childTag !== 'Show' && childTag !== 'Switch') deferChildren = true;
+        const childFlow = controlFlowTag(child, state);
+        if (childFlow !== 'For' && childFlow !== 'Show' && childFlow !== 'Switch') deferChildren = true;
         members.push(arrayMember(state, () => transformElementFineGrained({ node: child }, state)));
       } else if (t.isJSXFragment(child)) {
         deferChildren = true;
@@ -1338,6 +1451,8 @@ function transformComponentFineGrained(path, state) {
   const parts = [];
   let props = [];
   const slots = [];
+  // Whether a prop is live (a getter): the literal then has no prototype.
+  let live = false;
   const flushProps = () => {
     if (props.length > 0) {
       parts.push(t.objectExpression(props));
@@ -1422,7 +1537,17 @@ function transformComponentFineGrained(path, state) {
     // hydrating, the factory's JSX claims the server's nodes where the
     // component places it.
     if (isSlotAttribute(node, attr, state) && (yieldsJsx(value) || isPlacingRead(value))) {
-      slots.push(t.objectProperty(propKey(attrName), t.arrowFunctionExpression([], value)));
+      slots.push(t.objectProperty(propKey(attrName), slotFactory(value, state)));
+      continue;
+    }
+
+    // A value that reads a signal is a live prop: a getter over the
+    // expression, which the component reads again wherever it reads it
+    // (what-core dom.js _isLiveProp), so `<Badge on={count() > 0} />` shows
+    // the current count as `<b>{count() > 0}</b>` would.
+    if (isLivePropValue(attrName, value, state)) {
+      props.push(t.objectMethod('get', propKey(attrName), [], t.blockStatement([t.returnStatement(value)])));
+      live = true;
       continue;
     }
 
@@ -1437,13 +1562,16 @@ function transformComponentFineGrained(path, state) {
   } else if (parts.length === 1 && t.isObjectExpression(parts[0])) {
     // A lone object literal (no spread, or an inline `{...}`) is already a
     // fresh props object. A lone identifier/member/call spread is the
-    // CALLER'S object and must go through the copy below.
-    propsExpr = parts[0];
+    // CALLER'S object and goes through the merge below. One holding a getter
+    // is the component's own (no prototype), taken as it is so its getters
+    // stay live (render.js ownProps).
+    propsExpr = live ? withoutPrototype(parts[0]) : parts[0];
   } else {
-    propsExpr = t.callExpression(
-      t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-      [t.objectExpression([]), ...parts]
-    );
+    // Merged in source order, getters kept: a wrapper's `{...props}` stays
+    // live (render.js _$merge).
+    propsExpr = t.callExpression(helper(state, '_$merge'), parts.map((part) => (
+      t.isObjectExpression(part) && part.properties.some((p) => t.isObjectMethod(p)) ? withoutPrototype(part) : part
+    )));
   }
 
   if (slots.length > 0) {
@@ -1465,6 +1593,28 @@ function transformComponentFineGrained(path, state) {
   if (site !== null || (meta && state.hydratable && !isHydrateRoot)) componentArgs.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) componentArgs.push(meta);
   return t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
+}
+
+// Whether a component prop is passed live, as a getter over its value: an
+// expression that reads a signal (a call, `props.x`, a store's member),
+// never a name (an accessor handed on as `count={count}` stays the accessor),
+// a literal, a function, `ref` or `children`.
+function isLivePropValue(name, value, state) {
+  if (name === 'ref' || name === 'children') return false;
+  let expr = value;
+  while (t.isTSAsExpression(expr) || t.isTSSatisfiesExpression(expr) || t.isTSNonNullExpression(expr) || t.isTSTypeAssertion(expr)) expr = expr.expression;
+  // A template literal with holes is not a literal here (Babel's isLiteral
+  // counts it): `label={`Hi ${props.name}`}` reads what its holes read.
+  const literal = t.isLiteral(expr) && !(t.isTemplateLiteral(expr) && expr.expressions.length > 0);
+  if (t.isIdentifier(expr) || literal || t.isFunction(expr) || t.isJSXElement(expr) || t.isJSXFragment(expr)) return false;
+  return isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers);
+}
+
+// `{ __proto__: null, ... }`: a props object with no prototype, which the
+// runtime takes as the component's own (render.js ownProps, _$merge).
+function withoutPrototype(literal) {
+  literal.properties.unshift(t.objectProperty(t.identifier('__proto__'), t.nullLiteral()));
+  return literal;
 }
 
 // JSX, or a conditional that renders JSX in one of its branches.
@@ -1834,7 +1984,10 @@ function transformShowFineGrained(path, state) {
   const consequent = contentIsFn
     ? t.callExpression(contentExpr, [t.cloneNode(vId)])
     : contentExpr;
-  const alternate = fallbackExpr || t.nullLiteral();
+  // A ternary fallback picks its arm by a lazy memo of its own, read only
+  // while the fallback shows (memoizeTernaryTree).
+  if (!state._pendingSetup) state._pendingSetup = [];
+  const alternate = (fallbackExpr && memoizeTernaryTree(fallbackExpr, state._pendingSetup, state)) || fallbackExpr || t.nullLiteral();
 
   // Branch memoization: route a reactive `when` through an
   // equality-gated memo so the insert effect only re-fires (recreating the
@@ -1932,7 +2085,9 @@ function transformSwitchFineGrained(path, state) {
   const anyReactive = branches.some(([condition]) =>
     isPotentiallyReactive(condition, state.signalNames, state.importedIdentifiers));
 
-  const fallback = fallbackExpr || t.nullLiteral();
+  // A ternary fallback picks its arm by a lazy memo of its own, read only
+  // when no arm matches (memoizeTernaryTree).
+  const fallback = (fallbackExpr && memoizeTernaryTree(fallbackExpr, state._pendingSetup, state)) || fallbackExpr || t.nullLiteral();
 
   if (!anyReactive) {
     let expr = fallback;
@@ -2083,9 +2238,8 @@ function orderedRows(expr, state, bracketed) {
 // created: <For>, <Show> and <Switch> (transformElementFineGrained) are a list
 // or a reactive child.
 function lowersToRegion(node, state) {
-  const tag = node.openingElement.name.name;
-  if (tag === 'Switch') return !isForeignTag(tag, state) || hasLiteralMatchArms(node);
-  return (tag === 'For' || tag === 'Show') && !isForeignTag(tag, state);
+  const flow = controlFlowTag(node, state);
+  return flow === 'For' || flow === 'Show' || flow === 'Switch';
 }
 
 export function transformFragmentFineGrained(path, state) {
@@ -2473,6 +2627,7 @@ const RENDER_IMPORTS = [
   ['_$spread', 'spread'],
   ['_$setProp', 'setProp'],
   ['_$memo', '_$memo'],
+  ['_$lazyMemo', '_$lazyMemo'],
   ['_$Island', '_$Island'],
   ['_$setClass', 'setClass'],
   ['_$className', 'className'],
@@ -2499,6 +2654,8 @@ const RENDER_IMPORTS = [
   ['_$member', '_$member'],
   ['_$slots', '_$slots'],
   ['_$place', '_$place'],
+  ['_$merge', '_$merge'],
+  ['_$omit', '_$omit'],
 ];
 
 // The export a helper whose RENDER_IMPORTS entry is null imports.

@@ -102,7 +102,7 @@ function readHeadTag(child) {
   // Only markup that opens with a head tag is rendered to be read: any other
   // child renders where it stands, once (its attributes and holes are
   // evaluated when it is rendered).
-  if (isServerMarkup(child)) return isHeadTag(child.rootTag()) ? readHeadMarkup(child.parts(null)) : null;
+  if (isServerMarkup(child)) return isHeadTag(child.rootTag()) ? readHeadMarkup(markupText(child.parts(null))) : null;
   if (isVNode(child) && typeof child.tag === 'string') {
     if (!isHeadTag(child.tag)) return null;
     const attrs = {};
@@ -154,6 +154,34 @@ function isServerMarkup(value) {
 const TITLE_MARKUP = /^<title>([^<]*)<\/title>$/;
 const VOID_MARKUP = /^<(meta|link)((?:\s[^>]*)?)>$/;
 const ATTR_MARKUP = /\s([^\s="'>/]+)(?:="([^"]*)")?/g;
+
+// A head tag's parts as one string: a hole that reads a value (a signal, a
+// live prop: `<title>{props.title}</title>`, `content={'about ' + name()}`)
+// is a part the server evaluates where it places it, so it is evaluated here,
+// once, as that render would. A part rendered on placement that is not text
+// (a component, an element) leaves the tag to render in place (null).
+function markupText(parts) {
+  if (typeof parts === 'string') return parts;
+  if (!Array.isArray(parts)) return null;
+  let out = '';
+  for (const part of parts) {
+    if (typeof part === 'string') out += part;
+    else if (typeof part === 'function') {
+      const value = part();
+      if (value != null && typeof value === 'object') return null;
+      out += escapeText(textOf(value));
+    } else if (part !== null && typeof part === 'object' && typeof part.parts === 'function') {
+      const text = markupText(part.parts(null));
+      if (text === null) return null;
+      out += text;
+    } else return null;
+  }
+  return out;
+}
+
+function escapeText(str) {
+  return str.replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
+}
 
 function readHeadMarkup(markup) {
   if (typeof markup !== 'string') return null;

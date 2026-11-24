@@ -383,7 +383,8 @@ describe('component output', () => {
       }
     `);
 
-    assert.match(code, /Object\.assign\(\{\}, cfg, \{/, 'the spread must be merged, not dropped');
+    // `cfg` is read through props where it is used (common.js deferPlacedProps).
+    assert.match(code, /Object\.assign\(\{\}, _props\.cfg, \{/, 'the spread must be merged, not dropped');
     const merged = code.slice(code.indexOf('Object.assign'));
     assert.ok(
       merged.indexOf('title: "explicit"') > merged.indexOf('cfg'),

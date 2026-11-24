@@ -149,13 +149,27 @@ What Framework ships an MCP server for AI-assisted development. 25 tools: inspec
 
 ## React Compatibility
 
-Run many React ecosystem libraries with `what-react`. This is a secondary feature — native What Framework APIs are preferred for new code.
+Use React packages inside native What components with `what-react`. Your own code stays native What; a React component used as a tag renders as a React island, with React's rules inside it and its props kept up to date from your signals.
 
 ```bash
 npm install what-react
 ```
 
-See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. The verified list of libraries is the source of truth.
+```js
+// vite.config.js
+plugins: [what(), reactCompat()]
+```
+
+```jsx
+import { BarChart, Bar } from 'recharts';
+
+function Sales() {
+  const rows = signal([{ day: 'Mon', total: 3 }]);
+  return <section><h2>{rows().length} days</h2><BarChart width={300} height={150} data={rows()}><Bar dataKey="total" /></BarChart></section>;
+}
+```
+
+[`packages/react-compat/MIXED.md`](packages/react-compat/MIXED.md) has the rules (which files are React files, context, server rendering, limits). See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. The verified list of libraries is the source of truth.
 
 ## Where everything lives & deploys
 

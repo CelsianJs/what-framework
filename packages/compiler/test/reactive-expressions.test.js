@@ -143,7 +143,8 @@ describe('compiled output: these expressions are wrapped', () => {
     const code = compileJSX('const on = signal(false); const a = signal([]); const b = signal([]); const x = <ul><For each={on() ? b : a}>{(n) => <li>{n}</li>}</For></ul>;');
     assert.ok(code.includes('_$mapArray(() => on() ? b() : a(),'), code);
     const props = compileJSX('const X = ({ rows }) => <ul><For each={rows ?? none()}>{(n) => <li>{n}</li>}</For></ul>;');
-    assert.ok(props.includes('typeof rows === "function" ? rows() : rows'), props);
+    // `rows` is read through props where it is used (common.js deferPlacedProps).
+    assert.ok(props.includes('typeof _props.rows === "function" ? _props.rows() : _props.rows'), props);
   });
 
   it('a plain name or a member is handed to <For> as it is', () => {

@@ -35,6 +35,11 @@ The plugin aliases `react`, `react-dom`, `react/jsx-runtime`, and
 excludes React-ecosystem packages from Vite pre-bundling so a single module
 instance is shared.
 
+**Mixed apps:** with what-compiler's `what()` plugin next to `reactCompat()`,
+your files stay native What and React components render as React islands
+inside them; only files that import `react` (or call a React package's hook)
+are React code. See [packages/react-compat/MIXED.md](packages/react-compat/MIXED.md).
+
 ## How It Works
 
 `what-react` ships its own React-semantics runtime (`what-react/src/runtime.js`)

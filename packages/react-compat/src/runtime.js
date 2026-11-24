@@ -33,8 +33,24 @@
  * - Errors thrown inside effects are logged, not routed to error boundaries.
  */
 
-import { h, untrack, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
-import { isVNode } from 'what-core/internal';
+import { h, untrack, effect, runWithOwner, getOwner, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
+import { isVNode, _contextOf, isHydrating, _claimRegion, _afterWalk, _devHoldsState } from 'what-core/internal';
+import { _$outside } from 'what-core/render';
+
+/**
+ * The key a native What subtree finds its compat host under (what-core
+ * context): the compat instance it renders inside, set by a native component
+ * that a React tree renders (mixed.js). A React island or a bridged compat
+ * component created in that subtree takes the host as its parent, so React
+ * context, Suspense and error boundaries reach across the native layer.
+ */
+export const HOST = Symbol.for('what-react.host');
+
+/** The compat instance the current native code renders inside, or null. */
+export function _hostInstance() {
+  const map = _contextOf(HOST);
+  return map === null ? null : map.get(HOST) ?? null;
+}
 
 // ---- VNode kinds ----
 const KIND_HOLE = 0;      // null / undefined / boolean — placeholder comment (slot stability)
@@ -65,6 +81,9 @@ export function _requireInstance(hookName) {
       new Error(
         `[what-react] ${hookName}() called outside of a component render. ` +
         `Hooks can only be called while a what-react component is rendering. ` +
+        `In an app that mixes native What and React files, a React hook runs only in a React file: ` +
+        `a file is one when it imports react, calls a hook it imports from a React package, ` +
+        `starts with /** @jsxImportSource react */, or matches reactCompat({ react }) (MIXED.md). ` +
         `If this happens inside a React library, make sure ALL react imports are ` +
         `aliased to what-react (one module instance) — see the reactCompat() vite plugin.`
       ),
@@ -72,6 +91,21 @@ export function _requireInstance(hookName) {
     );
   }
   return currentInstance;
+}
+
+/**
+ * Run `fn` (native What code: a native component a React tree mounts) as no
+ * component's render, so a React hook called there fails as it would outside
+ * every render instead of using the instance that is rendering.
+ */
+export function _outsideRender(fn) {
+  const prev = currentInstance;
+  currentInstance = null;
+  try {
+    return fn();
+  } finally {
+    currentInstance = prev;
+  }
 }
 
 export function _getHookSlot(inst) {
@@ -98,6 +132,7 @@ export function scheduleUpdate(inst) {
     inst._renderPhaseUpdate = true;
     return;
   }
+  if (inst._server) return;
   dirtyQueue.add(inst);
   if (!flushScheduled) {
     flushScheduled = true;
@@ -480,7 +515,7 @@ function targetSvg(target) {
 
 // camelCase React SVG prop → correct kebab/colon SVG attribute name.
 // Covers the presentation/text/clip attributes charting libs (recharts) emit.
-const SVG_ATTR_MAP = {
+export const SVG_ATTR_MAP = {
   strokeWidth: 'stroke-width', strokeDasharray: 'stroke-dasharray',
   strokeDashoffset: 'stroke-dashoffset', strokeLinecap: 'stroke-linecap',
   strokeLinejoin: 'stroke-linejoin', strokeMiterlimit: 'stroke-miterlimit',
@@ -501,6 +536,9 @@ const SVG_ATTR_MAP = {
   fontStyle: 'font-style', fontVariant: 'font-variant', fontStretch: 'font-stretch',
   textRendering: 'text-rendering', imageRendering: 'image-rendering',
   writingMode: 'writing-mode', lightingColor: 'lighting-color',
+  // SVG keeps an attribute's case, and only lowercase `tabindex` makes an SVG
+  // element focusable (recharts' surface takes tabIndex).
+  tabIndex: 'tabindex',
 };
 
 function mountElement(v, container, svg, owner) {
@@ -551,23 +589,7 @@ function mountComponent(v, container, svg, owner) {
   container.appendChild(start);
   container.appendChild(end);
 
-  const inst = {
-    type: renderFn,
-    props: v.props || EMPTY_OBJ,
-    key: v.key ?? null,
-    hooks: [],
-    hookIndex: 0,
-    parent: owner,
-    depth: owner ? owner.depth + 1 : 0,
-    start, end, svg,
-    rendered: [],
-    unmounted: false,
-    _renderPhaseUpdate: false,
-    _pendingLayout: [],
-    _pendingPassive: [],
-    _guardStart: 0,
-    _guardCount: 0,
-  };
+  const inst = newInstance(renderFn, v.props || EMPTY_OBJ, v.key ?? null, owner, start, end, svg);
 
   const rn = {
     kind: KIND_COMPONENT, vnode: v, key: inst.key,
@@ -576,6 +598,31 @@ function mountComponent(v, container, svg, owner) {
 
   renderInstance(inst);
   return rn;
+}
+
+function newInstance(type, props, key, parent, start, end, svg) {
+  return {
+    type,
+    props,
+    key,
+    hooks: [],
+    hookIndex: 0,
+    parent,
+    depth: parent ? parent.depth + 1 : 0,
+    start, end, svg,
+    rendered: [],
+    unmounted: false,
+    _renderPhaseUpdate: false,
+    _pendingLayout: [],
+    _pendingPassive: [],
+    _guardStart: 0,
+    _guardCount: 0,
+    _track: null,
+    _dispose: null,
+    // The What owner native components rendered below this instance are
+    // created under (an island's: where the island stands in native code).
+    _nativeOwner: undefined,
+  };
 }
 
 function mountPortal(v, container, owner) {
@@ -796,6 +843,11 @@ function unmountInstance(inst) {
   if (inst.unmounted) return;
   inst.unmounted = true;
   dirtyQueue.delete(inst);
+  if (inst._track != null) {
+    const stop = inst._track;
+    inst._track = null;
+    stop();
+  }
 
   // Children first (React effect-cleanup order is bottom-up).
   for (const child of inst.rendered) unmountRNode(child, false);
@@ -807,6 +859,14 @@ function unmountInstance(inst) {
       try { slot.cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
       slot.cleanup = null;
     }
+  }
+
+  // What a component owns outside the compat tree (a native component's
+  // What root, mixed.js).
+  if (inst._dispose != null) {
+    const dispose = inst._dispose;
+    inst._dispose = null;
+    try { dispose(); } catch (e) { console.error('[what-react] cleanup error:', e); }
   }
 
   // Context unsubscriptions.
@@ -861,9 +921,7 @@ export function renderInstance(inst) {
     const prev = currentInstance;
     currentInstance = inst;
     try {
-      // untrack(): signal reads inside React components must not subscribe
-      // to any enclosing what-core effect.
-      out = untrack(() => inst.type(inst.props));
+      out = renderTracked(inst);
     } catch (err) {
       currentInstance = prev;
       inst._pendingLayout.length = 0;
@@ -898,6 +956,42 @@ export function renderInstance(inst) {
   inst._pendingLayout.length = 0;
   for (const e of inst._pendingPassive) passiveQueue.push(e);
   inst._pendingPassive.length = 0;
+}
+
+// A render reads What signals under a tracker of its own, never an enclosing
+// what-core effect: a signal a component reads while it renders (a native
+// value in an island's props, a render prop written in a native file, a
+// signal read in a React file) schedules a re-render of that instance, the
+// way a state change does. The tracker belongs to no owner, so nothing but
+// the next render or the unmount disposes it. One that read nothing keeps
+// nothing (what-core releases an effect with no dependencies).
+const NOT_THROWN = {};
+
+function renderTracked(inst) {
+  const prev = inst._track;
+  if (prev != null) {
+    inst._track = null;
+    prev();
+  }
+  let out;
+  let thrown = NOT_THROWN;
+  let first = true;
+  const stop = runWithOwner(null, () => effect(() => {
+    if (first) {
+      first = false;
+      // Caught here, not by the effect: the render's error (a thrown thenable
+      // included) goes to the compat boundaries, never to what-core's.
+      try { out = inst.type(inst.props); } catch (err) { thrown = err; }
+    } else if (!inst.unmounted) {
+      scheduleUpdate(inst);
+    }
+  }));
+  if (thrown !== NOT_THROWN) {
+    stop();
+    throw thrown;
+  }
+  inst._track = stop;
+  return out;
 }
 
 function removeRangeContents(start, end) {
@@ -963,7 +1057,118 @@ export function unmountRoot(root) {
 }
 
 // =====================================================================
-// Bridge — render a compat component from inside a native What tree
+// Islands — a React tree that native What code places
+// =====================================================================
+
+/**
+ * Mount `view` (a function returning what-react elements) as a compat root
+ * instance between two markers in `container`. The instance renders `view`
+ * like a component body: every signal `view` reads while it builds the
+ * elements (a native value in a prop) schedules a re-render, which reconciles
+ * against the last one, so React state below survives. `parent` is the compat
+ * instance the island stands inside (React context, Suspense and error
+ * boundaries reach through it), `nativeOwner` the What owner where it stands
+ * (native components below it are created under that owner).
+ */
+export function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
+  const start = document.createComment('w$');
+  const end = document.createComment('/w$');
+  container.appendChild(start);
+  container.appendChild(end);
+  const inst = newInstance(view, EMPTY_OBJ, null, parent, start, end, !!svg);
+  inst._nativeOwner = nativeOwner;
+  // While a server page hydrates, the island is two markers until the walk
+  // is over: the server wrote nothing for it, so there is nothing to claim.
+  if (deferred) queueMicrotask(() => { if (!inst.unmounted) runInCommit(() => renderInstance(inst)); });
+  else runInCommit(() => renderInstance(inst));
+  return inst;
+}
+
+/**
+ * Hydrating a page whose server rendered the island (server.js): the
+ * server's region markers become the island's own, and once the walk is
+ * done the server's HTML between them is replaced by the client's render of
+ * the same elements, in one step, before the page paints again.
+ */
+export function adoptIsland(view, start, end, parent, nativeOwner, svg) {
+  const inst = newInstance(view, EMPTY_OBJ, null, parent, start, end, !!svg);
+  inst._nativeOwner = nativeOwner;
+  const mount = () => {
+    if (inst.unmounted || end.parentNode === null) return;
+    removeRangeContents(start, end);
+    runInCommit(() => renderInstance(inst));
+  };
+  if (!_afterWalk(mount)) queueMicrotask(mount);
+  return inst;
+}
+
+/** Unmount an island's instance. Its DOM belongs to the native code that placed it. */
+export function unmountIsland(inst) {
+  runInCommit(() => unmountInstance(inst));
+}
+
+/**
+ * A native component body's half of an island: mount `view` here, under the
+ * current What owner, and unmount it with that owner. Returns the fragment to
+ * place.
+ */
+export function _island(view, svg) {
+  // Its React state lives in React: rebuilding the island loses it.
+  _devHoldsState();
+  const parent = _hostInstance();
+  const owner = getOwner();
+  const hydrating = isHydrating();
+  if (hydrating) {
+    // The server rendered the island (server.js) between brackets: they are
+    // the island's, whole, and the walk goes on after them.
+    const region = _claimRegion();
+    if (region !== null) {
+      const adopted = adoptIsland(view, region[0], region[1], parent, owner, svg);
+      whatOnCleanup(() => unmountIsland(adopted));
+      return null;
+    }
+  }
+  const frag = document.createDocumentFragment();
+  const inst = untrack(() => mountIsland(view, frag, parent, owner, svg, hydrating));
+  whatOnCleanup(() => unmountIsland(inst));
+  // Built on the client where the server rendered nothing: placed, not claimed.
+  return hydrating ? _$outside(() => frag) : frag;
+}
+
+// =====================================================================
+// Server — one render pass per component, for a React island's HTML
+// =====================================================================
+
+/**
+ * A compat instance for a server render: hooks get their initial values,
+ * effects are queued and never run, and nothing schedules a re-render.
+ */
+export function _serverInstance(type, props, parent) {
+  const inst = newInstance(type, props || EMPTY_OBJ, null, parent, null, null, false);
+  inst._server = true;
+  return inst;
+}
+
+/** Render `inst` once on the server (a setState during render renders again, as React does). */
+export function _renderOnServer(inst) {
+  let out;
+  let loops = 0;
+  do {
+    inst._renderPhaseUpdate = false;
+    inst.hookIndex = 0;
+    const prev = currentInstance;
+    currentInstance = inst;
+    try {
+      out = untrack(() => inst.type(inst.props));
+    } finally {
+      currentInstance = prev;
+    }
+  } while (inst._renderPhaseUpdate && ++loops < 25);
+  return out;
+}
+
+// =====================================================================
+// Bridge — a compat element that native What code renders as a vnode
 // =====================================================================
 
 const bridgeCache = new WeakMap();
@@ -975,20 +1180,21 @@ const bridgeCache = new WeakMap();
  *   components by calling the bridge as a regular run-once component,
  * - THIS runtime recognizes compat vnodes via tag._compatType and renders
  *   them natively (the bridge is never called inside compat trees).
+ *
+ * The bridge is an island: its element is rebuilt from core's props on each
+ * render, so a prop that is a getter (compiled JSX's live props) stays live,
+ * and it takes the compat host it stands in as its parent.
  */
 export function getBridge(renderFn) {
   let bridge = bridgeCache.get(renderFn);
   if (bridge) return bridge;
 
   bridge = function CompatBridge(coreProps) {
-    // Snapshot core's reactive props proxy into a plain object.
-    const vnode = Object.assign(h(bridge, Object.assign({}, coreProps)), { type: renderFn, _compat: true });
-    const frag = document.createDocumentFragment();
-    const rn = runInCommit(() => mountRNode(vnode, KIND_COMPONENT, frag, false, null));
-    // Core runs the bridge as a component, so the cleanup belongs to the
-    // bridge's own component and runs when core unmounts it.
-    whatOnCleanup(() => unmountRNode(rn, false));
-    return frag;
+    return _island(() => {
+      const props = {};
+      for (const key in coreProps) props[key] = coreProps[key];
+      return Object.assign(h(bridge, props), { type: renderFn, _compat: true });
+    }, false);
   };
   bridge._compatType = renderFn;
   bridge.displayName = renderFn.displayName || renderFn.name || 'CompatBridge';
@@ -1007,7 +1213,7 @@ function applyRef(ref, value) {
 }
 
 // preact's unitless-CSS-property test
-const IS_NON_DIMENSIONAL = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+export const IS_NON_DIMENSIONAL = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
 
 function setStyleValue(style, key, value) {
   if (key[0] === '-') {

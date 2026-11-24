@@ -21,7 +21,20 @@ import { VNode, _installVNodeRuntime } from './vnode-renderer.js';
  * @returns {T}
  */
 function vnodeProducer(produce) {
-  _installVNodeRuntime(createDOM, _vnodeRows, _setVNodeProp, _isUnsafeAttr);
+  // Closures over the imports, read when a vnode renders, not the bindings as
+  // they are now: this module evaluates inside an import cycle (dom.js and
+  // render.js import each other), and a transform that defines a module's
+  // exports where they are written rather than hoisting them (Vite 5's SSR
+  // transform, which Vitest 2 runs what-core's source through when it inlines
+  // it: a linked or monorepo copy) has not defined createDOM or _vnodeRows yet.
+  // Installed as they are, they would stay undefined and every vnode would
+  // throw "vnodeRows is not a function".
+  _installVNodeRuntime(
+    (vnode, parent, isSvg) => createDOM(vnode, parent, isSvg),
+    (value, rows, isSvg, scope, end, adopted) => _vnodeRows(value, rows, isSvg, scope, end, adopted),
+    (el, key, value, isSvg) => _setVNodeProp(el, key, value, isSvg),
+    (key, value) => _isUnsafeAttr(key, value),
+  );
   return produce;
 }
 

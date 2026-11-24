@@ -123,6 +123,7 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
     '_contextOf', '_provide', '_isServerProcess',
   ], note: 'The query cache\'s devtools and router hooks, the status <Form> provides and its reset, the engine hooks a navigation uses and the development flag are what-devtools\', what-router\'s and what-server\'s interface in what-core/internal; apps use what-framework/data, useFormStatus(), <Form> and useTransition().' },
   { name: 'isVNode', to: 'what-core/internal', neverOnRoot: true, note: 'Whether a value is a vnode, by the brand only what-core\'s producers (h(), the JSX runtime, the boundaries) give: for libraries that make or inspect elements, such as what-react. Apps make elements with h() or JSX.' },
+  { to: 'what-core/internal', neverOnRoot: true, names: ['_claimRegion', '_afterWalk', '_devHoldsState'], note: 'Hooks for what-react\'s islands: an island takes the server\'s HTML for it whole and renders after the walk, and in development says it holds state (ERR_REBUILT_COMPONENT). Apps use hydrate().' },
   { name: '_mountPortal', to: 'what-core/internal', neverOnRoot: true, note: 'The client renderer a portal\'s vnode carries: what-react\'s createPortal attaches it, so its portal also renders where it reaches a native What tree. Apps use <Portal>.' },
 ]);
 

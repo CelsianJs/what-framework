@@ -10,8 +10,7 @@
  * origin it was issued for.
  */
 
-import { readFileSync } from 'fs';
-import { createRequire } from 'module';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -67,6 +66,15 @@ export const DISCOVERY_PATH = '/__what_mcp_discovery';
  *   root: the dev server's project root; port: the bridge port when no bridge
  *   file is found; token: a pre-shared pairing key (also WHAT_MCP_TOKEN)
  */
+
+/** Whether `name` is installed in a node_modules directory at or above `root`. */
+function installedAbove(root, name) {
+  for (let dir = resolve(root); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'node_modules', name, 'package.json'))) return true;
+    if (dirname(dir) === dir) return false;
+  }
+}
+
 export function createDiscoveryHandler({ root, port = 9229, token = '', https = false } = {}) {
   return async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
@@ -121,15 +129,16 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
   // The bootstrap imports `what-devtools`, an OPTIONAL peer. Without it Vite
   // cannot resolve that import and the dev server fails, so check up front and
   // inject nothing instead.
+  //
+  // Found the way Vite resolves the bootstrap's bare import: a node_modules
+  // directory at or above the project root. Not with require.resolve, which
+  // also searches NODE_PATH, and pnpm's bin shims set NODE_PATH to its hidden
+  // store (node_modules/.pnpm/node_modules): a what-devtools there (another
+  // package's dependency, a version left by an upgrade) passed this check,
+  // and Vite, which ignores NODE_PATH, then failed the dev server on the
+  // import ("Failed to resolve import \"what-devtools\"").
   const devtoolsAvailable = () => {
-    if (devtoolsResolvable === undefined) {
-      try {
-        createRequire(join(projectRoot || process.cwd(), 'noop.js')).resolve('what-devtools');
-        devtoolsResolvable = true;
-      } catch {
-        devtoolsResolvable = false;
-      }
-    }
+    if (devtoolsResolvable === undefined) devtoolsResolvable = installedAbove(projectRoot || process.cwd(), 'what-devtools');
     return devtoolsResolvable;
   };
 

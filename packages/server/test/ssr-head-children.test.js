@@ -139,3 +139,30 @@ describe('Head children share the props dedup keys on the server', () => {
     assert.match(head, /content="second"/);
   });
 });
+
+// A head tag whose hole reads a value (a signal, or a prop, which compiled
+// JSX reads as a live prop) is a reactive part of the server's markup. It
+// stayed in the body; it is evaluated once and goes to the head.
+describe('Head children that read a value on the server', () => {
+  it('a signal or a prop read in a title or an attribute goes to the head, escaped once', async () => {
+    const reads = await loadCompiled(`
+      import { Head, signal } from 'what-framework';
+      const name = signal('a & "b"');
+      export const Page = (p) => (
+        <main>
+          <Head>
+            <title>T {name()} {p.tag}</title>
+            <meta name="description" content={'about ' + name()} />
+            <link rel="canonical" href={'/' + p.tag} />
+          </Head>
+          <p>body</p>
+        </main>
+      );
+    `, { pluginOptions: { generate: 'ssr' } });
+    const { body, head } = renderToStringWithHead(h(reads.Page, { tag: 'x<y' }));
+    assert.equal(body, '<main><p>body</p></main>');
+    assert.match(head, /<title>T a &amp; &quot;b&quot; x&lt;y<\/title>|<title>T a &amp; "b" x&lt;y<\/title>/);
+    assert.match(head, /<meta name="description" content="about a &amp; &quot;b&quot;">/);
+    assert.match(head, /<link rel="canonical" href="\/x&lt;y">/);
+  });
+});

@@ -53,3 +53,5 @@ packages/devtools-mcp/test/.tmp-build-*
 # (the JS createProgram API is gone; probes are written next to the test and
 # compiled with tsc, then removed in a finally).
 **/.what-tsc-*
+packages/react-compat/test/fixtures/mixed/node_modules/
+packages/react-compat/test/fixtures/mixed/dist/

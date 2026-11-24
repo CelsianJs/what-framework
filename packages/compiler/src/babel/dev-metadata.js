@@ -33,11 +33,17 @@ function sourcePath(state) {
   return state._devPath;
 }
 
-/** "name@path:line:column" for `node`, or null when it has no source position. */
+/**
+ * "name@path:line:column" for `node`, or null when it has no source position.
+ * `sourceLoc` (the Vite plugin's) maps a position in the code the compiler
+ * was handed back to the file as written: Vite's esbuild or oxc transform has
+ * already reprinted it (comments gone, TypeScript stripped).
+ */
 function describe(name, node, state) {
   const start = node && node.loc && node.loc.start;
   if (!start) return null;
-  return `${name}@${sourcePath(state)}:${start.line}:${start.column + 1}`;
+  const at = typeof state.opts?.sourceLoc === 'function' ? state.opts.sourceLoc(start.line, start.column) ?? start : start;
+  return `${name}@${sourcePath(state)}:${at.line}:${at.column + 1}`;
 }
 
 function jsxName(name) {

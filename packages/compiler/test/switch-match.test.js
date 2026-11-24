@@ -406,7 +406,8 @@ describe('host-element codegen', () => {
     // `title` is only placed, so it is read from props where it is placed
     // (common.js deferPlacedProps).
     assert.ok(code.includes('_$insert(_el$1, _$place(_props, "title"));'), code);
-    assert.ok(code.includes('_el$2.$$click = onPick;'), code);
+    // `onPick` is read through props where it is used, as `title` is.
+    assert.ok(code.includes('_el$2.$$click = _props.onPick;'), code);
     assert.doesNotMatch(code, /_\$createComponent/);
   });
 });

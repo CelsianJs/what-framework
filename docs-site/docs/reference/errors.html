@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 72 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 73 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 72 of them: 43 errors and 29 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 73 of them: 43 errors and 30 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -123,6 +123,7 @@
             <li><a href="#ERR_PORTAL_TARGET_MISSING">ERR_PORTAL_TARGET_MISSING</a></li>
             <li><a href="#ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</a></li>
             <li><a href="#ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</a></li>
+            <li><a href="#ERR_REBUILT_COMPONENT">ERR_REBUILT_COMPONENT</a></li>
             <li><a href="#ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</a></li>
             <li><a href="#ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</a></li>
             <li><a href="#ERR_RUNTIME">ERR_RUNTIME</a></li>
@@ -839,6 +840,25 @@ export async function loader() {
   await prefetchQuery(['config'], loadConfig);
   return null;
 }</code></pre>
+
+          <h2 id="ERR_REBUILT_COMPONENT">ERR_REBUILT_COMPONENT</h2>
+          <p class="subtitle">A reactive region rebuilt &lt;component&gt; when it ran again, and the state &lt;component&gt; held is gone: &quot;region&quot; builds everything it returns anew on every run.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Write the branches as a JSX ternary or &lt;Show&gt; (&lt;Switch&gt;/&lt;Match&gt; for more than two), and read the changing value where the component takes it: `&lt;Panel data={query.data()} /&gt;`, with a computed() for a derived value. The compiler then builds &lt;Panel&gt; once and updates its props in place. A block function child (`{() =&gt; { const d = q(); if (!d) return ...; return &lt;Panel data={d} /&gt;; }}`) runs again whenever anything it read changes, and rebuilds what it returns.</p>
+<pre><code>// Bad — the region runs again on every refetch and rebuilds &lt;Chart&gt;:
+&lt;div&gt;{() =&gt; {
+  if (query.isLoading()) return &lt;Spinner /&gt;;
+  const counts = countByKind(query.data());
+  return &lt;Chart counts={counts} /&gt;;
+}}&lt;/div&gt;
+
+// Good — &lt;Chart&gt; is built once; its counts follow the data:
+const counts = computed(() =&gt; countByKind(query.data()));
+&lt;div&gt;
+  &lt;Show when={!query.isLoading()} fallback={&lt;Spinner /&gt;}&gt;
+    &lt;Chart counts={counts()} /&gt;
+  &lt;/Show&gt;
+&lt;/div&gt;</code></pre>
 
           <h2 id="ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</h2>
           <p class="subtitle">[what-router] Redirect loop (kind): cycle. Guards of: guards.</p>

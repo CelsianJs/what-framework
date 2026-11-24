@@ -436,10 +436,13 @@ function emitPropsJSX(items) {
   }).join('');
 }
 
-function emitPropsH(items) {
+// `live`: a component's props, where a value that reads a signal is a live
+// prop, a getter over the read (dom.js isLivePropValue). An island's props
+// are its serialized data, read when it is created.
+function emitPropsH(items, live = false) {
   return items.map(item => {
     if (item.spread) return `...{ ${spreadEntries(item.spread)} }`;
-    if (item.read !== undefined) return `${q(item.name)}: s[${item.read}]()`;
+    if (item.read !== undefined) return live ? `get ${q(item.name)}() { return s[${item.read}](); }` : `${q(item.name)}: s[${item.read}]()`;
     if (item.accessor !== undefined) return `${q(item.name)}: s[${item.accessor}]`;
     if (item.imported !== undefined) return `${q(item.name)}: ${item.imported}`;
     return `${q(item.name)}: ${q(item.static)}`;
@@ -549,10 +552,16 @@ function emitH(spec) {
     // implementation. Writing the implementation into the oracle would make the
     // comparison agree with whatever the compiler does, which is the one thing a
     // differential test must never do.
+    //
+    // A prop that reads a signal is live: `<Box a={s[0]()} />` is one
+    // spelling of `h(Box, { get a() { return s[0](); } })`, the component
+    // reading the current value wherever it reads `props.a`. The object has
+    // no prototype, which is how a props object keeps its getters through the
+    // renderer's copy (what-core dom.js _copyProps).
     case 'component': {
-      const props = emitPropsH(spec.items);
+      const props = emitPropsH(spec.items, true);
       const kids = spec.children.map(emitH).join(', ');
-      return `h(${spec.comp}, {${props}}${kids ? `, ${kids}` : ''})`;
+      return `h(${spec.comp}, {__proto__: null${props ? ', ' : ''}${props}}${kids ? `, ${kids}` : ''})`;
     }
     // An island IS a component: the directive only decides WHEN it hydrates.
     // `component` and `mode` come from the tag and the directive rather than

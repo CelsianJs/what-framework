@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { mixedJsx, isReactPackage } from './mixed-plugin.js';
 
 // Common React ecosystem packages that import 'react' internally.
 // These must be excluded from Vite's optimizeDeps to prevent pre-bundling
@@ -140,6 +141,44 @@ function detectInstalledReactPackages(projectRoot) {
   return installed;
 }
 
+/**
+ * The React packages a server build has to bundle (Vite's ssr.noExternal):
+ * an external package is loaded by Node, where its `import 'react'` reaches
+ * React itself instead of what-react, so a React island could not render on
+ * the server. Found from the app's dependencies, and the dependencies of each
+ * React package found, so a library's own React dependencies (react-redux
+ * under recharts) come too. Packages Node cannot run as ES modules once
+ * bundled (CommonJS only) stay external; an island that uses one renders in
+ * the browser.
+ */
+export function detectSsrReactPackages(projectRoot) {
+  const found = new Set();
+  const seen = new Set();
+  const readPkg = (name, fromDir) => {
+    for (let dir = fromDir; ; dir = path.dirname(dir)) {
+      const file = path.join(dir, 'node_modules', name, 'package.json');
+      if (fs.existsSync(file)) {
+        try { return { pkg: JSON.parse(fs.readFileSync(file, 'utf8')), dir: path.dirname(fs.realpathSync(file)) }; } catch { return null; }
+      }
+      if (dir === path.dirname(dir)) return null;
+    }
+  };
+  let app;
+  try { app = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')); } catch { return []; }
+  const queue = Object.keys({ ...app.dependencies, ...app.optionalDependencies }).map((name) => [name, projectRoot]);
+  while (queue.length > 0) {
+    const [name, fromDir] = queue.shift();
+    if (seen.has(name) || name === 'react' || name === 'react-dom' || FRAMEWORK_PACKAGES.includes(name) || name === 'what-react') continue;
+    seen.add(name);
+    const hit = readPkg(name, fromDir);
+    if (hit === null || !isReactPackage(hit.pkg)) continue;
+    const esm = hit.pkg.type === 'module' || Boolean(hit.pkg.module) || JSON.stringify(hit.pkg.exports ?? '').includes('"import"');
+    if (esm) found.add(name);
+    for (const dep of Object.keys({ ...hit.pkg.dependencies, ...hit.pkg.peerDependencies })) queue.push([dep, hit.dir]);
+  }
+  return [...found];
+}
+
 // The packages an app reaches the engine through: what-framework's entries
 // re-export what-core, what-router and what-server. They are served as ES
 // modules rather than pre-bundled, so all of them share one what-core.
@@ -153,21 +192,43 @@ function exactAlias(specifier, replacement) {
   return { find: new RegExp(`^${escaped}$`), replacement };
 }
 
+// Whether the app's config also uses what-compiler's plugin (what()).
+function usesWhatCompiler(plugins) {
+  const list = Array.isArray(plugins) ? plugins.flat(Infinity) : [];
+  return list.some((p) => p && typeof p === 'object' && p.name === 'vite-plugin-what');
+}
+
 /**
  * @param {object} [options]
  * @param {string[]} [options.exclude] - Additional packages to exclude from pre-bundling
  * @param {boolean} [options.autoDetect=true] - Auto-detect installed React packages to exclude
- * @returns {import('vite').Plugin}
+ * @param {boolean | 'auto'} [options.mixed='auto'] - Native What files and React files in one app
+ *   (MIXED.md). 'auto' turns it on when the config also has what-compiler's what() plugin.
+ *   Off, every JSX file is React code.
+ * @param {string | RegExp | ((file: string) => boolean) | Array<string | RegExp | ((file: string) => boolean)>} [options.react]
+ *   Mixed mode: files (paths relative to the root) that are React files whatever they import.
+ * @returns {import('vite').Plugin[]}
  */
 export function reactCompat(options = {}) {
-  const { exclude = [], autoDetect = true } = options;
+  const { exclude = [], autoDetect = true, mixed = 'auto' } = options;
+  let mixedOn = false;
+  const mixedPlugin = mixedJsx({ react: options.react });
+  const mixedTransform = mixedPlugin.transform;
+  const mixedHot = mixedPlugin.handleHotUpdate;
+  mixedPlugin.transform = function (code, id, opts) {
+    return mixedOn ? mixedTransform.call(this, code, id, opts) : null;
+  };
+  mixedPlugin.handleHotUpdate = function (ctx) {
+    return mixedOn ? mixedHot.call(this, ctx) : undefined;
+  };
 
-  return {
+  return [{
     name: 'what-react-compat',
     enforce: 'pre',
 
     config(config) {
       const root = path.resolve(config.root || process.cwd());
+      mixedOn = mixed === true || (mixed === 'auto' && usesWhatCompiler(config.plugins));
 
       // The directory holding index.js, jsx-runtime.js, dom.js, ...: the
       // installed what-react, else the one this plugin file belongs to.
@@ -211,10 +272,14 @@ export function reactCompat(options = {}) {
       ];
 
       return {
-        esbuild: {
-          jsx: 'automatic',
-          jsxImportSource: 'react', // aliased to what-react
-        },
+        // Mixed mode: what-compiler keeps JSX for itself, and React files are
+        // lowered by the mixed plugin; otherwise every file is React code.
+        ...(mixedOn ? {} : {
+          esbuild: {
+            jsx: 'automatic',
+            jsxImportSource: 'react', // aliased to what-react
+          },
+        }),
         resolve: {
           alias,
           // what-framework and what-core are not aliased: each import,
@@ -230,6 +295,8 @@ export function reactCompat(options = {}) {
           exclude: uniqueExclude,
           include: uniqueInclude,
         },
+        // A server build bundles React packages, so their `react` is what-react.
+        ...(autoDetect ? { ssr: { noExternal: detectSsrReactPackages(root) } } : {}),
       };
     },
 
@@ -237,9 +304,9 @@ export function reactCompat(options = {}) {
       // Log what we set up
       const excluded = config.optimizeDeps?.exclude?.length || 0;
       const included = config.optimizeDeps?.include?.length || 0;
-      console.log(`\n  ⚡ what-react compat active — ${excluded} packages excluded from pre-bundling` + (included ? `, ${included} pure-CJS deps pre-bundled for interop` : '') + `\n`);
+      console.log(`\n  ⚡ what-react compat active${mixedOn ? ' (mixed: native What files and React files)' : ''} — ${excluded} packages excluded from pre-bundling` + (included ? `, ${included} pure-CJS deps pre-bundled for interop` : '') + `\n`);
     },
-  };
+  }, mixedPlugin];
 }
 
 export default reactCompat;

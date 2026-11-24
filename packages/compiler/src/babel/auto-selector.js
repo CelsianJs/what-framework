@@ -3,7 +3,7 @@
 
 import { t } from './types.js';
 import { collectPatternNames, namesInvisibleToKeyFn } from './lists.js';
-import { getAttrName, helper, isComponentElement, isEventAttrName, uniqueName } from './common.js';
+import { controlFlowTag, getAttrName, helper, isComponentElement, isEventAttrName, uniqueName } from './common.js';
 
 const _selectorInfoWarned = new Set();
 
@@ -40,7 +40,9 @@ const _selectorInfoWarned = new Set();
 //   - the .map() is lowered to a keyed list (it has a usable key prop);
 //   - the comparison is `===` or `!==` and sits in a render binding of the
 //     row's JSX: an attribute value of an intrinsic element (not ref, key,
-//     an event handler, bind:*, or a component prop) or a child expression,
+//     an event handler, bind:*), a component prop (a live prop the
+//     component reads in its bindings; not a function, children, an island's
+//     or a control-flow built-in's) or a child expression,
 //     including a zero-argument render thunk `{() => ...}`, but never inside
 //     any other function (handlers keep plain reads);
 //   - one operand is `X()`: a zero-argument call of an identifier the
@@ -69,8 +71,20 @@ export function lowerRowSelectors(rowJsx, mapFn, state) {
   for (const param of mapFn.params) collectPatternNames(param, inside);
 
   const sourceOf = (node) => {
-    if (!t.isCallExpression(node) || node.arguments.length !== 0 || !t.isIdentifier(node.callee)) return null;
-    const name = node.callee.name;
+    if (!t.isCallExpression(node) || node.arguments.length !== 0) return null;
+    // `_props.selected()`: a destructured accessor prop `selected`, which
+    // common.js deferPlacedProps reads through props. A `props.selected()`
+    // written by hand is not a source, as before.
+    const callee = node.callee;
+    if (t.isMemberExpression(callee) && !callee.computed && t.isIdentifier(callee.property) && t.isIdentifier(callee.object)
+        && !inside.has(callee.object.name) && state.signalNames && state.signalNames.propsObjects
+        && state.signalNames.propsObjects.has(callee.object.name)) {
+      const binding = state._jsxScope && state._jsxScope.getBinding(callee.object.name);
+      return binding && binding.kind === 'param' && binding.constant && binding.path.parentPath.node._whatPropsPattern === true
+        ? `${callee.object.name}.${callee.property.name}` : null;
+    }
+    if (!t.isIdentifier(callee)) return null;
+    const name = callee.name;
     if (inside.has(name)) return null;
     const accessor = (state.signalNames && state.signalNames.has(name)) ||
       (state.importedIdentifiers && state.importedIdentifiers.has(name));
@@ -108,15 +122,20 @@ export function lowerRowSelectors(rowJsx, mapFn, state) {
     if (id === undefined) {
       id = uniqueName(state, '_sel$');
       state._selectorIds.set(name, id);
-      const create = t.callExpression(helper(state, '_$createSelector'), [t.identifier(name)]);
+      // A source is a name, or `props.<key>` (sourceOf).
+      const ref = () => {
+        const [object, property] = name.split('.');
+        return property === undefined ? t.identifier(name) : t.memberExpression(t.identifier(object), t.identifier(property));
+      };
+      const create = t.callExpression(helper(state, '_$createSelector'), [ref()]);
       let init = create;
-      if (!provenAccessor(name)) {
+      if (name.includes('.') || !provenAccessor(name)) {
         const key = t.identifier(uniqueName(state, '_k$'));
         init = t.conditionalExpression(
-          t.binaryExpression('===', t.unaryExpression('typeof', t.identifier(name)), t.stringLiteral('function')),
+          t.binaryExpression('===', t.unaryExpression('typeof', ref()), t.stringLiteral('function')),
           create,
           t.arrowFunctionExpression([key], t.binaryExpression('===',
-            t.callExpression(t.identifier(name), []), t.cloneNode(key))),
+            t.callExpression(ref(), []), t.cloneNode(key))),
         );
       }
       state._selectorDecls.push(t.variableDeclaration('const', [t.variableDeclarator(t.identifier(id), init)]));
@@ -198,13 +217,25 @@ export function lowerRowSelectors(rowJsx, mapFn, state) {
     }
   };
 
+  // A component prop is a live prop when it reads a signal (dom.js
+  // isLivePropValue): a getter the component reads in its own bindings, so a
+  // comparison there is a render binding too. What's own control flow and
+  // islands lower their attributes themselves.
+  const livePropsOf = (node) => {
+    if (controlFlowTag(node, state) !== null) return false;
+    return !node.openingElement.attributes.some((a) => t.isJSXAttribute(a) && getAttrName(a).startsWith('client:'));
+  };
+
   function visitJsx(node) {
-    if (t.isJSXElement(node) && !isComponentElement(node)) {
+    if (t.isJSXElement(node) && (!isComponentElement(node) || livePropsOf(node))) {
+      const component = isComponentElement(node);
       for (const attr of node.openingElement.attributes) {
         if (!t.isJSXAttribute(attr) || !t.isJSXExpressionContainer(attr.value)) continue;
         const name = getAttrName(attr);
         if (name === 'key' || name === 'ref' || isEventAttrName(name) || name.includes(':') || name.includes('|')) continue;
-        attr.value.expression = rewriteBinding(attr.value.expression);
+        // A function handed to a component is called by it, not a binding.
+        if (component && (name === 'children' || t.isFunction(attr.value.expression))) continue;
+        attr.value.expression = component ? rewrite(attr.value.expression) : rewriteBinding(attr.value.expression);
       }
     }
     visitChildren(node.children);

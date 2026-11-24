@@ -32,8 +32,9 @@ export {
   setChecked,
   applyRef,
   // Equality-gated eager memo — emitted for branch memoization of
-  // conditional JSX.
+  // conditional JSX — and the lazy one, for a branch that may never be reached.
   _$memo,
+  _$lazyMemo,
   // What `<C client:idle />` compiles to: an island that hydrates itself.
   _$Island,
   delegateEvents,
@@ -67,5 +68,9 @@ export {
   // JSX a component is handed in a prop, built where the component reads it,
   // and a compiled read of a prop where its value is placed.
   _$slots,
+  // Spread props merged with their getters kept, and a rest element of
+  // destructured props (live props: what-core dom.js _isLiveProp).
+  _$merge,
+  _$omit,
   _$place,
 } from 'what-core/render';

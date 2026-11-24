@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 72 of them: 43 errors and 29 warnings.
+Every code in What's error catalogue, all 73 of them: 43 errors and 30 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -97,6 +97,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_PORTAL_TARGET_MISSING`](#err-portal-target-missing) | warning | <Portal target="`selector`"> matched no element, so its children render nowhere. |
 | [`ERR_PRETEXT_NOT_INSTALLED`](#err-pretext-not-installed) | error | [what-text] Failed to load @chenglou/pretext: `message`. |
 | [`ERR_QUERY_OUTSIDE_RENDER`](#err-query-outside-render) | warning | [what] Server query cache used outside a render, loader or action. |
+| [`ERR_REBUILT_COMPONENT`](#err-rebuilt-component) | warning | A reactive region rebuilt <`component`> when it ran again, and the state <`component`> held is gone: "`region`" builds everything it returns anew on every run. |
 | [`ERR_REDIRECT_CYCLE`](#err-redirect-cycle) | error | [what-router] Redirect loop (`kind`): `cycle`. Guards of: `guards`. |
 | [`ERR_REDIRECT_NOT_CAUGHT`](#err-redirect-not-caught) | error | [what-router] redirect to `target` |
 | [`ERR_RUNTIME`](#err-runtime) | error | An error surfaced that the framework could not classify, so the message is the original one verbatim. |
@@ -1219,6 +1220,33 @@ export async function loader() {
   await prefetchQuery(['config'], loadConfig);
   return null;
 }
+```
+
+## ERR_REBUILT_COMPONENT
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> A reactive region rebuilt <{{component}}> when it ran again, and the state <{{component}}> held is gone: "{{region}}" builds everything it returns anew on every run.
+
+Write the branches as a JSX ternary or <Show> (<Switch>/<Match> for more than two), and read the changing value where the component takes it: `<Panel data={query.data()} />`, with a computed() for a derived value. The compiler then builds <Panel> once and updates its props in place. A block function child (`{() => { const d = q(); if (!d) return ...; return <Panel data={d} />; }}`) runs again whenever anything it read changes, and rebuilds what it returns.
+
+```jsx
+// Bad — the region runs again on every refetch and rebuilds <Chart>:
+<div>{() => {
+  if (query.isLoading()) return <Spinner />;
+  const counts = countByKind(query.data());
+  return <Chart counts={counts} />;
+}}</div>
+
+// Good — <Chart> is built once; its counts follow the data:
+const counts = computed(() => countByKind(query.data()));
+<div>
+  <Show when={!query.isLoading()} fallback={<Spinner />}>
+    <Chart counts={counts()} />
+  </Show>
+</div>
 ```
 
 ## ERR_REDIRECT_CYCLE

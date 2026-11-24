@@ -11,7 +11,7 @@ export { _formStatusContext, _formStatus } from '../actions.js';
 // what-router's navigation: progress written outside the transition it may
 // run in (it shows at once), and the commit it waits for there; and the state
 // each <Router> provides to what it renders.
-export { _urgent, _currentTransition, _onCommit, _contextOf, _provide } from '../reactive.js';
+export { _urgent, _currentTransition, _onCommit, _contextOf, _provide, _devHoldsState } from '../reactive.js';
 // The development flag, for sibling packages whose development-only text must
 // fold away in a production build (what-router's error fixes).
 export { __DEV__ } from '../reactive.js';
@@ -47,7 +47,7 @@ export { escapeHtml as _escapeHtml } from '../markup-rules.js';
 export { _isAriaAttr, _beginComponentSSR, _endComponentSSR, _runInComponentSSR, _resetForm, _formMember } from '../dom.js';
 // The client renderer a '__portal' vnode carries (react-compat's createPortal).
 export { createPortalDOM as _mountPortal } from '../dom.js';
-export { _mapArrayToArray, _rowKeyDigest, isHydrating } from '../render.js';
+export { _mapArrayToArray, _rowKeyDigest, isHydrating, _claimRegion, _afterWalk } from '../render.js';
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';

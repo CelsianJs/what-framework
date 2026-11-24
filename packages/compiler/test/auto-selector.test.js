@@ -60,6 +60,39 @@ const TABLE = (binding, extra = '') => `
 `;
 
 describe('auto-selector: where it fires', () => {
+  it('rewrites sel() === row.key in a component prop, a live prop the component reads in its bindings', async () => {
+    const source = `
+      import { signal } from 'what-framework';
+      export const selected = signal(0);
+      export const rows = signal([1, 2, 3]);
+      export const runs = { n: 0 };
+      function Row({ id, active }) { return <li class={(runs.n++, active ? 'on' : '')}>{id}</li>; }
+      export function T() {
+        return <ul>{rows().map(id => <Row key={id} id={id} active={selected() === id} />)}</ul>;
+      }
+    `;
+    const { code } = compile(source);
+    assert.match(code, /get active\(\) \{\s*return _sel\$0\(id\);/, code);
+    const mod = await load(source);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    try {
+      mount(() => mod.T(), host);
+      flushSync();
+      mod.runs.n = 0;
+      mod.selected(2);
+      flushSync();
+      assert.deepEqual([...host.querySelectorAll('li')].map((li) => li.className), ['', 'on', '']);
+      assert.equal(mod.runs.n, 1, 'only the row it selects re-ran');
+      mod.selected(3);
+      flushSync();
+      assert.deepEqual([...host.querySelectorAll('li')].map((li) => li.className), ['', '', 'on']);
+      assert.equal(mod.runs.n, 3, 'the row it left and the row it entered');
+    } finally {
+      host.remove();
+    }
+  });
+
   it('rewrites sel() === row.key in a class binding', () => {
     const { code } = compile(TABLE(`class={selected() === row.id ? 'on' : ''}`));
     assert.match(code, /const _sel\$0 = _\$createSelector\(selected\);/);
@@ -173,14 +206,14 @@ describe('auto-selector: where it does not fire', () => {
     assert.ok(!rewritten(code), code);
   });
 
-  it('a component prop (props are read once, so there is nothing to subscribe)', () => {
+  it('a function handed to a component prop (the component calls it)', () => {
     const { code } = compile(`
       import { signal } from 'what-framework';
-      function Row(props) { return <li>{props.active ? 'x' : ''}</li>; }
+      function Row(props) { return <li>{props.active() ? 'x' : ''}</li>; }
       export function T() {
         const selected = signal(0);
         const rows = signal([]);
-        return <ul>{rows().map(row => <Row key={row.id} active={selected() === row.id} />)}</ul>;
+        return <ul>{rows().map(row => <Row key={row.id} active={() => selected() === row.id} />)}</ul>;
       }
     `);
     assert.ok(!rewritten(code), code);
@@ -344,7 +377,9 @@ describe('auto-selector: the hoisted selector is safe by construction', () => {
         return <ul>{rows().map(r => <li key={r.id} class={selected() === r.id ? 'on' : ''} />)}</ul>;
       }
     `).code;
-    assert.match(prop, /const _sel\$0 = typeof selected === "function" \? _\$createSelector\(selected\) : _k\$0 => selected\(\) === _k\$0;/);
+    // A destructured prop is read through props where it is used (common.js
+    // deferPlacedProps), so the source is `_props.selected`.
+    assert.match(prop, /const _sel\$0 = typeof _props\.selected === "function" \? _\$createSelector\(_props\.selected\) : _k\$0 => _props\.selected\(\) === _k\$0;/);
     const local = compile(TABLE(`class={selected() === row.id ? 'on' : ''}`)).code;
     assert.match(local, /const _sel\$0 = _\$createSelector\(selected\);/, 'a local signal needs no check');
   });

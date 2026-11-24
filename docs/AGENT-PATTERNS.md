@@ -48,7 +48,7 @@ user.set(prev => ({ ...prev, name: 'Alice' }));
 
 ## Pattern 3: Component Structure
 
-Components run once. Props are plain values (pass a signal for one that changes, and call it), state is signals, derived values are computed, and anything that changes on screen is read inside a reactive function.
+Components run once. A prop whose value reads a signal is live (`<Row selected={sel() === id} />` updates `props.selected` and a destructured `selected` where they render), state is signals, derived values are computed, and anything that changes on screen is read inside a reactive function or JSX.
 
 ```jsx
 function UserProfile(props) {

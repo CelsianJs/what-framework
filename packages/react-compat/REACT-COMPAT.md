@@ -20,6 +20,10 @@ The plugin:
   `optimizeDeps` pre-bundling, so the alias reaches them (no dual React copy).
 - **Includes** (pre-bundles) pure-CJS transitive utilities so esbuild can
   synthesize their ESM default/named exports — see below.
+- With what-compiler's `what()` next to it, compiles in **mixed mode**: native
+  What files stay native, React components in them render as React islands,
+  and only React files (they import `react` or call a React package's hook)
+  are React code — see [MIXED.md](MIXED.md) and `src/mixed-plugin.js`.
 
 ## The CJS interop boundary (why react-select / @emotion used to blank-screen)
 

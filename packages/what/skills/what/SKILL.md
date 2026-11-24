@@ -20,13 +20,14 @@ const doubled = computed(() => count() * 2);  // derived
 effect(() => console.log(count()));           // side effect, re-runs when count changes
 ```
 
-Five rules:
+Six rules:
 
 1. **Components run once.** The body never re-runs; signals update the DOM directly.
 2. **Read a signal by calling it.** `count()` is the value, `count` is the function. `${count}` in a template literal prints the function's source.
 3. **Reactive text is a function.** Wrap it: `{() => count() * 2}`. A value read once in the component body is a snapshot that never updates.
 4. **Lists need a stable `key`.** `items().map(i => <li key={i.id}>…</li>)`.
 5. **An effect that writes what it reads loops.** Read it with `untrack(count)` or derive with `computed()`.
+6. **A branch that renders a component is a ternary or `<Show>`.** `{loading() ? <Spinner /> : <Chart data={data()} />}` builds `<Chart>` once and updates its props; a block function `{() => { ...; return <Chart data={d} />; }}` rebuilds it, and its state, on every run (ERR_REBUILT_COMPONENT).
 
 `what-framework` has the reactivity, async values (`computed` of a promise, `refresh`, `startTransition`, `useOptimistic`, `use`, `settled`), actions (`useActionState`, `useFormStatus`), components, hooks and context. The domain kits are subpaths: `what-framework/form`, `/data` (`query`, `useQuery`, `useSWR`: one shared query cache), `/a11y`, `/ui` (skeletons), `/motion` and `/dom` (the DOM read/write scheduler `scheduleRead`, `scheduleWrite` and `flushScheduler`, `cls`, `useLocalStorage`, `useMediaQuery`).
 
@@ -233,7 +234,7 @@ Every live answer carries `seq`, the cursor for the state it describes. `what_se
 - Component and signal ids change on remount and reload: query again after a write that remounts.
 - Signals and effects belong to the component that created them; module-scope stores appear in `what_signals`, not in `what_explain`.
 - Reactive text and attribute bindings are tracked effects, so they show as readers in `what_dependency_graph`. Initial runs are reported: a one-shot setup effect shows `runs: 1` and no deps without any later write.
-- Props are plain values, read once like any function argument, so `function Row({ text })` and `props.text` give the same thing. A value that changes is passed as its accessor (`<Row text={text} />`, not `text()`) and called where it renders: `{() => text()}`.
+- A prop whose value reads a signal is live: `<Row text={text()} />` updates `{props.text}`, and a destructured `{ text }`, where it renders, and the child keeps its state. A value computed in the body outside JSX (`const upper = props.text.toUpperCase()`) is read once: compute it in JSX or `computed()`. An accessor passed as itself (`text={text}`) is called where it renders: `{text()}`.
 - Not connected: open the app in a browser, wait 2-3 s, retry. `what_lint`, `what_scaffold` and `what_fix` work offline.
 - `what_lint({ code, filePath })` uses the project ESLint config like `npm run lint` for that path, followed by a compile check when the compiler is installed. Without a project config it uses the `compiler` preset.
 - In tests, act, then `await settled()` (from `what-framework` or `what-framework/testing`, whose `act()` waits for it too) before reading the DOM: it resolves once nothing is fetching, queued or in a transition. `captureDiagnostics(fn)` from `what-framework/testing` returns the diagnostics and the effects that ran, with the component that created each, and `expectNoDiagnostics(cap, { allow })`, `expectDiagnostic(cap, { code, exact | min | max })` and `expectRuns(cap, { effect, component, exact | min | max })` assert on them; without `effect` or `component`, `expectRuns` counts the whole interaction, and a name or component that matched nothing throws.

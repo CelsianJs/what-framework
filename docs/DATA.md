@@ -93,8 +93,8 @@ expects. Their accessors are functions: `q.data()`, `q.isLoading()`.
 
 | Hook | Shape |
 |---|---|
-| `useQuery({ queryKey, queryFn, ... })` | TanStack Query: `data`, `error`, `status` (`'idle'`, `'loading'`, `'success'`, `'error'`), `fetchStatus`, `isLoading`, `isFetching`, `isError`, `isSuccess`, `isIdle`, `isPlaceholderData`, `isEnabled`, `dataUpdatedAt`, `refetch()`. Options: `enabled` (a boolean, signal or thunk), `staleTime`, `gcTime`/`cacheTime`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` (total attempts, default 3), `retryDelay`, `select`, `placeholderData` (a value, or a function of the previous key's data), `keepPreviousData`, `initialData`, `onSuccess`/`onError`/`onSettled`. `queryFn` gets `{ queryKey, signal }`. |
-| `useSWR(key, fetcher, options?)` | SWR: `data` (the value, `fallbackData`, or `null`), `error`, `isLoading` (no data yet, and fetching), `isValidating`, `mutate(data?, revalidate = true)`, `revalidate()`. Options: `dedupingInterval` (2000), `revalidateOnFocus`, `revalidateOnReconnect`, `refreshInterval`, `fallbackData`, `keepPreviousData`, `onSuccess`, `onError`. A `null`, `false` or throwing key pauses it. |
+| `useQuery({ queryKey, queryFn, ... })` | TanStack Query: `data`, `error`, `status` (`'idle'`, `'loading'`, `'success'`, `'error'`), `fetchStatus`, `isLoading`, `isFetching`, `isError`, `isSuccess`, `isIdle`, `isPlaceholderData`, `isEnabled`, `dataUpdatedAt`, `refetch()`. Options: `enabled` (a boolean, signal or thunk), `staleTime`, `gcTime`/`cacheTime`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` (total attempts, default 3), `retryDelay`, `select`, `placeholderData` (a value, or a function of the previous key's data), `keepPreviousData`, `initialData`, `structuralSharing` (default `true`), `onSuccess`/`onError`/`onSettled`. `queryFn` gets `{ queryKey, signal }`. |
+| `useSWR(key, fetcher, options?)` | SWR: `data` (the value, `fallbackData`, or `null`), `error`, `isLoading` (no data yet, and fetching), `isValidating`, `mutate(data?, revalidate = true)`, `revalidate()`. Options: `dedupingInterval` (2000), `revalidateOnFocus`, `revalidateOnReconnect`, `refreshInterval`, `fallbackData`, `keepPreviousData`, `structuralSharing` (default `true`), `onSuccess`, `onError`. A `null`, `false` or throwing key pauses it. |
 | `useInfiniteQuery(options)` | TanStack Query: `data()` is `{ pages, pageParams }`; `fetchNextPage`, `fetchPreviousPage`, `hasNextPage`, `hasPreviousPage`, `isFetchingNextPage`, `isFetchingPreviousPage`, `refetch` (page one, replacing the list). |
 | `useFetch(url, options?)` | One URL's JSON: `data`, `error`, `isLoading`, `refetch`, `mutate`. `url` may be a function. |
 
@@ -106,6 +106,14 @@ expects. Their accessors are functions: `q.data()`, `q.isLoading()`.
   (`query.test.js`, "a function queryKey follows its signals";
   `data-enabled-clearcache-infinite.test.js`, "a static queryKey is read
   once")
+- **A refetch keeps what did not change (structural sharing, TanStack Query's
+  default).** `useQuery` and `useSWR` compare a response with the cached data:
+  equal data keeps the cached references, and a changed list keeps every row
+  it did not change. A keyed `.map()` over `data()` then sees the same row
+  objects after a background refetch, so no row rebuilds what it rendered (a
+  component's state, an open menu). Arrays and plain objects are compared;
+  `structuralSharing: false` takes every response as it arrives, and a function
+  `(cached, response) => kept` decides. (`query-structural-sharing.test.js`)
 - **`enabled` gates automatic fetching only.** Fetching on mount, focus,
   polling and invalidation waits for it. `refetch()` is a direct request and is
   never gated, and never answered from the freshness window.

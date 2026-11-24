@@ -66,3 +66,25 @@ test('invalid hook argument is rejected — hook signatures are not blanket any'
     `expected TS2345 argument error, got: ${messages(diags).join('\n')}`,
   );
 });
+
+// --- Mixed apps: React components in native What files (MIXED.md) ---
+
+function compileNative(file) {
+  return tscDiagnose({
+    existingFiles: [join(FIXTURES, file)],
+    compilerOptions: { lib: ['es2022', 'dom'], jsx: 'react-jsx', jsxImportSource: 'what-framework', strict: true },
+  });
+}
+
+test('mixed: React components typed by @types/react are tags in a native file once what-react/mixed is referenced', () => {
+  const diags = compileNative('mixed-native.tsx');
+  assert.equal(diags.length, 0, messages(diags).join('\n'));
+});
+
+test('mixed: wrong props on those React components are still errors', () => {
+  const found = messages(compileNative('mixed-native-bad.tsx'));
+  assert.equal(found.length, 3, found.join('\n'));
+  assert.ok(found.some((m) => m.includes("'string' is not assignable to type 'number[]'")));
+  assert.ok(found.some((m) => m.includes("'number' is not assignable to type 'string'")));
+  assert.ok(found.some((m) => m.includes('nope')));
+});

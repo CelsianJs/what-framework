@@ -195,7 +195,7 @@ describe('.map() lowering to _$mapArray', () => {
       }
     `);
     assert.match(code, /follow:\s*true/);
-    assert.match(code, /\$\{_\$item\(_item\$0\)\.name\}/);
+    assert.match(code, /\$\{_\$item\(_item\$0, "name"\)\.name\}/, 'a field read names its field');
     assert.match(code, /pick\(_\$item\(_item\$0\)\)/);
     assert.match(code, /#\$\{item\.id\}/, 'the key expression reads the raw item');
   });

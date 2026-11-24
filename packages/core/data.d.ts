@@ -75,6 +75,14 @@ export interface SWROptions<T> {
   dedupingInterval?: number;
   /** What data() is while the cache has nothing for the key (not stored in the cache). */
   fallbackData?: T;
+  /**
+   * Structural sharing (TanStack Query's default): a response equal to the
+   * cached data keeps the cached references, and a changed one keeps every
+   * part it did not change, so a keyed list sees the same row objects after
+   * a refetch. A function picks what is kept from (cached, response); false
+   * takes every response as it arrives. Default true.
+   */
+  structuralSharing?: boolean | ((prev: T | undefined, next: T) => T);
   /** Show the previous key's data while a new key loads. */
   keepPreviousData?: boolean;
   /** Called when a fetch this reader started succeeds. */
@@ -140,6 +148,14 @@ export interface UseQueryOptions<T, D = T> {
   keepPreviousData?: boolean;
   initialData?: T | (() => T);
   initialDataUpdatedAt?: number;
+  /**
+   * Structural sharing (TanStack Query's default): a response equal to the
+   * cached data keeps the cached references, and a changed one keeps every
+   * part it did not change, so a keyed list sees the same row objects after
+   * a refetch. A function picks what is kept from (cached, response); false
+   * takes every response as it arrives. Default true.
+   */
+  structuralSharing?: boolean | ((prev: T | undefined, next: T) => T);
 }
 
 /** TanStack Query's shape. data() never suspends; for a value that suspends, use query(). */

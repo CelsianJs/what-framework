@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -20,6 +20,11 @@ export { effect, untrack };
 // condition value actually changes, not on every dependency write). The root
 // entry's `memo` is React's component memo.
 export { memo as _$memo };
+// The lazy one: the condition of a branch that may never be reached (an inner
+// arm of a ternary chain, a <Show> fallback, a ternary handed to a component
+// as JSX), evaluated on its first read, so a condition its outer arms guard
+// (`q.data().items.length` behind `q.isLoading()`) is never read unguarded.
+export { computed as _$lazyMemo } from './reactive.js';
 export { _place as _$place };
 // What `<Counter client:idle />` compiles to: an island that hydrates itself.
 export { _$Island } from './components.js';
@@ -77,7 +82,7 @@ function lazyChildren(factory) {
 function lazyProps(Component, merged, props, children) {
   const slots = props != null ? props._$slots : undefined;
   if (typeof children === 'function') return _installLazyChildren(Component, merged, lazyChildren(children), slots);
-  if (children != null && children.length > 0) merged.children = children.length === 1 ? children[0] : children;
+  if (children != null && children.length > 0) _setOwnProp(merged, 'children', children.length === 1 ? children[0] : children);
   return slots !== undefined ? _installLazyChildren(Component, merged, null, slots) : null;
 }
 
@@ -107,9 +112,9 @@ function componentVNode(Component, props, children) {
   if (lazy || slots !== undefined) {
     // Copy first. The lazy marker is an expando, and `props` may be a
     // user-owned object (a lone JSX spread, or a hand-written call).
-    props = props ? Object.assign({}, props) : {};
+    props = _copyProps(props);
     if (lazy) Object.defineProperty(props, '_$lazyChildren', { value: lazyChildren(children), configurable: true });
-    else if (children && children.length > 0) props.children = children.length === 1 ? children[0] : children;
+    else if (children && children.length > 0) _setOwnProp(props, 'children', children.length === 1 ? children[0] : children);
     if (slots !== undefined) Object.defineProperty(props, '_$slots', { value: slots, configurable: true });
     return new VNode(Component, props, lazy ? [] : children || [], null);
   }
@@ -118,11 +123,10 @@ function componentVNode(Component, props, children) {
     // Never write onto the object we were handed. A lone spread is the
     // caller's value; writing `children` onto it leaks into the next call
     // that reuses the same object and permanently corrupts user state.
-    // Object.assign invokes any getter on `props` once and copies the value it
-    // returns as a plain property.
-    props = props
-      ? Object.assign({}, props, { children: mergedChildren })
-      : { children: mergedChildren };
+    // A props object What built keeps its getters (dom.js _copyProps); any
+    // other object's getters are read once, as Object.assign reads them.
+    props = _copyProps(props);
+    _setOwnProp(props, 'children', mergedChildren);
   }
   return new VNode(Component, props || {}, children || [], null);
 }
@@ -149,12 +153,44 @@ export function _$slots(props, slots) {
 export function _$createComponent(Component, props, children, devLoc) {
   const proto = Component.prototype;
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
-  // Never the caller's object: a lone spread hands over a user-owned value. No
-  // prototype, so `props.__proto__` / `props.constructor` cannot lead a write
-  // keyed by user data onto Object.prototype.
-  const merged = Object.assign(Object.create(null), props);
+  const merged = ownProps(props);
   return _renderComponent(Component, merged, lazyProps(Component, merged, props, children), false, devLoc);
 }
+
+// The props object a compiled component runs with. Compiled JSX builds a
+// fresh object with no prototype when it passes live props (getters, dom.js
+// _isLiveProp) or merges spreads (_$merge): that object is the component's
+// own, taken as it is so its getters stay live. Any other object is copied:
+// it may be the caller's (a hand-written call), and the copy has no
+// prototype, so `props.__proto__` / `props.constructor` cannot lead a write
+// keyed by user data onto Object.prototype.
+function ownProps(props) {
+  return props != null && Object.getPrototypeOf(props) === null ? props : Object.assign(Object.create(null), props);
+}
+
+/**
+ * Compiled JSX's spread props (`<Box a {...s} b />`): the sources merged in
+ * order into one props object with no prototype. A getter of a props object
+ * What built (a forwarded `{...props}`, a live prop) stays a getter, so a
+ * wrapper that forwards its props keeps them live; any other object's
+ * properties are copied by value, as Object.assign copies them.
+ */
+export function _$merge() {
+  const out = Object.create(null);
+  for (let i = 0; i < arguments.length; i++) {
+    const src = arguments[i];
+    if (src == null) continue;
+    const own = Object.getPrototypeOf(src) === null;
+    // Every own enumerable key, symbols too, as Object.assign copies them.
+    for (const key of Reflect.ownKeys(src)) if (Object.prototype.propertyIsEnumerable.call(src, key)) _copyProp(out, src, key, own);
+  }
+  return out;
+}
+
+// Compiled JSX's rest element of destructured props (`({ a, ...rest })`):
+// `props` without the keys named, its getters kept, so `<button {...rest} />`
+// and `<Inner {...rest} />` stay live.
+export { _copyProps as _$omit };
 
 // A class component runs as a function component that constructs it and calls
 // render(). It lives here rather than with the vnode renderer because compiled
@@ -1719,8 +1755,13 @@ function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
 // Event props use direct assignment.
 
 export function spread(el, props) {
+  // A props object What built (forwarded props, a rest element) may hold live
+  // props (dom.js _isLiveProp): each is bound like a reactive attribute,
+  // reading the getter again when what it read changes.
+  const live = props != null && typeof props === 'object' && Object.getPrototypeOf(props) === null;
   for (const key in props) {
-    const value = props[key];
+    // A live prop is bound as an accessor of it.
+    const value = live && key !== 'ref' && !_isEventProp(key) && _isLiveProp(props, key) ? () => props[key] : props[key];
 
     // Ref — the element, not a reactive getter.
     //
@@ -2407,6 +2448,39 @@ export function _afterWalk(fn) {
   if (cur === null || session === null) return false;
   session.after.push(fn);
   return true;
+}
+
+/**
+ * @internal While hydrating: the nodes the server bracketed at the cursor
+ * (`<!--[]-->`…`<!--/[]-->`, or a region's `<!--$-->`…`<!--/$-->`), taken
+ * whole for a renderer of its own: what-react's islands, whose HTML the
+ * server rendered with React's rules and always brackets. They stay where
+ * they are, and the walk continues after the closing marker. A keyed row
+ * starts past its opening marker (adoptListRows steps over it to find the
+ * row's first node), so the marker just before the cursor counts as well.
+ * Returns [open, close], or null when there is no bracket there (or nothing
+ * is hydrating).
+ */
+export function _claimRegion() {
+  const c = cur;
+  if (c === null || !c.h) return null;
+  pendingKey = null;
+  let open = nextOwn(c);
+  if (!isBracket(open)) {
+    const before = c.o > 0 || c.x ? null : anchorOf(c);
+    open = isBracket(before) ? before : null;
+  }
+  if (open === null) return null;
+  const close = closeOf(open, open.data === ARRAY_OPEN ? ARRAY_CLOSE : REGION_CLOSE);
+  if (close === null || close === c.e) return null;
+  c.n = close.nextSibling;
+  c.o = 0;
+  c.x = false;
+  return [open, close];
+}
+
+function isBracket(node) {
+  return node !== null && node !== undefined && (isMarker(node, ARRAY_OPEN) || isMarker(node, REGION_OPEN));
 }
 
 /**
@@ -3310,8 +3384,8 @@ function componentArgs(vnode) {
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
   const props = vnode.props;
   const children = vnode.children || [];
-  const merged = Object.assign(Object.create(null), props);
-  if (children.length > 0) merged.children = children.length === 1 ? children[0] : children;
+  const merged = _copyProps(props);
+  if (children.length > 0) _setOwnProp(merged, 'children', children.length === 1 ? children[0] : children);
   const lazy = props && props._$lazyChildren;
   const slots = props && props._$slots;
   return [Component, merged, lazy || slots ? _installLazyChildren(Component, merged, lazy, slots) : null];
@@ -4583,7 +4657,7 @@ export function _$hcreateComponent(Component, props, children, site, devLoc) {
   if (c === null || !c.h) return _$createComponent(Component, props, children, devLoc);
   const proto = Component.prototype;
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
-  const merged = Object.assign(Object.create(null), props);
+  const merged = ownProps(props);
   return adoptComponent(Component, merged, lazyProps(Component, merged, props, children), site, devLoc);
 }
 

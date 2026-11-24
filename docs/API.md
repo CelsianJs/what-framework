@@ -54,6 +54,7 @@ named `useTransition` is `useTween` in `what-framework/motion`.
 | `createRoot(fn)` | `T` | Scoped reactive root with cleanup; one created under another owner (an effect's run included) is disposed with it |
 | `getOwner()` / `runWithOwner(owner, fn)` | | Capture and restore the reactive owner, e.g. across an `await`: work created after an `await` belongs to no owner unless it is created inside `runWithOwner` |
 | `createSelector(source)` | `(key) => boolean` | O(1) keyed selection: `isSelected(key)` is `key === source()`, but only the readers of the keys a change leaves and enters re-run |
+| `live(source)` | `T` | A read-only live view of the object `source` returns: `view.name` reads the current value's `name`, so JSX built once from it follows a replaced value |
 
 ### Signal
 
@@ -110,6 +111,44 @@ Selecting a row re-runs the bindings of the previously selected row and the
 newly selected one, not one binding per row. A read right after a write returns
 the new answer. A key's bookkeeping is released when the last owner (list row,
 mount root) that read it is disposed.
+
+### Live views: `live`
+
+A component that hands each row to a render function (a table's columns, a
+list's `renderItem`) gives it a live view of the row, so the cell is built once
+per row and keeps its state, while what it shows follows the row's item:
+
+```jsx
+import { live } from 'what-framework';
+
+function Table(props) {
+  return (
+    <table>
+      <tbody>
+        {props.rows().map((row) => {
+          const view = live(() => row);
+          return <tr key={row.id}>{props.columns.map((col) => <td key={col.key}>{col.render(view)}</td>)}</tr>;
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+const columns = [{ key: 'name', render: (row) => <EditableName row={row} /> }];
+```
+
+`view.name` reads `name` of what `source` returns now. Its properties are
+getters on an object with no prototype, which What reads as live props:
+`{row.name}` placed in JSX is a reactive child and `<EditableName row={row} />`
+hands the view on. A replaced item updates the cell's bindings in place.
+
+A keyed row is built again for a replaced item only when its building code (a
+component body, a statement in the row callback) read something of the item
+that the new item holds another value in. A read of one field, `row.name` in
+the row's own code or `view.name` through a live view, records that field; a
+read of the whole item (handed to a function, a method called on it) records
+the item, and any replacement rebuilds the row. The view is read-only and reads
+`undefined` while `source` returns null or undefined.
 
 You rarely need to call it: inside a keyed `.map()` row the compiler rewrites
 `selected() === row.id` (or `!==`, either order) in a render binding to a

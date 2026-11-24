@@ -209,6 +209,12 @@ export function _renderSalt(): string;
 export function __readHydrationData(): Record<string, any> | null;
 /** Whether a hydrate() walk is claiming the server's DOM now (what-framework/render's isHydrating). */
 export function isHydrating(): boolean;
+/** While hydrating: the server's region at the cursor, taken whole for another renderer ([open, close] markers), or null. */
+export function _claimRegion(): [Comment, Comment] | null;
+/** Run `fn` once the hydration walking now is done; false when none is. */
+export function _afterWalk(fn: () => void): boolean;
+/** Development: the component running now holds state outside What's signals (what-react's islands), for ERR_REBUILT_COMPONENT. */
+export function _devHoldsState(): void;
 /**
  * Whether `value` is a vnode made by h(), the JSX runtime or a boundary: the
  * private brand those producers give it, which JSON, structuredClone and

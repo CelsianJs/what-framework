@@ -156,63 +156,42 @@ This gives you a working zustand demo out of the box.
 npm install what-react
 ```
 
-Update `vite.config.js`:
+Update `vite.config.js`: keep the What compiler and add what-react's plugin.
 
 ```js
 import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
 import { reactCompat } from 'what-react/vite';
 
 export default defineConfig({
-  plugins: [reactCompat()],
+  plugins: [what(), reactCompat()],
 });
 ```
 
-Now install any React library and use it in your What components:
+Now install any React library and use it from your native What components:
 
 ```bash
-npm install zustand
+npm install zustand recharts
 ```
 
+A React component works as a tag in a native file:
+
 ```jsx
+// src/main.jsx: native What
 import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-
-// Zustand store — works exactly like normal, no changes needed
-const useStore = create((set) => ({
-  count: 0,
-  increment: () => set((s) => ({ count: s.count + 1 })),
-  reset: () => set({ count: 0 }),
-}));
-
-// You can mix What signals with React libraries. With reactCompat(), App
-// renders through what-react, so it is a React component that re-renders when
-// its React state changes: keep the signal outside it, where a re-render
-// cannot recreate it, and render it as a function child, which What keeps up
-// to date without re-rendering App.
-const localCount = signal(0, 'localCount');
+import { BarChart, Bar, XAxis } from 'recharts';
+import { BearCounter } from './BearCounter.jsx';
 
 function App() {
-  // Zustand's hooks work here: what-react runs App with React semantics
-  const count = useStore((s) => s.count);
-  const increment = useStore((s) => s.increment);
-  const reset = useStore((s) => s.reset);
-
+  const days = signal([{ day: 'Mon', total: 3 }], 'days');
   return (
     <main>
-      <h1>What + Zustand</h1>
-
-      <section>
-        <h2>Zustand Store</h2>
-        <p>Count: {count}</p>
-        <button onClick={increment}>+1</button>
-        <button onClick={reset}>Reset</button>
-      </section>
-
-      <section>
-        <h2>What Signal</h2>
-        <p>Local: {() => localCount()}</p>
-        <button onClick={() => localCount.set(c => c + 1)}>+1</button>
-      </section>
+      <h1>{days().length} days</h1>
+      <BarChart width={300} height={150} data={days()}>
+        <XAxis dataKey="day" />
+        <Bar dataKey="total" />
+      </BarChart>
+      <BearCounter />
     </main>
   );
 }
@@ -220,7 +199,31 @@ function App() {
 mount(<App />, '#app');
 ```
 
-Under the hood, zustand internally imports `react` and calls `useState`/`useEffect`. The compat plugin redirects those to what-react, which runs them on What's signals engine. Zustand never knows the difference — but your app is still a What app with `mount()` and signals. The plugin compiles JSX with what-react's automatic runtime in place of what-compiler, so your components run with React semantics: they re-render, and hooks return values ([REACT-COMPAT.md](../REACT-COMPAT.md)).
+React hooks go in a React file. A file is a React file when it imports `react`
+or calls a hook it imports from a React package:
+
+```jsx
+// src/BearCounter.jsx: a React file (it calls zustand's hook)
+import { create } from 'zustand';
+
+const useStore = create((set) => ({
+  bears: 0,
+  increase: () => set((s) => ({ bears: s.bears + 1 })),
+}));
+
+export function BearCounter() {
+  const bears = useStore((s) => s.bears);
+  const increase = useStore((s) => s.increase);
+  return <button onClick={increase}>{bears} bears</button>;
+}
+```
+
+`App` is native: it runs once and `{days().length}` updates only that text.
+`<BarChart>` and `<BearCounter>` render as React islands: React's rules inside
+them, their props rebuilt when a signal they read changes, their React state
+kept. Zustand and Recharts import `react`; the plugin points that at what-react,
+which runs them on What's engine. [what-react's MIXED.md](../packages/react-compat/MIXED.md)
+has the full rules, context across the boundary, server rendering and limits.
 
 ---
 
@@ -411,7 +414,7 @@ mount(<App />, '#app');
 → Make sure `@babel/core` is in your devDependencies: `npm install -D @babel/core`
 
 **React library not working with what-react**
-→ Make sure your vite.config.js uses `reactCompat()` (not `what()`) and that `what-core` is excluded from optimizeDeps (the plugin does this automatically).
+→ Make sure your vite.config.js has `reactCompat()` next to `what()`. A React hook (`useStore`, `useQuery`) must be called in a React file (one that imports `react` or calls that hook); in a native file it throws `ERR_HOOK_OUTSIDE_RENDER`. See [MIXED.md](../packages/react-compat/MIXED.md).
 
 ---
 

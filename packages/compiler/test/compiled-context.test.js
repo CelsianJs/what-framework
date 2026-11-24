@@ -197,6 +197,7 @@ export function App() {
   // which is what this test is actually about — is unchanged.
   it('wraps expression children of a component in a factory', () => {
     const code = compileJSX('export const A = ({ n }) => <Card>hello {n()}</Card>;');
-    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", \(\) => n\(\)\]\)/);
+    // `n` is read through props where it is used (common.js deferPlacedProps).
+    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", \(\) => _props\.n\(\)\]\)/);
   });
 });

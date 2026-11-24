@@ -73,6 +73,18 @@ const browserCases = {
     add(1);
     return null;
   })(),
+  REBUILT_COMPONENT: async () => {
+    const n = signal(1, 'n');
+    function Counter(props) {
+      const clicks = signal(0, 'clicks');
+      return h('b', {}, () => props.n + ':' + clicks());
+    }
+    const host = document.createElement('div');
+    const dispose = W.mount(h('div', {}, () => h(Counter, { n: n() })), host);
+    n(2);
+    W.flushSync();
+    dispose();
+  },
   ORPHAN_EFFECT: async () => {
     let stop;
     await triggerComponent(function Example() {

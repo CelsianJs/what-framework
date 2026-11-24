@@ -15,7 +15,7 @@ const names = async (path) => Object.keys(await import(path)).sort();
 const ROOT = [
   // Reactivity
   'signal', 'computed', 'effect', 'batch', 'untrack', 'flushSync', 'createRoot', 'getOwner', 'runWithOwner',
-  'createSelector',
+  'createSelector', 'live',
   // Async values, transitions and optimistic updates
   'refresh', 'isPending', 'startTransition', 'useTransition', 'useOptimistic', 'use', 'settled',
   'useActionState', 'useFormStatus',
