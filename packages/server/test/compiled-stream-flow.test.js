@@ -191,6 +191,39 @@ describe('the stream writes compiled markup as the hydratable string renderer do
   });
 });
 
+describe('the stream goes through compiled markup with pour()', () => {
+  // Markup's parts() gives the stream the same output, one queued item for
+  // each part: the stream must not fall back to it unnoticed.
+  it('never asks markup for its parts, with every kind of part in the tree', async () => {
+    const tree = () => h(mod.Failing, { child: h(mod.Mixed, { on: () => true, title: () => 't', text: () => 'x', href: () => '/' }), items: () => items, on: () => 1 });
+    // The class of compiled markup, from a template with holes.
+    const Markup = Object.getPrototypeOf(mod.Mixed({ on: () => true, title: () => 't', text: () => 'x', href: () => '/' }));
+    assert.equal(typeof Markup.pour, 'function');
+    const { pour, parts } = Markup;
+    const calls = { pour: 0, parts: 0, resumed: 0 };
+    Markup.pour = function (put, seg, from, frame, root, skip) {
+      calls.pour++;
+      if (from > 0) calls.resumed++;
+      return pour.call(this, put, seg, from, frame, root, skip);
+    };
+    Markup.parts = function (ns) {
+      calls.parts++;
+      return parts.call(this, ns);
+    };
+    let stream;
+    try {
+      stream = await streamed(tree());
+    } finally {
+      Markup.pour = pour;
+      Markup.parts = parts;
+    }
+    assert.equal(keyShape(stream), keyShape(renderToHydratableString(tree())));
+    assert.equal(calls.parts, 0);
+    // Every markup is poured, and poured again after each part it holds.
+    assert.ok(calls.pour > calls.resumed && calls.resumed > 0, JSON.stringify(calls));
+  });
+});
+
 describe('the stream and a child that fails inside compiled markup', () => {
   it('a component: an error comment in its place, and the markup around it goes on', async () => {
     log.length = 0;

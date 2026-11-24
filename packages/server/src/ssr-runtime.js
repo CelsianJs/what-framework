@@ -265,22 +265,36 @@ function finish(m) {
 
 // One hole of a template, `slot` being what the template declares for it
 // (ssrTemplate): an attribute's slot, or null or undefined for a child. The
-// hole of a row's reactive attribute is the row's item.
-function fill(m, slot, hole) {
+// hole of a row's reactive attribute is the row's item, and its function is
+// one of `fns`: its list's row functions, which the call that fills the
+// template was given (ssr). A row never reads them from anywhere else.
+function fill(m, slot, hole, fns) {
   if (slot == null) {
     if (typeof hole === 'string') addHtml(m, hole);
     else append(m, hole);
   } else if (slot.at < 0) attributeHole(m, slot, hole);
-  else deferRowAttribute(m, slot, /** @type {Function[]} */ (rowAttributes)[slot.at], hole);
+  else deferRowAttribute(m, slot, fns[slot.at], hole);
 }
 
-/** A template: static strings `t`, filled with the holes passed after it. */
+/**
+ * A template: static strings `t`, filled with the holes passed after it. A
+ * template that declares a row's reactive attribute (ssrTemplate) takes its
+ * list's row functions before its holes: the row's callback was called with
+ * them (ssrList) and hands them on.
+ */
 export function ssr(t) {
   const m = new Markup(t[0], false, false);
   const slots = t.slots;
-  for (let i = 1; i < arguments.length; i++) {
-    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
-    m.s += t[i];
+  // Where the holes start, and the row functions before them, if any.
+  let at = 1;
+  let fns;
+  if (t.fns === true) {
+    fns = arguments[1];
+    at = 2;
+  }
+  for (let i = at; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - at], arguments[i], fns);
+    m.s += t[i - at + 1];
   }
   return finish(m);
 }
@@ -289,9 +303,15 @@ export function ssr(t) {
 export function ssrForeign(t) {
   const m = new Markup(t[0], true, false);
   const slots = t.slots;
-  for (let i = 1; i < arguments.length; i++) {
-    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
-    m.s += t[i];
+  let at = 1;
+  let fns;
+  if (t.fns === true) {
+    fns = arguments[1];
+    at = 2;
+  }
+  for (let i = at; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - at], arguments[i], fns);
+    m.s += t[i - at + 1];
   }
   return finish(m);
 }
@@ -301,9 +321,6 @@ export function ssrForeign(t) {
 /** @type {Markup | null} */
 let rows = null;
 const WRITTEN = Object.freeze({});
-// The functions of that list's rows' reactive attributes (ssrList's `rowFns`).
-/** @type {Function[] | undefined} */
-let rowAttributes;
 
 /**
  * A `.map()` row the callback returns as its whole result (`item => <li/>`):
@@ -316,9 +333,15 @@ export function ssrRow(t) {
   if (m === null) return ssr.apply(null, /** @type {any} */ (arguments));
   addHtml(m, t[0]);
   const slots = t.slots;
-  for (let i = 1; i < arguments.length; i++) {
-    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
-    m.s += t[i];
+  let at = 1;
+  let fns;
+  if (t.fns === true) {
+    fns = arguments[1];
+    at = 2;
+  }
+  for (let i = at; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - at], arguments[i], fns);
+    m.s += t[i - at + 1];
   }
   return WRITTEN;
 }
@@ -355,15 +378,17 @@ export function ssrText(v) {
  * gives its rows' keys, written with its markers, and `slot` is the number
  * what-compiler gave it (the client's list has the same). `rowFns` are the
  * reactive attributes of the row template, each as one function of the row's
- * item made for the whole list: the template's slot names its function, the
- * row passes its item as the hole, and the function is called with it where
- * the row is placed, when the thunk a row of its own would have made is.
+ * item made for the whole list. A list that has them calls `fn` with them
+ * before the item, `fn(rowFns, item, index, list)`, and the row hands them to
+ * its template (ssr): the template's slot names its function, the row passes
+ * its item as the hole, and the function is called with it where the row is
+ * placed, when the thunk a row of its own would have made is. They reach a
+ * row only as that argument, whenever and by whomever its callback is called:
+ * nothing here outlives the call.
  */
 export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
   if (list == null) list = [];
   const m = new Markup('', false, asArray);
-  const outerAttributes = rowAttributes;
-  rowAttributes = rowFns;
   if (Array.isArray(list)) {
     const keys = keyFn ? list.map((item) => keyFn(item)) : null;
     if (asArray) m.keys = keys;
@@ -379,21 +404,17 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
         if (!(i in list)) continue;
         const at = rowList !== null ? /** @type {any[]} */ (m.p).length : 0;
         const before = deferred;
-        const row = fn(list[i], i, list);
+        const row = rowFns === undefined ? fn(list[i], i, list) : fn(rowFns, list[i], i, list);
         if (row !== WRITTEN) append(m, ssrText(row));
         if (rowList !== null && deferred !== before) keyRow(m, at, rowList, i);
       }
     } finally {
       rows = outer;
-      rowAttributes = outerAttributes;
     }
   } else {
-    let mapped;
-    try {
-      mapped = list.map(fn);
-    } finally {
-      rowAttributes = outerAttributes;
-    }
+    // The source's own map() calls the callback, when it chooses to and with
+    // what it chooses to pass: each call takes this list's functions first.
+    const mapped = list.map(rowFns === undefined ? fn : (...args) => fn(rowFns, ...args));
     for (let i = 0; i < mapped.length; i++) append(m, ssrText(mapped[i]));
   }
   return finish(m);
@@ -616,10 +637,18 @@ class Attr extends Html {
  * hole, null for a child or [kind, name] for an attribute, kind being one of
  * plain, enum (aria-*, role, data-*), url (scheme-checked), class, style and
  * refused (srcdoc, outerHTML: never written). [kind, name, at] is a row's
- * reactive attribute, whose function is the list's `at`-th (ssrList).
+ * reactive attribute, whose function is its list's `at`-th (ssrList's
+ * `rowFns`) and whose hole is the row's item. A template that declares one is
+ * filled with its list's row functions before its holes (`fns`: ssr).
  */
 export function ssrTemplate(strings, slots) {
-  /** @type {any} */ (strings).slots = slots.map((slot) => (slot === null ? null : new AttrSlot(KINDS[slot[0]], slot[1], slot.length > 2 ? slot[2] : -1)));
+  let fns = false;
+  /** @type {any} */ (strings).slots = slots.map((slot) => {
+    if (slot === null) return null;
+    if (slot.length > 2) fns = true;
+    return new AttrSlot(KINDS[slot[0]], slot[1], slot.length > 2 ? slot[2] : -1);
+  });
+  /** @type {any} */ (strings).fns = fns;
   return strings;
 }
 

@@ -217,6 +217,27 @@ describe('a style object\'s fast paths', () => {
       + 'margin:0 auto;opacity:0.5;font-family:&#39;A B&#39;, serif;transform:translate(-50%, 10px);content:&quot;a;b&quot;;left:"></div>');
   });
 
+  it('names that differ only in case are different names, whichever is seen first', () => {
+    // fontSize is font-size and fontsize is fontsize: a cache that told names
+    // apart by anything less than the name would write one for the other.
+    const pairs = [['fontSize', 'fontsize', 'font-size'], ['lineHeight', 'lineheight', 'line-height'], ['WebkitBoxFlex', 'webkitBoxFlex', '-webkit-box-flex', 'webkit-box-flex']];
+    for (const order of ['camel first', 'lower first']) {
+      _cssNames.clear();
+      for (const [camel, lower, written, writtenLower = lower] of pairs) {
+        const a = () => renderToString(h('div', { style: { [camel]: '1' } }));
+        const b = () => renderToString(h('div', { style: { [lower]: '1' } }));
+        const got = order === 'camel first' ? [a(), b()] : [b(), a()].reverse();
+        assert.deepEqual(got, [`<div style="${written}:1"></div>`, `<div style="${writtenLower}:1"></div>`], `${camel} and ${lower}, ${order}`);
+        // And again, from the cache.
+        assert.deepEqual([a(), b()], got);
+      }
+      // Both in one object.
+      assert.equal(renderToString(h('div', { style: { fontsize: '1', fontSize: '2', FontSize: '3' } })), '<div style="fontsize:1;font-size:2;-font-size:3"></div>');
+    }
+    assert.equal(_cssNames.get('fontSize'), 'font-size');
+    assert.equal(_cssNames.get('fontsize'), 'fontsize');
+  });
+
   it('the name cache stays bounded, and names past the bound are still checked', () => {
     const style = {};
     for (let i = 0; i < CSS_NAME_CACHE_SIZE * 2; i++) style[`--custom-${i}`] = '1px';

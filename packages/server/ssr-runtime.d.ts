@@ -32,7 +32,8 @@ export type SSRHole = unknown;
  * Declares a template's attribute holes: null for a child, [kind, name] for an
  * attribute, and [kind, name, index] for a `.map()` row's reactive attribute,
  * whose function is its list's `index`-th (ssrList's `rowFns`) and whose hole
- * is the row's item.
+ * is the row's item. A template that declares one is filled with its list's
+ * row functions before its holes: `ssrRow(template, rowFns, ...holes)`.
  */
 export declare function ssrTemplate(
   strings: readonly string[],
@@ -51,7 +52,9 @@ export declare function ssrText(value: unknown): string | SSRMarkup | (() => unk
  * The rows of a `.map()`, each escaped unless it is markup; `asArray` brackets
  * them as a list; `keyFn` keys its rows; `slot` is the number what-compiler
  * gave the list; `rowFns` are the reactive attributes of the row template,
- * each a function of the row's item, called where the row is placed.
+ * each a function of the row's item, called where the row is placed. A list
+ * given `rowFns` calls `fn` with them before the item, and the row hands them
+ * to its template.
  */
 export declare function ssrList<T>(
   list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
@@ -59,7 +62,14 @@ export declare function ssrList<T>(
   asArray: boolean,
   keyFn?: ((item: T) => unknown) | null,
   slot?: number,
-  rowFns?: ReadonlyArray<(item: T) => unknown>,
+): SSRMarkup;
+export declare function ssrList<T>(
+  list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
+  fn: (rowFns: ReadonlyArray<(item: T) => unknown>, item: T, index: number, list: readonly T[]) => unknown,
+  asArray: boolean,
+  keyFn: ((item: T) => unknown) | null,
+  slot: number | undefined,
+  rowFns: ReadonlyArray<(item: T) => unknown>,
 ): SSRMarkup;
 /** `<For>`: the reactive child that renders its rows, or its fallback. */
 export declare function ssrFor<T>(

@@ -20,8 +20,10 @@
 //     reactive child they are with h() and the DOM back end;
 //   - `{src.map(item => <li/>)}` renders its rows into one hole (_$ssrList).
 //     A reactive attribute of a row template is one function of the row's
-//     item, made once for the list (rowAttributes): the row passes its item,
-//     and the function is called with it where the thunk would have been.
+//     item, made once for the list (rowAttributes): the list hands its
+//     functions to the row's callback, the row hands them to its template
+//     and passes its item, and the function is called with the item where
+//     the thunk would have been.
 // what-server's ssr-runtime renders the result (Markup) with h()'s rules, so
 // the compiled string equals the h()-rendered string byte for byte, side
 // effects in the same order (lowering-parity-fuzz.test.js). Event handlers,
@@ -104,9 +106,11 @@ function asH(expr, state) {
 // `foreign` records an SVG or MathML element, which decides how what the
 // markup defers is placed (ssr-runtime's ssrForeign).
 // `slots` declares each hole: null for a child, [kind, name] for an
-// attribute (ssr-runtime's ssrTemplate).
+// attribute, and [kind, name, index] for a row's hoisted attribute, whose
+// hole is the row's item (ssr-runtime's ssrTemplate).
 // `row` is set on a `.map()` row's template: what its reactive attributes are
-// hoisted with (rowAttributes).
+// hoisted with (rowAttributes). A template that hoists one is filled with its
+// list's row functions before its holes.
 /** @returns {{ strings: string[], holes: any[], slots: Array<any[] | null>, foreign: boolean, row: any }} */
 function createMarkup(foreign = false) {
   return { strings: [''], holes: [], slots: [], foreign, row: null };
@@ -147,7 +151,9 @@ function markupExpression(markup, state, row = false) {
   }
   const fill = markup.foreign ? '_$ssrForeign' : row ? '_$ssrRow' : '_$ssr';
   const slots = markup.slots.some(Boolean) ? markup.slots : [];
-  return call(state, fill, [t.identifier(templateId(state, markup.strings, false, slots)), ...markup.holes]);
+  // The list's row functions, which the row's callback takes (rowAttributes).
+  const fns = markup.row !== null && markup.row.fns.length > 0 ? [t.identifier(markup.row.param)] : [];
+  return call(state, fill, [t.identifier(templateId(state, markup.strings, false, slots)), ...fns, ...markup.holes]);
 }
 
 // --- Roots -------------------------------------------------------------------
@@ -172,9 +178,11 @@ function jsxValue(node, path, state) {
   }
   if (isComponentElement(node)) return componentValue(node, state);
   const markup = createMarkup();
-  if (node._whatRowList) markup.row = rowAttributes(node, path);
+  if (node._whatRowList) markup.row = rowAttributes(node, path, state);
   appendElement(node, markup, state);
-  return markupExpression(markup, state, node._whatRow === true);
+  const value = markupExpression(markup, state, node._whatRow === true);
+  if (markup.row !== null) passRowAttributes(markup.row);
+  return value;
 }
 
 // --- A row's reactive attributes ---------------------------------------------
@@ -185,29 +193,75 @@ function jsxValue(node, path, state) {
 // template takes it as a function of the row's item instead, written once
 // beside the list:
 //
-//   _$ssrList(rows, row => _$ssrRow(_tmpl$, row, …), true, row => row.id, 12,
+//   _$ssrList(rows, (_f$0, row) => _$ssrRow(_tmpl$, _f$0, row, …), true, row => row.id, 12,
 //     [row => sel() === row.id ? 'on' : ''])
 //
-// with the slot declared ['class', 'class', 0]: the row passes its item as the
-// hole, and what-server calls the list's function 0 with it when it places
-// the row. The same expression runs at the same point with the same item, and
-// no closure is made per row. An attribute is hoisted only where that holds
-// by construction: the row is the whole result of an arrow function whose
-// first parameter is a plain name never assigned, and of what the callback
-// binds the expression reads nothing else (not its index, not its array).
+// with the slot declared ['class', 'class', 0]. The list calls the row's
+// callback with its functions before the item (what-server's ssrList), and
+// the row hands them to its template before its holes, so a row takes them
+// from the call that renders it, whenever that call is made, and nothing is
+// kept between calls. The row passes its item as the hole, and what-server
+// calls the list's function 0 with it when it places the row: the same
+// expression runs at the same point with the same item, and no closure is
+// made per row.
+//
+// An attribute is hoisted only where that holds by construction, and stays the
+// thunk of its row everywhere else:
+//   - the row is the whole result of an arrow function (not async) that is
+//     the callback argument of its list's call, where the functions go;
+//   - the arrow's first parameter is a plain name that nothing assigns, so
+//     the item the row passes is the item the thunk would have read;
+//   - the callback holds no `eval`, which could assign that name unseen;
+//   - the expression names nothing else the callback binds (its index, its
+//     array, a destructured or defaulted parameter), in any position: a read,
+//     an assignment, a property of the same name. A name that does not occur
+//     cannot be reached, and one that does is not worth telling apart;
+//   - the expression holds no `this`, `super`, `arguments`, `eval`,
+//     `new.target`, `await` or `yield`.
+// A function and its parameter are added through Babel's own path methods,
+// which queue them: every plugin of the build visits the function, so JSX
+// inside it is lowered as JSX anywhere else is.
 
 const NOT_HOISTED = new Set(['ThisExpression', 'Super', 'AwaitExpression', 'YieldExpression', 'MetaProperty']);
+const NOT_HOISTED_NAMES = new Set(['arguments', 'eval']);
+
+// Whether `node` holds a node `test` accepts, at any depth.
+function holds(node, test) {
+  if (!node || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some((child) => holds(child, test));
+  if (typeof node.type !== 'string') return false;
+  if (test(node)) return true;
+  for (const field of t.VISITOR_KEYS[node.type] || []) {
+    if (holds(node[field], test)) return true;
+  }
+  return false;
+}
+
+function isNamed(node) {
+  return node.type === 'Identifier' || node.type === 'JSXIdentifier';
+}
 
 // What a row's template (`node`, at `path`) hoists its reactive attributes
-// with: its list's call, its item's name, and the attribute expressions that
-// can be hoisted. Null when none can.
-function rowAttributes(node, path) {
+// with: where its list's call and its callback stand, its item's name, the
+// attribute expressions that can be hoisted, and those that are (`fns`, which
+// the callback takes as `param`). Null when none can.
+function rowAttributes(node, path, state) {
   const { call: listCall, mapFn } = node._whatRowList;
   const item = mapFn.params[0];
   if (!path || typeof path.traverse !== 'function' || !path.scope || path.scope.block !== mapFn) return null;
+  // The callback where ssrListOf wrote it: its list's call takes the functions.
+  const fnPath = path.parentPath;
+  if (!fnPath || fnPath.node !== mapFn || mapFn.body !== node || fnPath.listKey !== 'arguments') return null;
+  const listPath = fnPath.parentPath;
+  if (!listPath || listPath.node !== listCall || listCall.arguments[1] !== mapFn) return null;
   const binding = path.scope.getOwnBinding(item.name);
   if (!binding || binding.identifier !== item || !binding.constant) return null;
-  const scope = path.scope;
+  if (holds(mapFn, (inner) => inner.type === 'Identifier' && inner.name === 'eval')) return null;
+  // Every other name the callback binds: its parameters', and what its scope
+  // holds.
+  const bound = new Set([...Object.keys(t.getBindingIdentifiers(mapFn.params)), ...Object.keys(path.scope.bindings)]);
+  bound.delete(item.name);
+  const unsafe = (inner) => NOT_HOISTED.has(inner.type) || (isNamed(inner) && (bound.has(inner.name) || NOT_HOISTED_NAMES.has(inner.name)));
   const hoistable = new Set();
   // The attributes written in the callback itself: those of JSX inside a
   // function inside the row belong to that JSX.
@@ -216,43 +270,38 @@ function rowAttributes(node, path) {
       inner.skip();
     },
     JSXAttribute(attr) {
-      const value = attr.get('value');
-      if (!value.isJSXExpressionContainer()) return;
-      const expr = value.get('expression');
-      let ok = true;
-      const read = (id) => {
-        if (id.node.name === 'arguments') ok = false;
-        const bound = id.scope.getBinding(id.node.name);
-        if (bound && bound.scope === scope && bound !== binding) ok = false;
-      };
-      if (expr.isReferencedIdentifier()) read(expr);
-      if (NOT_HOISTED.has(expr.node.type)) ok = false;
-      expr.traverse({
-        enter(inner) {
-          if (NOT_HOISTED.has(inner.node.type)) ok = false;
-        },
-        ReferencedIdentifier: read,
-      });
-      if (ok) hoistable.add(expr.node);
+      const value = attr.node.value;
+      if (t.isJSXExpressionContainer(value) && !holds(value.expression, unsafe)) hoistable.add(value.expression);
     },
   });
-  return hoistable.size === 0 ? null : { listCall, item: item.name, hoistable, fns: null };
+  if (hoistable.size === 0) return null;
+  return { fnPath, listPath, item: item.name, hoistable, fns: [], param: null, state };
 }
 
-// The index of `expr` among its list's row functions, written as an argument
-// of the list's call the first time one is hoisted.
+// The index of `expr` among its list's row functions, which the callback is
+// called with.
 function hoistRowAttribute(row, expr) {
-  if (row.fns === null) {
-    row.fns = t.arrayExpression([]);
-    const args = row.listCall.arguments;
-    // (list, fn, asArray, keyFn, slot, rowFns): an unkeyed list has no key
-    // function and no number.
-    if (args.length < 4) args.push(t.nullLiteral());
-    if (args.length < 5) args.push(t.unaryExpression('void', t.numericLiteral(0)));
-    args.push(row.fns);
-  }
-  row.fns.elements.push(t.arrowFunctionExpression([t.identifier(row.item)], expr));
-  return row.fns.elements.length - 1;
+  if (row.param === null) row.param = uniqueName(row.state, '_f$');
+  row.fns.push(t.arrowFunctionExpression([t.identifier(row.item)], expr));
+  return row.fns.length - 1;
+}
+
+// Once the row's template is written: the functions it hoisted as the last
+// argument of its list's call, and the parameter its callback takes them in,
+// before the item.
+function passRowAttributes(row) {
+  if (row.fns.length === 0) return;
+  const { fnPath, listPath } = row;
+  const [param] = fnPath.unshiftContainer('params', t.identifier(row.param));
+  fnPath.scope.registerBinding('param', param);
+  // (list, fn, asArray, keyFn, slot, rowFns): an unkeyed list has no key
+  // function and no number.
+  const args = [];
+  const count = listPath.node.arguments.length;
+  if (count < 4) args.push(t.nullLiteral());
+  if (count < 5) args.push(t.unaryExpression('void', t.numericLiteral(0)));
+  args.push(t.arrayExpression(row.fns));
+  listPath.pushContainer('arguments', args);
 }
 
 // --- Elements ----------------------------------------------------------------
@@ -580,7 +629,8 @@ function ssrListOf(mapCall, state, asArray) {
   }
   const list = call(state, '_$ssrList', args);
   // A row written straight into the list by an arrow function of a plainly
-  // named item: its reactive attributes can be the list's (rowAttributes).
+  // named item, the callback argument of this call: its reactive attributes
+  // can be the list's (rowAttributes).
   if (found.returnExpr._whatRow === true && t.isArrowFunctionExpression(found.mapFn) && !found.mapFn.async && t.isIdentifier(found.mapFn.params[0])) {
     found.returnExpr._whatRowList = { call: list, mapFn: found.mapFn };
   }
