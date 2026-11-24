@@ -28,10 +28,15 @@ export type SSRAttributeKind = 'plain' | 'enum' | 'url' | 'class' | 'style' | 'r
  */
 export type SSRHole = unknown;
 
-/** Declares a template's attribute holes: null for a child, [kind, name] for an attribute. */
+/**
+ * Declares a template's attribute holes: null for a child, [kind, name] for an
+ * attribute, and [kind, name, index] for a `.map()` row's reactive attribute,
+ * whose function is its list's `index`-th (ssrList's `rowFns`) and whose hole
+ * is the row's item.
+ */
 export declare function ssrTemplate(
   strings: readonly string[],
-  slots: ReadonlyArray<readonly [SSRAttributeKind, string] | null>,
+  slots: ReadonlyArray<readonly [SSRAttributeKind, string] | readonly [SSRAttributeKind, string, number] | null>,
 ): SSRTemplate;
 /** A template, filled with its holes. */
 export declare function ssr(template: SSRTemplate, ...holes: SSRHole[]): SSRMarkup;
@@ -42,13 +47,19 @@ export declare function ssrRow(template: SSRTemplate, ...holes: SSRHole[]): unkn
 
 /** A child written as itself: what h() does with the same value as a child. */
 export declare function ssrText(value: unknown): string | SSRMarkup | (() => unknown) | VNode<any>;
-/** The rows of a `.map()`, each escaped unless it is markup; `asArray` brackets them as a list; `keyFn` keys its rows; `slot` is the number what-compiler gave the list. */
+/**
+ * The rows of a `.map()`, each escaped unless it is markup; `asArray` brackets
+ * them as a list; `keyFn` keys its rows; `slot` is the number what-compiler
+ * gave the list; `rowFns` are the reactive attributes of the row template,
+ * each a function of the row's item, called where the row is placed.
+ */
 export declare function ssrList<T>(
   list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
   fn: (item: T, index: number, list: readonly T[]) => unknown,
   asArray: boolean,
-  keyFn?: (item: T) => unknown,
+  keyFn?: ((item: T) => unknown) | null,
   slot?: number,
+  rowFns?: ReadonlyArray<(item: T) => unknown>,
 ): SSRMarkup;
 /** `<For>`: the reactive child that renders its rows, or its fallback. */
 export declare function ssrFor<T>(

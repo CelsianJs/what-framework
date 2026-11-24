@@ -141,6 +141,7 @@ const SELECT_END = 7; // a <select> is finished: back to the select scope it was
 const OPTION_END = 8; // an option whose text is its value is finished: mark it
 const ROW = 9;        // a keyed row or a slot begins (what-core hydration-data.js _enterRow)
 const ROW_END = 10;   // a keyed row or a slot is finished
+const FLOW = 11;      // the rest of compiled markup, after a part the stream rendered (pour)
 
 // A marker is an instance of this module's own class, never a shape: a child
 // can be any value a reactive child returns, JSON included, and a plain
@@ -424,6 +425,7 @@ function step(seg, node, owner) {
         marker.end.entered = true;
         return null;
       case ROW_END: leaveRow(seg, marker, owner); return null;
+      case FLOW: return pour(seg, marker.node, marker.at, owner);
       case RETRY: return retry(seg, marker, owner);
       case AWAITED:
         // Its siblings in a keyed row number in that row, whatever ran while
@@ -445,6 +447,7 @@ function step(seg, node, owner) {
       node.edge(owner || null, seg.r.ctx);
       return null;
     }
+    if (typeof node.pour === 'function') return pour(seg, node, 0, owner);
     const parts = node.parts(seg.ns);
     if (typeof parts === 'string') {
       put(seg, parts);
@@ -493,6 +496,20 @@ function step(seg, node, owner) {
 
   assertSafeTag(tag, node);
   return stepElement(seg, tag, node.props, node.children, owner);
+}
+
+// Compiled markup that writes itself (ssr-runtime.js Markup): its HTML goes
+// straight to the segment, its reactive attributes and its keyed rows' edges
+// where they stand, up to the first part rendered here (a reactive child, a
+// component, markup of another kind). That part is pushed, and under it the
+// rest of the markup, so nothing is queued for HTML that is already finished.
+function pour(seg, node, from, owner) {
+  const at = node.pour(put, seg, from, owner || null, seg.r.ctx, false);
+  if (at < 0) return null;
+  push(seg, mark(FLOW, { node, at: at + 1 }), owner);
+  enterNamespace(seg, node.childNs(seg.ns), owner);
+  push(seg, node.held(at), owner);
+  return null;
 }
 
 function stepElement(seg, tag, props, children, owner) {
@@ -846,6 +863,9 @@ function handleError(seg, error, node) {
     if (!(item instanceof Mark)) continue;
     const marker = /** @type {any} */ (item);
     if (marker.$m === CLOSE) put(seg, marker.html);
+    // The rest of compiled markup: its HTML and its rows' edges, as the parts
+    // it would have queued one by one are handled here.
+    else if (marker.$m === FLOW) marker.node.pour(put, seg, marker.at, itemOwner || null, r.ctx, true);
     else if (marker.$m === ROW_END) leaveRow(seg, marker, itemOwner);
     else if (marker.$m === SCOPE_END) seg.scopes.pop();
     else if (marker.$m === NS_END) seg.ns = marker.ns;

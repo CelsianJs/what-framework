@@ -55,8 +55,11 @@ class Markup extends Html {
     // The HTML after `h`; null once there are parts.
     /** @type {string | null} */
     this.s = '';
-    // HTML strings and, between them, the thunks, vnodes and Html rendered on
-    // placement. Null when there are none.
+    // HTML strings and, between them, what is rendered on placement: thunks,
+    // vnodes and Html, and for a reactive attribute its AttrSlot followed by
+    // its function (and, for a row's, by the row's item: AttrSlot.n says how
+    // many follow it). What follows a slot is never read as a part. Null when
+    // there are none.
     /** @type {any[] | null} */
     this.p = null;
     // It holds SVG or MathML, so what it defers may sit in foreign content.
@@ -64,8 +67,10 @@ class Markup extends Html {
     // The rows of a .map() a reactive child returned: the array h()'s thunk
     // would have returned, so the hydratable renderer brackets it as a list.
     this.list = list;
-    // A keyed list's rows' keys, written after its opening marker (rowKeys).
-    this.keys = '';
+    // A keyed list's rows' keys, which a hydratable renderer writes after its
+    // opening marker (rowKeys); null for any other markup.
+    /** @type {any[] | null} */
+    this.keys = null;
   }
 
   // `hk` is null for a plain render, and a hydratable renderer's pending
@@ -81,8 +86,10 @@ class Markup extends Html {
       const part = p[i];
       if (typeof part === 'string') html += part;
       else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs);
-      else if (part instanceof AttrSlot) html += part.write(p[++i]);
-      else html += part.render(renderChild, hk, partNs);
+      else if (part instanceof AttrSlot) {
+        html += part.take(p, i);
+        i += part.n;
+      } else html += part.render(renderChild, hk, partNs);
     }
     return html;
   }
@@ -90,7 +97,7 @@ class Markup extends Html {
   // The same for a hydratable renderer: list markers, and every string fed to
   // the pending hydration key while there is one.
   renderKeyed(renderChild, hk, ns) {
-    let html = this.list ? keyed(hk, ARRAY_OPEN) + this.keys : '';
+    let html = this.list ? keyed(hk, ARRAY_OPEN) + this.rowKeys() : '';
     html += keyed(hk, this.h);
     if (this.s !== null) html += keyed(hk, this.s);
     else {
@@ -98,27 +105,71 @@ class Markup extends Html {
       const p = /** @type {any[]} */ (this.p);
       for (let i = 0; i < p.length; i++) {
         const part = p[i];
-        if (typeof part === 'string') html += keyed(hk, part);
+        if (typeof part === 'string') html += hk.key !== null ? claim(hk, part) : part;
         else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs);
-        else if (part instanceof AttrSlot) html += keyed(hk, part.write(p[++i]));
-        else html += part.render(renderChild, hk, partNs);
+        else if (part instanceof AttrSlot) {
+          html += keyed(hk, part.take(p, i));
+          i += part.n;
+        } else html += part.render(renderChild, hk, partNs);
       }
     }
     return this.list ? html + keyed(hk, ARRAY_CLOSE) : html;
   }
 
-  // The stream renders hydratable markup, list markers included.
+  // The keys comment of a keyed list, for the renderers that write one.
+  rowKeys() {
+    return this.keys === null ? '' : rowKeys(this.keys);
+  }
+
+  // Its HTML as a string, or the strings and what is rendered between them
+  // (compiled.js). Hydratable markup, list markers included.
   parts() {
-    if (this.s !== null) return this.list ? ARRAY_OPEN + this.keys + this.h + this.s + ARRAY_CLOSE : this.h + this.s;
+    if (this.s !== null) return this.list ? ARRAY_OPEN + this.rowKeys() + this.h + this.s + ARRAY_CLOSE : this.h + this.s;
     const p = /** @type {any[]} */ (this.p);
-    const parts = this.list ? [ARRAY_OPEN + this.keys] : [];
+    /** @type {any[]} */
+    const parts = this.list ? [ARRAY_OPEN + this.rowKeys()] : [];
     if (this.h) parts.push(this.h);
     for (let i = 0; i < p.length; i++) {
       const part = p[i];
-      parts.push(typeof part === 'object' && part !== null && Html.is(part) && part instanceof AttrSlot ? new Attr(part, p[++i]) : part);
+      if (typeof part === 'object' && part !== null && Html.is(part) && part instanceof AttrSlot) {
+        parts.push(new Attr(part, p, i));
+        i += part.n;
+      } else parts.push(part);
     }
     if (this.list) parts.push(ARRAY_CLOSE);
     return parts;
+  }
+
+  // The stream's way through the same parts (compiled.js): the HTML from part
+  // `from` on goes to `put`, a reactive attribute is resolved and a keyed
+  // row's edge run where it stands, and it stops at the first part the stream
+  // has to render itself.
+  pour(put, seg, from, frame, root, skip) {
+    if (from === 0) {
+      if (this.list) put(seg, ARRAY_OPEN + this.rowKeys());
+      put(seg, this.h);
+      if (this.s !== null) put(seg, this.s);
+    }
+    const p = this.p;
+    if (p !== null) {
+      for (let i = from; i < p.length; i++) {
+        const part = p[i];
+        if (typeof part === 'string') put(seg, part);
+        else if (typeof part !== 'object' || part === null || !Html.is(part)) {
+          if (!skip) return i;
+        } else if (part instanceof AttrSlot) {
+          if (!skip) put(seg, part.take(p, i));
+          i += part.n;
+        } else if (part instanceof RowEdge) part.edge(frame, root);
+        else if (!skip) return i;
+      }
+    }
+    if (this.list) put(seg, ARRAY_CLOSE);
+    return -1;
+  }
+
+  held(at) {
+    return /** @type {any[]} */ (this.p)[at];
   }
 
   rootTag() {
@@ -139,14 +190,11 @@ function keyed(hk, html) {
   return hk !== null && hk.key !== null ? claim(hk, html) : html;
 }
 
-// Building Markup: `m.s` is the HTML after the head while it is built.
-function isEmpty(m) {
-  return m.h === '' && m.s === '' && m.p === null;
-}
-
+// Building Markup: `m.s` is the HTML after the head while it is built. HTML
+// is the head until there is a head, HTML after it or a part.
 function addHtml(m, html) {
-  if (isEmpty(m)) m.h = html;
-  else m.s += html;
+  if (m.h !== '' || m.s !== '' || m.p !== null) m.s += html;
+  else m.h = html;
 }
 
 // Markup a hole holds goes into the template's, but a list's, which is
@@ -157,11 +205,35 @@ function append(m, hole) {
   else defer(m, hole);
 }
 
+// How many parts that can render a component (anything but a reactive
+// attribute) have been deferred: a keyed list reads it around each row
+// (ssrList).
+let deferred = 0;
+
 function defer(m, item) {
+  deferred++;
   if (m.p === null) m.p = [];
   if (m.s) m.p.push(m.s);
   m.s = '';
   m.p.push(item);
+}
+
+// A reactive attribute: its slot, then the function called when the markup
+// is placed.
+function deferAttribute(m, slot, fn) {
+  if (m.p === null) m.p = [];
+  if (m.s) m.p.push(m.s, slot, fn);
+  else m.p.push(slot, fn);
+  m.s = '';
+}
+
+// A row's reactive attribute: its slot, the function its list made for every
+// row (ssrList's `rowFns`), and the row's item, which it is called with.
+function deferRowAttribute(m, slot, fn, item) {
+  if (m.p === null) m.p = [];
+  if (m.s) m.p.push(m.s, slot, fn, item);
+  else m.p.push(slot, fn, item);
+  m.s = '';
 }
 
 function inline(m, markup) {
@@ -175,7 +247,11 @@ function inline(m, markup) {
   for (let i = 0; i < p.length; i++) {
     const part = p[i];
     if (typeof part === 'string') m.s += part;
-    else defer(m, part);
+    else if (typeof part === 'object' && part !== null && Html.is(part) && part instanceof AttrSlot) {
+      if (part.at < 0) deferAttribute(m, part, p[i + 1]);
+      else deferRowAttribute(m, part, p[i + 1], p[i + 2]);
+      i += part.n;
+    } else defer(m, part);
   }
 }
 
@@ -187,27 +263,36 @@ function finish(m) {
   return m;
 }
 
-function fill(m, t, args) {
-  const slots = t.slots;
-  for (let i = 1; i < args.length; i++) {
-    const slot = slots === undefined ? null : slots[i - 1];
-    if (slot === null) append(m, args[i]);
-    else attributeHole(m, slot, args[i]);
-    m.s += t[i];
-  }
+// One hole of a template, `slot` being what the template declares for it
+// (ssrTemplate): an attribute's slot, or null or undefined for a child. The
+// hole of a row's reactive attribute is the row's item.
+function fill(m, slot, hole) {
+  if (slot == null) {
+    if (typeof hole === 'string') addHtml(m, hole);
+    else append(m, hole);
+  } else if (slot.at < 0) attributeHole(m, slot, hole);
+  else deferRowAttribute(m, slot, /** @type {Function[]} */ (rowAttributes)[slot.at], hole);
 }
 
 /** A template: static strings `t`, filled with the holes passed after it. */
 export function ssr(t) {
   const m = new Markup(t[0], false, false);
-  fill(m, t, arguments);
+  const slots = t.slots;
+  for (let i = 1; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
+    m.s += t[i];
+  }
   return finish(m);
 }
 
 /** ssr() for a template holding SVG or MathML elements. */
 export function ssrForeign(t) {
   const m = new Markup(t[0], true, false);
-  fill(m, t, arguments);
+  const slots = t.slots;
+  for (let i = 1; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
+    m.s += t[i];
+  }
   return finish(m);
 }
 
@@ -216,6 +301,9 @@ export function ssrForeign(t) {
 /** @type {Markup | null} */
 let rows = null;
 const WRITTEN = Object.freeze({});
+// The functions of that list's rows' reactive attributes (ssrList's `rowFns`).
+/** @type {Function[] | undefined} */
+let rowAttributes;
 
 /**
  * A `.map()` row the callback returns as its whole result (`item => <li/>`):
@@ -225,13 +313,13 @@ const WRITTEN = Object.freeze({});
  */
 export function ssrRow(t) {
   const m = rows;
-  if (m === null) {
-    const markup = new Markup(t[0], false, false);
-    fill(markup, t, arguments);
-    return finish(markup);
-  }
+  if (m === null) return ssr.apply(null, /** @type {any} */ (arguments));
   addHtml(m, t[0]);
-  fill(m, t, arguments);
+  const slots = t.slots;
+  for (let i = 1; i < arguments.length; i++) {
+    fill(m, slots === undefined ? null : slots[i - 1], arguments[i]);
+    m.s += t[i];
+  }
   return WRITTEN;
 }
 
@@ -265,14 +353,20 @@ export function ssrText(v) {
  * brackets it as the array it stands for; a plain child's rows are flattened
  * into the parent, as h() flattens an array child. A keyed list's `keyFn`
  * gives its rows' keys, written with its markers, and `slot` is the number
- * what-compiler gave it (the client's list has the same).
+ * what-compiler gave it (the client's list has the same). `rowFns` are the
+ * reactive attributes of the row template, each as one function of the row's
+ * item made for the whole list: the template's slot names its function, the
+ * row passes its item as the hole, and the function is called with it where
+ * the row is placed, when the thunk a row of its own would have made is.
  */
-export function ssrList(list, fn, asArray, keyFn, slot) {
+export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
   if (list == null) list = [];
   const m = new Markup('', false, asArray);
+  const outerAttributes = rowAttributes;
+  rowAttributes = rowFns;
   if (Array.isArray(list)) {
     const keys = keyFn ? list.map((item) => keyFn(item)) : null;
-    if (asArray && keys !== null) m.keys = rowKeys(keys);
+    if (asArray) m.keys = keys;
     // A keyed list's rows are keyed rows (what-core hydration-data.js
     // _enterRow): it takes its place where it starts, with no rows too, and
     // the components a row renders take theirs in that row.
@@ -284,23 +378,31 @@ export function ssrList(list, fn, asArray, keyFn, slot) {
       for (let i = 0; i < list.length; i++) {
         if (!(i in list)) continue;
         const at = rowList !== null ? /** @type {any[]} */ (m.p).length : 0;
+        const before = deferred;
         const row = fn(list[i], i, list);
         if (row !== WRITTEN) append(m, ssrText(row));
-        if (rowList !== null) keyRow(m, at, rowList, i);
+        if (rowList !== null && deferred !== before) keyRow(m, at, rowList, i);
       }
     } finally {
       rows = outer;
+      rowAttributes = outerAttributes;
     }
   } else {
-    const mapped = list.map(fn);
+    let mapped;
+    try {
+      mapped = list.map(fn);
+    } finally {
+      rowAttributes = outerAttributes;
+    }
     for (let i = 0; i < mapped.length; i++) append(m, ssrText(mapped[i]));
   }
   return finish(m);
 }
 
 // Row `index` of a keyed list, when its markup defers what may render a
-// component (it added parts to `m` from `at` on): between the edges of a
-// keyed row. A row of finished HTML renders no component, and needs none.
+// component (it added parts to `m` from `at` on, and not only reactive
+// attributes, which render none): between the edges of a keyed row. A row of
+// finished HTML renders no component, and needs none.
 function keyRow(m, at, list, index) {
   if (/** @type {any[]} */ (m.p).length === at) return;
   const end = new RowEdge(null, undefined, 0, null);
@@ -417,67 +519,83 @@ const KINDS = { plain: 0, enum: 1, url: 2, class: 3, style: 4, refused: 5 };
 
 const UNRESOLVED = Symbol('unresolved');
 
-function resolve(name, fn) {
+// What a reactive attribute's function gives when the markup is placed: a
+// row's is called with the row's item.
+function resolve(slot, fn, item) {
   let v;
   try {
-    v = fn();
+    v = slot.at < 0 ? fn() : fn(item);
   } catch (e) {
     if (_isDevMode) {
-      console.warn(`[what-server] Skipping attribute ${JSON.stringify(name)}: its value threw during SSR: ${e.message}`);
+      console.warn(`[what-server] Skipping attribute ${JSON.stringify(slot.name)}: its value threw during SSR: ${e.message}`);
     }
     return UNRESOLVED;
   }
   return typeof v === 'function' ? UNRESOLVED : v;
 }
 
-function quoted(name, v) {
-  return ' ' + name + '="' + escapeHtml(typeof v === 'string' ? v : String(v)) + '"';
+// ` name="value"`, the value escaped. An empty value is the slot's own string.
+function quoted(slot, v) {
+  if (v === '') return slot.empty;
+  return slot.open + escapeHtml(typeof v === 'string' ? v : String(v)) + '"';
 }
 
-function attribute(kind, name, v) {
+function attribute(slot, v) {
   if (v == null || v === UNRESOLVED) return '';
-  switch (kind) {
+  switch (slot.kind) {
     case KINDS.enum:
-      return quoted(name, v);
+      return quoted(slot, v);
     case KINDS.refused:
-      if (v !== false && _isDevMode) console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(name)}`);
+      if (v !== false && _isDevMode) console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(slot.name)}`);
       return '';
     case KINDS.class:
-      return v === false ? '' : quoted('class', v);
+      return v === false ? '' : quoted(slot, v);
     case KINDS.style:
       if (v === false) return '';
-      if (typeof v === 'object') return quoted('style', styleText(v));
-      return v === true ? ' style' : quoted('style', v);
+      if (typeof v === 'object') return quoted(slot, styleText(v));
+      return v === true ? ' style' : quoted(slot, v);
     case KINDS.url:
       if (v === false) return '';
-      if (v === true) return ' ' + name;
-      return isUnsafeUrl(typeof v === 'string' ? v : String(v)) ? '' : quoted(name, v);
+      if (v === true) return ' ' + slot.name;
+      return isUnsafeUrl(typeof v === 'string' ? v : String(v)) ? '' : quoted(slot, v);
     default:
       if (v === false) return '';
-      return v === true ? ' ' + name : quoted(name, v);
+      return v === true ? ' ' + slot.name : quoted(slot, v);
   }
 }
 
-// One attribute hole of a template: its kind and name. Markup that defers a
-// reactive attribute holds the slot and, right after it, the function.
+// One attribute hole of a template: its kind and name (a class slot's name is
+// `class`, a style slot's `style`: what-compiler names a slot by the attribute
+// it writes), and for a row's reactive attribute the index of its function
+// among its list's (`at`; -1 for any other). Markup that defers a reactive
+// attribute holds the slot and, right after it, the `n` values it is resolved
+// from: the function, and for a row's the row's item.
 class AttrSlot extends Html {
-  constructor(kind, name) {
+  constructor(kind, name, at) {
     super();
     this.kind = kind;
     this.name = name;
+    this.at = at;
+    this.n = at < 0 ? 1 : 2;
+    // What every value of it is written between, and an empty one whole.
+    this.open = ' ' + name + '="';
+    this.empty = this.open + '"';
   }
 
-  write(fn) {
-    return attribute(this.kind, this.name, resolve(this.name, fn));
+  // The attribute, from what follows the slot at `i` in the parts `p`.
+  take(p, i) {
+    return attribute(this, resolve(this, p[i + 1], this.at < 0 ? undefined : p[i + 2]));
   }
 }
 
-// A reactive attribute on its own, as the stream takes it off its work stack.
+// A reactive attribute on its own, as parts() gives it: its slot and where
+// its function (and its row's item) stand in the markup's parts.
 class Attr extends Html {
-  constructor(slot, fn) {
+  constructor(slot, p, i) {
     super();
     this.slot = slot;
-    this.fn = fn;
+    this.p = p;
+    this.i = i;
   }
 
   render(renderChild, hk) {
@@ -485,7 +603,7 @@ class Attr extends Html {
   }
 
   parts() {
-    return this.slot.write(this.fn);
+    return this.slot.take(this.p, this.i);
   }
 
   childNs(ns) {
@@ -497,20 +615,17 @@ class Attr extends Html {
  * A template's strings, with its attribute holes declared: `slots` holds, per
  * hole, null for a child or [kind, name] for an attribute, kind being one of
  * plain, enum (aria-*, role, data-*), url (scheme-checked), class, style and
- * refused (srcdoc, outerHTML: never written).
+ * refused (srcdoc, outerHTML: never written). [kind, name, at] is a row's
+ * reactive attribute, whose function is the list's `at`-th (ssrList).
  */
 export function ssrTemplate(strings, slots) {
-  /** @type {any} */ (strings).slots = slots.map((slot) => (slot === null ? null : new AttrSlot(KINDS[slot[0]], slot[1])));
+  /** @type {any} */ (strings).slots = slots.map((slot) => (slot === null ? null : new AttrSlot(KINDS[slot[0]], slot[1], slot.length > 2 ? slot[2] : -1)));
   return strings;
 }
 
 function attributeHole(m, slot, v) {
-  if (typeof v === 'function') {
-    defer(m, slot);
-    /** @type {any[]} */ (m.p).push(v);
-  } else {
-    addHtml(m, attribute(slot.kind, slot.name, v));
-  }
+  if (typeof v === 'function') deferAttribute(m, slot, v);
+  else addHtml(m, attribute(slot, v));
 }
 
 // --- Elements decided at run time ------------------------------------------------

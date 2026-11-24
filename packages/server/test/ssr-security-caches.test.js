@@ -9,13 +9,17 @@
 //     every render, and the cache must stay bounded because spread props can
 //     carry attacker-chosen keys.
 //   - assertSafeTag caches names that passed; a bad name must still throw.
+//   - A style object's property names are checked and written in kebab-case
+//     once per name, in a bounded cache, and a value made only of characters
+//     the declaration grammar gives no meaning to skips the character walk.
+//     Every other value is still read by the grammar, on every render.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
 import { _escapeHtml } from 'what-core/internal';
 import { renderToString, renderToHydratableString, renderToStream } from '../src/index.js';
-import { ATTR_INFO_CACHE_SIZE, SAFE_TAG_CACHE_SIZE, _attrInfo, _safeTags } from '../src/html.js';
+import { ATTR_INFO_CACHE_SIZE, CSS_NAME_CACHE_SIZE, PLAIN_CSS_VALUE, SAFE_TAG_CACHE_SIZE, _attrInfo, _cssNames, _oneDeclaration, _safeTags } from '../src/html.js';
 import { collect } from './stream-helpers.js';
 
 function fiveReplaceEscape(str) {
@@ -178,5 +182,47 @@ describe('innerHTML still requires { __html } on every path', () => {
     } finally {
       console.warn = original;
     }
+  });
+});
+
+describe('a style object\'s fast paths', () => {
+  it('a value the fast path takes is one the declaration grammar takes', () => {
+    // Every string over the fast path's alphabet and a few characters outside
+    // it, up to four characters: none is accepted by the fast path and
+    // refused by the grammar.
+    const alphabet = ['a', 'Z', '0', '_', '#', '%', '.', ',', '+', '-', ' ', ';', ':', '(', ')', '"', "'", '\\', '/', '*', '{', '}', '\n', '\t', '\u0000', '\u007f', '\u00e9'];
+    let accepted = 0;
+    const walk = (text, depth) => {
+      if (PLAIN_CSS_VALUE.test(text)) {
+        accepted++;
+        assert.ok(_oneDeclaration(text), JSON.stringify(text));
+      }
+      if (depth < 4) for (const c of alphabet) walk(text + c, depth + 1);
+    };
+    walk('', 0);
+    assert.ok(accepted > 10000);
+    for (const text of ['red;background:url(//x)', 'a\\', 'x{y}', 'a/*b*/', 'url(a b)', '"open', 'a\u0000b', 'a\nb;c']) {
+      assert.ok(!PLAIN_CSS_VALUE.test(text), JSON.stringify(text));
+    }
+  });
+
+  it('writes the same text as before for names and values of every kind', () => {
+    const style = {
+      color: 'red', backgroundColor: '#1b1b1b', WebkitLineClamp: 3, msTransform: 'none', '--gap': '4px', '--Mixed-Case': 'a b',
+      width: 'calc(100% - 2px)', margin: '0 auto', opacity: 0.5, fontFamily: "'A B', serif", transform: 'translate(-50%, 10px)',
+      'not a property': 'x', 'color;x': 'y', content: '"a;b"', background: 'red;background:url(//tracker)', top: '1px}', left: '',
+    };
+    assert.equal(renderToString(h('div', { style })),
+      '<div style="color:red;background-color:#1b1b1b;-webkit-line-clamp:3;ms-transform:none;--gap:4px;--Mixed-Case:a b;width:calc(100% - 2px);'
+      + 'margin:0 auto;opacity:0.5;font-family:&#39;A B&#39;, serif;transform:translate(-50%, 10px);content:&quot;a;b&quot;;left:"></div>');
+  });
+
+  it('the name cache stays bounded, and names past the bound are still checked', () => {
+    const style = {};
+    for (let i = 0; i < CSS_NAME_CACHE_SIZE * 2; i++) style[`--custom-${i}`] = '1px';
+    const html = renderToString(h('div', { style }));
+    assert.ok(_cssNames.size <= CSS_NAME_CACHE_SIZE, `cache grew to ${_cssNames.size}`);
+    assert.ok(html.includes(`--custom-${CSS_NAME_CACHE_SIZE * 2 - 1}:1px`));
+    assert.equal(renderToString(h('div', { style: { 'x;y:z': 'a', 'bad name': 'b', fontSize: '12px', 'color}': 'c' } })), '<div style="font-size:12px"></div>');
   });
 });

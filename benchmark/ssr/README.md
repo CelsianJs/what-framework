@@ -18,6 +18,7 @@ npm install          # isolated deps, NOT the repo root
 npm run bench        # build + full run (3 rounds), about 4 min
 npm run bench:quick  # build + smoke run (1 round, few samples), ~30 s
 npm run bench:hydrate:quick  # hydration in Chromium (5 runs per entry), ~5 s
+node page.mjs --quick --before <what-fw checkout>  # an ordinary page, two checkouts
 ```
 
 `npm run bench` runs `node build.mjs && node bench.mjs` and writes
@@ -39,12 +40,26 @@ checkout's compiler has a server target; 0.14's has none, so that entry is
 skipped with a message. React's hydration is not measured: there is no React
 entry. It prints its table and writes nothing outside `dist/`.
 
+`page.mjs` renders an ordinary page instead of the table
+(`frameworks/whatc/page.jsx`: a storefront with a layout, context, a keyed list
+of 48 component rows, reactive text and attributes, `<Show>`, an
+`<ErrorBoundary>`, a `<Suspense>` around a resource, an island and a form) with
+what-compiler's server target: string render plain and hydratable, the stream,
+and heap per render. With `--before <what-fw checkout>` (an installed
+checkout, or an export of one with its `node_modules` linked) it builds the
+same page with that checkout's compiler and packages, checks that the two
+render the same HTML, and alternates the two round by round in fresh
+processes, so a change measured on the table page can be checked on a page
+that is not one big list. It prints its table and writes nothing outside
+`dist/page/`.
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `frameworks/<fw>/app.jsx` | The page in each framework's idiom (same markup, same data); `what` is the h()/runtime-JSX page, `whatc` the what-compiler page |
 | `frameworks/<fw>/entry.jsx` | `renderString`, `stream`, `streamAsync` over that framework's server API (What: `renderToStream(...).pipe(out)`) |
+| `frameworks/whatc/page.jsx`, `page-entry.jsx` | The ordinary page `page.mjs` renders, and its server entry |
 | `frameworks/solid1`, `frameworks/solid2` | npm workspaces, so the two Solid majors each resolve their own `solid-js` |
 | `shared/data.mjs` | Seeded dataset and the canonical markup |
 | `shared/verify.mjs` | Output equivalence checks run before any timing |
@@ -107,6 +122,24 @@ itself (finding 3) remains for the `what` entry. The `whatc` entry answers findi
 does: what-compiler's server target compiles each row to one pre-joined template
 with three string holes, filled at the call site, and only components go
 through the renderer.
+
+Where the compiled row still differs from Solid 1.9's: a reactive attribute
+(`class={selected() === row.id ? 'danger' : ''}`) is evaluated where the row is
+placed, in document order with the page's other holes, as h() evaluates the
+thunk it is handed (packages/compiler/test/ssr-hole-evaluation.test.js), where
+Solid evaluates every hole as the JSX expression runs. So a row is written in
+two steps: its template and plain holes when the `.map()` callback runs, with
+the attribute's slot and the row's item kept in the list's parts
+(`packages/server/src/ssr-runtime.js` `deferRowAttribute`), and the attribute
+when the list is rendered. The attribute's function is made once for the list,
+not once per row (`packages/compiler/src/babel/ssr.js` `rowAttributes`). A
+keyed list's row-key digests are computed only by a hydratable renderer, for
+the whole list at once (`packages/server/src/compiled.js` `rowKeys`), and the
+stream writes a list's finished HTML and attributes straight into its buffer
+(`Markup.pour`). Resolving the attribute as the row is written instead, in a
+prototype, took a further 14% off the string render on a loaded machine, which
+put it ahead of Solid 1.9; it changes the order side effects run in, so it is
+not what ships.
 
 Line numbers are against the what-fw working tree at commit `0731cbb8` and the
 Solid monorepo at `b4212bf` (solid-js/@solidjs/web 2.0.3). Profile shares are

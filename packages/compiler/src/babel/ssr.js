@@ -19,6 +19,9 @@
 //   - a component, a fragment, <Show>, <Switch> and <For> are the vnode or the
 //     reactive child they are with h() and the DOM back end;
 //   - `{src.map(item => <li/>)}` renders its rows into one hole (_$ssrList).
+//     A reactive attribute of a row template is one function of the row's
+//     item, made once for the list (rowAttributes): the row passes its item,
+//     and the function is called with it where the thunk would have been.
 // what-server's ssr-runtime renders the result (Markup) with h()'s rules, so
 // the compiled string equals the h()-rendered string byte for byte, side
 // effects in the same order (lowering-parity-fuzz.test.js). Event handlers,
@@ -102,23 +105,25 @@ function asH(expr, state) {
 // markup defers is placed (ssr-runtime's ssrForeign).
 // `slots` declares each hole: null for a child, [kind, name] for an
 // attribute (ssr-runtime's ssrTemplate).
-/** @returns {{ strings: string[], holes: any[], slots: Array<[string, string] | null>, foreign: boolean }} */
+// `row` is set on a `.map()` row's template: what its reactive attributes are
+// hoisted with (rowAttributes).
+/** @returns {{ strings: string[], holes: any[], slots: Array<any[] | null>, foreign: boolean, row: any }} */
 function createMarkup(foreign = false) {
-  return { strings: [''], holes: [], slots: [], foreign };
+  return { strings: [''], holes: [], slots: [], foreign, row: null };
 }
 
 function addText(markup, text) {
   markup.strings[markup.strings.length - 1] += text;
 }
 
-/** @param {[string, string] | null} [slot] */
+/** @param {any[] | null} [slot] */
 function addHole(markup, expr, slot = null) {
   markup.holes.push(expr);
   markup.slots.push(slot);
   markup.strings.push('');
 }
 
-/** @param {Array<[string, string] | null>} [slots] */
+/** @param {Array<any[] | null>} [slots] */
 function templateId(state, strings, isStatic, slots = []) {
   const key = (isStatic ? 'static:' : '') + JSON.stringify([strings, slots]);
   let id = state.ssrTemplateMap.get(key);
@@ -167,8 +172,87 @@ function jsxValue(node, path, state) {
   }
   if (isComponentElement(node)) return componentValue(node, state);
   const markup = createMarkup();
+  if (node._whatRowList) markup.row = rowAttributes(node, path);
   appendElement(node, markup, state);
   return markupExpression(markup, state, node._whatRow === true);
+}
+
+// --- A row's reactive attributes ---------------------------------------------
+//
+// `{rows.map(row => <tr class={sel() === row.id ? 'on' : ''}>…</tr>)}`: the
+// class is a reactive attribute, which h() is handed as a thunk made for each
+// row. The server calls it once, where the row is placed, so the row's
+// template takes it as a function of the row's item instead, written once
+// beside the list:
+//
+//   _$ssrList(rows, row => _$ssrRow(_tmpl$, row, …), true, row => row.id, 12,
+//     [row => sel() === row.id ? 'on' : ''])
+//
+// with the slot declared ['class', 'class', 0]: the row passes its item as the
+// hole, and what-server calls the list's function 0 with it when it places
+// the row. The same expression runs at the same point with the same item, and
+// no closure is made per row. An attribute is hoisted only where that holds
+// by construction: the row is the whole result of an arrow function whose
+// first parameter is a plain name never assigned, and of what the callback
+// binds the expression reads nothing else (not its index, not its array).
+
+const NOT_HOISTED = new Set(['ThisExpression', 'Super', 'AwaitExpression', 'YieldExpression', 'MetaProperty']);
+
+// What a row's template (`node`, at `path`) hoists its reactive attributes
+// with: its list's call, its item's name, and the attribute expressions that
+// can be hoisted. Null when none can.
+function rowAttributes(node, path) {
+  const { call: listCall, mapFn } = node._whatRowList;
+  const item = mapFn.params[0];
+  if (!path || typeof path.traverse !== 'function' || !path.scope || path.scope.block !== mapFn) return null;
+  const binding = path.scope.getOwnBinding(item.name);
+  if (!binding || binding.identifier !== item || !binding.constant) return null;
+  const scope = path.scope;
+  const hoistable = new Set();
+  // The attributes written in the callback itself: those of JSX inside a
+  // function inside the row belong to that JSX.
+  path.traverse({
+    Function(inner) {
+      inner.skip();
+    },
+    JSXAttribute(attr) {
+      const value = attr.get('value');
+      if (!value.isJSXExpressionContainer()) return;
+      const expr = value.get('expression');
+      let ok = true;
+      const read = (id) => {
+        if (id.node.name === 'arguments') ok = false;
+        const bound = id.scope.getBinding(id.node.name);
+        if (bound && bound.scope === scope && bound !== binding) ok = false;
+      };
+      if (expr.isReferencedIdentifier()) read(expr);
+      if (NOT_HOISTED.has(expr.node.type)) ok = false;
+      expr.traverse({
+        enter(inner) {
+          if (NOT_HOISTED.has(inner.node.type)) ok = false;
+        },
+        ReferencedIdentifier: read,
+      });
+      if (ok) hoistable.add(expr.node);
+    },
+  });
+  return hoistable.size === 0 ? null : { listCall, item: item.name, hoistable, fns: null };
+}
+
+// The index of `expr` among its list's row functions, written as an argument
+// of the list's call the first time one is hoisted.
+function hoistRowAttribute(row, expr) {
+  if (row.fns === null) {
+    row.fns = t.arrayExpression([]);
+    const args = row.listCall.arguments;
+    // (list, fn, asArray, keyFn, slot, rowFns): an unkeyed list has no key
+    // function and no number.
+    if (args.length < 4) args.push(t.nullLiteral());
+    if (args.length < 5) args.push(t.unaryExpression('void', t.numericLiteral(0)));
+    args.push(row.fns);
+  }
+  row.fns.elements.push(t.arrowFunctionExpression([t.identifier(row.item)], expr));
+  return row.fns.elements.length - 1;
 }
 
 // --- Elements ----------------------------------------------------------------
@@ -327,6 +411,11 @@ function kindOf(key) {
 function appendAttribute({ key, fixed, expr }, markup, state) {
   const kind = kindOf(key);
   if (fixed === undefined) {
+    const row = markup.row;
+    if (row !== null && row.hoistable.has(expr) && isReactive(expr, state)) {
+      addHole(markup, t.identifier(row.item), [kind, key, hoistRowAttribute(row, expr)]);
+      return;
+    }
     addHole(markup, asH(expr, state), [kind, key]);
     return;
   }
@@ -489,7 +578,13 @@ function ssrListOf(mapCall, state, asArray) {
     const slot = listSlot(mapCall);
     if (slot !== null) args.push(slot);
   }
-  return call(state, '_$ssrList', args);
+  const list = call(state, '_$ssrList', args);
+  // A row written straight into the list by an arrow function of a plainly
+  // named item: its reactive attributes can be the list's (rowAttributes).
+  if (found.returnExpr._whatRow === true && t.isArrowFunctionExpression(found.mapFn) && !found.mapFn.async && t.isIdentifier(found.mapFn.params[0])) {
+    found.returnExpr._whatRowList = { call: list, mapFn: found.mapFn };
+  }
+  return list;
 }
 
 // The children of a component, a fragment or a control-flow arm, as the
@@ -707,7 +802,7 @@ export function finishSsrProgram(path, state) {
     else if (tmpl.slots.length > 0) {
       init = call(state, '_$ssrTemplate', [strings, t.arrayExpression(tmpl.slots.map(slot => (slot === null
         ? t.nullLiteral()
-        : t.arrayExpression([t.stringLiteral(slot[0]), t.stringLiteral(slot[1])]))))]);
+        : t.arrayExpression(slot.map(part => (typeof part === 'number' ? t.numericLiteral(part) : t.stringLiteral(part)))))))]);
     }
     if (init !== strings) t.addComment(init, 'leading', ' @__PURE__ ');
     path.unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier(tmpl.id), init)]));

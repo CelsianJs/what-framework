@@ -682,12 +682,36 @@ function urlTokenEnd(text, from) {
   return -1;
 }
 
+// A property name as it is written (kebab-case; a custom property as it is),
+// or null for a name that is no property: decided once per name. Bounded,
+// because a style object's keys can come from data.
+const _cssNames = new Map();
+const CSS_NAME_CACHE_SIZE = 1024;
+
+function cssName(property) {
+  let name = _cssNames.get(property);
+  if (name === undefined) {
+    name = !CSS_PROPERTY.test(property) ? null
+      : property.startsWith('--') ? property : property.replace(/([A-Z])/g, '-$1').toLowerCase();
+    if (_cssNames.size < CSS_NAME_CACHE_SIZE) _cssNames.set(property, name);
+  }
+  return name;
+}
+
+// Values that are one declaration's value by their characters alone: letters,
+// digits, `_`, `#`, `%`, `.`, `,`, `-`, `+` and spaces, none of which
+// oneDeclaration gives a meaning to. Every other value is read by it.
+const PLAIN_CSS_VALUE = /^[\w#%.,+ -]*$/;
+
 function styleText(style) {
   let css = '';
-  for (const [property, value] of Object.entries(style)) {
-    const text = String(value);
-    if (!CSS_PROPERTY.test(property) || !oneDeclaration(text)) continue;
-    css += (css ? ';' : '') + (property.startsWith('--') ? property : property.replace(/([A-Z])/g, '-$1').toLowerCase()) + ':' + text;
+  const properties = Object.keys(style);
+  for (let i = 0; i < properties.length; i++) {
+    const property = properties[i];
+    const text = String(style[property]);
+    const name = cssName(property);
+    if (name === null || !(PLAIN_CSS_VALUE.test(text) || oneDeclaration(text))) continue;
+    css += (css ? ';' : '') + name + ':' + text;
   }
   return css;
 }
@@ -747,8 +771,12 @@ function textOf(tag, value) {
 export {
   ATTR_INFO_CACHE_SIZE,
   SAFE_TAG_CACHE_SIZE,
+  CSS_NAME_CACHE_SIZE,
+  PLAIN_CSS_VALUE,
   _attrInfo,
   _safeTags,
+  _cssNames,
+  oneDeclaration as _oneDeclaration,
   BOUNDARY_TAGS,
   SERVER_SKIPPED_TAGS,
   VOID_ELEMENTS,
