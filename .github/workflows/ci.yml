@@ -120,6 +120,83 @@ jobs:
           WHAT_REQUIRE_COMPAT_LIBS: '1'
         run: node --test 'test/libs.test.js'
 
+  # The React package matrix (packages/react-compat/test/matrix-browser.mjs):
+  # 38 fixtures over 47 React packages, each on real React (the control) and on
+  # what-react alone, as a React file in a native app and as a native file,
+  # driven in Chromium with the same steps. One job per way of serving,
+  # because each finds failures the others cannot see: a production client
+  # build, Vite's dev server (dependency pre-bundling, a CommonJS dependency
+  # served raw), and a production server build that the browser hydrates (two
+  # copies of what-react in the server bundle, an island left empty).
+  #
+  # The fixture has its own package.json and a committed lockfile (403
+  # packages, about 435 MB installed), so the versions REACT-COMPAT.md names
+  # are the ones tested. A failed fixture is run once more (--retries=1); a
+  # result that passed only on the rerun is listed in the job summary, as is
+  # a quarantined step that failed (react-virtuoso's "a growing count", an
+  # open what-react defect its spec describes).
+  react-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        serve: [build, dev, ssr]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/react-compat/test/fixtures/matrix/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the matrix fixture's packages (pinned by its lockfile)
+        run: npm ci --prefix packages/react-compat/test/fixtures/matrix --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # WHAT_REQUIRE_MATRIX: a fixture that is not installed fails the job
+      # instead of skipping it.
+      - name: React package matrix (--serve=${{ matrix.serve }})
+        env:
+          WHAT_REQUIRE_MATRIX: '1'
+        run: |
+          mkdir -p artifacts
+          node packages/react-compat/test/matrix-browser.mjs --serve=${{ matrix.serve }} --retries=1 --json=artifacts/react-matrix-${{ matrix.serve }}.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: react-matrix-${{ matrix.serve }}-${{ github.run_id }}
+          path: artifacts/react-matrix-${{ matrix.serve }}.json
+          if-no-files-found: ignore
+
   build:
     runs-on: ubuntu-latest
     steps:

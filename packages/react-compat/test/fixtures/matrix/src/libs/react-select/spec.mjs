@@ -1,6 +1,6 @@
 export default {
   packages: ['react-select'],
-  exercised: 'a single Select (class component, Emotion styles): the menu in a portal, type to filter, Enter picks, keyboard open and arrows, clear; a multi Select with removable values and Backspace; an async Select loading options as you type',
+  exercised: 'a single Select (class component, Emotion styles): the menu in a portal, type to filter, Enter picks, keyboard open and arrows, clear, a ref to the instance (`focus()`), the menu closing on blur with `onMenuOpen` and `onMenuClose`, an `onKeyDown` that prevents the default; a multi Select with removable values (the one that stays keeps its element) and Backspace; an async Select loading options as you type',
   async run(t) {
     await t.step('Emotion styles the control', async () => {
       await t.style('.rs__control', 'display', 'flex');
@@ -40,8 +40,10 @@ export default {
       await t.page.locator('.rsm__option', { hasText: 'Vanilla' }).click();
       await t.text('#rs-many', 'chocolate,vanilla');
       await t.count('.rsm__multi-value', 2);
+      await t.page.evaluate(() => { window.__values = [...document.querySelectorAll('.rsm__multi-value')]; });
       await t.page.locator('.rsm__multi-value__remove').first().click();
       await t.text('#rs-many', 'vanilla');
+      await t.eval(() => document.querySelector('.rsm__multi-value') === window.__values[1], true, 'the value that stays is the element it was');
       await t.page.focus('#rsm-input');
       await t.press('Backspace');
       await t.text('#rs-many', 'none');
@@ -53,6 +55,38 @@ export default {
       await t.until(() => t.page.evaluate(() => [...document.querySelectorAll('.rsa__option')].map((o) => o.textContent).join(',')), (v) => v === 'Strawberry', 'the loaded option');
       await t.press('Enter');
       await t.text('#rs-remote', 'strawberry');
+    });
+    await t.step('a ref focuses the select; leaving it closes the menu', async () => {
+      await t.click('#rs-focus');
+      await t.focus('rs-input');
+      await t.press('ArrowDown');
+      await t.count('.rs__option', 3);
+      const before = await t.page.evaluate(() => document.querySelector('#rs-log').textContent);
+      if (!before.endsWith('open')) throw new Error(`onMenuOpen was not the last callback: ${before}`);
+      // A press on empty page, away from the menu (which covers what is under the select).
+      await t.page.mouse.click(700, 600);
+      await t.gone('.rs__menu');
+      await t.text('#rs-log', `${before},close`);
+    });
+    await t.step('a key handler that prevents the default keeps the select from handling the key', async () => {
+      await t.click('#rs-lock');
+      await t.attr('#rs-lock', 'aria-pressed', 'true');
+      await t.click('#rs-focus');
+      await t.press('ArrowDown');
+      await t.count('.rs__option', 3);
+      await t.press('Enter');
+      await t.sleep(150);
+      await t.text('#rs-one', 'none');
+      await t.count('.rs__option', 3);
+      await t.press('Escape');
+      await t.gone('.rs__menu');
+      await t.click('#rs-lock');
+      await t.attr('#rs-lock', 'aria-pressed', 'false');
+      await t.click('#rs-focus');
+      await t.press('ArrowDown');
+      await t.count('.rs__option', 3);
+      await t.press('Enter');
+      await t.text('#rs-one', 'chocolate');
     });
   },
 };

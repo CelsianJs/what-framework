@@ -44,7 +44,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { islandServerRender, stripHydrationMarkup } from './lib/hydration-markup.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -342,8 +342,102 @@ async function checkReactCompatPage(browser, url, label) {
     const count = await page.textContent('.counter output');
     assert(count === '2', `${label}: the signal counter updates (0 -> ${count})`);
     assert((await page.textContent('.zustand-count')) === '1 bears', `${label}: the zustand store updates its component`);
+    // react-router, added after scaffolding: it has a CommonJS-only
+    // dependency (cookie), which the dev server must pre-bundle.
+    assert((await page.textContent('#rr-out')) === 'home page', `${label}: react-router renders its first route`);
+    await page.click('#rr-about');
+    await page.waitForFunction(() => document.querySelector('#rr-out')?.textContent === 'about page', null, { timeout: 5000 });
+    assert(true, `${label}: a react-router <Link> navigates`);
+    await page.fill('.card input', 'ada');
+    await page.waitForFunction(() => document.querySelector('.card h3')?.textContent === 'card: ada', null, { timeout: 5000 });
+    assert(true, `${label}: a React component written in TypeScript handles its ChangeEvent`);
     assert(errors.length === 0, `${label}: no browser errors or warnings (got: ${errors.join('; ') || 'none'})`);
   }, { warnings: true });
+}
+
+// What a user adds to the React scaffold: a React library with a
+// CommonJS-only dependency (react-router), an ordinary React component in
+// TypeScript, a native TypeScript file that uses it, and a server entry.
+function addReactSmokeFiles(appDir) {
+  writeFileSync(join(appDir, 'src/Routed.jsx'), `import { MemoryRouter, Routes, Route, Link } from 'react-router';
+
+export function Routed() {
+  return (
+    <MemoryRouter>
+      <nav><Link id="rr-about" to="/about">about</Link></nav>
+      <Routes>
+        <Route path="/" element={<p id="rr-out">home page</p>} />
+        <Route path="/about" element={<p id="rr-out">about page</p>} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+`);
+  // React + TypeScript as it is usually written: a forwardRef, CSSProperties,
+  // a ChangeEvent handler, ReactNode children.
+  writeFileSync(join(appDir, 'src/Card.tsx'), `/** @jsxImportSource react */
+import { forwardRef, useRef, useState } from 'react';
+import type { ChangeEvent, CSSProperties, ReactNode } from 'react';
+
+type CardProps = { title: string; children?: ReactNode; onPick?: (id: number) => void };
+
+export const Field = forwardRef<HTMLInputElement, { label: string }>(function Field({ label }, ref) {
+  return <label>{label}<input ref={ref} /></label>;
+});
+
+export function Card({ title, children, onPick }: CardProps) {
+  const [text, setText] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  const style: CSSProperties = { padding: 8, fontWeight: 600 };
+  const onChange = (e: ChangeEvent<HTMLInputElement>) => setText(e.target.value);
+  return (
+    <div className="card" style={style}>
+      <h3>{title}: {text}</h3>
+      <input value={text} onChange={onChange} />
+      <Field ref={input} label="name" />
+      <ul>{[1, 2, 3].map((id) => <li key={id} onClick={() => onPick?.(id)}>{id}</li>)}</ul>
+      <button type="button" onClick={() => input.current?.focus()} disabled={text.length === 0}>focus</button>
+      {children}
+    </div>
+  );
+}
+`);
+  writeFileSync(join(appDir, 'src/Extras.tsx'), `import { signal } from 'what-framework';
+import { Card } from './Card';
+import { Routed } from './Routed.jsx';
+
+const picked = signal(0);
+
+export function Extras() {
+  return (
+    <section id="extras">
+      <p id="picked">{picked()}</p>
+      <Card title="card" onPick={(id) => picked(id)}><b>child</b></Card>
+      <Routed />
+    </section>
+  );
+}
+`);
+  writeFileSync(join(appDir, 'src/entry-server.jsx'), `import { h } from 'what-framework';
+import { renderToHydratableString } from 'what-framework/server';
+import { BearCounter } from './BearCounter.jsx';
+import { Extras } from './Extras.tsx';
+
+function Page() {
+  return <main><BearCounter /><Extras /></main>;
+}
+
+export function render() {
+  return renderToHydratableString(h(Page));
+}
+`);
+  const mainFile = join(appDir, 'src/main.jsx');
+  const main = readFileSync(mainFile, 'utf8');
+  const patched = main
+    .replace("import { BearCounter } from './BearCounter.jsx';", "import { BearCounter } from './BearCounter.jsx';\nimport { Extras } from './Extras.tsx';")
+    .replace('<BearCounter />', '<BearCounter />\n      <Extras />');
+  if (patched === main || !patched.includes('<Extras />')) fail('smoke: could not add <Extras /> to the React scaffold\'s src/main.jsx');
+  writeFileSync(mainFile, patched);
 }
 
 async function smokeReactCompat(workDir, tarballs, browser) {
@@ -353,6 +447,17 @@ async function smokeReactCompat(workDir, tarballs, browser) {
   const pkg = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
   assert(Boolean(pkg.dependencies['what-react'] && pkg.dependencies.zustand), 'the scaffold depends on what-react and zustand');
   const viteBin = join(appDir, 'node_modules', 'vite', 'bin', 'vite.js');
+
+  // The scaffold as generated lints clean; what the smoke adds below is not
+  // written to the scaffold's lint rules (a server bundle, a .tsx file).
+  lintClean(appDir);
+
+  run('npm', ['install', '--no-audit', '--no-fund', 'react-router@^7'], { cwd: appDir });
+  addReactSmokeFiles(appDir);
+  // An ordinary React component in a .tsx file, and a native .tsx file that
+  // uses it, type-check as scaffolded.
+  run('npm', ['run', 'typecheck'], { cwd: appDir });
+  assert(true, 'tsc: a React .tsx file (React\'s types) and a native .tsx file (What\'s types) type-check');
 
   const devPort = PORT_BASE + 40;
   await assertPortFree(devPort);
@@ -392,7 +497,18 @@ async function smokeReactCompat(workDir, tarballs, browser) {
   }
   preview.kill('SIGTERM');
 
-  lintClean(appDir);
+  // A production server build renders the React islands: one what-react in
+  // the bundle (with a second copy every island comes out empty, silently).
+  run(process.execPath, [viteBin, 'build', '--ssr', 'src/entry-server.jsx', '--outDir', 'dist-server'], { cwd: appDir });
+  const entry = readdirSync(join(appDir, 'dist-server')).find((f) => /^entry-server\.m?js$/.test(f));
+  assert(Boolean(entry), 'server build: wrote dist-server/entry-server.js');
+  const html = run(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(pathToFileURL(join(appDir, 'dist-server', entry)).href)}); process.stdout.write(await m.render());`], {
+    cwd: appDir,
+    env: { ...process.env, NODE_ENV: 'production' },
+  });
+  assert(/class="zustand-count"[^>]*>0 bears</.test(html), `server build: the zustand island is in the server's HTML${/zustand-count/.test(html) ? '' : ` (got: ${html.slice(0, 300)})`}`);
+  assert(html.includes('<p id="rr-out">home page</p>'), 'server build: the react-router island is in the server\'s HTML');
+  assert(/<h3>card: <\/h3>/.test(html.replace(/<!--.*?-->/g, '')), 'server build: the TypeScript React component is in the server\'s HTML');
 }
 
 // --- 3c. SPA + StyleX ---------------------------------------------------------
@@ -814,11 +930,14 @@ try {
   const tarballs = packLocalPackages(join(workDir, 'tarballs'));
   browser = await launchBrowser();
 
-  await smokeSpa(workDir, tarballs, browser);
-  await smokeReactCompat(workDir, tarballs, browser);
-  await smokeStylex(workDir, tarballs, browser);
-  await smokeFullstack(workDir, tarballs, browser);
-  await smokeIslands(workDir, tarballs, browser);
+  // --only=react,islands runs some of the templates (all of them by default).
+  const onlyArg = process.argv.find((a) => a.startsWith('--only='));
+  const only = onlyArg ? onlyArg.slice('--only='.length).split(',') : null;
+  const templates = { spa: smokeSpa, react: smokeReactCompat, stylex: smokeStylex, fullstack: smokeFullstack, islands: smokeIslands };
+  for (const name of only || []) if (!templates[name]) fail(`--only=${name}: expected ${Object.keys(templates).join(', ')}`);
+  for (const [name, smoke] of Object.entries(templates)) {
+    if (only === null || only.includes(name)) await smoke(workDir, tarballs, browser);
+  }
 
   log('ALL SCAFFOLD SMOKE CHECKS PASSED');
 } catch (err) {

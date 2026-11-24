@@ -162,11 +162,25 @@ function Classes() {
 }
 
 // ---- reconciliation: slots and keys ----
+// A keyed child that is all its parent renders: a new key is a new
+// component, which is how React code resets state (`<Form key={user} />`).
+function Draft({ id, user }) {
+  const [text, setText] = useState('draft of ' + user);
+  useEffect(() => { note(`${id} mount ${user}`); return () => note(`${id} unmount ${user}`); }, []);
+  return <input id={id} data-user={user} value={text} onChange={(e) => setText(e.target.value)} />;
+}
+const DraftAlone = ({ user }) => <Draft key={user} id="c-draft-alone" user={user} />;
+const DraftInFragment = ({ user }) => <><Draft key={user} id="c-draft-fragment" user={user} /></>;
+
 function Reconcile() {
   const [hint, setHint] = useState(true);
   const [rows, setRows] = useState(['a', 'b', 'c']);
+  const [user, setUser] = useState('ada');
   return (
     <div>
+      <DraftAlone user={user} />
+      <DraftInFragment user={user} />
+      <button id="c-user" onClick={() => setUser('grace')}>user</button>
       <div id="c-slot">
         {hint ? <em key="hint">hint</em> : null}
         <input id="c-slot-input" defaultValue="" />

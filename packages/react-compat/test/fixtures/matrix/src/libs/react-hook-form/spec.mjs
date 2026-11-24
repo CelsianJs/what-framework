@@ -1,6 +1,6 @@
 export default {
   packages: ['react-hook-form'],
-  exercised: '`register` (uncontrolled inputs through refs), validation on submit with focus on the first error, an error that clears while typing, `Controller`, `useFieldArray` append and remove, `useWatch`, `setFocus`, `reset`, `formState`',
+  exercised: '`register` (uncontrolled inputs through refs), validation on submit with focus on the first error, an error that clears while typing, a `watch` subscription made in an effect, `touchedFields` on blur, `Controller`, `useFieldArray` append, remove and swap with the rows\' elements kept, `useWatch`, `setFocus`, a field that unregisters when it unmounts, `reset`, `formState`',
   async run(t) {
     await t.step('an invalid submit shows errors and focuses the first bad field', async () => {
       await t.click('#h-submit');
@@ -17,6 +17,13 @@ export default {
       await t.value('#h-name', 'ada');
       await t.text('#h-watch', 'ada');
       await t.text('#h-dirty', 'true');
+      await t.text('#h-edits', '3');
+    });
+    await t.step('leaving a field marks it touched', async () => {
+      await t.text('#h-touched', '');
+      await t.press('Tab');
+      await t.focus('h-email');
+      await t.text('#h-touched', 'name');
     });
     await t.step('a Controller field', async () => {
       await t.click('#h-star-2');
@@ -29,8 +36,19 @@ export default {
       await t.count('.h-tag', 2);
       await t.page.locator('.h-tag').nth(1).fill('two');
       await t.click('#h-append');
+      // A row that stays is the element it was: rows are keyed by field.id.
+      await t.page.evaluate(() => { window.__tags = [...document.querySelectorAll('.h-tag')]; });
       await t.page.locator('.h-remove').nth(0).click();
       await t.count('.h-tag', 2);
+      await t.eval(() => [...document.querySelectorAll('.h-tag')].map((i) => i.value).join(','), 'two,new');
+      await t.eval(() => { const now = [...document.querySelectorAll('.h-tag')]; return now[0] === window.__tags[1] && now[1] === window.__tags[2]; }, true, 'the second and third inputs are now the first and second');
+    });
+    await t.step('useFieldArray swap moves the rows', async () => {
+      await t.page.evaluate(() => { window.__rows = [...document.querySelectorAll('#h-tags li')]; });
+      await t.click('#h-swap');
+      await t.eval(() => [...document.querySelectorAll('.h-tag')].map((i) => i.value).join(','), 'new,two');
+      await t.eval(() => { const now = [...document.querySelectorAll('#h-tags li')]; return now[0] === window.__rows[1] && now[1] === window.__rows[0]; }, true, 'the same two rows, swapped');
+      await t.click('#h-swap');
       await t.eval(() => [...document.querySelectorAll('.h-tag')].map((i) => i.value).join(','), 'two,new');
     });
     await t.step('setFocus, a pattern error, then a valid submit', async () => {
@@ -40,6 +58,16 @@ export default {
       await t.click('#h-submit');
       await t.text('#h-email-error', 'bad email');
       await t.type('#h-email', '@x.io');
+      await t.click('#h-submit');
+      await t.text('#h-sent', '{"name":"ada","email":"nope@x.io","rating":2,"tags":[{"value":"two"},{"value":"new"}]}');
+    });
+    await t.step('a field that unmounts with shouldUnregister leaves the form values', async () => {
+      await t.click('#h-more');
+      await t.type('#h-nick', 'bob');
+      await t.click('#h-submit');
+      await t.text('#h-sent', /"nick":"bob"\}$/);
+      await t.click('#h-more');
+      await t.gone('#h-nick');
       await t.click('#h-submit');
       await t.text('#h-sent', '{"name":"ada","email":"nope@x.io","rating":2,"tags":[{"value":"two"},{"value":"new"}]}');
     });

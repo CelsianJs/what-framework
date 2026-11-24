@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, FormProvider, useFieldArray, useForm, useFormContext, useWatch } from 'react-hook-form';
 
 function Stars({ value, onChange }) {
@@ -19,9 +19,16 @@ function Preview() {
 
 export default function Fixture() {
   const methods = useForm({ defaultValues: { name: '', email: '', rating: 0, tags: [{ value: 'one' }] }, mode: 'onSubmit' });
-  const { register, handleSubmit, control, formState: { errors, isDirty, submitCount }, reset, setFocus } = methods;
-  const { fields, append, remove } = useFieldArray({ control, name: 'tags' });
+  const { register, handleSubmit, control, formState: { errors, isDirty, submitCount, touchedFields }, reset, setFocus, watch } = methods;
+  const { fields, append, remove, swap } = useFieldArray({ control, name: 'tags' });
   const [sent, setSent] = useState('');
+  const [more, setMore] = useState(false);
+  const [edits, setEdits] = useState(0);
+  // The documented way to react to changes: subscribe in an effect, unsubscribe in its cleanup.
+  useEffect(() => {
+    const subscription = watch((value, { name }) => { if (name === 'name') setEdits((n) => n + 1); });
+    return () => subscription.unsubscribe();
+  }, [watch]);
   return (
     <FormProvider {...methods}>
       <form onSubmit={handleSubmit((data) => setSent(JSON.stringify(data)))}>
@@ -40,11 +47,16 @@ export default function Fixture() {
           ))}
         </ul>
         <button type="button" id="h-append" onClick={() => append({ value: 'new' })}>add tag</button>
+        <button type="button" id="h-swap" onClick={() => swap(0, 1)}>swap the first two</button>
+        <label><input type="checkbox" id="h-more" checked={more} onChange={(e) => setMore(e.target.checked)} /> more</label>
+        {more ? <input id="h-nick" {...register('nick', { shouldUnregister: true })} /> : null}
         <button type="button" id="h-reset" onClick={() => reset()}>reset</button>
         <button type="button" id="h-focus" onClick={() => setFocus('email')}>focus email</button>
         <button type="submit" id="h-submit">submit</button>
         <span id="h-dirty">{String(isDirty)}</span>
         <span id="h-submits">{submitCount}</span>
+        <span id="h-touched">{Object.keys(touchedFields).join(',')}</span>
+        <span id="h-edits">{edits}</span>
         <Preview />
       </form>
       <pre id="h-sent">{sent}</pre>

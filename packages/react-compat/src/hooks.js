@@ -17,6 +17,8 @@ import {
   _getCurrentInstance,
   _getHookSlot,
   scheduleUpdate,
+  _isStuck,
+  _hostParent,
   _pushInsertion,
   _pushLayout,
   _pushPassive,
@@ -56,6 +58,9 @@ function basicStateReducer(state, action) {
 }
 
 function enqueueAction(inst, slot, action, reducer) {
+  // The update-loop guard stopped this component (runtime.js): the update is
+  // refused, so the state stays what the screen shows.
+  if (_isStuck(inst)) return;
   const update = { action, eager: false, value: undefined };
   if (slot.queue.length === 0) {
     try {
@@ -572,7 +577,7 @@ export function useFormStatus() {
   return useSyncExternalStore(
     (notify) => { formStatusListeners.add(notify); return () => formStatusListeners.delete(notify); },
     () => {
-      const parent = inst.start && inst.start.parentNode;
+      const parent = _hostParent(inst);
       const form = parent && typeof parent.closest === 'function' ? parent.closest('form') : null;
       return (form && form._compatStatus) || NOT_PENDING;
     },

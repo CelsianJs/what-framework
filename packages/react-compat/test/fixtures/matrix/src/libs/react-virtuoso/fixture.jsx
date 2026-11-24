@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
+import { Item } from './parts.jsx';
 
 export default function Fixture() {
   const ref = useRef(null);
@@ -20,11 +21,7 @@ export default function Fixture() {
         style={{ height: 300, width: 300 }}
         totalCount={count}
         rangeChanged={(r) => setRange(`${r.startIndex}-${r.endIndex}`)}
-        itemContent={(index) => (
-          <div className="rv-row" data-index={index} style={{ height: index % 3 === 0 ? 40 : 24 }} onClick={() => setPicked(index)}>
-            Item {index}
-          </div>
-        )}
+        itemContent={(index) => <Item index={index} onPick={setPicked} />}
       />
     </div>
   );

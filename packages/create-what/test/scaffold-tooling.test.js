@@ -58,6 +58,9 @@ test('the React scaffold is a native app with a React file inside it', async () 
     const counter = await readFile(join(root, 'src', 'BearCounter.jsx'), 'utf8');
     assert.match(counter, /import \{ create \} from 'zustand';/);
     assert.match(counter, /export function BearCounter\(\)/);
+    assert.match(counter, /^\/\*\* @jsxImportSource react \*\/\n/, 'the React file carries the pragma a React .tsx file needs');
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    assert.ok(pkg.devDependencies['@types/react'] && pkg.devDependencies['@types/react-dom'], 'React\'s types are installed, so `import ... from "react"` type-checks in a .tsx file');
     const vite = await readFile(join(root, 'vite.config.js'), 'utf8');
     assert.match(vite, /plugins: \[what\(\), reactCompat\(\)/, 'the compiler for native files, what-react for React files');
     const tsconfig = JSON.parse(await readFile(join(root, 'tsconfig.json'), 'utf8'));

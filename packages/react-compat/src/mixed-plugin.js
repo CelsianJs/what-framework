@@ -27,6 +27,12 @@ import { createRequire } from 'node:module';
 const MIXED_MODULE = 'what-react/mixed';
 // what-compiler leaves a module carrying this alone: its JSX is already lowered.
 export const REACT_SOURCE_MARKER = '/* what-react: react source */';
+// What a React file's output ends with. The marker is there twice: Vite 6 and
+// earlier run esbuild between this plugin and what-compiler, and esbuild
+// drops comments, so a comment alone never reached the compiler, which then
+// treated every React file as its own. The string statement before it
+// survives esbuild, and a production build removes it as dead code.
+const REACT_SOURCE_TAIL = `\n${JSON.stringify(REACT_SOURCE_MARKER)};\n${REACT_SOURCE_MARKER}`;
 
 const REACT_SOURCES = new Set(['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime']);
 const SCRIPT_RE = /\.[cm]?[jt]sx?$/;
@@ -401,7 +407,13 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
     return parts.join('|');
   }
 
-  return { parseFile, fileIsReact, importIsReact, exportIsReact, invalidate, signature };
+  /** The file's `@jsxImportSource` pragma, or null. */
+  function pragma(file, code) {
+    const ast = parseFile(file, code);
+    return ast ? pragmaOf(ast) : null;
+  }
+
+  return { parseFile, fileIsReact, importIsReact, exportIsReact, invalidate, signature, pragma };
 }
 
 // =====================================================================
@@ -593,6 +605,9 @@ export function mixedJsx(options = {}) {
   // A module Vite pre-bundled (its dependency cache, node_modules/.vite by default).
   const isOptimized = (id) => (cacheDir !== null && id.startsWith(cacheDir)) || id.includes('/node_modules/.vite/');
   const signatures = new Map();
+  let serving = false;
+  // The .tsx React files already told about the pragma (once each).
+  const hinted = new Set();
 
   const ensure = () => {
     if (babel === null) babel = loadBabel(root);
@@ -608,6 +623,7 @@ export function mixedJsx(options = {}) {
 
     configResolved(config) {
       root = config.root;
+      serving = config.command === 'serve';
       if (config.cacheDir) cacheDir = path.resolve(config.root, config.cacheDir) + path.sep;
     },
 
@@ -635,6 +651,14 @@ export function mixedJsx(options = {}) {
       const t = babel.types;
 
       const reactFile = await c.fileIsReact(file, code);
+      // TypeScript knows one thing about a file's JSX: the tsconfig's
+      // jsxImportSource (What's, for native files) or the file's own pragma.
+      // A React file in TypeScript without the pragma compiles here, and tsc
+      // then reports its refs, styles and event handlers against What's types.
+      if (serving && reactFile && /\.[cm]?tsx$/.test(file) && c.pragma(file, code) !== 'react' && !hinted.has(file)) {
+        hinted.add(file);
+        this.warn(`${path.relative(root, file)} is a React file written in TypeScript. Start it with /** @jsxImportSource react */ so that tsc checks its JSX with React's types (MIXED.md, "TypeScript").`);
+      }
       const reactTags = new Set();
       const nativeTags = new Set();
       const tagNames = new Set();
@@ -649,7 +673,7 @@ export function mixedJsx(options = {}) {
         },
       });
       if (!reactFile && tagNames.size === 0) return null;
-      if (reactFile && !/<[A-Za-z>]/.test(code)) return { code: code + '\n' + REACT_SOURCE_MARKER, map: null };
+      if (reactFile && !/<[A-Za-z>]/.test(code)) return { code: code + REACT_SOURCE_TAIL, map: null };
       for (const node of ast.program.body) {
         if (!t.isImportDeclaration(node) || node.importKind === 'type') continue;
         for (const s of node.specifiers) {
@@ -676,7 +700,7 @@ export function mixedJsx(options = {}) {
         filename: id, configFile: false, babelrc: false, sourceMaps: true, cloneInputAst: false, retainLines: true,
         parserOpts: { plugins: parserPlugins(file) },
       });
-      return { code: reactFile ? out.code + '\n' + REACT_SOURCE_MARKER : out.code, map: out.map };
+      return { code: reactFile ? out.code + REACT_SOURCE_TAIL : out.code, map: out.map };
     },
 
     handleHotUpdate({ file, server }) {

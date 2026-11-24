@@ -47,7 +47,10 @@ Add `what()` later and files that do not import React become native What.
 The plugin handles everything automatically:
 - Aliases `react` and `react-dom` imports to `what-react`
 - Configures JSX to use the What runtime
-- Auto-detects installed React packages and excludes them from pre-bundling
+- Keeps one what-react in the dev server, a production build and a server
+  build, whatever React libraries are installed (no list of library names:
+  they are pre-bundled by Vite like any dependency, and `react` inside them
+  is the page's what-react)
 - Resolves `use-sync-external-store` shims
 
 ## Usage
@@ -125,8 +128,8 @@ React libraries import `react` and call its hooks. By aliasing `react` to `what-
 
 ```js
 reactCompat({
-  exclude: ['my-custom-react-lib'],  // Additional packages to exclude from pre-bundling
-  autoDetect: true,                   // Auto-detect installed React packages (default: true)
+  exclude: ['my-linked-lib'],  // Additional packages to keep out of Vite's pre-bundling
+  autoDetect: true,            // Find the React packages a server render must bundle (ssr.noExternal) from package.json (default: true)
 })
 ```
 

@@ -1,6 +1,8 @@
 // The React entry: real React in the `react` build, what-react (aliased by
 // reactCompat()) in the `compat` build. ?lib=<fixture> picks the fixture.
-import { createRoot } from 'react-dom/client';
+// A page the server rendered (matrix-browser.mjs --serve=ssr sets
+// window.__ssr) is hydrated; any other is mounted.
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import { libs } from 'virtual:matrix';
 
 const query = new URLSearchParams(location.search);
@@ -10,7 +12,12 @@ if (!load) {
 } else {
   load().then((mod) => {
     const Fixture = mod.default;
-    createRoot(document.getElementById('main')).render(<Fixture />);
+    const main = document.getElementById('main');
+    if (window.__ssr && window.__ssr.rendered) {
+      hydrateRoot(main, <Fixture />, { onRecoverableError: (e) => { (window.__recoverable ||= []).push(String((e && e.message) || e)); } });
+    } else {
+      createRoot(main).render(<Fixture />);
+    }
     window.ready = true;
   }).catch((e) => { window.loadError = String((e && e.stack) || e); });
 }

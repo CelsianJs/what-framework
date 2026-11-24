@@ -64,6 +64,18 @@ export default {
       await t.eval(() => [...document.querySelectorAll('.c-row')].map((i) => i.value).join(','), 'd,c,A!,b');
       await t.value('#c-after-list', 'tail');
     });
+    await t.step('a keyed child that is all its parent renders is a new component under a new key', async () => {
+      await t.type('#c-draft-alone', '!');
+      await t.type('#c-draft-fragment', '?');
+      await t.value('#c-draft-alone', /!/);
+      await t.value('#c-draft-fragment', /\?/);
+      await t.eval(() => { window.coreDrafts = [document.querySelector('#c-draft-alone'), document.querySelector('#c-draft-fragment')]; return window.coreLog.filter((e) => e.startsWith('c-draft')).join(' | '); }, 'c-draft-alone mount ada | c-draft-fragment mount ada');
+      await t.click('#c-user');
+      await t.value('#c-draft-alone', 'draft of grace');
+      await t.value('#c-draft-fragment', 'draft of grace');
+      await t.eval(() => [document.querySelector('#c-draft-alone') === window.coreDrafts[0], document.querySelector('#c-draft-fragment') === window.coreDrafts[1]].join(), 'false,false');
+      await t.eval(() => window.coreLog.filter((e) => e.startsWith('c-draft')).slice(2).sort().join(' | '), 'c-draft-alone mount grace | c-draft-alone unmount ada | c-draft-fragment mount grace | c-draft-fragment unmount ada');
+    });
     await t.step('DOM props', async () => {
       await t.eval(() => { const el = document.querySelector('#c-styled'); return [el.className, el.style.width, el.style.opacity, el.style.getPropertyValue('--gap'), el.style.lineHeight, el.style.marginTop, el.getAttribute('data-flag'), el.getAttribute('aria-hidden'), el.getAttribute('aria-busy'), el.getAttribute('tabindex'), el.hasAttribute('hidden'), el.getAttribute('draggable'), el.innerHTML].join('|'); }, 'one two|120px|0.5|4px|2|3px|false|false|true|-1|false|true|<i>raw</i>');
       await t.eval(() => { const c = document.querySelector('#c-svg circle'); return [document.querySelector('#c-svg').getAttribute('viewBox'), c.getAttribute('stroke-width'), c.getAttribute('fill-opacity'), c.getAttribute('class'), c.namespaceURI.endsWith('svg')].join('|'); }, '0 0 10 10|2|0.5|dot|true');

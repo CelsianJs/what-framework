@@ -46,6 +46,12 @@ benchmark/results/
 # The playground is exempt for the same reason: the app-smoke job installs it
 # with `npm ci --prefix examples/playground`.
 !/examples/playground/package-lock.json
+# So is the React package matrix: its CI jobs install it with
+# `npm ci --prefix packages/react-compat/test/fixtures/matrix`, and the versions
+# REACT-COMPAT.md's table names are the ones this lockfile pins. Left floating,
+# a package's new release would change what the matrix tests between two runs
+# of the same commit.
+!/packages/react-compat/test/fixtures/matrix/package-lock.json
 
 .npmrc
 

@@ -55,8 +55,18 @@ function serverIsland(view) {
   try {
     return [serverTree(view(), parent)];
   } catch (error) {
+    // A hook that found no component rendering was not called by this
+    // runtime's render: the server loaded two copies of what-react (a bundle
+    // that inlines one and imports another), or native code called a React
+    // hook. Every island of the page would come out empty, so the render
+    // fails instead.
+    if (error && error.code === 'ERR_HOOK_OUTSIDE_RENDER') {
+      error.message = `[what-react] A React island cannot render on the server. If the server bundle holds two copies of what-react, keep what-react in Vite's ssr.noExternal (reactCompat() puts it there). ${error.message}`;
+      throw error;
+    }
     // The island renders in the browser instead; the page still renders.
-    if (__DEV__) console.warn('[what-react] A React island could not render on the server, so it renders in the browser:', error && error.message ? error.message : error);
+    // Said in production too: the server's HTML is missing this island.
+    console.warn('[what-react] A React island could not render on the server, so it renders in the browser:', error && error.message ? error.message : error);
     return [null];
   }
 }

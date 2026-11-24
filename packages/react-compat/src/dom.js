@@ -14,6 +14,7 @@ import {
   unmountRoot,
   flushUpdates,
   _flushPassive,
+  _domNodes,
 } from './runtime.js';
 import { useFormStatus, useActionState } from './hooks.js';
 
@@ -122,9 +123,10 @@ export function findDOMNode(component) {
   if (typeof Element !== 'undefined' && component instanceof Element) return component;
   // A class component's instance: the first element or text it rendered.
   const inst = component._compatInst;
-  if (inst && inst.start) {
-    for (let n = inst.start.nextSibling; n && n !== inst.end; n = n.nextSibling) {
-      if (n.nodeType === 1 || n.nodeType === 3) return n;
+  if (inst) {
+    const nodes = _domNodes(inst);
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].nodeType === 1 || nodes[i].nodeType === 3) return nodes[i];
     }
     return null;
   }

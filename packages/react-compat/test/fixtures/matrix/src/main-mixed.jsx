@@ -1,8 +1,9 @@
 // The mixed entry, a native What file. ?variant=mixed mounts a generated
 // native host that renders the fixture's React file as an island;
 // ?variant=native mounts the fixture's native.jsx, a native What file that
-// uses the package's components directly.
-import { mount } from 'what-framework';
+// uses the package's components directly. A page the server rendered
+// (matrix-browser.mjs --serve=ssr sets window.__ssr) is hydrated instead.
+import { mount, hydrate } from 'what-framework';
 import { libs } from 'virtual:matrix';
 
 const query = new URLSearchParams(location.search);
@@ -12,7 +13,8 @@ if (!load) {
 } else {
   load().then((mod) => {
     const Host = mod.default;
-    mount(<Host />, '#main');
+    if (window.__ssr && window.__ssr.rendered) hydrate(<Host />, document.getElementById('main'));
+    else mount(<Host />, '#main');
     window.ready = true;
   }).catch((e) => { window.loadError = String((e && e.stack) || e); });
 }

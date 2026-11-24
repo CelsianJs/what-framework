@@ -14,52 +14,49 @@ export default { plugins: [reactCompat()] };
 ```
 
 The plugin:
-- Aliases `react`, `react-dom`, `react/jsx-runtime`, `react-dom/client`,
-  `use-sync-external-store/*` → `what-react`'s source.
-- **Excludes** React-ecosystem packages that `import 'react'` from Vite's
-  `optimizeDeps` pre-bundling, so the alias reaches them (no dual React copy).
-- **Includes** (pre-bundles) pure-CJS transitive utilities so esbuild can
-  synthesize their ESM default/named exports — see below.
+- Aliases `react`, `react-dom`, `react/jsx-runtime`, `react-dom/client` and the
+  `use-sync-external-store` shims to the package `what-react` (deduped to the
+  app's root, so the name resolves from any importer).
+- Keeps out of Vite's dependency pre-bundling only what it replaces (`react`,
+  `react-dom`, `use-sync-external-store`), what-react and the framework
+  packages. Every React library is pre-bundled like any dependency.
+- Bundles what-react and the React packages into a server render
+  (`ssr.noExternal`); see MIXED.md, "What a server render bundles".
 - With what-compiler's `what()` next to it, compiles in **mixed mode**: native
   What files stay native, React components in them render as React islands,
   and only React files (they import `react` or call a React package's hook)
   are React code — see [MIXED.md](MIXED.md) and `src/mixed-plugin.js`.
 
-## The CJS interop boundary (why react-select / @emotion used to blank-screen)
+## The pre-bundling boundary (why there is no list of React packages)
 
-React UI libraries (react-select, anything on `@emotion/*`) pull in **pure-CJS**
-helper packages — most notably `hoist-non-react-statics`. These helpers:
+Until 0.15 the plugin kept a list of React library names
+(`KNOWN_REACT_PACKAGES`) out of pre-bundling, so that their `import 'react'`
+went through the alias one file at a time, and a second list
+(`PURE_CJS_INTEROP_DEPS`) of CommonJS helpers that had to be pre-bundled
+because of the first. Both are gone:
 
-- ship **only** a CommonJS build (no `module` / `exports.import` field), and
-- do **not** `require('react')` themselves (they touch `react-is` / `$$typeof`
-  symbols only) — so they carry **no dual-React-instance risk**.
+- A library kept out of pre-bundling is served file by file, and so are its
+  CommonJS dependencies, which a browser cannot import: react-router (`cookie`),
+  antd (`is-mobile`) and react-markdown (`debug`) failed in `vite dev` with
+  "does not provide an export named ...". A library that was not on the list
+  was pre-bundled with the alias's target inlined, a second what-react.
+- What makes pre-bundling safe is that `react` is excluded: Vite then leaves
+  `import 'react'` as an import inside each pre-bundled library, the browser
+  asks the dev server for it, and the alias answers with `what-react`, the one
+  module the app and `what-react/mixed` also import. That holds for any
+  package, listed or not, and CommonJS dependencies are converted by Vite as
+  in every app.
+- `use-sync-external-store` is excluded for the same reason: its shim
+  entries are aliased to a file of what-react, and a bundle that inlined that
+  file would inline what-react with it.
 
-If such a dep is left out of pre-bundling, Vite serves the raw CJS file and the
-browser throws:
+`reactCompat({ exclude: [...] })` still keeps a package out of pre-bundling
+(a linked package, say); its CommonJS dependencies then belong in
+`optimizeDeps.include`, as Vite documents for any excluded package.
 
-```
-The requested module '…/hoist-non-react-statics.cjs.js' does not provide an
-export named 'default'
-```
-
-…because an ESM consumer did `import hoistStatics from 'hoist-non-react-statics'`
-and the raw CJS module has no `default`. That single failing import
-**blank-screens the entire dev app**.
-
-### Rule of thumb
-- A dep that **imports `react`** → must be **excluded** from `optimizeDeps`
-  (so the `react → what-react` alias applies). Listed in `KNOWN_REACT_PACKAGES`.
-- A **pure-CJS utility that does NOT import `react`** → must be **included** in
-  `optimizeDeps` so esbuild interops it. Listed in `PURE_CJS_INTEROP_DEPS`
-  (`hoist-non-react-statics`, `react-is`, `prop-types`, `memoize-one`,
-  `stylis`, …). Only the installed/resolvable ones are passed to Vite (an
-  `include` for a missing dep is a hard error).
-
-The plugin guarantees these two sets never overlap: anything in the interop
-include list is filtered back out of the exclude list before returning config.
-
-Verified: with the fix, `react-select` renders and its dropdown opens/selects in
-a real headless browser on the compat runtime (previously: blank screen).
+`test/vite-plugin.test.js` holds this with an installed layout (real package
+directories, not workspace links), and the package matrix runs every fixture
+in the dev server (`matrix-browser.mjs --serve=dev`).
 
 ## Test layout & CI enforcement
 

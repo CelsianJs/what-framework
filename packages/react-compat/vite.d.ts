@@ -1,14 +1,24 @@
 // what-react/vite — Vite plugin that aliases `react`/`react-dom` to what-react,
-// keeps installed React packages out of pre-bundling, and lets native What
-// files and React files share one app (src/vite-plugin.js, MIXED.md).
+// keeps one what-react in the dev server, a production build and a server
+// build, and lets native What files and React files share one app
+// (src/vite-plugin.js, MIXED.md).
 
 /** A path relative to the project root (prefix), a RegExp, or a test. */
 export type FileMatcher = string | RegExp | ((file: string) => boolean);
 
 export interface ReactCompatOptions {
-  /** Additional packages to exclude from Vite's dependency pre-bundling. */
+  /**
+   * Additional packages to exclude from Vite's dependency pre-bundling. The
+   * plugin itself excludes only what it replaces (`react`, `react-dom`,
+   * `use-sync-external-store`) and the framework packages; React libraries
+   * are pre-bundled like any dependency.
+   */
   exclude?: string[];
-  /** Auto-detect installed React packages to exclude. Defaults to true. */
+  /**
+   * Find the React packages a server render has to bundle (Vite's
+   * `ssr.noExternal`) from the app's package.json. Defaults to true; with
+   * false, only what-react is added and the rest is yours to list.
+   */
   autoDetect?: boolean;
   /**
    * Native What files and React files in one app (MIXED.md). `'auto'`
@@ -31,10 +41,12 @@ export interface ReactCompatPlugin {
 export function reactCompat(options?: ReactCompatOptions): ReactCompatPlugin[];
 
 /**
- * The React packages a Vite server build of the app at `projectRoot` bundles
+ * The React packages a server render of the app at `projectRoot` bundles
  * (ssr.noExternal): its dependencies that depend on react, and their React
- * dependencies, that ship ES modules.
+ * dependencies, that ship ES modules. `commonjs` adds the React packages that
+ * ship CommonJS only, `dependencies` everything a React package depends on;
+ * a production server build asks for both, the dev server for neither.
  */
-export function detectSsrReactPackages(projectRoot: string): string[];
+export function detectSsrReactPackages(projectRoot: string, options?: { commonjs?: boolean; dependencies?: boolean }): string[];
 
 export default reactCompat;

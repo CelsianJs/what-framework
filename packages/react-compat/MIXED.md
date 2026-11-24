@@ -43,12 +43,41 @@ export default defineConfig({
 With both plugins, what-react compiles in mixed mode. With `reactCompat()`
 alone, every JSX file is React code (REACT-COMPAT.md).
 
-In TypeScript, add `what-react/mixed` to `compilerOptions.types` (or
-`/// <reference types="what-react/mixed" />` in `src/vite-env.d.ts`). React
-components then type-check as tags in native files, with their props checked.
-A native-only app leaves it out and keeps What's stricter component types.
-
 `npm create what` with "Add React library support" scaffolds this setup.
+
+### TypeScript
+
+- Add `what-react/mixed` to `compilerOptions.types` (or
+  `/// <reference types="what-react/mixed" />` in `src/vite-env.d.ts`). React
+  components then type-check as tags in native files, with their props
+  checked. A native-only app leaves it out and keeps What's stricter
+  component types.
+- Install `@types/react` and `@types/react-dom`: they are what
+  `import { useState, type ChangeEvent } from 'react'` means to `tsc`.
+  what-react's own declarations cover its runtime exports, not React's type
+  vocabulary (`ChangeEvent`, `CSSProperties`, …).
+- Start each React file written in TypeScript with
+  `/** @jsxImportSource react */`. `tsconfig.json` has one `jsxImportSource`
+  for the project, What's, which is right for native files; the pragma is how
+  TypeScript is told, per file, that this file's JSX is React's. Without it
+  an ordinary React component gets errors on its refs, `style` objects,
+  event handlers and `children` (they are checked against What's types). The
+  pragma also makes the file a React file for the plugin, whatever it
+  imports. The dev server names a `.tsx` React file that lacks it.
+
+```tsx
+/** @jsxImportSource react */
+import { useState, type ChangeEvent } from 'react';
+
+export function Field() {
+  const [text, setText] = useState('');
+  return <input value={text} onChange={(e: ChangeEvent<HTMLInputElement>) => setText(e.target.value)} />;
+}
+```
+
+The scaffold installs both type packages and its React file carries the
+pragma. A native `.tsx` file needs nothing: it uses the React component as a
+tag.
 
 ## Which files are React files
 
@@ -144,17 +173,69 @@ hydratable renderers, the stream and `renderToStringAsync`).
 Hydration adopts the server's native nodes as always and hands each island
 its markers. Once the walk is done, the island replaces the server's HTML
 between them with its client render, in one step before the page paints
-again, so the page does not flash or shift. Effects run then, once, in the
-browser. A component that throws on the server leaves its island empty there
-(with a development warning); the browser renders it.
+again. Effects run then, once, in the browser. What that looks like, measured
+on the 38 package fixtures (`matrix-browser.mjs --serve=ssr --probe`,
+Chromium; 30 of them render on the server):
+
+- No frame shows less than React's own hydration of the same fixture shows
+  (the fewest elements any animation frame saw are the same in both), and
+  the layout shift Chromium reports is 0 to 0.004 (React's hydration: 0 to
+  0.59, the largest for Ant Design).
+- Every element of an island is built again: none of the server's island
+  elements is in the page afterwards (React keeps all of them, or all but a
+  few the library itself replaces). The native elements around the islands
+  are kept. The island renders once in the browser, not twice.
+- Focus and typed text are lost: a field of an island that the user focused
+  and typed into before the page hydrated is a new element afterwards,
+  unfocused, with its initial value (11 fixtures have such a field; all 11).
+  React keeps the focus in all 11, and the text in 5: where the field is
+  controlled, React puts the state's value back too.
+
+A component that throws on the server leaves its island empty there and the
+browser renders it; the server prints a warning that names the error, in
+production too. A hook that finds no component rendering fails the page's
+render instead: on a server that means two copies of what-react are loaded
+(below), and every island would be empty.
+
+The client build that hydrates has to be compiled for it (what-compiler's
+`hydratable`). The plugin decides from the Vite config (`appType: 'custom'`,
+an SSR build, `--ssrManifest`); a plain `vite build` whose pages a server
+renders needs `what({ hydratable: true })`, or hydration reports
+`ERR_HYDRATION_MISMATCH` and renders the page again.
 
 A library can still need the browser to draw: Recharts 3 measures its chart
 in an effect, so the server writes its sized wrapper and the browser draws
-the SVG into it, as React's own server renderer does.
+the SVG into it, as React's own server renderer does. Eight of the 38
+fixtures do not render on the server with real React either (a store that
+reads `localStorage` or `window` as it loads, a browser router, a portal
+target read while rendering); an island like that is left to the browser.
 
-For a Vite server build, `reactCompat()` bundles the React packages the app
-depends on (Vite's `ssr.noExternal`), found from its package.json, with the
-React packages they depend on, so their `import 'react'` reaches what-react.
+### What a server render bundles
+
+A package that Node loads itself (an external) gets Node's `react`, which is
+React, not what-react. So `reactCompat()` tells Vite to bundle, in a server
+render (`ssr.noExternal`):
+
+- `what-react`, always. Left external, Node loads a second copy beside the
+  one the `react` alias bundles, hooks and the island renderer never see
+  each other's components, and every island renders empty. A server build
+  that would hold two copies is refused with an error that says so.
+- the React packages the app depends on (found from its package.json) and
+  the React packages those depend on.
+- in a production server build (`vite build --ssr`), also the React packages
+  that ship CommonJS only, and everything a React package depends on. A
+  bundled package's imports are otherwise left in the bundle for Node to
+  resolve, and Node refuses what bundlers accept (a directory import:
+  react-transition-group's `dom-helpers/addClass`).
+- in the dev server, a CommonJS file that a bundled package imports by path
+  (`@mui/material` imports `react-transition-group/cjs/TransitionGroupContext.js`)
+  is converted to an ES module as it loads. A React package that is CommonJS
+  only stays external there, so in development an island that uses one
+  renders in the browser (with the warning above); the production build
+  renders it on the server.
+
+`reactCompat({ autoDetect: false })` adds only `what-react`; the list is then
+yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
 
 ## Limits
 
@@ -193,15 +274,35 @@ React packages they depend on, so their `import 'react'` reaches what-react.
   native click handler). JSX written inside a React tag's own props is
   React's already: a render prop (`itemContent={(i) => <div>…</div>}`,
   `renderInput={(params) => <TextField {...params} />}`) needs nothing.
-- In development, a change to what makes a file a React file (adding a
-  `react` import, a re-export) reloads the page.
+- In development every saved edit reloads the page, and state is lost:
+  an edit to a React file, to a native file, and a change to what makes a
+  file a React file (adding a `react` import, a re-export). There is no hot
+  replacement yet. what-compiler gives each component file a hot-update
+  boundary that hands the new module to a replacement runtime
+  (`window.__WHAT_HMR_ACCEPT__`) and reloads the page when none is installed,
+  and none is. Keeping a React file's state across an edit would take what
+  React Fast Refresh does: the plugin registering each component of a React
+  file under a stable id, what-react rendering a component through that
+  registry (so a mounted instance picks up the new function and re-renders,
+  or remounts when its hooks changed), and the React file accepting its own
+  update.
 - Inside a React tag the cost is React's; outside, What's.
-- Each island and each native component inside React adds two comment
-  markers to the DOM.
+- An island stands between the two comment markers what-core gives a
+  component that returns several nodes; a native component inside React
+  adds two comment markers of its own. React components add none.
 - Hydration replaces an island's server HTML instead of adopting it node by
-  node: text typed into a React field before the page hydrates is lost.
-- A React package that ships CommonJS only stays external in a Vite server
-  build; an island that uses it renders in the browser.
+  node: focus and text typed into a React field before the page hydrates are
+  lost, and a node a script took from the server's HTML is no longer in the
+  page (see Server rendering for what was measured).
+- In the dev server, a React package that ships CommonJS only stays external
+  in a server render; an island that uses it renders in the browser. A
+  production server build bundles it.
+- The dev server needs no list of React packages: every dependency is
+  pre-bundled by Vite as in any app, and `react` inside the bundles is the
+  page's one what-react. `reactCompat({ exclude: ['pkg'] })` keeps a package
+  out of pre-bundling; its CommonJS dependencies then have to be in
+  `optimizeDeps.include`, as Vite's documentation says for any excluded
+  package.
 
 ## How it works
 
@@ -216,9 +317,14 @@ React files and compiles native files as usual. Tests:
 `test/mixed-plugin.test.js` (which files and tags are React),
 `test/mixed.test.js` (state, props, context and cleanup across the boundary),
 `test/mixed-ssr.test.js` (server render, the stream, hydration, keyed rows),
-`test/mixed-browser.mjs` (a Vite build, the dev server, and a server
+`test/island-hydration.test.js` (islands that native code swaps or removes
+after hydration), `test/vite-plugin.test.js` (the dev server, a dev-server
+render and a production server build of an installed app: one what-react in
+each), `test/mixed-browser.mjs` (a Vite build, the dev server, and a server
 render the browser hydrates, in Chromium, with Recharts, react-hook-form and
 React context) and `test/matrix-browser.mjs` (38 package fixtures driven in
 Chromium as React files inside a native app, 19 of them also written as
 native files: Radix, MUI, Ant Design, Headless UI, Recharts, react-select,
-framer-motion and others; the table is in REACT-COMPAT.md).
+framer-motion and others; as a production build, in the dev server, and
+rendered by a production server build and hydrated; the table is in
+REACT-COMPAT.md).

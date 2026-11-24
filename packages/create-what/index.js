@@ -257,6 +257,12 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
     deps['what-core'] = whatVersionRange;
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
+    // React's own types: what `import ... from 'react'` means to tsc in a
+    // React file written in TypeScript (the file's first line,
+    // /** @jsxImportSource react */, selects them for its JSX; tsconfig's
+    // jsxImportSource stays What's, for native files).
+    devDeps['@types/react'] = '^19.0.0';
+    devDeps['@types/react-dom'] = '^19.0.0';
   }
 
   if (cssApproach === 'tailwind') {
@@ -317,12 +323,11 @@ export default defineConfig({
   plugins: [${plugins.join(', ')}],`;
 
   if (reactCompat) {
-    // Note: the what-react/vite plugin handles optimizeDeps.exclude and
-    // resolve.alias automatically. No manual configuration needed.
     config += `
-  // what-react/vite handles all React aliasing and optimizeDeps automatically.
-  // Any React library you install (zustand, @tanstack/react-query, etc.)
-  // will be auto-detected and excluded from pre-bundling.`;
+  // reactCompat() points every \`react\` import at what-react, in the dev
+  // server, in a production build and in a server build. A React library you
+  // install (zustand, @tanstack/react-query, react-router, ...) needs no
+  // configuration here.`;
   }
 
   config += '\n});\n';
@@ -708,11 +713,14 @@ mount(<App />, '#app');
 // src/BearCounter.jsx of the React template: a React file, written as any
 // React component is.
 function generateBearCounter({ cssApproach }) {
-  const store = `import { create } from 'zustand';
+  const store = `/** @jsxImportSource react */
+import { create } from 'zustand';
 
 // zustand is a React library. This file calls its hook, so it is a React
 // file: its components follow React's rules (hooks return values, the
-// component re-renders when its state changes).
+// component re-renders when its state changes). The first line says so too.
+// A .jsx file does not need it; in a .tsx file it is what makes tsc check
+// the JSX with React's types (ChangeEvent, CSSProperties, refs).
 export const useStore = create((set) => ({
   bears: 0,
   increase: () => set((state) => ({ bears: state.bears + 1 })),
@@ -932,7 +940,8 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
   if (reactCompat) {
     notes += `
 - React libraries work through \`what-react\`. Your files stay native What; a file that imports \`react\` or calls a React library's hook (like \`src/BearCounter.jsx\`) is a React file, and its components render as React islands inside native ones. See what-react's MIXED.md.
-- The \`what-react/vite\` plugin handles aliasing and pre-bundling automatically.`;
+- The \`what-react/vite\` plugin points every \`react\` import at what-react, in \`vite\`, \`vite build\` and a server build. A React library needs no entry in \`vite.config.js\`.
+- TypeScript: start a React file (\`.tsx\`) with \`/** @jsxImportSource react */\`, as \`src/BearCounter.jsx\` does. \`tsc\` then checks its JSX with React's types (\`@types/react\` is installed); every other file is checked with What's.`;
   }
 
   if (cssApproach === 'tailwind') {
@@ -2568,6 +2577,8 @@ or calls a hook it imports from a React package (\`src/BearCounter.jsx\` calls z
 the component re-renders. A React component used as a tag in a native file renders as a
 React island: its props are values, built again when a signal they read changes, and its
 React state survives. Keep React hooks in React files; native files use \`signal()\`.
+A React file written in TypeScript (\`.tsx\`) starts with \`/** @jsxImportSource react */\`:
+\`tsc\` then checks its JSX with React's types, and every other file with What's.
 
 \`\`\`jsx
 // src/main.jsx (native)

@@ -828,6 +828,27 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (jsdom) no longer logs "Not implemented: window.scrollTo" on navigation.
 - **what-react writes `tabIndex` on SVG elements as `tabindex`**, the attribute
   that makes them focusable (recharts' chart surface).
+- **what-react: four defects an independent verification found**
+  (2026-11-24, the same apps on real React 19.3.1). A lone keyed child
+  mounts again when its key changes: `return <Form key={user} />`, as a
+  component's whole output or a Fragment's only child, kept the old `Form`
+  with its state (a Recharts bar chart mounted 864 of its 2,068 elements).
+  An event forces no layout: the synthetic event read `offsetX`, `offsetY`,
+  `layerX` and `layerY` from every native event (300 clicks, 300 forced
+  layouts; React 3), and now reads them when a handler asks; a copy of the
+  event leaves the four out, as React's event has none. The update-loop
+  guard never leaves the screen behind the state: it counted renders per
+  component against the clock (250 in 200 ms) and skipped the rest, so 1,000
+  clicks in separate tasks showed 249. A loop inside one flush now ends
+  after 100 cycles by refusing the looping component's further updates until
+  the event loop has turned (the state stays what the screen shows); a chain
+  of updates through promises waits for the event loop after 1,000 flushes
+  and goes on, losing none; updates made in separate tasks are never counted.
+  react-virtuoso stopping short of the last row under heavy load also
+  happens on real React (2 of 30 runs under a 10x CPU throttle, the same row
+  and scroll position as on what-react); it stops when the library's 150 ms
+  retry timer after a scroll is made longer. (`REACT-COMPAT.md`, known
+  limitations, has the guard's rules.)
 - **what-react matches React in the places a second review found it did
   not** (the same components run on real React 19.3 and 18.3;
   `REACT-COMPAT.md`, "What the second review found"). State updates are
@@ -854,6 +875,34 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   mixed mode a hook called on a namespace import (`rhf.useForm()`) makes its
   file a React file, and a native component is handed several React children
   as an array it can count and index.
+- **what-react works in `vite`, in a production server build and in a
+  dev-server render of an installed app**, where the package matrix (production
+  client builds from the workspace) could not see it fail. `vite dev` failed
+  for React libraries with a CommonJS-only dependency (react-router, antd,
+  react-markdown: `does not provide an export named ...`), because a list of
+  library names kept them out of pre-bundling; the scaffolded React template
+  broke as soon as react-router was added. A server render of an app installed
+  from npm rendered every React island empty, with no warning in production:
+  the bundle inlined what-react through the `react` alias and also imported
+  `what-react/mixed` from node_modules, two runtimes that never saw each
+  other's components. `reactCompat()` now aliases `react` to the package
+  `what-react` (deduped to the app's root), keeps only what it replaces out of
+  pre-bundling (no list of libraries), always bundles what-react into a server
+  render, bundles CommonJS-only React packages and what React packages depend
+  on into a production server build, converts a CommonJS file that a bundled
+  package imports by path (`@mui/material` and react-transition-group) for a
+  dev-server render, and refuses a server build that would hold two copies. A
+  server render says when it leaves an island to the browser, in production
+  too, and fails when a hook finds no component rendering. Also fixed: on Vite
+  6 and earlier what-compiler processed React files as its own (esbuild
+  dropped the comment that marks them), and on a hydrated page a native
+  conditional between two React islands (`{open() ? <X /> : <Menu />}`) kept
+  the first one on screen. The matrix now runs three ways, each a CI job:
+  a production client build, Vite's dev server, and a production server build
+  that the browser hydrates (`--serve=build|dev|ssr`), from a committed
+  lockfile. The React scaffold installs `@types/react`, and a React file in
+  TypeScript starts with `/** @jsxImportSource react */` (MIXED.md,
+  "TypeScript").
 - **what-react follows React where popular packages depend on it** (found by
   the package matrix; `REACT-COMPAT.md` lists each cause). Children are
   matched by key or by index inside their own list, so an input no longer
@@ -1146,6 +1195,24 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **what-react does the DOM work React does, and an unmodified React app
+  now runs faster on it than on React.** The krausest keyed benchmark as a
+  React app writes it (memo rows, immutable updates), script time against
+  hand-written JavaScript, geometric mean of the nine operations: React
+  19.3.1 5.30, what-react 3.24 (it was 6.69); every operation is below
+  React's (renderer thread time, 8 interleaved rounds, 2026-11-24). Creating
+  1,000 rows inserts 8,000 nodes, as React does (23,000 before, each child
+  through a fragment of its own, with 2,000 comments and 2,000 text nodes of
+  the renderer's) and allocates 2.7 MB (6.3 MB; React 2.1 MB); swapping two
+  rows moves 997 nodes (2,991); clearing removes 1,000 (3,000). A new element is built whole
+  and inserted once; a list that kept its order is patched without a map, a
+  set, or a DOM read; an element whose only child is text holds it as its
+  text content; a component has no comment markers (one that renders nothing
+  holds its place with one comment); the JSX runtime no longer copies an
+  element's props to carry its key. A React component in a native list row
+  is 6 inserts and 2 comments (18 and 6). `perf-counts.test.js` pins the
+  counts, and `npm run check:size` now has a what-react scenario
+  (`react-counter`).
 - **A list row that is a component costs close to the same row written
   inline.** A component that returns one element adds no DOM node: 1,000
   rows of `<Row key={item.id} item={item} />` leave 1,001 nodes in the list's

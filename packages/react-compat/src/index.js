@@ -18,7 +18,7 @@
 
 import { h, Fragment as WhatFragment } from 'what-core';
 import { isVNode } from 'what-core/internal';
-import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack } from './runtime.js';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack, _isStuck } from './runtime.js';
 import {
   useState,
   useReducer,
@@ -261,7 +261,7 @@ function getClassWrapper(ClassComp) {
   wrapper.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
   // Copy static properties (defaultProps, contextType, custom statics)
   for (const key of Object.getOwnPropertyNames(ClassComp)) {
-    if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
+    if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments' && key !== '_compatBridge') {
       try { wrapper[key] = ClassComp[key]; } catch { /* read-only static */ }
     }
   }
@@ -303,15 +303,18 @@ export function createElement(type, props, ...children) {
   if (props == null) props = {};
   // React's rule for props.children: the one child, or the array of them.
   if (children.length > 0) props = { ...props, children: children.length === 1 ? children[0] : children };
-  return _element(type, props);
+  return _element(type, props, undefined);
 }
 
 /**
  * The element for `type` with `props` as React holds them: `props.children`
  * is the child (or the array of children), untouched, so an array a caller
  * memoized keeps its identity. createElement and the JSX runtime end here.
+ * `key`: the element's key when it is not in `props` (the automatic JSX
+ * runtime hands it over apart, and the props are then used as they are, not
+ * copied to carry it).
  */
-export function _element(type, props) {
+export function _element(type, props, key) {
   // Resolve the render target and vnode tag:
   // - vnode.type stays the ORIGINAL component (libraries compare element.type)
   // - vnode.tag is the What-native bridge so core's renderer can also render
@@ -322,28 +325,30 @@ export function _element(type, props) {
       type = REACT_FRAGMENT_TYPE;
       tag = fragmentBridge;
     } else {
-      const renderType = isClassComponent(type) ? getClassWrapper(type) : type;
-      tag = getBridge(renderType);
+      tag = type._compatBridge;
+      if (tag === undefined || tag._compatFor !== type) tag = bridgeOf(type);
       // React resolves defaultProps when the element is made, for every
       // component type: a default stands in for a prop that is undefined.
       const defaults = type.defaultProps;
       if (defaults != null) props = withDefaults(props, defaults);
+    }
+  } else if (typeof type === 'string') {
+    if (props.class !== undefined && props.className !== undefined) {
+      // `className` and `htmlFor` stay in the props under React's names (a
+      // library that merges a child's props reads `child.props.className`);
+      // both renderers write either spelling. An element given both spellings
+      // of the class (a merge of `class` with a library's `className`) keeps
+      // React's.
+      props = { ...props };
+      delete props.class;
     }
   } else if (type === REACT_FRAGMENT_TYPE) {
     tag = fragmentBridge;
   } else if (type !== null && typeof type === 'object' && type.$$typeof === REACT_CONTEXT_TYPE && typeof type.Provider === 'function') {
     // React 19: a context renders as its own provider (<Theme value="dark">).
     tag = getBridge(type.Provider);
-  } else if (typeof type !== 'string') {
+  } else {
     console.error('[what-react] createElement: invalid element type:', type);
-  } else if (props.className !== undefined && props.class !== undefined) {
-    // `className` and `htmlFor` stay in the props under React's names (a
-    // library that merges a child's props reads `child.props.className`);
-    // both renderers write either spelling. An element given both spellings
-    // of the class (a merge of `class` with a library's `className`) keeps
-    // React's.
-    props = { ...props };
-    delete props.class;
   }
 
   // The child list: the children, or the array passed as the only child (a
@@ -359,7 +364,27 @@ export function _element(type, props) {
   // runtime reconciles by position and h() would drop.
   // `ref` is a prop (React 19) and is on the element too, where React 18 and
   // the libraries written for it read it (`element.ref`).
-  return Object.assign(h(tag, props), { $$typeof: REACT_ELEMENT_TYPE, type, ref: props.ref !== undefined ? props.ref : null, children: kids, _compat: true });
+  const vnode = /** @type {any} */ (h(tag, props));
+  if (key !== undefined) vnode.key = key;
+  vnode.$$typeof = REACT_ELEMENT_TYPE;
+  vnode.type = type;
+  vnode.ref = props.ref !== undefined ? props.ref : null;
+  vnode.children = kids;
+  vnode._compat = true;
+  return vnode;
+}
+
+// The bridge of a component (runtime.js getBridge), kept on the component so
+// making an element looks nothing up. The bridge names the component it is
+// for: a class that inherits the property from its parent class, or a
+// wrapper a library copied a component's statics onto, gets its own.
+function bridgeOf(type) {
+  const bridge = getBridge(isClassComponent(type) ? getClassWrapper(type) : type);
+  bridge._compatFor = type;
+  try {
+    Object.defineProperty(type, '_compatBridge', { value: bridge, configurable: true, writable: true });
+  } catch { /* a frozen component: looked up each time */ }
+  return bridge;
 }
 
 // `props` with `defaults` standing in for the props that are undefined (the
@@ -705,6 +730,8 @@ export function Component(props, context) {
 Component.prototype.isReactComponent = {};
 
 Component.prototype.setState = function (update, callback) {
+  // Refused while the update-loop guard holds this component (runtime.js).
+  if (this._compatInst != null && _isStuck(this._compatInst)) return;
   if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
   if (this._enqueue) {
     // Queued: this.state changes when the component renders, as in React.
@@ -746,14 +773,21 @@ PureComponent.prototype.isPureReactComponent = true;
 function shallowEqual(a, b) {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (!Object.is(a[key], b[key])) return false;
+  // Own enumerable keys, as Object.keys lists them, without the two arrays
+  // (a memo row is compared on every render of its list).
+  let count = 0;
+  for (const key in a) {
+    if (!hasOwn.call(a, key)) continue;
+    if (!hasOwn.call(b, key) || !Object.is(a[key], b[key])) return false;
+    count++;
   }
-  return true;
+  for (const key in b) {
+    if (hasOwn.call(b, key)) count--;
+  }
+  return count === 0;
 }
+
+const hasOwn = Object.prototype.hasOwnProperty;
 
 // ---- flushSync re-export (some libraries import it from 'react') ----
 

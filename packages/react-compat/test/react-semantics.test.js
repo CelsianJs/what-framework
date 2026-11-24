@@ -1346,3 +1346,275 @@ test('getSnapshotBeforeUpdate is called after render() and before the component\
   // React 19.3.0: render 1 > gSBU dom=n=0 rendered=1 > cDU dom=n=1. (cbbfd764 took the snapshot before render().)
   assert.deepEqual(log, ['render 1', 'snapshot dom=n=0 rendered=1', 'didUpdate dom=n=1 snap']);
 });
+
+// ===============================================================
+// The verification of 2026-11-24: defects an independent verifier found in
+// commit cbbfd764 with the same app on real React. Each test fails on
+// 588dbede.
+// ===============================================================
+
+// ---------------------------------------------------------------
+// A lone keyed child
+// ---------------------------------------------------------------
+
+// `return <Form key={user} />` is how React code resets a component's state.
+function keyedForm(wrap) {
+  const log = [];
+  let bump, setUser;
+  function Form({ user }) {
+    const [draft, setDraft] = useState('draft of ' + user);
+    bump = () => setDraft((d) => d + '!');
+    useEffect(() => { log.push('mount ' + user); return () => log.push('unmount ' + user); }, []);
+    return h('input', { id: 'f', 'data-user': user, value: draft, onChange() {} });
+  }
+  function Page() {
+    const [user, set] = useState('ada');
+    setUser = set;
+    return wrap(h(Form, { key: user, user }));
+  }
+  const { container } = mount(h(Page));
+  const first = container.querySelector('#f');
+  act(() => bump());
+  act(() => setUser('grace'));
+  const second = container.querySelector('#f');
+  return { sameDomNode: first === second, value: second.value, log: log.join(', ') };
+}
+// React 19.3.1, all three shapes.
+const REMOUNTED = { sameDomNode: false, value: 'draft of grace', log: 'mount ada, unmount ada, mount grace' };
+
+test('a keyed child that is a component\'s whole output mounts again when its key changes', () => {
+  assert.deepEqual(keyedForm((child) => child), REMOUNTED);
+});
+
+test('a keyed child that is a Fragment\'s only child mounts again when its key changes', () => {
+  assert.deepEqual(keyedForm((child) => h(React.Fragment, null, child)), REMOUNTED);
+});
+
+test('a keyed child inside a host element mounts again when its key changes', () => {
+  assert.deepEqual(keyedForm((child) => h('div', null, child)), REMOUNTED);
+});
+
+test('a lone child that gains or loses its key mounts again, and one that keeps it does not', () => {
+  let render;
+  const mounts = [];
+  function Leaf({ name }) {
+    useEffect(() => { mounts.push(name); }, []);
+    return h('i', null, name);
+  }
+  function Page() {
+    const [state, set] = useState({ key: undefined, name: 'a' });
+    render = set;
+    return h(Leaf, { key: state.key, name: state.name });
+  }
+  const { container } = mount(h(Page));
+  const first = container.querySelector('i');
+  act(() => render({ key: undefined, name: 'b' }));
+  assert.equal(container.querySelector('i'), first);       // no key on either: the same Leaf
+  act(() => render({ key: 'k', name: 'c' }));
+  const keyed = container.querySelector('i');
+  assert.notEqual(keyed, first);                            // it gained a key
+  act(() => render({ key: 'k', name: 'd' }));
+  assert.equal(container.querySelector('i'), keyed);        // the same key
+  act(() => render({ key: undefined, name: 'e' }));
+  assert.notEqual(container.querySelector('i'), keyed);     // it lost its key
+  assert.equal(container.textContent, 'e');
+  assert.deepEqual(mounts, ['a', 'c', 'e']);
+});
+
+// ---------------------------------------------------------------
+// An event forces no layout
+// ---------------------------------------------------------------
+
+test('a synthetic event reads offsetX, offsetY, layerX and layerY only when a handler asks', () => {
+  // The browser answers these four by laying the page out. React's synthetic
+  // event does not carry them (300 clicks: 3 forced layouts on React 19.3.1,
+  // 300 on cbbfd764, which copied every field of the native event).
+  const fields = ['offsetX', 'offsetY', 'layerX', 'layerY'];
+  const proto = MouseEvent.prototype;
+  const saved = fields.map((f) => Object.getOwnPropertyDescriptor(proto, f));
+  const reads = [];
+  for (const f of fields) Object.defineProperty(proto, f, { configurable: true, enumerable: true, get() { reads.push(f); return 7; } });
+  try {
+    let seen, copy, asked;
+    const { container } = mount(h('div', { onClickCapture() {}, onClick: (e) => { seen = e; copy = { ...e }; } },
+      h('button', { id: 'plain', onClick() {} }, 'x'),
+      h('button', { id: 'asks', onClick: (e) => { asked = [e.offsetX, e.nativeEvent.offsetY]; } }, 'y')));
+    fire(container.querySelector('#plain'), 'click', { clientX: 5 });
+    assert.deepEqual(reads, []);
+    // The other fields are the event's own, and survive a copy.
+    assert.equal(seen.clientX, 5);
+    assert.equal(copy.clientX, 5);
+    assert.equal(copy.type, 'click');
+    assert.equal('offsetX' in copy, false);
+    fire(container.querySelector('#asks'), 'click');
+    assert.deepEqual(asked, [7, 7]);
+    assert.deepEqual(reads, ['offsetX', 'offsetY']);
+    // A handler may still set one.
+    seen.layerX = 3;
+    assert.equal(seen.layerX, 3);
+  } finally {
+    fields.forEach((f, i) => { if (saved[i]) Object.defineProperty(proto, f, saved[i]); else delete proto[f]; });
+  }
+});
+
+// ---------------------------------------------------------------
+// The update-loop guard never leaves the screen behind the state
+// ---------------------------------------------------------------
+
+const nextTask = () => new Promise((r) => setImmediate(r));
+
+test('1,000 state updates in separate tasks are 1,000 renders, however fast they come', async () => {
+  // React 19.3.1 shows 1000. 588dbede counted renders per component against
+  // the clock (250 in 200 ms) and skipped the rest: it showed 249, with the
+  // state at 1000. The clock stands still here, as it does for a fast machine.
+  const realNow = Date.now;
+  const frozen = realNow.call(Date);
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  Date.now = () => frozen;
+  try {
+    let renders = 0;
+    function Counter() {
+      const [n, setN] = useState(0);
+      renders++;
+      return h('button', { id: 'btn', onClick: () => setN((c) => c + 1) }, n);
+    }
+    const { container } = mount(h(Counter));
+    const button = container.querySelector('#btn');
+    for (let i = 0; i < 1000; i++) {
+      fire(button, 'click');
+      await nextTask();
+    }
+    assert.equal(button.textContent, '1000');
+    assert.equal(renders, 1001);
+    assert.deepEqual(errors, []);
+  } finally {
+    Date.now = realNow;
+    console.error = realError;
+  }
+});
+
+test('an update loop is stopped with the screen showing the state: the update is refused, never the render', async () => {
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  try {
+    let latest = 0;
+    let dispatch;
+    function Evil() {
+      const [n, bump] = useReducer((s) => { latest = s + 1; return latest; }, 0);
+      dispatch = bump;
+      useEffect(() => { bump(); }); // every render: a loop
+      return h('p', null, n);
+    }
+    const { container } = mount(h(Evil));
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(errors.filter((e) => e.includes('Too many re-renders for <Evil>')).length, 1);
+    // 588dbede: the screen showed 100 with the state at 101.
+    assert.equal(container.textContent, String(latest));
+    // Stopped: nothing renders while nothing happens.
+    const shown = container.textContent;
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(container.textContent, shown);
+    // The component is not dead: the page got its turn, an update is taken.
+    const before = latest;
+    act(() => dispatch());
+    assert.ok(latest > before);
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(container.textContent, String(latest));
+  } finally {
+    console.error = realError;
+  }
+});
+
+test('updates chained through promises are never dropped: a long chain ends with its last state shown', async () => {
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  try {
+    // Each update is made from a promise the last render's effect resolved,
+    // with no turn of the event loop between them.
+    function Chain({ id, upTo }) {
+      const [n, setN] = useState(0);
+      useEffect(() => { if (n < upTo) Promise.resolve().then(() => setN(n + 1)); });
+      return h('p', { id }, n);
+    }
+    const { container } = mount(h('div', null, h(Chain, { id: 'short', upTo: 300 })));
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(container.querySelector('#short').textContent, '300');
+    assert.deepEqual(errors, []);
+
+    // 2,500 of them: more than the guard lets through without the page
+    // getting a turn. It reports, lets the event loop turn, and goes on.
+    // (588dbede skipped the renders past 250 in 200 ms and stopped at 250.)
+    const long = mount(h(Chain, { id: 'long', upTo: 2500 }));
+    for (let i = 0; i < 20 && long.container.textContent !== '2500'; i++) await tick();
+    assert.equal(long.container.textContent, '2500');
+    assert.equal(errors.filter((e) => e.includes('<Chain> has rendered 1000 times in a row')).length, 1);
+  } finally {
+    console.error = realError;
+  }
+});
+
+test('a loop that goes through a promise keeps giving the page its turn, and skips no render', async () => {
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  try {
+    let latest = 0;
+    function Evil() {
+      const [n, bump] = useReducer((s) => { latest = s + 1; return latest; }, 0);
+      useEffect(() => { Promise.resolve().then(() => bump()); });
+      return h('p', { id: 'evil' }, n);
+    }
+    await tick(); // a chain is counted from the event loop's last turn
+    const { container, root } = mount(h(Evil));
+    // The timers below fire: the loop does not hold the thread.
+    await tick();
+    const first = latest;
+    await tick();
+    await tick();
+    assert.ok(first > 100, 'the loop ran until the guard made it wait');
+    assert.ok(latest > first, 'and goes on once the page had its turn');
+    assert.equal(errors.filter((e) => e.includes('<Evil> has rendered 1000 times in a row')).length, 1);
+    // No render is skipped: while it waits for its turn, the screen is the
+    // one update behind that is queued for it.
+    assert.ok(latest - Number(container.textContent) <= 1, `screen ${container.textContent}, state ${latest}`);
+    act(() => root.unmount());
+    const stopped = latest;
+    await tick();
+    await tick();
+    assert.equal(latest, stopped);
+  } finally {
+    console.error = realError;
+  }
+});
+
+test('a store that changes while the guard holds a component is rendered once the page had its turn', async () => {
+  const errors = [];
+  const realError = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  try {
+    let value = 0;
+    const listeners = new Set();
+    const store = {
+      subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+      get: () => value,
+      set: (next) => { value = next; for (const fn of [...listeners]) fn(); },
+    };
+    function Reader() {
+      const v = useSyncExternalStore(store.subscribe, store.get);
+      // Writes the store on every render until it reaches 150: more nested
+      // updates than the guard lets through in one go.
+      useEffect(() => { if (v < 150) store.set(v + 1); });
+      return h('p', null, v);
+    }
+    const { container } = mount(h(Reader));
+    for (let i = 0; i < 10; i++) await tick();
+    assert.equal(errors.length, 1);
+    assert.equal(container.textContent, '150');
+  } finally {
+    console.error = realError;
+  }
+});

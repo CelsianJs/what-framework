@@ -34,8 +34,21 @@ export default defineConfig({
 
 The plugin aliases `react`, `react-dom`, `react-dom/client`,
 `react/jsx-runtime`, `react/compiler-runtime` and `use-sync-external-store` to
-`what-react`, sets the automatic JSX runtime, and excludes React packages from
-Vite's dependency pre-bundling so one module instance is shared.
+the package `what-react`, sets the automatic JSX runtime, and keeps one
+what-react in the page and in a server render:
+
+- **Dev server (`vite`).** React libraries are pre-bundled by Vite like any
+  dependency, which is what converts their CommonJS dependencies for the
+  browser. Only what the plugin replaces is kept out of pre-bundling
+  (`react`, `react-dom`, `use-sync-external-store`, what-react and the
+  framework packages), so `react` stays an import inside each bundle and
+  resolves to the page's what-react. No list of library names is kept: a
+  package the plugin has never heard of is handled like every other.
+- **Production build (`vite build`).** One bundle, one what-react.
+- **Server render (`vite build --ssr`, a dev server's `ssrLoadModule`).**
+  what-react and the React packages are bundled into the server's modules
+  (Vite's `ssr.noExternal`); the rules are in MIXED.md, "What a server
+  render bundles". Only mixed mode renders on the server.
 
 ## How it works
 
@@ -49,9 +62,17 @@ next to What's run-once renderer. what-core is not modified.
   reducer or an updater that throws reaches the error boundary, and an
   updater queued behind another sees its result.
 - **Children are matched as React matches them**: by key, or by index inside
-  their own list, where a nested array (a `.map()`) is a list of its own. A
-  kept node is moved only when its list's own order changed; nodes a library
-  inserted or moved itself are left where they are.
+  their own list, where a nested array (a `.map()`) is a list of its own, and
+  a lone child by its key too (`return <Form key={user} />` mounts a new
+  `Form` when the key changes). A kept node is moved only when its list's own
+  order changed; nodes a library inserted or moved itself are left where
+  they are.
+- **The DOM work is React's**: an element is built whole and inserted once, a
+  list that kept its order is patched without reading or moving a node, an
+  element whose only child is text holds it as its text content, and a
+  component adds no node of its own (one that renders nothing holds its place
+  with a comment). `packages/react-compat/test/perf-counts.test.js` pins the
+  counts.
 - **A commit runs its effects in React's phases**: insertion effects, then
   refs (the DOM is in place), then layout effects, all before the commit
   returns, children before parents; passive effects after it and always
@@ -63,7 +84,11 @@ next to What's run-once renderer. what-core is not modified.
 - **Events** are native listeners on the elements, and a handler receives a
   synthetic event object (the native event's fields as own properties, React's
   methods, `nativeEvent`), one per native event and React event type, with
-  `currentTarget` set while the handler runs. `onChange` fires when the
+  `currentTarget` set while the handler runs. `offsetX`, `offsetY`, `layerX`
+  and `layerY` are read from the native event when a handler asks for them
+  (the browser lays the page out to answer), so an event forces no layout by
+  itself; a copy of the event (`{ ...event }`) leaves those four out, as it
+  leaves out React's methods. `onChange` fires when the
   field's value changed, on the field and on the elements above it. An event
   inside a portal goes on to the portal's React parents.
 - **Controlled fields** show their props: when no handler takes an edit, the
@@ -80,9 +105,9 @@ next to What's run-once renderer. what-core is not modified.
 ## The package matrix
 
 `packages/react-compat/test/matrix-browser.mjs` builds a fixture for each
-package with Vite for production and drives it in headless Chromium:
-open, type, select, navigate, drag, sort, with assertions on the DOM after
-each step. Every fixture runs four ways with the same assertions:
+package with Vite and drives it in headless Chromium: open, type, select,
+navigate, drag, sort, with assertions on the DOM after each step. Every
+fixture runs four ways with the same assertions:
 
 | Column | What runs |
 |---|---|
@@ -91,8 +116,29 @@ each step. Every fixture runs four ways with the same assertions:
 | Mixed, React file | `what()` + `reactCompat()`: a native What app mounts the fixture (a React file) as a React island. |
 | Mixed, native file | `what()` + `reactCompat()`: the same screen written as a native What file, with signals for state and the package's tags as plain JSX. "not written" means no native variant exists for that fixture (see the note under the table). |
 
+and each way is served three ways (`--serve`), because each finds failures
+the others cannot see:
+
+| Served as | What it is | Real React | Full compat | Mixed, React file | Mixed, native file |
+|---|---|---|---|---|---|
+| `build` | A production client build, static files | 38 of 38 | 38 of 38 | 38 of 38 | 19 of 19 |
+| `dev` | Vite's dev server: dependencies pre-bundled, modules served one by one | 38 of 38 | 38 of 38 | 38 of 38 | 19 of 19 |
+| `ssr` | A production server build renders the fixture in Node; the production client build hydrates it, then the same steps run | 38 of 38 | not run | 38 of 38 | 19 of 19 |
+
+Full compat has no server renderer (Known limitations), so it has no `ssr`
+run. In the `ssr` run a what-react column fails when real React rendered the
+fixture on the server and the island came out empty, even if the browser then
+rendered it and every step passed. Eight fixtures do not render on the server
+with real React either (jotai, redux, zustand, react-i18next and the React
+surface fixture read `window` or `localStorage` as they load; the two
+react-router fixtures and react-select read `document` while rendering): that
+is recorded from the control, the page mounts in the browser, and the steps
+run. The other 30 render on the server in every column. What hydration does
+to an island's HTML is in MIXED.md, "Server rendering".
+
 Results of 2026-11-24, on the 0.15 working tree: 38 fixtures, covering 47
-packages besides React itself.
+packages besides React itself. The table below is the `build` run; the `dev`
+and `ssr` runs have the same result in every cell they have.
 `pass` = every step of the fixture passed.
 
 | Package | Version | Full compat | Mixed, React file | Mixed, native file | What the fixture does |
@@ -112,27 +158,27 @@ packages besides React itself.
 | @tanstack/react-query | 5.108.4 | pass | pass | not written | `useQuery` pending, data and error, a key change with placeholder data, the cache, `useMutation` with `invalidateQueries`, `useSuspenseQuery`, `useIsFetching` |
 | swr | 2.5.1 | pass | pass | not written | `useSWR` loading then data, one request for three hooks on a key, a key change, local and global `mutate`, `useSWRMutation` |
 | @tanstack/react-table | 9.3.1 | pass | pass | not written | `useTable` with sorting, filtering and pagination, `FlexRender`, a header click cycling the sort, typing in a filter, new data |
-| @tanstack/react-virtual | 3.14.28 | pass | pass | not written | 10,000 rows of two heights: a window in the DOM, scrolling, `scrollToIndex`, `measureElement`, a click on a virtual row |
-| react-window | 2.5.4 | pass | pass | pass | `List` over 5,000 rows: a window in the DOM, scrolling, `scrollToRow`, changing row props |
-| react-virtuoso | 4.18.24 | pass | pass | pass | 2,000 rows of measured heights: scrolling, `scrollToIndex`, `rangeChanged`, a growing count |
-| react-hook-form | 7.92.0 | pass | pass | not written | `register`, validation on submit with focus on the first error, `Controller`, `useFieldArray`, `useWatch`, `setFocus`, `reset` |
-| formik | 2.4.9 | pass | pass | not written | `<Formik>`, `<Field>` as input, select and checkbox, `validate` with `<ErrorMessage>`, `useField`, `<FieldArray>`, submit and reset |
+| @tanstack/react-virtual | 3.14.28 | pass | pass | not written | 10,000 rows of two heights: a window in the DOM, a row that grows and is measured again through its `measureElement` ref, a row keeping its state while the window moves, row effects mounting and cleaning up, scrolling, `scrollToIndex`, a click on a virtual row |
+| react-window | 2.5.4 | pass | pass | pass | `List` over 5,000 rows: a window in the DOM, a row with its own state keeping it while the window moves, a button in a row stopping its click, row effects mounting and cleaning up, scrolling, `scrollToRow`, changing row props |
+| react-virtuoso | 4.18.24 | pass | pass | pass | 2,000 rows of measured heights: a row keeping its state while the window moves, a button in a row stopping its click, row effects mounting and cleaning up, scrolling, `scrollToIndex`, `rangeChanged`, a growing count (that last step is quarantined on what-react: an open defect) |
+| react-hook-form | 7.92.0 | pass | pass | not written | `register`, validation on submit with focus on the first error, a `watch` subscription in an effect, `touchedFields` on blur, `Controller`, `useFieldArray` append, remove and swap with the rows' elements kept, `useWatch`, `setFocus`, a field that unregisters when it unmounts, `reset` |
+| formik | 2.4.9 | pass | pass | not written | `<Formik>`, `<Field>` as input, select and checkbox, `validate` with `<ErrorMessage>`, a field touched on blur, focus on the first bad field (`innerRef` and an effect), `useField`, `<FieldArray>` push, remove and swap of keyed rows, submit, reset, `enableReinitialize` |
 | @floating-ui/react | 0.27.20 | pass | pass | not written | `useFloating` with offset, flip, shift, arrow and `autoUpdate`; click, dismiss, role and hover interactions; `FloatingPortal`; `FloatingFocusManager`; `useListNavigation`; the measured position |
 | cmdk | 1.1.1 | pass | pass | pass | Filtering and ranking as you type (items and groups hide), the empty state, arrow keys, Enter; `Command.Dialog` |
 | sonner | 2.0.8 | pass | pass | pass | Plain and success toasts, an action button, `toast.promise`, a JSX toast, measured stacking, dismiss one and all |
 | vaul | 1.1.2 | pass | pass | pass | A controlled drawer in a portal, a controlled input inside, Close and Escape with the exit animation, a pointer drag down that dismisses it |
 | @dnd-kit/core, @dnd-kit/sortable | 6.3.1, 10.0.0 | pass | pass | not written | A sortable list: a pointer drag with `DragOverlay`, a keyboard drag with the screen-reader announcement, DOM nodes kept across the reorder |
-| react-select | 5.10.2 | pass | pass | pass | A single select (menu in a portal, type to filter, keyboard, clear), a multi select with removable values, an async select |
+| react-select | 5.10.2 | pass | pass | pass | A single select (menu in a portal, type to filter, keyboard, clear, a ref to the instance, the menu closing on blur, an `onKeyDown` that prevents the default), a multi select with removable values (the one that stays keeps its element), an async select |
 | react-day-picker | 10.0.2 | pass | pass | pass | A single-date picker by click and by arrow keys, month navigation, a range picker with disabled days |
 | framer-motion | 14.14.0 | pass | pass | pass | Mount and prop-driven animation, `AnimatePresence` exit before unmount, variants with staggered children, `whileHover`, pointer `drag` writing a motion value |
 | recharts | 3.11.1 | pass | pass | pass | BarChart with grid, axes, legend, a hover Tooltip and a click on a bar, new data in the same SVG, a LineChart in `ResponsiveContainer`, a PieChart |
-| styled-components | 6.6.0 | pass | pass | not written | Styles from props and `ThemeProvider`, a prop and a theme change in place, `styled(Component)`, `css`, `as`, `.attrs`, transient props, `createGlobalStyle`, `keyframes` |
-| react-markdown, remark-gfm | 10.1.0, 4.0.1 | pass | pass | pass | CommonMark and GFM to elements, custom `components`, raw HTML kept as text, new source |
+| styled-components | 6.6.0 | pass | pass | not written | Styles from props and `ThemeProvider`, a prop and a theme change in place, `styled(Component)`, `css`, `as`, `.attrs`, transient props, `createGlobalStyle` mounted and unmounted, `keyframes`, a ref to a styled element, `useTheme` in an effect, a keyed list of styled items reordered |
+| react-markdown, remark-gfm | 10.1.0, 4.0.1 | pass | pass | pass | CommonMark and GFM to elements, custom `components` (one with an effect and a ref, one with state, a link with a click handler), raw HTML kept as text, a block inserted before a list whose items keep their state, new source |
 | lucide-react | 1.79.0 | pass | pass | pass | Icons as `forwardRef` SVG components: size, color, stroke and class as real SVG attributes, a ref, swapping icons |
 | react-i18next, i18next | 18.0.3, 27.2.7 | pass | pass | not written | `useTranslation` with interpolation, plurals and a namespace, `<Trans>` with an element, `changeLanguage` from inside and outside React |
 | react-hot-toast | 2.6.1 | pass | pass | pass | Success and error toasts, an id that is not duplicated, a toast that removes itself, `toast.promise`, a JSX toast, dismiss all |
-| react-transition-group | 4.4.5 | pass | pass | not written | `CSSTransition` enter and exit classes with callbacks and `unmountOnExit`, `TransitionGroup` (add, and removal held until the exit ends), `SwitchTransition` |
-| react-error-boundary | 6.1.6 | pass | pass | not written | A render error shows the fallback and calls `onError`, `resetErrorBoundary`, `resetKeys`, `useErrorBoundary().showBoundary` |
+| react-transition-group | 4.4.5 | pass | pass | not written | `CSSTransition` enter and exit classes with callbacks and `unmountOnExit`, `TransitionGroup` (add, removal held until the exit ends with the content's effect cleaned up after it, a reorder that moves the elements), `SwitchTransition` |
+| react-error-boundary | 6.1.6 | pass | pass | not written | A render error shows the fallback, calls `onError` and cleans up the effects of what it replaced; a fallback that focuses its button (a ref in an effect); `resetErrorBoundary` as a click handler; `resetKeys`; `useErrorBoundary().showBoundary`; an error thrown in an effect; a new `key` on the boundary |
 | react-resizable-panels | 4.24.1 | pass | pass | pass | A pointer drag on the separator, arrow keys on it, `onLayoutChange`, panel state kept |
 | input-otp | 1.5.0 | pass | pass | pass | A hidden real input driving rendered slots, the active slot, a pattern refusing letters, Backspace, `onComplete`, a reset from outside |
 
@@ -147,12 +193,13 @@ for it.
 
 ### What the matrix does not cover
 
-- **Server rendering and hydration** of these packages. The fixtures are
-  client-rendered. Mixed mode renders React islands on the server (MIXED.md);
-  no package in this table was run that way, except recharts and
-  react-hook-form in `npm run test:browser:mixed`.
-- **The Vite dev server.** The matrix runs production builds. Dev mode is
-  covered for recharts and react-hook-form only (`test:browser:mixed`).
+- **A dev-server render.** `ssr` is a production server build. A server
+  render through Vite's dev server (`ssrLoadModule`) is covered for recharts
+  and react-hook-form (`npm run test:browser:mixed`), for a CommonJS file of
+  a bundled package (`test/vite-plugin.test.js`) and not per package.
+- **Streaming.** The `ssr` run renders to a string
+  (`renderToHydratableString`).
+- **Hot replacement.** Every edit reloads the page (MIXED.md, Limits).
 - **Other browsers.** Chromium only.
 - **Performance.** Nothing here measures speed or bundle size.
 - **Each package's whole API.** A row says the listed interactions work.
@@ -191,7 +238,7 @@ all 28 tests of that file fail on the old runtime.
 | Unmounting removed what stood between a component's markers | cmdk (it sorts its items in the DOM; filtered items stayed on screen) | A component's nodes are found through its rendered tree |
 | A re-render could start before the last commit's passive effects ran | Radix DropdownMenu, Select (a layer read a registry before registering; its content stayed `pointer-events: none`) | Pending passive effects run before every render |
 | A parent's layout effect ran before its descendant's when both re-rendered on their own in one commit | cmdk (no item selected after clearing the search) | Descendants' effects are queued first |
-| Events inside a portal did not reach the portal's React parents | Radix (a Popover inside a Dialog), MUI | Two document listeners per event type carry the event along the React path |
+| Events inside a portal did not reach the portal's React parents | Radix (a Popover inside a Dialog). MUI was listed here too; its fixture passes with these listeners switched off, so it is not evidence for this row | Two document listeners per event type carry the event along the React path |
 | Handlers received the native event: no `isPropagationStopped()`, and `{ ...event }` copied nothing | Ant Design Table (sorting threw), Radix Select, react-aria-components (keyboard navigation dead) | A synthetic event object with own fields and React's methods |
 | `onInput` and `onChange` on one field shared a listener slot; `onInput={undefined}` removed the `onChange` handler | react-aria-components | Handlers are kept per React prop |
 | A prop that was `undefined` was written as `''` (`maxLength` became 0, `href` a link to the page, `tabIndex` focusable) | react-aria-components (the text field accepted no text) | Null and undefined props are left out, and taken back when they become undefined |
@@ -308,8 +355,10 @@ nested-array reconciliation, `cloneElement`, `startTransition` and
 - **Server rendering.** Full compat has none: `renderToString` of a compat
   element is unsupported and `hydrateRoot` replaces the server's HTML with a
   client render. In mixed mode React islands render on the server and their
-  HTML is replaced on load instead of adopted (MIXED.md), so text typed into
-  a React field before the page hydrates is lost. Not exercised by the matrix.
+  HTML is replaced on load instead of adopted (MIXED.md): no frame shows less
+  than the server wrote, but every island element is built again, and focus
+  and text typed into a React field before the page hydrates are lost. The
+  matrix's `ssr` run exercises it for every fixture.
 - **Class components.** Legacy context (`contextTypes`, `childContextTypes`)
   and string refs are not supported. `componentDidCatch`'s `componentStack`
   names components only: no host elements, no source locations.
@@ -368,9 +417,22 @@ nested-array reconciliation, `cloneElement`, `startTransition` and
 - **A portal into a library's own document** (react-aria-components) is
   compared with its mirror after each commit that changed it, in time
   proportional to the collection's size.
-- **Cost on long lists and many portals.** Reconciling a list reads the DOM
-  nodes of every kept child on each patch, and routing an event out of a
-  portal scans the children of the portals in its containers. Not measured.
+- **Cost with many portals.** Routing an event out of a portal scans the
+  children of the portals in its containers. Not measured.
+- **A list that was reordered moves the nodes React moves** (a row that moved
+  up stays, the rows it passed move), not the fewest possible: swapping two
+  rows of 1,000 moves 997, as in React.
+- **An update loop is stopped, not thrown.** A component that sets state
+  every time it renders (an effect with no dependencies) is stopped after 100
+  render cycles in one flush, with an error in the console: what is queued
+  renders, and its state updates are then refused until the event loop has
+  turned, so the screen shows the state as it stands. React throws "Maximum
+  update depth exceeded" after 50 nested updates. A loop that goes through a
+  promise (an effect resolves one that sets state) is not ended: after 1,000
+  flushes with no turn of the event loop, rendering waits for one and goes
+  on, with an error in the console and no update lost, so the page stays
+  responsive (React's scheduler yields the same way). Updates made in
+  separate tasks are never counted, however fast they come.
 - **Bridge-mounted compat components** (a compat component rendered by
   what-core outside mixed mode) attach refs and layout effects before the
   surrounding What fragment is in the document, so layout read there on first
@@ -382,22 +444,32 @@ nested-array reconciliation, `cloneElement`, `startTransition` and
 # Unit suites (jsdom), part of `npm test`
 node --test 'packages/react-compat/test/*.test.js'
 
-# The package matrix (Chromium). Install the fixture's packages once:
-(cd packages/react-compat/test/fixtures/matrix && npm install)
-npm run test:browser:matrix
+# The package matrix (Chromium). Install the fixture's packages once, at the
+# versions its committed lockfile pins (403 packages, about 435 MB):
+npm ci --prefix packages/react-compat/test/fixtures/matrix
+npm run test:browser:matrix                 # a production client build
+npm run test:browser:matrix -- --serve=dev  # Vite's dev server
+npm run test:browser:matrix -- --serve=ssr  # a production server build, hydrated
 #   --mode=react,compat,mixed   which builds (default: all three; mixed runs both mixed columns)
 #   --only=mui,cmdk             which fixtures
 #   --md                        print table rows   --json=out.json   full results
-#   --retries=1                 rerun a failed fixture once before calling it failed
+#   --retries=1                 rerun a failed fixture once before calling it failed; reruns are listed
+#   --probe                     ssr: type into the server's HTML before it hydrates (focus and text kept?)
 #   --timeout=15000             per-wait timeout in ms, for a slow machine
 
 # Mixed mode end to end: production build, dev server, server render and hydration
 npm run test:browser:mixed
 ```
 
+CI runs the three as the `react-matrix` job, one leg per `--serve`
+(`.github/workflows/ci.yml`).
+
 The matrix exits 0 when real React passes every fixture and every what-react
 result is a pass or a failure the fixture's spec lists under `known` with its
-reason. Each fixture is a folder in
+reason. A spec can quarantine a step for what-react (`quarantined`): it is
+reported when it fails and does not fail the run. One step is: react-virtuoso's
+"a growing count", which on what-react sometimes stops short of the last rows
+(an open defect; the spec has the numbers). Each fixture is a folder in
 `packages/react-compat/test/fixtures/matrix/src/libs`: `fixture.jsx` (a React
 file), `spec.mjs` (the steps and assertions, shared by every column), and
 `native.jsx` where the same screen exists as a native What file. Adding a

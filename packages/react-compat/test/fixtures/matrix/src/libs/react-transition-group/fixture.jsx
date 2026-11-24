@@ -1,7 +1,17 @@
-import { createRef, useRef, useState } from 'react';
+import { createRef, useEffect, useRef, useState } from 'react';
 import { CSSTransition, SwitchTransition, TransitionGroup } from 'react-transition-group';
 
 let nextId = 3;
+
+// What happened to each list item, in order: its content's effect and
+// cleanup, and the group's exit callbacks.
+const life = [];
+globalThis.__tgLife = life;
+
+function Mark({ id }) {
+  useEffect(() => { life.push(`mount:${id}`); return () => { life.push(`cleanup:${id}`); }; }, []);
+  return null;
+}
 
 export default function Fixture() {
   const [shown, setShown] = useState(false);
@@ -22,10 +32,12 @@ export default function Fixture() {
       <span id="tg-log">{log.join(',')}</span>
 
       <button id="tg-add" onClick={() => setItems([...items, { id: nextId++, ref: createRef() }])}>add</button>
+      <button id="tg-reverse" onClick={() => setItems([...items].reverse())}>reverse</button>
       <TransitionGroup component="ul" id="tg-list">
         {items.map((item) => (
-          <CSSTransition key={item.id} nodeRef={item.ref} timeout={150} classNames="fade">
-            <li ref={item.ref} className="tg-item">
+          <CSSTransition key={item.id} nodeRef={item.ref} timeout={150} classNames="fade" onExit={() => life.push(`exit:${item.id}`)} onExited={() => life.push(`exited:${item.id}`)}>
+            <li ref={item.ref} className="tg-item" data-id={item.id}>
+              <Mark id={item.id} />
               item {item.id} <button className="tg-remove" onClick={() => setItems((list) => list.filter((x) => x.id !== item.id))}>x</button>
             </li>
           </CSSTransition>

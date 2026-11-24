@@ -14,8 +14,14 @@ export { Fragment };
 // them: the element takes the props as they are.
 export function jsx(type, props, key) {
   if (props == null) props = {};
-  if (key !== undefined) props = { ...props, key };
-  return _element(type, props);
+  // The key is the element's, not a prop: the props go on as they are, with
+  // no copy to carry it. (Props that hold a `key` of their own, from a call
+  // written by hand, are handled as createElement handles them.)
+  if (key === undefined || props.key !== undefined || typeof key === 'function') {
+    if (key !== undefined) props = { ...props, key };
+    return _element(type, props, undefined);
+  }
+  return _element(type, props, key);
 }
 
 // jsxs is the same as jsx — React uses it for static children optimization

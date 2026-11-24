@@ -1,13 +1,6 @@
 import { useState } from 'react';
 import { List, useListRef } from 'react-window';
-
-function Row({ index, style, selected, onPick }) {
-  return (
-    <div className="rw-row" data-index={index} style={style} aria-selected={selected === index} onClick={() => onPick(index)}>
-      Row {index}{selected === index ? ' *' : ''}
-    </div>
-  );
-}
+import { Row } from './parts.jsx';
 
 export default function Fixture() {
   const [selected, setSelected] = useState(-1);

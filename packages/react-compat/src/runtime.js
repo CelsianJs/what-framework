@@ -109,20 +109,159 @@ export function _outsideRender(fn) {
 }
 
 export function _getHookSlot(inst) {
+  const hooks = inst.hooks !== null ? inst.hooks : (inst.hooks = []);
   const i = inst.hookIndex++;
-  let slot = inst.hooks[i];
+  let slot = hooks[i];
   if (slot === undefined) {
-    slot = inst.hooks[i] = {};
+    slot = hooks[i] = {};
   }
   return slot;
 }
 
 // =====================================================================
-// Scheduler — batched re-renders with infinite-loop guard
+// Scheduler — batched re-renders with an update-loop guard
 // =====================================================================
 
 const dirtyQueue = new Set();
 let flushScheduled = false;
+
+// ---- Update-loop guard ----
+// A component that sets state every time it renders (in an effect with no
+// dependencies, say) never settles, and rendering here is synchronous: left
+// alone, the loop holds the page's thread for good. The guard gives the
+// thread back without ever skipping a render that was asked for, so the
+// screen is never left behind the state. Two shapes of loop, two answers:
+//
+// - Inside one flush (an effect sets state, the loop below renders again):
+//   after CYCLE_LIMIT render cycles the loop is ended. What is queued renders
+//   one last time, and from then until the event loop has turned the
+//   components that were queued take no further state update: the update is
+//   refused, so the state does not move either, and the screen shows it as
+//   it stands. (React throws after 50 nested updates.) An update that cannot
+//   be refused where it is made (an external store, a context, a signal: the
+//   value lives outside the component) is rendered once the event loop has
+//   turned.
+// - From flush to flush with no turn of the event loop between them (an
+//   effect resolves a promise that sets state): after CHAIN_LIMIT flushes
+//   started from microtasks, rendering waits for the event loop to turn and
+//   then goes on. Nothing is refused: a long chain that does end (a stream
+//   read in a loop) ends with its last state on the screen, and one that
+//   never ends leaves the page responsive, as it is in React, whose
+//   scheduler yields the same way.
+//
+// A microtask cannot see whether the event loop turned, so after PROBE_AT
+// chained flushes a message is posted to this module; when it arrives the
+// loop has turned and the count starts again. Updates made in separate tasks
+// (a click each, however fast they come) are therefore never taken for a
+// loop, whatever the clock says.
+const CYCLE_LIMIT = 100;
+const CHAIN_LIMIT = 1000;
+const PROBE_AT = 50;
+let chained = 0;
+let probing = false;
+/** @type {(() => void) | null} */
+let postProbe = null;
+/** The instances that take no update until the event loop turns. */
+const stuck = [];
+let releaseScheduled = false;
+/** Rendering waits for the event loop to turn (a chain of flushes that did not let it). */
+let yielding = false;
+
+function eventLoopTurned() {
+  probing = false;
+  chained = 0;
+}
+
+function probe() {
+  probing = true;
+  if (postProbe === null) {
+    if (typeof MessageChannel === 'function') {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = eventLoopTurned;
+      // Node: the port must not keep the process alive.
+      const port = /** @type {any} */ (channel.port1);
+      if (typeof port.unref === 'function') port.unref();
+      postProbe = () => channel.port2.postMessage(null);
+    } else {
+      postProbe = () => { setTimeout(eventLoopTurned, 0); };
+    }
+  }
+  postProbe();
+}
+
+/** The first component queued that the guard has not reported yet, marked reported; '' when all were. */
+function unreported() {
+  let name = '';
+  for (const inst of dirtyQueue) {
+    if (inst._loopReported === true) continue;
+    inst._loopReported = true;
+    if (name === '') name = inst.type.displayName || inst.type.name || 'Anonymous';
+  }
+  return name;
+}
+
+// The loop ends with the render of what is queued now.
+function stopLoop() {
+  for (const inst of dirtyQueue) {
+    if (inst._stuck === true) continue;
+    inst._stuck = true;
+    stuck.push(inst);
+  }
+  const name = unreported();
+  if (name !== '') {
+    console.error(`[what-react] Too many re-renders for <${name}>: it sets state every time it renders (an effect with no dependencies?). Possible infinite loop. Its updates are refused until the page gets a turn.`);
+  }
+  if (!releaseScheduled) {
+    releaseScheduled = true;
+    setTimeout(releaseStuck, 0);
+  }
+}
+
+function releaseStuck() {
+  releaseScheduled = false;
+  chained = 0;
+  const released = stuck.splice(0);
+  for (let i = 0; i < released.length; i++) {
+    const inst = released[i];
+    inst._stuck = false;
+    if (inst._refused === true) {
+      inst._refused = false;
+      scheduleUpdate(inst);
+    }
+  }
+}
+
+/** Whether `inst` takes no state update now (the loop guard stopped it). */
+export function _isStuck(inst) {
+  return inst._stuck === true && currentInstance !== inst;
+}
+
+// The flush a state update scheduled, from a microtask.
+function scheduledFlush() {
+  if (yielding) {
+    // Rendering waits for the event loop (below): what was queued stays queued.
+    flushScheduled = true;
+    return;
+  }
+  if (dirtyQueue.size > 0) {
+    if (++chained >= PROBE_AT && !probing) probe();
+    if (chained > CHAIN_LIMIT) {
+      const name = unreported();
+      if (name !== '') {
+        console.error(`[what-react] <${name}> has rendered ${CHAIN_LIMIT} times in a row without the page getting a turn (state set from a promise, in an effect that runs every time?). Possible infinite loop. Rendering goes on once the page had its turn; no update is lost.`);
+      }
+      yielding = true;
+      flushScheduled = true;
+      setTimeout(() => {
+        yielding = false;
+        chained = 0;
+        flushUpdates();
+      }, 0);
+      return;
+    }
+  }
+  flushUpdates();
+}
 
 export function scheduleUpdate(inst) {
   if (!inst || inst.unmounted) return;
@@ -133,33 +272,49 @@ export function scheduleUpdate(inst) {
     return;
   }
   if (inst._server) return;
+  if (inst._stuck === true) {
+    // Rendered once the event loop has turned (releaseStuck).
+    inst._refused = true;
+    return;
+  }
   dirtyQueue.add(inst);
   if (!flushScheduled) {
     flushScheduled = true;
-    queueMicrotask(flushUpdates);
+    queueMicrotask(scheduledFlush);
   }
 }
 
+/** Render everything queued. False when the update-loop guard ended it. */
 export function flushUpdates() {
   flushScheduled = false;
   let cycles = 0;
+  let tripped = false;
   for (;;) {
     // React runs the last commit's passive effects before it renders again:
     // an effect never sees a later render's values first, and what it
     // registered (a listener, a layer in a registry) is in place before a
     // render reads it.
     _flushPendingPassive();
-    if (dirtyQueue.size === 0) break;
-    if (++cycles > 100) {
-      dirtyQueue.clear();
-      console.error('[what-react] Update loop guard tripped: more than 100 render cycles in one flush. Possible infinite re-render loop.');
-      break;
+    if (dirtyQueue.size === 0) return !tripped;
+    if (++cycles > CYCLE_LIMIT) {
+      // What is queued renders below, and takes no update after that.
+      tripped = true;
+      stopLoop();
     }
     // Parents before children: a parent re-render may update child props,
     // making a separately-queued child render redundant.
-    const batch = [...dirtyQueue].sort((a, b) => a.depth - b.depth);
-    runInCommit(() => {
-      for (const inst of batch) {
+    /** @type {any[]} */
+    let batch;
+    if (dirtyQueue.size === 1) {
+      batch = [];
+      for (const inst of dirtyQueue) batch.push(inst);
+    } else {
+      batch = [...dirtyQueue].sort((a, b) => a.depth - b.depth);
+    }
+    commitDepth++;
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        const inst = batch[i];
         if (dirtyQueue.has(inst) && !inst.unmounted) {
           const insertionFrom = insertionQueue.length;
           const layoutFrom = layoutQueue.length;
@@ -170,7 +325,9 @@ export function flushUpdates() {
           childEffectsFirst(passiveQueue, passiveFrom, inst);
         }
       }
-    });
+    } finally {
+      exitCommit();
+    }
     // Layout effects ran on commit exit — they may have queued more updates.
   }
 }
@@ -220,21 +377,23 @@ export function runInCommit(fn) {
   try {
     return fn();
   } finally {
-    commitDepth--;
-    if (commitDepth === 0) {
-      // React's commit order: insertion effects (a CSS-in-JS library writes
-      // its rules before anything reads layout), then refs (the DOM is in
-      // the document), then layout effects, all synchronously; passive
-      // effects later.
-      if (mirrors.size > 0) syncMirrors();
-      flushInsertionQueue();
-      flushRefQueue();
-      flushEffectQueue(layoutQueue);
-      if ((passiveQueue.length > 0 || unmountedPassive.length > 0) && !passiveScheduled) {
-        passiveScheduled = true;
-        queueMicrotask(_flushPassive);
-      }
-    }
+    exitCommit();
+  }
+}
+
+function exitCommit() {
+  if (--commitDepth !== 0) return;
+  // React's commit order: insertion effects (a CSS-in-JS library writes
+  // its rules before anything reads layout), then refs (the DOM is in
+  // the document), then layout effects, all synchronously; passive
+  // effects later.
+  if (mirrors.size > 0) syncMirrors();
+  flushInsertionQueue();
+  flushRefQueue();
+  flushEffectQueue(layoutQueue);
+  if ((passiveQueue.length > 0 || unmountedPassive.length > 0) && !passiveScheduled) {
+    passiveScheduled = true;
+    queueMicrotask(_flushPassive);
   }
 }
 
@@ -398,15 +557,15 @@ export function _componentStack(inst) {
 // queues AFTER the subtree commit so children's effects run before the parent's
 // (React ordering).
 export function _pushInsertion(inst, slot, fn) {
-  _pushEffect(inst._pendingInsertion, inst, slot, fn);
+  _pushEffect(inst._pendingInsertion || (inst._pendingInsertion = []), inst, slot, fn);
 }
 
 export function _pushLayout(inst, slot, fn) {
-  _pushEffect(inst._pendingLayout, inst, slot, fn);
+  _pushEffect(inst._pendingLayout || (inst._pendingLayout = []), inst, slot, fn);
 }
 
 export function _pushPassive(inst, slot, fn) {
-  _pushEffect(inst._pendingPassive, inst, slot, fn);
+  _pushEffect(inst._pendingPassive || (inst._pendingPassive = []), inst, slot, fn);
 }
 
 function _pushEffect(pendingArr, inst, slot, fn) {
@@ -430,6 +589,7 @@ function dropPending(inst) {
 }
 
 function dropEntries(entries) {
+  if (entries === null) return;
   for (let i = 0; i < entries.length; i++) {
     const slot = entries[i].slot;
     slot._pending = null;
@@ -443,7 +603,8 @@ function dropEntries(entries) {
 export function _drainAll() {
   let guard = 0;
   while ((dirtyQueue.size > 0 || layoutQueue.length > 0 || passiveQueue.length > 0 || unmountedPassive.length > 0) && ++guard < 100) {
-    flushUpdates();
+    // An update loop: the guard ended it.
+    if (!flushUpdates()) break;
     flushEffectQueue(layoutQueue);
     _flushPassive();
   }
@@ -478,25 +639,122 @@ function kindOf(v) {
   return KIND_TEXT; // last resort: stringify
 }
 
-// A child list as the reconciler takes it: the values in document order with
-// holes kept (null/false/true → null), and for each one its slot, the
-// identity React matches children by. In its own list a child is found by
-// its key when it has one and by its index otherwise, and a nested array is a
-// list of its own (React gives it a fragment), so:
-//   - an unkeyed child keeps its slot whatever happens around it: a keyed
+// ---- Child lists ----
+// A child is found again by its place in its own list: by its key when it
+// has one, by its index otherwise, and a nested array is a list of its own
+// (React gives it a fragment), so:
+//   - an unkeyed child keeps its place whatever happens around it: a keyed
 //     sibling that comes or goes, a neighbouring `.map()` list that grows;
 //   - a keyed child is found again wherever it moved inside its list.
-// Slots: the index for a top-level unkeyed child, '$key' for a keyed one,
-// and the same behind the list's own slot ('2:0', '2:$key') in a nested array.
+// The reconciler takes a child list flat, in document order, holes kept, and
+// for each child two values that together are that place: its `id` (the key
+// as a string, or the index as a number) and its `list` (null at the top
+// level, '2:' for a child of the array at index 2, '2:0:' one level down).
+
+/**
+ * The lists the children flatten() returned are in, or null when all are at the top level. Read at once.
+ * @type {Array<string | null> | null}
+ */
+let flatLists = null;
+/**
+ * Their ids, or null: the top-level children as they were given, each one's id its key or its index.
+ * @type {Array<number | string> | null}
+ */
+let flatIds = null;
+
+/** @type {string[]} */
+const LIST_NAMES = [];
+
+// The name of the list at index `i` of the list `list`. One string per index
+// at the top level, so two renders name a list with the same string.
+function listName(list, i) {
+  if (list !== null) return list + i + ':';
+  return LIST_NAMES[i] || (LIST_NAMES[i] = i + ':');
+}
+
+function keyOfChild(child) {
+  if (typeof child === 'object' && child !== null && child.key != null && isVNode(child)) {
+    const key = child.key;
+    return typeof key === 'string' ? key : '' + key;
+  }
+  return null;
+}
+
+// The id of a child of kind `kind` at index `i` of its list.
+function idOf(v, kind, i) {
+  if (kind >= KIND_ELEMENT && typeof v === 'object' && v.key != null && (kind !== KIND_OPAQUE || isVNode(v))) {
+    const key = v.key;
+    return typeof key === 'string' ? key : '' + key;
+  }
+  return i;
+}
+
+/**
+ * `value` (what a component returned, an element's children) as a flat list.
+ * An array with no array inside it is returned as it is, with no ids: that
+ * is every list of rows and nearly every element's children, and nothing is
+ * copied for them.
+ */
+function flatten(value) {
+  flatIds = null;
+  flatLists = null;
+  if (!Array.isArray(value)) return [value];
+  for (let i = 0; i < value.length; i++) {
+    if (Array.isArray(value[i])) {
+      const out = [];
+      const ids = [];
+      const lists = [];
+      pushFlat(value, null, out, ids, lists);
+      flatIds = ids;
+      flatLists = lists;
+      return out;
+    }
+  }
+  return value;
+}
+
+function pushFlat(list, name, out, ids, lists) {
+  for (let i = 0; i < list.length; i++) {
+    const child = list[i];
+    if (Array.isArray(child)) {
+      pushFlat(child, listName(name, i), out, ids, lists);
+      continue;
+    }
+    out.push(child);
+    lists.push(name);
+    const key = keyOfChild(child);
+    ids.push(key !== null ? key : i);
+  }
+}
+
+// A place as one value, for a map: the id itself at the top level (a number
+// and a string never collide), and behind the list's name inside one.
+function slotOf(list, id) {
+  if (list === null) return id;
+  return typeof id === 'number' ? list + id : list + '$' + id;
+}
+
+/**
+ * A child list with a name for each child's place (`slots`), for code that
+ * keys something of its own by it (mixed.js, a placeholder per child): the
+ * index for a top-level unkeyed child, '$key' for a keyed one, and the same
+ * behind the list's name ('2:0', '2:$key') in a nested array. Holes are null.
+ */
 export function normalizeChildren(value) {
   const out = [];
   /** @type {Array<number | string>} */
   const slots = [];
   /** @type {any} */ (out).slots = slots;
   if (Array.isArray(value)) pushChildren(value, null, out, slots);
-  else {
-    out.push(value == null || typeof value === 'boolean' ? null : value);
+  else if (value == null || typeof value === 'boolean') {
+    out.push(null);
     slots.push(0);
+  } else {
+    out.push(value);
+    // A lone child is found by its key too: `return <Form key={user} />`
+    // (a component's whole output, a Fragment's only child) mounts a new
+    // Form when the key changes, which is how React code resets state.
+    slots.push(typeof value === 'object' && value.key != null && isVNode(value) ? '$' + value.key : 0);
   }
   return out;
 }
@@ -556,104 +814,257 @@ function canPatch(rn, v, kind) {
 // Reconciler — mount / patch / unmount
 // =====================================================================
 
+/** @type {any[]} What an element with no child rnodes holds. Never written to. */
+const NO_RNODES = [];
+/** The output of a component that returned an empty list: one hole (see renderOutput). */
+const HOLE_KIDS = [null];
+
 /**
- * Diff a list of previously-rendered RNodes against new child values.
- * Returns the new RNode list. DOM is inserted into parentDom before `anchor`.
- *
- * - A child matches the old node in its slot (normalizeChildren: its key or
- *   index within its own list) when the type is the same; otherwise the old
- *   node unmounts and a new one mounts, like React's replace.
- * - Pass 1 runs left-to-right (render/effect order matches React),
- *   mounting fresh nodes into detached fragments.
- * - Pass 3 walks right-to-left placing new nodes, and moving a kept node
- *   only when the list's own order changed (React's rule: it now stands
- *   after a node that used to follow it). Where a kept node sits among nodes
- *   this list does not own is never corrected: a portal's container holds
- *   other portals' nodes and nodes a library appended, and re-inserting a
- *   kept node to "fix" its place blurs the focused element inside it and
- *   restarts its animations.
+ * Reconcile the rendered nodes `old` with the child list `value` inside
+ * `parentDom`, new nodes going before `anchor` (null: at the end). Returns
+ * the new list of rendered nodes.
  */
-export function patchChildren(parentDom, old, newValues, anchor, svg, owner) {
-  /** @type {Array<number | string> | undefined} */
-  const slots = /** @type {any} */ (newValues).slots;
-  /** @type {Map<number | string, any> | null} */
-  let bySlot = null;
-  if (old.length > 0) {
-    bySlot = new Map();
-    for (let i = 0; i < old.length; i++) {
-      const rn = old[i];
-      rn._i = i;
-      // A duplicate key keeps the first; the others mount again.
-      if (!bySlot.has(rn.slot)) bySlot.set(rn.slot, rn);
+export function patchChildren(parentDom, old, value, anchor, svg, owner) {
+  const kids = flatten(value);
+  return reconcile(parentDom, old, kids, flatIds, flatLists, anchor, svg, owner, null);
+}
+
+/**
+ * Diff the rendered nodes `old` against the flat child list `kids`.
+ *
+ * - A child matches the old node in its place (its `id` in its `list`) when
+ *   the type is the same; otherwise the old node unmounts and a new one
+ *   mounts, like React's replace.
+ * - Children render left to right (render and effect order match React's),
+ *   and every child of the list has rendered before a removed one is cleaned
+ *   up and taken out.
+ * - A list that kept its places is patched where it stands: nothing is
+ *   looked up, no DOM node is read or moved. So is everything before and
+ *   after the part of a list that changed.
+ * - A new node is built in full before it enters the document, and enters it
+ *   once. In a list that had nothing it goes straight to its place; among
+ *   kept nodes it is placed after the whole list has rendered, right to left.
+ * - A kept node is moved only when the list's own order changed (React's
+ *   rule: it now stands after a node that used to follow it). Where a kept
+ *   node sits among nodes this list does not own is never corrected: a
+ *   portal's container holds other portals' nodes and nodes a library
+ *   appended, and re-inserting a kept node to "fix" its place blurs the
+ *   focused element inside it and restarts its animations.
+ *
+ * `inst`: the component whose output this is, when its place is not given
+ * (a component has no markers: its place is where its own nodes are); then
+ * `parentDom` and `anchor` are found from `old` if a node has to be placed.
+ */
+function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
+  const oldLen = old.length;
+  const newLen = kids.length;
+  const result = new Array(newLen);
+  if (oldLen === 0) return mountChildren(parentDom, kids, ids, lists, 0, newLen, result, anchor, svg, owner);
+
+  // --- The start of the list that kept its places: patched where it stands ---
+  let start = 0;
+  const min = oldLen < newLen ? oldLen : newLen;
+  while (start < min) {
+    const v = kids[start];
+    const kind = kindOf(v);
+    const rn = old[start];
+    if (!stays(rn, v, kind, ids, lists, start)) break;
+    result[start] = patchRNode(rn, v, kind, svg, owner);
+    start++;
+  }
+  if (start === oldLen) {
+    if (start === newLen) return result;
+    // Everything stayed, and children were added after it.
+    if (inst !== null) {
+      placeOf(inst, result, start);
+      parentDom = placeParent;
+      anchor = placeAnchor;
+    }
+    return mountChildren(parentDom, kids, ids, lists, start, newLen, result, anchor, svg, owner);
+  }
+
+  // --- The end of the list that kept its places (found now, patched in turn) ---
+  let oldEnd = oldLen;
+  let newEnd = newLen;
+  while (oldEnd > start && newEnd > start) {
+    const at = newEnd - 1;
+    const v = kids[at];
+    const kind = kindOf(v);
+    const rn = old[oldEnd - 1];
+    if (!stays(rn, v, kind, ids, lists, at)) break;
+    oldEnd--;
+    newEnd--;
+  }
+
+  if (newEnd === start) {
+    // Children left, and nothing else changed.
+    patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
+    for (let i = start; i < oldEnd; i++) unmountRNode(old[i], true);
+    return result;
+  }
+
+  if (oldEnd === start) {
+    // Children came, before the end that stayed: they go in front of its first node.
+    const ref = firstDomNode(old[oldEnd]);
+    const into = ref !== null ? ref.parentNode : null;
+    if (into !== null && (inst !== null || into === parentDom)) {
+      mountChildren(into, kids, ids, lists, start, newEnd, result, ref, svg, owner);
+      patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
+      return result;
     }
   }
 
-  const kept = new Set(); // matched old rnodes (stay mounted)
+  // --- The middle: children came, left or moved ---
+  /** @type {Map<number | string, any>} */
+  const byPlace = new Map();
+  for (let i = start; i < oldEnd; i++) {
+    const rn = old[i];
+    rn._i = i;
+    rn._kept = false;
+    // A duplicate key keeps the first; the others mount again.
+    const place = slotOf(rn.list, rn.id);
+    if (!byPlace.has(place)) byPlace.set(place, rn);
+  }
   let lastPlaced = -1; // the highest old index among the kept nodes so far
-  const result = new Array(newValues.length);
-
-  // --- Pass 1: match + patch, or mount into detached fragment ---
-  for (let i = 0; i < newValues.length; i++) {
-    const v = newValues[i];
+  for (let i = start; i < newEnd; i++) {
+    const v = kids[i];
     const kind = kindOf(v);
-    const slot = slots !== undefined ? slots[i] : i;
-    /** @type {any} */
-    let match = null;
-    if (bySlot !== null) {
-      const cand = bySlot.get(slot);
-      if (cand !== undefined && !kept.has(cand) && canPatch(cand, v, kind)) match = cand;
-    }
-
-    if (match) {
-      kept.add(match);
+    const id = ids !== null ? ids[i] : idOf(v, kind, i);
+    const list = lists !== null ? lists[i] : null;
+    const match = byPlace.get(slotOf(list, id));
+    if (match !== undefined && match._kept !== true && canPatch(match, v, kind)) {
+      match._kept = true;
       if (match._i < lastPlaced) match._move = true;
       else lastPlaced = match._i;
-      result[i] = patchRNode(match, v, kind, parentDom, svg, owner);
+      result[i] = patchRNode(match, v, kind, svg, owner);
     } else {
-      const frag = document.createDocumentFragment();
-      const rn = mountRNode(v, kind, frag, svg, owner);
-      rn._pendingFrag = frag;
-      rn.slot = slot;
+      // Built whole, outside the document; placed below.
+      const rn = mountRNode(v, kind, null, null, svg, owner);
+      rn.id = id;
+      rn.list = list;
+      rn._i = -1;
       result[i] = rn;
     }
   }
+  patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
 
-  // --- Pass 2: unmount old nodes that weren't kept ---
-  for (let i = 0; i < old.length; i++) {
-    const rn = old[i];
-    if (!kept.has(rn)) unmountRNode(rn, true);
+  // Where the middle ends: at the first node of the end that stayed, or
+  // where the list ends. Read while the nodes that leave are still there.
+  let ref = anchor;
+  if (inst !== null) {
+    placeOf(inst, old, oldLen);
+    parentDom = placeParent;
+    ref = placeAnchor;
+  }
+  if (newEnd < newLen) {
+    const first = firstDomNode(result[newEnd]);
+    if (first !== null && (parentDom === null || first.parentNode === parentDom)) ref = first;
   }
 
-  // --- Pass 3: position (right-to-left, moving anchor) ---
-  let ref = anchor; // insert before this node; null = append at end
-  for (let i = result.length - 1; i >= 0; i--) {
+  for (let i = start; i < oldEnd; i++) {
+    if (old[i]._kept !== true) unmountRNode(old[i], true);
+  }
+
+  if (parentDom === null) return result; // not in a document (its own nodes were taken out)
+  // A cleanup may have taken out a node this list does not own.
+  if (ref !== null && ref.parentNode !== parentDom) ref = anchor !== null && anchor.parentNode === parentDom ? anchor : null;
+
+  for (let i = newEnd - 1; i >= start; i--) {
     const rn = result[i];
-    if (rn._pendingFrag) {
-      parentDom.insertBefore(rn._pendingFrag, ref);
-      rn._pendingFrag = null;
-      const first = firstDomNode(rn);
-      if (first) ref = first;
-    } else {
-      const nodes = domNodesOf(rn);
-      if (nodes.length > 0) {
-        if (rn._move === true || nodes[0].parentNode !== parentDom) {
-          for (let n = 0; n < nodes.length; n++) parentDom.insertBefore(nodes[n], ref);
-        }
-        ref = nodes[0];
-      }
+    let first = firstDomNode(rn);
+    if (rn._i === -1 || rn._move === true || (first !== null && first.parentNode !== parentDom)) {
       rn._move = false;
+      placeRNode(rn, parentDom, ref);
+      first = firstDomNode(rn);
     }
+    if (first !== null) ref = first;
   }
-
   return result;
 }
 
-// The top-level DOM nodes `rn` owns, in tree order. A component's are its
-// two markers and what its output owns, found through the rendered tree and
-// never by walking siblings between the markers: a library may have moved one
-// of its elements (cmdk sorts its items in the DOM), and what a library
-// inserted between the markers is not the component's. React finds host
-// nodes the same way, through the fiber tree.
+// Whether the rendered node `rn` is the child `v` at index `i` of the list:
+// in the same place, and of a type it can be patched to.
+function stays(rn, v, kind, ids, lists, i) {
+  if (ids !== null) {
+    if (rn.id !== ids[i] || rn.list !== /** @type {any[]} */ (lists)[i]) return false;
+  } else {
+    if (rn.list !== null) return false;
+    const key = kind >= KIND_ELEMENT && typeof v === 'object' ? v.key : null;
+    if (key == null) {
+      if (rn.id !== i) return false;
+    } else if (rn.key !== key && rn.id !== idOf(v, kind, i)) {
+      // (The key it was mounted with, as it was given, is compared first:
+      // a row that stayed is found without making a string of its key.)
+      return false;
+    }
+  }
+  return canPatch(rn, v, kind);
+}
+
+// Patch the end of a list that kept its places: old[oldFrom..] are kids[newFrom..].
+function patchTail(old, oldFrom, kids, newFrom, result, svg, owner) {
+  for (let i = oldFrom, at = newFrom; i < old.length; i++, at++) {
+    const v = kids[at];
+    result[at] = patchRNode(old[i], v, kindOf(v), svg, owner);
+  }
+}
+
+// Mount kids[from..to) into `parentDom` before `before`, each in its place
+// as it is made (`parentDom` null: outside the document, to be placed).
+function mountChildren(parentDom, kids, ids, lists, from, to, result, before, svg, owner) {
+  let i = from;
+  try {
+    for (; i < to; i++) {
+      const v = kids[i];
+      const kind = kindOf(v);
+      const rn = mountRNode(v, kind, parentDom, before, svg, owner);
+      rn.id = ids !== null ? ids[i] : idOf(v, kind, i);
+      if (lists !== null) rn.list = lists[i];
+      result[i] = rn;
+    }
+  } catch (err) {
+    // A child threw as it mounted: what this list placed before it leaves
+    // with it (the component above resets its output, renderOutput).
+    if (parentDom !== null) {
+      for (let j = from; j < i; j++) removeNodes(domNodesOf(result[j]));
+    }
+    throw err;
+  }
+  return result;
+}
+
+/** Where a component's nodes are: set by placeOf(). */
+/** @type {any} */
+let placeParent = null;
+/** @type {any} */
+let placeAnchor = null;
+
+// The place of a component without markers, from the nodes it owns: the
+// parent of its last node, and the node after it. `rns[0..count)` are its
+// rendered nodes, all still in the document. A node a library took
+// elsewhere does not decide: the element the component was mounted in does,
+// when that is known.
+function placeOf(inst, rns, count) {
+  const host = inst._host;
+  for (let i = count - 1; i >= 0; i--) {
+    const node = lastDomNode(rns[i]);
+    if (node === null) continue;
+    const parent = node.parentNode;
+    if (parent !== null && (host === null || parent === host)) {
+      placeParent = parent;
+      placeAnchor = node.nextSibling;
+      return;
+    }
+  }
+  placeParent = host;
+  placeAnchor = null;
+}
+
+// The top-level DOM nodes `rn` owns, in tree order. A component's are what
+// its output owns, found through the rendered tree and never by walking
+// siblings: a library may have moved one of its elements (cmdk sorts its
+// items in the DOM), and what a library inserted next to them is not the
+// component's. React finds host nodes the same way, through the fiber tree.
 function domNodesOf(rn, out = []) {
   switch (rn.kind) {
     case KIND_HOLE:
@@ -663,10 +1074,8 @@ function domNodesOf(rn, out = []) {
       if (rn.dom) out.push(rn.dom);
       return out;
     case KIND_COMPONENT: {
-      out.push(rn.start);
       const rendered = rn.inst.rendered;
       for (let i = 0; i < rendered.length; i++) domNodesOf(rendered[i], out);
-      out.push(rn.end);
       return out;
     }
     case KIND_OPAQUE: {
@@ -684,16 +1093,44 @@ function domNodesOf(rn, out = []) {
   return out;
 }
 
-function removeNodes(nodes) {
-  for (let i = 0; i < nodes.length; i++) {
-    const parent = nodes[i].parentNode;
-    if (parent) parent.removeChild(nodes[i]);
+/** The top-level DOM nodes of what `inst` rendered (dom.js findDOMNode, Suspense). */
+export function _domNodes(inst) {
+  const out = [];
+  if (inst.start != null) {
+    // An island with markers: what stands between them.
+    for (let n = inst.start.nextSibling; n && n !== inst.end; n = n.nextSibling) out.push(n);
+    return out;
   }
+  const rendered = inst.rendered;
+  for (let i = 0; i < rendered.length; i++) domNodesOf(rendered[i], out);
+  return out;
+}
+
+/** The DOM node `inst`'s output stands in, or null before it is in one (hooks.js useFormStatus). */
+export function _hostParent(inst) {
+  if (inst.end != null) return inst.end.parentNode;
+  const rendered = inst.rendered;
+  for (let i = 0; i < rendered.length; i++) {
+    const node = firstDomNode(rendered[i]);
+    if (node !== null) return node.parentNode;
+  }
+  return inst._host;
+}
+
+function removeNodes(nodes) {
+  for (let i = 0; i < nodes.length; i++) nodes[i].remove();
 }
 
 function firstDomNode(rn) {
   switch (rn.kind) {
-    case KIND_COMPONENT:
+    case KIND_COMPONENT: {
+      const rendered = rn.inst.rendered;
+      for (let i = 0; i < rendered.length; i++) {
+        const node = firstDomNode(rendered[i]);
+        if (node !== null) return node;
+      }
+      return null;
+    }
     case KIND_OPAQUE:
       return rn.start;
     default:
@@ -701,31 +1138,77 @@ function firstDomNode(rn) {
   }
 }
 
-// ---- Mount ----
-
-function mountRNode(v, kind, container, svg, owner) {
-  switch (kind) {
-    case KIND_HOLE: {
-      const dom = document.createComment('w:h');
-      container.appendChild(dom);
-      return { kind, vnode: v, key: null, dom };
+function lastDomNode(rn) {
+  switch (rn.kind) {
+    case KIND_COMPONENT: {
+      const rendered = rn.inst.rendered;
+      for (let i = rendered.length - 1; i >= 0; i--) {
+        const node = lastDomNode(rendered[i]);
+        if (node !== null) return node;
+      }
+      return null;
     }
+    case KIND_OPAQUE:
+      return rn.end;
+    default:
+      return rn.dom || null;
+  }
+}
+
+// Put the top-level nodes of `rn` into `parentDom` before `ref`, in order.
+function placeRNode(rn, parentDom, ref) {
+  switch (rn.kind) {
+    case KIND_COMPONENT: {
+      const rendered = rn.inst.rendered;
+      for (let i = 0; i < rendered.length; i++) placeRNode(rendered[i], parentDom, ref);
+      return;
+    }
+    case KIND_OPAQUE: {
+      let n = rn.start;
+      const end = rn.end;
+      while (n) {
+        const next = n.nextSibling;
+        parentDom.insertBefore(n, ref);
+        if (n === end) break;
+        n = next;
+      }
+      return;
+    }
+    default:
+      if (rn.dom) parentDom.insertBefore(rn.dom, ref);
+  }
+}
+
+// ---- Mount ----
+// A node is made at its place: in `parentDom` before `before` (null: at the
+// end). With `parentDom` null it is made outside the document and placed by
+// the list it belongs to (placeRNode), once the list knows where.
+
+function mountRNode(v, kind, parentDom, before, svg, owner) {
+  switch (kind) {
     case KIND_TEXT: {
       const text = typeof v === 'string' ? v : String(v);
       const dom = document.createTextNode(text);
-      container.appendChild(dom);
-      return { kind, vnode: v, key: null, dom, text };
+      if (parentDom !== null) parentDom.insertBefore(dom, before);
+      return { kind, vnode: v, key: null, dom, id: 0, list: null, text };
     }
     case KIND_ELEMENT:
-      return mountElement(v, container, svg, owner);
+      return mountElement(v, parentDom, before, svg, owner);
     case KIND_COMPONENT:
-      return mountComponent(v, container, svg, owner);
+      return mountComponent(v, parentDom, before, svg, owner);
     case KIND_PORTAL:
-      return mountPortal(v, container, owner);
+      return mountPortal(v, parentDom, before, owner);
     case KIND_OPAQUE:
-      return mountOpaque(v, container);
+      return mountOpaque(v, parentDom, before);
   }
-  return { kind: KIND_HOLE, vnode: v, key: null, dom: container.appendChild(document.createComment('w:h')) };
+  return mountHole(v, parentDom, before);
+}
+
+// A hole (null, undefined, a boolean): a comment that holds its place.
+function mountHole(v, parentDom, before) {
+  const dom = document.createComment('w:h');
+  if (parentDom !== null) parentDom.insertBefore(dom, before);
+  return { kind: KIND_HOLE, vnode: v, key: null, dom, id: 0, list: null };
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -765,7 +1248,28 @@ export const SVG_ATTR_MAP = {
   tabIndex: 'tabindex',
 };
 
-function mountElement(v, container, svg, owner) {
+// The text of an element whose children are one string or number, or null.
+// Such an element holds its text as its content and no rendered node for it,
+// as React does: one DOM call writes it.
+function onlyText(kids) {
+  let only = kids;
+  if (Array.isArray(kids)) {
+    if (kids.length !== 1) return null;
+    only = kids[0];
+  }
+  if (typeof only === 'string') return only;
+  return typeof only === 'number' ? '' + only : null;
+}
+
+// Change an element's text content: the text node it has is kept when it is
+// all the element holds (React's setTextContent).
+function setText(el, text) {
+  const first = el.firstChild;
+  if (first !== null && first.nodeType === 3 && first.nextSibling === null) first.data = text;
+  else el.textContent = text;
+}
+
+function mountElement(v, parentDom, before, svg, owner) {
   const tag = v.tag;
   // `svg` is the host mode: false (HTML), true (inside an <svg>), or the
   // mirror of a portal into a document that is not the DOM's (below).
@@ -788,13 +1292,22 @@ function mountElement(v, container, svg, owner) {
   }
 
   const rn = {
-    kind: KIND_ELEMENT, vnode: v, key: v.key ?? null, dom: el,
-    children: /** @type {any[]} */ ([]), ref: props.ref || null,
+    kind: KIND_ELEMENT, vnode: v, key: v.key ?? null, dom: el, id: 0, list: null,
+    children: NO_RNODES, ref: props.ref || null,
+    /** @type {string | null} Its text, when its children are one string or number. */
+    text: null,
   };
 
-  // Children
-  const kids = normalizeChildren(v.children !== undefined ? v.children : props.children);
-  rn.children = patchChildren(el, [], kids, null, childSvg, owner);
+  // Children: into the element, in order, before the element is placed.
+  const raw = v.children !== undefined ? v.children : props.children;
+  const text = onlyText(raw);
+  if (text !== null) {
+    rn.text = text;
+    if (text !== '') el.textContent = text;
+  } else {
+    const kids = flatten(raw);
+    if (kids.length > 0) rn.children = mountChildren(el, kids, flatIds, flatLists, 0, kids.length, new Array(kids.length), null, childSvg, owner);
+  }
 
   // Controlled props after children (e.g. <select> options must exist)
   if (hasValue) setProperty(el, 'value', value, undefined, isSvgEl);
@@ -810,26 +1323,22 @@ function mountElement(v, container, svg, owner) {
   if (props.autoFocus === true) refQueue.push({ focus: true, el });
   if (rn.ref) refQueue.push({ rn, ref: rn.ref, el });
 
-  container.appendChild(el);
+  if (parentDom !== null) parentDom.insertBefore(el, before);
   return rn;
 }
 
-function mountComponent(v, container, svg, owner) {
+// A component has no nodes of its own: what it renders stands where the
+// component stands, and its place is found from those nodes (placeOf). It
+// always renders at least one (an empty output is a hole), so it has a place.
+function mountComponent(v, parentDom, before, svg, owner) {
   const tag = v.tag;
   const renderFn = (typeof tag === 'function' && tag._compatType) ? tag._compatType : tag;
-  const start = document.createComment('w$');
-  const end = document.createComment('/w$');
-  container.appendChild(start);
-  container.appendChild(end);
-
-  const inst = newInstance(renderFn, v.props || EMPTY_OBJ, v.key ?? null, owner, start, end, svg);
-
-  const rn = {
-    kind: KIND_COMPONENT, vnode: v, key: inst.key,
-    bridge: tag, inst, start, end,
-  };
-
-  renderInstance(inst);
+  const inst = newInstance(renderFn, v.props || EMPTY_OBJ, v.key ?? null, owner, null, null, svg);
+  // The element it stands in, when it is mounted into one (a fragment is
+  // only where it is built).
+  if (parentDom !== null && parentDom.nodeType === 1) inst._host = parentDom;
+  const rn = { kind: KIND_COMPONENT, vnode: v, key: inst.key, bridge: tag, inst, id: 0, list: null };
+  renderOutput(inst, parentDom, before, true);
   return rn;
 }
 
@@ -838,20 +1347,28 @@ function newInstance(type, props, key, parent, start, end, svg) {
     type,
     props,
     key,
-    hooks: [],
+    /** @type {any[] | null} Its hook slots, made by the first hook. */
+    hooks: null,
     hookIndex: 0,
     parent,
     depth: parent ? parent.depth + 1 : 0,
+    // Its markers, for an island a hydrating page holds a place for (the
+    // server's, or two of its own until the walk is over); null otherwise.
     start, end, svg,
-    rendered: [],
+    /** @type {any} The element its output stands in, when known (placeOf). */
+    _host: null,
+    rendered: NO_RNODES,
     unmounted: false,
     _renderPhaseUpdate: false,
-    _pendingInsertion: [],
-    _pendingLayout: [],
-    _pendingPassive: [],
-    _guardStart: 0,
-    _guardCount: 0,
+    /** @type {any[] | null} The effects a render queued, until its subtree has committed. */
+    _pendingInsertion: null,
+    /** @type {any[] | null} */
+    _pendingLayout: null,
+    /** @type {any[] | null} */
+    _pendingPassive: null,
     _track: null,
+    /** @type {(() => void) | null} What a signal read by a render calls (renderTracked). */
+    _tracker: null,
     _dispose: null,
     // The What owner native components rendered below this instance are
     // created under (an island's: where the island stands in native code).
@@ -859,22 +1376,22 @@ function newInstance(type, props, key, parent, start, end, svg) {
   };
 }
 
-function mountPortal(v, container, owner) {
+function mountPortal(v, parentDom, before, owner) {
   const dom = document.createComment('w:portal');
-  container.appendChild(dom);
+  if (parentDom !== null) parentDom.insertBefore(dom, before);
   const target = v.props && v.props.container;
-  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom, container: target || null, children: /** @type {any[]} */ ([]) };
+  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom, id: 0, list: null, container: target || null, children: NO_RNODES };
   if (!target) {
     console.warn('[what-react] createPortal: target container not found');
     return rn;
   }
   if (isForeignHost(target)) {
     rn.mirror = createMirror(target);
-    rn.children = patchChildren(rn.mirror.shadow, [], normalizeChildren(v.children), null, rn.mirror, owner);
+    rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner);
     return rn;
   }
   registerPortal(rn);
-  rn.children = patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner);
+  rn.children = patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner);
   return rn;
 }
 
@@ -945,10 +1462,13 @@ function disposeMirror(mirror) {
 // nodes inline between our own markers, and on unmount move them BACK into the
 // holder fragment, so core's disposer, which disposes the tree's root and
 // empties its container, removes them too.
-function mountOpaque(v, container) {
+function mountOpaque(v, parentDom, before) {
   const start = document.createComment('w:o');
   const end = document.createComment('/w:o');
-  container.appendChild(start);
+  // Several nodes: outside the document they stand in a fragment, which the
+  // list that places them empties (placeRNode).
+  const into = parentDom !== null ? parentDom : document.createDocumentFragment();
+  into.insertBefore(start, before);
 
   /** @type {(() => void) | null} */
   let dispose = null;
@@ -956,7 +1476,7 @@ function mountOpaque(v, container) {
   let holder = null;
   if (typeof v === 'object' && typeof v.nodeType === 'number') {
     // Raw DOM node — insert as-is, caller owns its lifecycle.
-    container.appendChild(v);
+    into.insertBefore(v, before);
   } else {
     holder = document.createDocumentFragment();
     try {
@@ -964,12 +1484,12 @@ function mountOpaque(v, container) {
     } catch (e) {
       console.error('[what-react] Failed to render What-native child:', e);
     }
-    container.appendChild(holder); // moves rendered nodes inline
+    into.insertBefore(holder, before); // moves rendered nodes inline
   }
-  container.appendChild(end);
+  into.insertBefore(end, before);
 
   return {
-    kind: KIND_OPAQUE, vnode: v, key: null, start, end,
+    kind: KIND_OPAQUE, vnode: v, key: null, start, end, id: 0, list: null,
     dispose: dispose && (() => {
       // Move everything between the markers back into the holder, which
       // core's disposer empties after disposing the tree's root.
@@ -986,11 +1506,12 @@ function mountOpaque(v, container) {
 
 // ---- Patch ----
 
-function patchRNode(rn, v, kind, parentDom, svg, owner) {
+function patchRNode(rn, v, kind, svg, owner) {
   switch (kind) {
-    case KIND_HOLE:
-      rn.vnode = v;
-      return rn;
+    case KIND_ELEMENT:
+      return patchElement(rn, v, svg, owner);
+    case KIND_COMPONENT:
+      return patchComponent(rn, v);
     case KIND_TEXT: {
       const text = typeof v === 'string' ? v : String(v);
       if (rn.text !== text) {
@@ -1000,17 +1521,11 @@ function patchRNode(rn, v, kind, parentDom, svg, owner) {
       rn.vnode = v;
       return rn;
     }
-    case KIND_ELEMENT:
-      return patchElement(rn, v, svg, owner);
-    case KIND_COMPONENT:
-      return patchComponent(rn, v);
     case KIND_PORTAL:
       return patchPortal(rn, v, owner);
-    case KIND_OPAQUE:
-      // identity-matched — nothing to do
-      rn.vnode = v;
-      return rn;
   }
+  // A hole, or an opaque node (matched by identity): nothing to do.
+  rn.vnode = v;
   return rn;
 }
 
@@ -1031,20 +1546,18 @@ function patchElement(rn, v, svg, owner) {
     // Changed props (value/checked re-asserted after children)
     let value, checked, hasValue = false, hasChecked = false;
     for (const name in newProps) {
-      if (name === 'children' || name === 'key' || name === 'ref') continue;
-      if (name === 'value') { value = newProps[name]; hasValue = true; continue; }
-      if (name === 'checked') { checked = newProps[name]; hasChecked = true; continue; }
-      if (oldProps[name] !== newProps[name]) {
-        setProperty(el, name, newProps[name], oldProps[name], isSvgEl);
+      const next = newProps[name];
+      if (name === 'value') { value = next; hasValue = true; continue; }
+      if (name === 'checked') { checked = next; hasChecked = true; continue; }
+      if (oldProps[name] !== next && name !== 'children' && name !== 'key' && name !== 'ref') {
+        setProperty(el, name, next, oldProps[name], isSvgEl);
       }
     }
 
     // An uncontrolled select that had no options yet (they load later).
     const emptySelect = v.tag === 'select' && value == null && el.options !== undefined && el.options.length === 0;
 
-    // Children
-    const kids = normalizeChildren(v.children !== undefined ? v.children : newProps.children);
-    rn.children = patchChildren(el, rn.children, kids, null, childSvg, owner);
+    patchElementChildren(rn, v, newProps, childSvg, owner);
 
     if (hasValue) setProperty(el, 'value', value, oldProps.value, isSvgEl);
     if (hasChecked) setProperty(el, 'checked', checked, oldProps.checked, isSvgEl);
@@ -1060,12 +1573,40 @@ function patchElement(rn, v, svg, owner) {
   } else {
     // Same props object — still recurse children (descendant components may
     // need the render cascade; bailouts happen at component level).
-    const kids = normalizeChildren(v.children !== undefined ? v.children : newProps.children);
-    rn.children = patchChildren(el, rn.children, kids, null, childSvg, owner);
+    patchElementChildren(rn, v, newProps, childSvg, owner);
   }
 
   rn.vnode = v;
   return rn;
+}
+
+function patchElementChildren(rn, v, props, childSvg, owner) {
+  const el = rn.dom;
+  const raw = v.children !== undefined ? v.children : props.children;
+  const text = onlyText(raw);
+  if (text !== null) {
+    if (rn.text === null) {
+      // It held rendered nodes: they leave, the text is its content.
+      const children = rn.children;
+      if (children.length > 0) {
+        for (let i = 0; i < children.length; i++) unmountRNode(children[i], true);
+        rn.children = NO_RNODES;
+      }
+      rn.text = text;
+      if (text !== '' || el.firstChild !== null) setText(el, text);
+    } else if (rn.text !== text) {
+      rn.text = text;
+      setText(el, text);
+    }
+    return;
+  }
+  if (rn.text !== null) {
+    if (rn.text !== '') el.textContent = '';
+    rn.text = null;
+  }
+  const kids = flatten(raw);
+  if (kids.length === 0 && rn.children.length === 0) return;
+  rn.children = reconcile(el, rn.children, kids, flatIds, flatLists, null, childSvg, owner, null);
 }
 
 function patchComponent(rn, v) {
@@ -1074,7 +1615,7 @@ function patchComponent(rn, v) {
   const oldVnode = rn.vnode;
   rn.vnode = v;
 
-  const selfDirty = dirtyQueue.has(inst);
+  const selfDirty = dirtyQueue.size > 0 && dirtyQueue.has(inst);
 
   // Identical element bailout (same vnode object, no pending self update) —
   // context consumers below still update via their own subscriptions.
@@ -1090,31 +1631,31 @@ function patchComponent(rn, v) {
   }
 
   inst.props = newProps;
-  renderInstance(inst);
+  renderOutput(inst, null, null, false);
   return rn;
 }
 
 function patchPortal(rn, v, owner) {
   const target = v.props && v.props.container;
   if (target === rn.container && rn.mirror !== undefined) {
-    rn.children = patchChildren(rn.mirror.shadow, rn.children, normalizeChildren(v.children), null, rn.mirror, owner);
+    rn.children = patchChildren(rn.mirror.shadow, rn.children, v.children, null, rn.mirror, owner);
   } else if (target === rn.container) {
     if (target) {
-      rn.children = patchChildren(target, rn.children, normalizeChildren(v.children), null, targetSvg(target), owner);
+      rn.children = patchChildren(target, rn.children, v.children, null, targetSvg(target), owner);
     }
   } else {
     teardown(rn); // its children leave the old container
     rn.container = target || null;
     if (target && isForeignHost(target)) {
       rn.mirror = createMirror(target);
-      rn.children = patchChildren(rn.mirror.shadow, [], normalizeChildren(v.children), null, rn.mirror, owner);
+      rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner);
       rn.vnode = v;
       return rn;
     }
     if (target) registerPortal(rn);
     rn.children = target
-      ? patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner)
-      : [];
+      ? patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner)
+      : NO_RNODES;
   }
   rn.vnode = v;
   return rn;
@@ -1132,11 +1673,11 @@ export function unmountRNode(rn, removeDom) {
   switch (rn.kind) {
     case KIND_HOLE:
     case KIND_TEXT:
-      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      if (removeDom) rn.dom.remove();
       return;
     case KIND_ELEMENT:
       teardown(rn);
-      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      if (removeDom) rn.dom.remove();
       return;
     case KIND_COMPONENT: {
       // Its nodes are listed before the unmount empties the tree.
@@ -1147,7 +1688,7 @@ export function unmountRNode(rn, removeDom) {
     }
     case KIND_PORTAL:
       teardown(rn);
-      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      if (removeDom) rn.dom.remove();
       return;
     case KIND_OPAQUE:
       teardown(rn);
@@ -1166,7 +1707,11 @@ function teardown(rn) {
         rn.ref = null; // invalidates any queued mount-time ref entry
       }
       const children = rn.children;
-      for (let i = 0; i < children.length; i++) teardown(children[i]);
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        // Text and holes have nothing to clean up.
+        if (child.kind >= KIND_ELEMENT) teardown(child);
+      }
       return;
     }
     case KIND_COMPONENT:
@@ -1192,7 +1737,7 @@ function teardown(rn) {
 function teardownInstance(inst) {
   if (inst.unmounted) return;
   inst.unmounted = true;
-  dirtyQueue.delete(inst);
+  if (dirtyQueue.size > 0) dirtyQueue.delete(inst);
   if (inst._track != null) {
     const stop = inst._track;
     inst._track = null;
@@ -1202,21 +1747,23 @@ function teardownInstance(inst) {
   // Its own insertion and layout cleanups (useSyncExternalStore's
   // subscription is one), in hook order; the passive ones are queued.
   const hooks = inst.hooks;
-  for (let i = 0; i < hooks.length; i++) {
-    const slot = hooks[i];
-    if (slot === undefined || slot._effect === undefined || !slot.cleanup) continue;
-    const cleanup = slot.cleanup;
-    slot.cleanup = null;
-    if (slot._effect === EFFECT_PASSIVE) unmountedPassive.push(cleanup);
-    else {
-      try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+  if (hooks !== null) {
+    for (let i = 0; i < hooks.length; i++) {
+      const slot = hooks[i];
+      if (slot === undefined || slot._effect === undefined || !slot.cleanup) continue;
+      const cleanup = slot.cleanup;
+      slot.cleanup = null;
+      if (slot._effect === EFFECT_PASSIVE) unmountedPassive.push(cleanup);
+      else {
+        try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+      }
     }
   }
 
   // Then its children's.
   const rendered = inst.rendered;
   for (let i = 0; i < rendered.length; i++) teardown(rendered[i]);
-  inst.rendered = [];
+  inst.rendered = NO_RNODES;
 
   // What a component owns outside the compat tree (a native component's
   // What root, mixed.js).
@@ -1262,23 +1809,17 @@ function removeRange(start, end) {
 // Render — execute a component function with hook dispatcher + reconcile
 // =====================================================================
 
+/** Render a mounted component again and reconcile its output where it stands. */
 export function renderInstance(inst) {
-  if (inst.unmounted) return;
-  dirtyQueue.delete(inst);
+  renderOutput(inst, null, null, false);
+}
 
-  // Time-window loop guard (independent of the flush-cycle guard): protects
-  // against effect→setState→effect chains across microtasks.
-  const now = Date.now();
-  if (now - inst._guardStart > 200) {
-    inst._guardStart = now;
-    inst._guardCount = 0;
-  }
-  if (++inst._guardCount > 250) {
-    if (inst._guardCount === 251) {
-      console.error(`[what-react] Too many re-renders for <${inst.type.displayName || inst.type.name || 'Anonymous'}> (>250 in 200ms). Possible infinite loop — skipping renders.`);
-    }
-    return;
-  }
+// Run `inst`'s component function and commit what it returned. `mounting`:
+// its first render, into `parentDom` before `before` (`parentDom` null:
+// outside the document, for the list that mounts it to place).
+function renderOutput(inst, parentDom, before, mounting) {
+  if (inst.unmounted) return;
+  if (!mounting && dirtyQueue.size > 0) dirtyQueue.delete(inst);
 
   let out;
   let renderPhaseLoops = 0;
@@ -1292,6 +1833,8 @@ export function renderInstance(inst) {
     } catch (err) {
       currentInstance = prev;
       dropPending(inst);
+      // A component that never rendered still needs a node to stand at.
+      if (mounting && inst.end === null) inst.rendered = [mountHole(null, parentDom, before)];
       handleRenderError(inst, err, false);
       return;
     }
@@ -1302,27 +1845,71 @@ export function renderInstance(inst) {
     }
   } while (inst._renderPhaseUpdate);
 
-  const parentDom = inst.end.parentNode;
   try {
-    inst.rendered = patchChildren(parentDom, inst.rendered, normalizeChildren(out), inst.end, inst.svg, inst);
+    let kids = flatten(out);
+    let ids = flatIds;
+    let lists = flatLists;
+    const end = inst.end;
+    if (end !== null) {
+      // An island with markers: between them.
+      inst.rendered = reconcile(end.parentNode, inst.rendered, kids, ids, lists, end, inst.svg, inst, null);
+    } else {
+      // A component that renders nothing renders a hole: it has a place.
+      if (kids.length === 0) { kids = HOLE_KIDS; ids = null; lists = null; }
+      inst.rendered = mounting
+        ? mountChildren(parentDom, kids, ids, lists, 0, kids.length, new Array(kids.length), before, inst.svg, inst)
+        : reconcile(null, inst.rendered, kids, ids, lists, null, inst.svg, inst, inst);
+    }
   } catch (err) {
     // Subtree commit failed (a descendant threw). Reset this instance's output
     // and route the error/suspension. Cleanups of partially-mounted children
     // may not run — documented limitation.
-    removeRangeContents(inst.start, inst.end);
-    inst.rendered = [];
+    resetOutput(inst, parentDom, before, mounting);
     dropPending(inst);
     handleRenderError(inst, err, true);
     return;
   }
 
   // Queue own effects after the subtree's (children queued theirs during patch).
-  for (const e of inst._pendingInsertion) insertionQueue.push(e);
-  inst._pendingInsertion.length = 0;
-  for (const e of inst._pendingLayout) layoutQueue.push(e);
-  inst._pendingLayout.length = 0;
-  for (const e of inst._pendingPassive) passiveQueue.push(e);
-  inst._pendingPassive.length = 0;
+  let pending = inst._pendingInsertion;
+  if (pending !== null && pending.length > 0) {
+    for (let i = 0; i < pending.length; i++) insertionQueue.push(pending[i]);
+    pending.length = 0;
+  }
+  pending = inst._pendingLayout;
+  if (pending !== null && pending.length > 0) {
+    for (let i = 0; i < pending.length; i++) layoutQueue.push(pending[i]);
+    pending.length = 0;
+  }
+  pending = inst._pendingPassive;
+  if (pending !== null && pending.length > 0) {
+    for (let i = 0; i < pending.length; i++) passiveQueue.push(pending[i]);
+    pending.length = 0;
+  }
+}
+
+// What `inst` rendered goes, and a hole stands where it stood, so the
+// component keeps its place for the render that follows (a boundary's
+// fallback, the content once it has loaded).
+function resetOutput(inst, parentDom, before, mounting) {
+  if (inst.end !== null) {
+    removeRangeContents(inst.start, inst.end);
+    inst.rendered = NO_RNODES;
+    return;
+  }
+  if (mounting) {
+    // What the failed mount had placed went with it (mountChildren).
+    inst.rendered = [mountHole(null, parentDom, before)];
+    return;
+  }
+  const nodes = _domNodes(inst);
+  const hole = mountHole(null, null, null);
+  for (let i = 0; i < nodes.length; i++) {
+    const parent = nodes[i].parentNode;
+    if (parent !== null) { parent.insertBefore(hole.dom, nodes[i]); break; }
+  }
+  removeNodes(nodes);
+  inst.rendered = [hole];
 }
 
 // A render reads What signals under a tracker of its own, never an enclosing
@@ -1333,6 +1920,29 @@ export function renderInstance(inst) {
 // the next render or the unmount disposes it. One that read nothing keeps
 // nothing (what-core releases an effect with no dependencies).
 const NOT_THROWN = {};
+// The render in progress, for the tracker's first run (no closure per render).
+let trackFirst = false;
+let trackOut;
+let trackThrown = NOT_THROWN;
+/** @type {any} */
+let trackInst = null;
+
+function startTracker() {
+  return effect(trackInst._tracker);
+}
+
+function makeTracker(inst) {
+  return () => {
+    if (trackFirst) {
+      trackFirst = false;
+      // Caught here, not by the effect: the render's error (a thrown thenable
+      // included) goes to the compat boundaries, never to what-core's.
+      try { trackOut = inst.type(inst.props); } catch (err) { trackThrown = err; }
+    } else if (!inst.unmounted) {
+      scheduleUpdate(inst);
+    }
+  };
+}
 
 function renderTracked(inst) {
   const prev = inst._track;
@@ -1340,20 +1950,16 @@ function renderTracked(inst) {
     inst._track = null;
     prev();
   }
-  let out;
-  let thrown = NOT_THROWN;
-  let first = true;
-  const stop = runWithOwner(null, () => effect(() => {
-    if (first) {
-      first = false;
-      // Caught here, not by the effect: the render's error (a thrown thenable
-      // included) goes to the compat boundaries, never to what-core's.
-      try { out = inst.type(inst.props); } catch (err) { thrown = err; }
-    } else if (!inst.unmounted) {
-      scheduleUpdate(inst);
-    }
-  }));
-  if (thrown !== NOT_THROWN) {
+  if (inst._tracker === null) inst._tracker = makeTracker(inst);
+  trackFirst = true;
+  trackInst = inst;
+  const stop = runWithOwner(null, startTracker);
+  trackInst = null;
+  const out = trackOut;
+  trackOut = undefined;
+  if (trackThrown !== NOT_THROWN) {
+    const thrown = trackThrown;
+    trackThrown = NOT_THROWN;
     stop();
     throw thrown;
   }
@@ -1418,8 +2024,9 @@ function handleRenderError(inst, err, fromChildren) {
  * text nodes are emptied.
  */
 export function _setRangeHidden(inst, hidden) {
-  if (!inst.start) return;
-  for (let n = inst.start.nextSibling; n && n !== inst.end; n = n.nextSibling) {
+  const nodes = _domNodes(inst);
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
     if (n.nodeType === 1 && n.style) {
       if (hidden) {
         if (n._compatDisplay === undefined) {
@@ -1449,21 +2056,21 @@ export function _setRangeHidden(inst, hidden) {
 
 export function mountRoot(element, container) {
   const isSvg = typeof SVGElement !== 'undefined' && container instanceof SVGElement;
-  const rns = runInCommit(() => patchChildren(container, [], normalizeChildren(element), null, isSvg, null));
+  const rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, isSvg, null));
   return { container, rns };
 }
 
 export function patchRoot(root, element) {
   _flushPendingPassive();
   const isSvg = typeof SVGElement !== 'undefined' && root.container instanceof SVGElement;
-  root.rns = runInCommit(() => patchChildren(root.container, root.rns, normalizeChildren(element), null, isSvg, null));
+  root.rns = runInCommit(() => patchChildren(root.container, root.rns, element, null, isSvg, null));
   return root;
 }
 
 export function unmountRoot(root) {
   runInCommit(() => {
     for (const rn of root.rns) unmountRNode(rn, true);
-    root.rns = [];
+    root.rns = NO_RNODES;
   });
   _flushUnmounted();
 }
@@ -1474,15 +2081,25 @@ export function unmountRoot(root) {
 
 /**
  * Mount `view` (a function returning what-react elements) as a compat root
- * instance between two markers in `container`. The instance renders `view`
- * like a component body: every signal `view` reads while it builds the
- * elements (a native value in a prop) schedules a re-render, which reconciles
- * against the last one, so React state below survives. `parent` is the compat
- * instance the island stands inside (React context, Suspense and error
- * boundaries reach through it), `nativeOwner` the What owner where it stands
- * (native components below it are created under that owner).
+ * instance in `container`. The instance renders `view` like a component
+ * body: every signal `view` reads while it builds the elements (a native
+ * value in a prop) schedules a re-render, which reconciles against the last
+ * one, so React state below survives. `parent` is the compat instance the
+ * island stands inside (React context, Suspense and error boundaries reach
+ * through it), `nativeOwner` the What owner where it stands (native
+ * components below it are created under that owner).
+ *
+ * Like a component, the island has no markers: its place is where its nodes
+ * are, and it always has one. A deferred island has none yet, so it holds
+ * its place with two markers of its own.
  */
 export function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
+  if (!deferred) {
+    const inst = newInstance(view, EMPTY_OBJ, null, parent, null, null, !!svg);
+    inst._nativeOwner = nativeOwner;
+    runInCommit(() => renderOutput(inst, container, null, true));
+    return inst;
+  }
   const start = document.createComment('w$');
   const end = document.createComment('/w$');
   container.appendChild(start);
@@ -1491,8 +2108,7 @@ export function mountIsland(view, container, parent, nativeOwner, svg, deferred)
   inst._nativeOwner = nativeOwner;
   // While a server page hydrates, the island is two markers until the walk
   // is over: the server wrote nothing for it, so there is nothing to claim.
-  if (deferred) queueMicrotask(() => { if (!inst.unmounted) runInCommit(() => renderInstance(inst)); });
-  else runInCommit(() => renderInstance(inst));
+  queueMicrotask(() => { if (!inst.unmounted) runInCommit(() => renderInstance(inst)); });
   return inst;
 }
 
@@ -1537,7 +2153,15 @@ export function _island(view, svg) {
     const region = _claimRegion();
     if (region !== null) {
       const adopted = adoptIsland(view, region[0], region[1], parent, owner, svg);
-      whatOnCleanup(() => unmountIsland(adopted));
+      whatOnCleanup(() => {
+        unmountIsland(adopted);
+        // What the native code around the island knows of it is the nodes
+        // the server wrote, recorded during the walk; the island's client
+        // render took their place after it. So the island takes its own
+        // nodes out, while its brackets are still in the page (the native
+        // code removes those).
+        if (region[1].parentNode !== null && region[1].parentNode === region[0].parentNode) removeRangeContents(region[0], region[1]);
+      });
       return null;
     }
   }
@@ -1847,29 +2471,90 @@ function isReactChange(native) {
 // object per native event and React type, as in React: onInput and onChange
 // on one `input` event each get their own, and a handler that keeps its
 // event still reads the type it was called with.
+//
+// The fields are copied when the event is made, except the four the browser
+// can only answer by laying the page out (`offsetX`, `offsetY`, `layerX`,
+// `layerY`): those are read from the native event when a handler asks, so an
+// event whose handlers never ask forces no layout. React's synthetic event
+// has no such fields at all (`e.nativeEvent.offsetX` is the React idiom), so
+// they are getters on the prototype and a copy leaves them out, as it leaves
+// out React's methods.
+/** @this {any} */
+function SyntheticEvent(native, type) {
+  this.nativeEvent = native;
+  this.type = type;
+  this.currentTarget = null;
+  this.defaultPrevented = native.defaultPrevented;
+}
+
+SyntheticEvent.prototype = {
+  constructor: SyntheticEvent,
+  preventDefault() { this.defaultPrevented = true; this.nativeEvent.preventDefault(); },
+  stopPropagation() { this.nativeEvent.stopPropagation(); },
+  isDefaultPrevented() { return this.nativeEvent.defaultPrevented; },
+  // The browser sets cancelBubble when stopPropagation() is called.
+  isPropagationStopped() { return this.nativeEvent.cancelBubble === true; },
+  persist() {},
+  isPersistent() { return true; },
+  getModifierState(key) {
+    const native = this.nativeEvent;
+    return typeof native.getModifierState === 'function' ? native.getModifierState(key) : false;
+  },
+};
+
+for (const field of ['offsetX', 'offsetY', 'layerX', 'layerY']) {
+  Object.defineProperty(SyntheticEvent.prototype, field, {
+    configurable: true,
+    /** @this {any} */
+    get() { return this.nativeEvent[field]; },
+    /** @this {any} */
+    set(value) { Object.defineProperty(this, field, { value, writable: true, enumerable: true, configurable: true }); },
+  });
+}
+
+// What a synthetic event sets itself, or reads late (above).
+const NOT_COPIED = new Set(['type', 'currentTarget', 'defaultPrevented', 'nativeEvent', 'offsetX', 'offsetY', 'layerX', 'layerY']);
+
+/**
+ * The fields a native event's prototypes declare (enumerable accessors and
+ * constants: for-in sees them), once per prototype.
+ * @type {WeakMap<object, string[]>}
+ */
+const eventFields = new WeakMap();
+
+function fieldsOf(native) {
+  const proto = Object.getPrototypeOf(native);
+  let fields = eventFields.get(proto);
+  if (fields === undefined) {
+    fields = [];
+    for (const key in native) {
+      if (NOT_COPIED.has(key) || Object.prototype.hasOwnProperty.call(native, key)) continue;
+      if (typeof native[key] !== 'function') fields.push(key);
+    }
+    eventFields.set(proto, fields);
+  }
+  return fields;
+}
+
 function syntheticEvent(native, type) {
   let byType = native._compatSynthetic;
   if (byType !== undefined) {
     const made = byType[type];
     if (made !== undefined) return made;
   }
-  const event = {};
-  // DOM event fields are enumerable accessors on the prototypes: for-in sees them.
-  for (const key in native) {
+  const event = new SyntheticEvent(native, type);
+  const fields = fieldsOf(native);
+  for (let i = 0; i < fields.length; i++) event[fields[i]] = native[fields[i]];
+  // The event's own properties: `isTrusted`, and what a script put on it (a
+  // test's `dataTransfer` on an event jsdom has no class for).
+  const own = Object.keys(native);
+  for (let i = 0; i < own.length; i++) {
+    const key = own[i];
+    // What this runtime keeps on the native event is not the event's.
+    if (NOT_COPIED.has(key) || key.startsWith('_compat') || key === '_reactPath') continue;
     const value = native[key];
     if (typeof value !== 'function') event[key] = value;
   }
-  event.type = type;
-  event.currentTarget = null;
-  event.nativeEvent = native;
-  event.preventDefault = function () { this.defaultPrevented = true; native.preventDefault(); };
-  event.stopPropagation = function () { native.stopPropagation(); };
-  event.isDefaultPrevented = function () { return native.defaultPrevented; };
-  // The browser sets cancelBubble when stopPropagation() is called.
-  event.isPropagationStopped = function () { return native.cancelBubble === true; };
-  event.persist = noop;
-  event.isPersistent = returnTrue;
-  if (typeof native.getModifierState === 'function') event.getModifierState = (key) => native.getModifierState(key);
   if (byType === undefined) {
     byType = {};
     try { native._compatSynthetic = byType; } catch { /* a frozen event: one object per call */ }
@@ -1877,8 +2562,6 @@ function syntheticEvent(native, type) {
   byType[type] = event;
   return event;
 }
-
-function returnTrue() { return true; }
 
 // The type React reports for a native event it listens to under another name.
 const REACT_TYPE = { focusin: 'focus', focusout: 'blur' };
@@ -2080,7 +2763,6 @@ function bridgeBubble(e) {
   }
 }
 
-function noop() {}
 
 function setEvent(el, name, value) {
   let base = name.slice(2);

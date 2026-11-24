@@ -7,7 +7,7 @@
   "main": "src/index.js",
   "types": "index.d.ts",
   "scripts": {
-    "test": "node --test 'test/*.test.js'"
+    "test": "node --test test/*.test.js"
   },
   "exports": {
     ".": {

@@ -1,6 +1,7 @@
 // fixture.jsx as a native What file: signals for state, <Virtuoso> is an island.
 import { signal } from 'what-framework';
 import { Virtuoso } from 'react-virtuoso';
+import { Item } from './parts.jsx';
 
 export default function Native() {
   const ref = { current: null };
@@ -21,11 +22,7 @@ export default function Native() {
         style={{ height: 300, width: 300 }}
         totalCount={count()}
         rangeChanged={(r) => range(`${r.startIndex}-${r.endIndex}`)}
-        itemContent={(index) => (
-          <div className="rv-row" data-index={index} style={{ height: index % 3 === 0 ? 40 : 24 }} onClick={() => picked(index)}>
-            Item {index}
-          </div>
-        )}
+        itemContent={(index) => <Item index={index} onPick={(i) => picked(i)} />}
       />
     </div>
   );

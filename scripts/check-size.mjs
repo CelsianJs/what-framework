@@ -403,6 +403,60 @@ function App() {
 hydrate(<App />, document.getElementById('app'));
 `;
 
+// Scenario (l): a React app on what-react (REACT-COMPAT.md, full compat): the
+// counter as React code writes it, built with reactCompat() alone, which
+// aliases react and react-dom/client to what-react. What an app pays for the
+// React-compatible runtime: the reconciler, the hooks, the synthetic events
+// and the controlled fields, on top of the part of what-core they stand on.
+const reactCounter = `
+import { useEffect, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+
+function Counter() {
+  const [count, setCount] = useState(0);
+  useEffect(() => { document.title = 'count ' + count; }, [count]);
+  return (
+    <main>
+      <h1>Counter</h1>
+      <button onClick={() => setCount(count - 1)}>-</button>
+      <output>{count}</output>
+      <button onClick={() => setCount(count + 1)}>+</button>
+    </main>
+  );
+}
+
+createRoot(document.getElementById('app')).render(<Counter />);
+`;
+
+// A production `vite build` with what-react's plugin alone: every JSX file is
+// React code, and what-core resolves to its production dist.
+async function reactCompatBundle(name, source) {
+  const { build: viteBuild } = await import('vite');
+  const { reactCompat } = await import('../packages/react-compat/src/vite-plugin.js');
+  const entry = join(repoRoot, `${name}.jsx`);
+  // The plugin announces itself on the console.
+  const log = console.log;
+  console.log = () => {};
+  let output;
+  try {
+    output = await viteBuild({
+      configFile: false,
+      root: repoRoot,
+      logLevel: 'silent',
+      mode: 'production',
+      plugins: [
+        { name: 'size-entry', enforce: 'pre', resolveId: (id) => (id === entry ? entry : null), load: (id) => (id === entry ? source : null) },
+        reactCompat(),
+      ],
+      build: { write: false, minify: true, target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
+    });
+  } finally {
+    console.log = log;
+  }
+  const chunks = (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk');
+  return Buffer.concat(chunks.map((c) => Buffer.from(c.code)));
+}
+
 const scenarios = {
   'core-counter': () => esbuildBundle('core-counter', { source: coreCounter, loader: 'js' }),
   'esbuild-default-counter': () => esbuildDefaultBundle('esbuild-default-counter', coreCounter),
@@ -417,6 +471,7 @@ const scenarios = {
   'async-app': () => viteBundle('async-app', { source: asyncApp }),
   'data-app': () => viteBundle('data-app', { source: dataApp }),
   'compiled-hydrate': () => viteBundle('compiled-hydrate', { source: hydratingCounter, hydratable: true }),
+  'react-counter': () => reactCompatBundle('react-counter', reactCounter),
 };
 
 const kb = (n) => `${(n / 1024).toFixed(2)} KB`;
