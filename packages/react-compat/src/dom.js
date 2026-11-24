@@ -15,6 +15,7 @@ import {
   flushUpdates,
   _flushPassive,
 } from './runtime.js';
+import { useFormStatus, useActionState } from './hooks.js';
 
 // ---- createRoot (React 18) ----
 
@@ -119,6 +120,14 @@ export function flushSync(fn) {
 export function findDOMNode(component) {
   if (component == null) return null;
   if (typeof Element !== 'undefined' && component instanceof Element) return component;
+  // A class component's instance: the first element or text it rendered.
+  const inst = component._compatInst;
+  if (inst && inst.start) {
+    for (let n = inst.start.nextSibling; n && n !== inst.end; n = n.nextSibling) {
+      if (n.nodeType === 1 || n.nodeType === 3) return n;
+    }
+    return null;
+  }
   if (component._domNode) return component._domNode;
   if (component._ref && component._ref.current instanceof Element) return component._ref.current;
   return null;
@@ -126,11 +135,32 @@ export function findDOMNode(component) {
 
 // ---- batching ----
 
-export function unstable_batchedUpdates(fn) {
-  const result = fn();
-  flushUpdates();
-  return result;
+// Every update is batched already (one render per microtask flush), so this
+// only runs `fn`, as React 18's does. It does not render before it returns:
+// the code after the call still sees the DOM of the last commit.
+export function unstable_batchedUpdates(fn, a) {
+  return fn(a);
 }
+
+// ---- React 19: form status, form actions, resource hints ----
+
+export { useFormStatus } from './hooks.js';
+// React 18's name for useActionState.
+export { useActionState as useFormState } from './hooks.js';
+
+/** Reset a form's uncontrolled fields, as React does after a form action. */
+export function requestFormReset(form) {
+  if (form && typeof form.reset === 'function') form.reset();
+}
+
+// Resource hints: React writes <link> tags for these. They only tune loading,
+// so here they do nothing.
+export function preload() {}
+export function preloadModule() {}
+export function preinit() {}
+export function preinitModule() {}
+export function preconnect() {}
+export function prefetchDNS() {}
 
 // ---- Version ----
 export const version = '18.3.1';
@@ -145,6 +175,15 @@ const ReactDOM = {
   flushSync,
   findDOMNode,
   unstable_batchedUpdates,
+  useFormStatus,
+  useFormState: useActionState,
+  requestFormReset,
+  preload,
+  preloadModule,
+  preinit,
+  preinitModule,
+  preconnect,
+  prefetchDNS,
   version,
 };
 

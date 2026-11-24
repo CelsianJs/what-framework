@@ -143,7 +143,13 @@ export function scheduleUpdate(inst) {
 export function flushUpdates() {
   flushScheduled = false;
   let cycles = 0;
-  while (dirtyQueue.size > 0) {
+  for (;;) {
+    // React runs the last commit's passive effects before it renders again:
+    // an effect never sees a later render's values first, and what it
+    // registered (a listener, a layer in a registry) is in place before a
+    // render reads it.
+    _flushPendingPassive();
+    if (dirtyQueue.size === 0) break;
     if (++cycles > 100) {
       dirtyQueue.clear();
       console.error('[what-react] Update loop guard tripped: more than 100 render cycles in one flush. Possible infinite re-render loop.');
@@ -155,12 +161,35 @@ export function flushUpdates() {
     runInCommit(() => {
       for (const inst of batch) {
         if (dirtyQueue.has(inst) && !inst.unmounted) {
+          const layoutFrom = layoutQueue.length;
+          const passiveFrom = passiveQueue.length;
           renderInstance(inst);
+          childEffectsFirst(layoutQueue, layoutFrom, inst);
+          childEffectsFirst(passiveQueue, passiveFrom, inst);
         }
       }
     });
     // Layout effects ran on commit exit — they may have queued more updates.
   }
+}
+
+// A commit runs a component's effects after its descendants' (React's
+// order), also when both were re-rendered on their own in one batch: the
+// parent rendered first and did not reach the child (a store subscription
+// re-rendered each), so the child's effects, queued from `from` on, move in
+// front of the first effect of one of its ancestors.
+function childEffectsFirst(queue, from, inst) {
+  if (from === 0 || queue.length === from) return;
+  let at = -1;
+  for (let i = 0; i < from && at === -1; i++) {
+    const other = queue[i].inst;
+    for (let p = inst.parent; p != null && p.depth >= other.depth; p = p.parent) {
+      if (p === other) { at = i; break; }
+    }
+  }
+  if (at === -1) return;
+  const moved = queue.splice(from);
+  queue.splice(at, 0, ...moved);
 }
 
 // =====================================================================
@@ -182,6 +211,7 @@ export function runInCommit(fn) {
     if (commitDepth === 0) {
       // React commit order: attach refs (after DOM insertion), then layout
       // effects synchronously, then passive effects asynchronously.
+      if (mirrors.size > 0) syncMirrors();
       flushRefQueue();
       flushEffectQueue(layoutQueue);
       if (passiveQueue.length > 0 && !passiveScheduled) {
@@ -195,10 +225,17 @@ export function runInCommit(fn) {
 function flushRefQueue() {
   while (refQueue.length > 0) {
     const entry = refQueue.shift();
+    if (entry.focus === true) {
+      // autoFocus: React focuses the element when it mounts.
+      if (entry.el.isConnected) {
+        try { entry.el.focus(); } catch { /* not focusable */ }
+      }
+      continue;
+    }
     // Skip if the element was already unmounted (ref nulled) or ref swapped.
     if (entry.rn.ref !== entry.ref) continue;
     try {
-      applyRef(entry.ref, entry.el);
+      attachRef(entry.rn, entry.ref, entry.el);
     } catch (e) {
       console.error('[what-react] ref error:', e);
     }
@@ -208,6 +245,16 @@ function flushRefQueue() {
 export function _flushPassive() {
   passiveScheduled = false;
   flushEffectQueue(passiveQueue);
+}
+
+// The passive effects still waiting from earlier commits, run before a new
+// render starts. Not from inside an effect (an effect that calls flushSync):
+// the effects queued after it wait for it to return.
+let flushingPassive = false;
+function _flushPendingPassive() {
+  if (flushingPassive || passiveQueue.length === 0) return;
+  flushingPassive = true;
+  try { flushEffectQueue(passiveQueue); } finally { flushingPassive = false; }
 }
 
 function flushEffectQueue(queue) {
@@ -224,9 +271,20 @@ function flushEffectQueue(queue) {
       const result = entry.fn();
       if (typeof result === 'function') slot.cleanup = result;
     } catch (e) {
-      console.error('[what-react] effect error:', e);
+      effectError(entry.inst, e);
     }
   }
+}
+
+// An error thrown by an effect goes to the nearest error boundary above the
+// component, as a render error does; with none, it is logged.
+function effectError(inst, error) {
+  let handler = inst.parent;
+  while (handler && !handler._errorHandler) handler = handler.parent;
+  if (handler) {
+    try { handler._errorHandler(error); return; } catch (e) { error = e; }
+  }
+  console.error('[what-react] effect error:', error);
 }
 
 // Hooks push pending effects here; renderInstance moves them to the global
@@ -290,25 +348,46 @@ function kindOf(v) {
   return KIND_TEXT; // last resort: stringify
 }
 
-// Flatten arrays, keep holes (null/false/true → null) so child slot positions
-// stay stable across conditional renders — React semantics.
-export function normalizeChildren(value, out) {
-  if (out === undefined) out = [];
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) normalizeChildren(value[i], out);
-    return out;
+// A child list as the reconciler takes it: the values in document order with
+// holes kept (null/false/true → null), and for each one its slot, the
+// identity React matches children by. In its own list a child is found by
+// its key when it has one and by its index otherwise, and a nested array is a
+// list of its own (React gives it a fragment), so:
+//   - an unkeyed child keeps its slot whatever happens around it: a keyed
+//     sibling that comes or goes, a neighbouring `.map()` list that grows;
+//   - a keyed child is found again wherever it moved inside its list.
+// Slots: the index for a top-level unkeyed child, '$key' for a keyed one,
+// and the same behind the list's own slot ('2:0', '2:$key') in a nested array.
+export function normalizeChildren(value) {
+  const out = [];
+  /** @type {Array<number | string>} */
+  const slots = [];
+  /** @type {any} */ (out).slots = slots;
+  if (Array.isArray(value)) pushChildren(value, null, out, slots);
+  else {
+    out.push(value == null || typeof value === 'boolean' ? null : value);
+    slots.push(0);
   }
-  if (value == null || typeof value === 'boolean') {
-    out.push(null);
-    return out;
-  }
-  out.push(value);
   return out;
 }
 
-function keyOf(v, kind) {
-  if ((kind === KIND_ELEMENT || kind === KIND_COMPONENT || kind === KIND_PORTAL) && v.key != null) return v.key;
-  return null;
+function pushChildren(list, prefix, out, slots) {
+  for (let i = 0; i < list.length; i++) {
+    const child = list[i];
+    if (Array.isArray(child)) {
+      pushChildren(child, prefix === null ? i + ':' : prefix + i + ':', out, slots);
+      continue;
+    }
+    if (child == null || typeof child === 'boolean') {
+      out.push(null);
+      slots.push(prefix === null ? i : prefix + i);
+      continue;
+    }
+    out.push(child);
+    const key = typeof child === 'object' && child.key != null && isVNode(child) ? child.key : null;
+    if (key !== null) slots.push(prefix === null ? '$' + key : prefix + '$' + key);
+    else slots.push(prefix === null ? i : prefix + i);
+  }
 }
 
 function canPatch(rn, v, kind) {
@@ -351,65 +430,60 @@ function canPatch(rn, v, kind) {
  * Diff a list of previously-rendered RNodes against new child values.
  * Returns the new RNode list. DOM is inserted into parentDom before `anchor`.
  *
- * - Keyed children match by (key, type).
- * - Unkeyed children match positionally among unkeyed siblings; a type
- *   mismatch consumes the slot (unmount + mount), like React's replace.
+ * - A child matches the old node in its slot (normalizeChildren: its key or
+ *   index within its own list) when the type is the same; otherwise the old
+ *   node unmounts and a new one mounts, like React's replace.
  * - Pass 1 runs left-to-right (render/effect order matches React),
  *   mounting fresh nodes into detached fragments.
- * - Pass 3 walks right-to-left fixing DOM positions with a moving anchor.
+ * - Pass 3 walks right-to-left placing new nodes, and moving a kept node
+ *   only when the list's own order changed (React's rule: it now stands
+ *   after a node that used to follow it). Where a kept node sits among nodes
+ *   this list does not own is never corrected: a portal's container holds
+ *   other portals' nodes and nodes a library appended, and re-inserting a
+ *   kept node to "fix" its place blurs the focused element inside it and
+ *   restarts its animations.
  */
 export function patchChildren(parentDom, old, newValues, anchor, svg, owner) {
-  /** @type {Map<any, any> | null} */
-  let keyed = null;
-  const unkeyed = [];
-  for (let i = 0; i < old.length; i++) {
-    const rn = old[i];
-    if (rn.key != null) {
-      if (keyed === null) keyed = new Map();
-      if (!keyed.has(rn.key)) keyed.set(rn.key, rn);
-      else unkeyed.push(rn); // duplicate key — fall back to positional
-    } else {
-      unkeyed.push(rn);
+  /** @type {Array<number | string> | undefined} */
+  const slots = /** @type {any} */ (newValues).slots;
+  /** @type {Map<number | string, any> | null} */
+  let bySlot = null;
+  if (old.length > 0) {
+    bySlot = new Map();
+    for (let i = 0; i < old.length; i++) {
+      const rn = old[i];
+      rn._i = i;
+      // A duplicate key keeps the first; the others mount again.
+      if (!bySlot.has(rn.slot)) bySlot.set(rn.slot, rn);
     }
   }
 
-  const kept = new Set();     // matched old rnodes (stay mounted)
-  const consumed = new Set(); // old rnodes whose slot was taken (unmount)
-  let ui = 0;
+  const kept = new Set(); // matched old rnodes (stay mounted)
+  let lastPlaced = -1; // the highest old index among the kept nodes so far
   const result = new Array(newValues.length);
 
   // --- Pass 1: match + patch, or mount into detached fragment ---
   for (let i = 0; i < newValues.length; i++) {
     const v = newValues[i];
     const kind = kindOf(v);
-    const key = keyOf(v, kind);
+    const slot = slots !== undefined ? slots[i] : i;
+    /** @type {any} */
     let match = null;
-
-    if (key != null) {
-      const cand = keyed !== null ? keyed.get(key) : undefined;
-      if (cand && !kept.has(cand) && !consumed.has(cand) && canPatch(cand, v, kind)) {
-        match = cand;
-      }
-    } else {
-      while (ui < unkeyed.length && (kept.has(unkeyed[ui]) || consumed.has(unkeyed[ui]))) ui++;
-      const cand = unkeyed[ui];
-      if (cand !== undefined) {
-        if (canPatch(cand, v, kind)) {
-          match = cand;
-        } else {
-          consumed.add(cand); // replace-in-slot
-        }
-        ui++;
-      }
+    if (bySlot !== null) {
+      const cand = bySlot.get(slot);
+      if (cand !== undefined && !kept.has(cand) && canPatch(cand, v, kind)) match = cand;
     }
 
     if (match) {
       kept.add(match);
+      if (match._i < lastPlaced) match._move = true;
+      else lastPlaced = match._i;
       result[i] = patchRNode(match, v, kind, parentDom, svg, owner);
     } else {
       const frag = document.createDocumentFragment();
       const rn = mountRNode(v, kind, frag, svg, owner);
       rn._pendingFrag = frag;
+      rn.slot = slot;
       result[i] = rn;
     }
   }
@@ -432,39 +506,59 @@ export function patchChildren(parentDom, old, newValues, anchor, svg, owner) {
     } else {
       const nodes = domNodesOf(rn);
       if (nodes.length > 0) {
-        const last = nodes[nodes.length - 1];
-        if (last.nextSibling !== ref || nodes[0].parentNode !== parentDom) {
+        if (rn._move === true || nodes[0].parentNode !== parentDom) {
           for (let n = 0; n < nodes.length; n++) parentDom.insertBefore(nodes[n], ref);
         }
         ref = nodes[0];
       }
+      rn._move = false;
     }
   }
 
   return result;
 }
 
-function domNodesOf(rn) {
+// The top-level DOM nodes `rn` owns, in tree order. A component's are its
+// two markers and what its output owns, found through the rendered tree and
+// never by walking siblings between the markers: a library may have moved one
+// of its elements (cmdk sorts its items in the DOM), and what a library
+// inserted between the markers is not the component's. React finds host
+// nodes the same way, through the fiber tree.
+function domNodesOf(rn, out = []) {
   switch (rn.kind) {
     case KIND_HOLE:
     case KIND_TEXT:
     case KIND_ELEMENT:
     case KIND_PORTAL:
-      return rn.dom ? [rn.dom] : [];
-    case KIND_COMPONENT:
+      if (rn.dom) out.push(rn.dom);
+      return out;
+    case KIND_COMPONENT: {
+      out.push(rn.start);
+      const rendered = rn.inst.rendered;
+      for (let i = 0; i < rendered.length; i++) domNodesOf(rendered[i], out);
+      out.push(rn.end);
+      return out;
+    }
     case KIND_OPAQUE: {
-      const nodes = [];
+      // what-core's nodes: everything between the markers.
       let n = rn.start;
       const end = rn.end;
       while (n) {
-        nodes.push(n);
+        out.push(n);
         if (n === end) break;
         n = n.nextSibling;
       }
-      return nodes;
+      return out;
     }
   }
-  return [];
+  return out;
+}
+
+function removeNodes(nodes) {
+  for (let i = 0; i < nodes.length; i++) {
+    const parent = nodes[i].parentNode;
+    if (parent) parent.removeChild(nodes[i]);
+  }
 }
 
 function firstDomNode(rn) {
@@ -543,9 +637,13 @@ export const SVG_ATTR_MAP = {
 
 function mountElement(v, container, svg, owner) {
   const tag = v.tag;
-  const childSvg = (svg || tag === 'svg') && tag !== 'foreignObject';
-  const isSvgEl = svg || tag === 'svg';
+  // `svg` is the host mode: false (HTML), true (inside an <svg>), or the
+  // mirror of a portal into a document that is not the DOM's (below).
+  const mirror = typeof svg === 'object' && svg !== null ? svg : null;
+  const childSvg = mirror !== null ? mirror : (svg || tag === 'svg') && tag !== 'foreignObject';
+  const isSvgEl = mirror === null && (svg || tag === 'svg');
   const el = isSvgEl ? document.createElementNS(SVG_NS, tag) : document.createElement(tag);
+  if (mirror !== null) el._compatMirror = mirror.doc.createElement(tag);
   const props = v.props || EMPTY_OBJ;
 
   // 'type' must be applied before 'value' on inputs (and before onChange
@@ -575,6 +673,7 @@ function mountElement(v, container, svg, owner) {
   // Refs attach at commit exit — AFTER the element is inserted into the live
   // DOM — so ref callbacks that measure layout (getBoundingClientRect etc.)
   // see real geometry, like React.
+  if (props.autoFocus === true) refQueue.push({ focus: true, el });
   if (rn.ref) refQueue.push({ rn, ref: rn.ref, el });
 
   container.appendChild(el);
@@ -634,8 +733,76 @@ function mountPortal(v, container, owner) {
     console.warn('[what-react] createPortal: target container not found');
     return rn;
   }
+  if (isForeignHost(target)) {
+    rn.mirror = createMirror(target);
+    rn.children = patchChildren(rn.mirror.shadow, [], normalizeChildren(v.children), null, rn.mirror, owner);
+    return rn;
+  }
+  registerPortal(rn);
   rn.children = patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner);
   return rn;
+}
+
+// ---- Portals into a document that is not the DOM's ----
+// A library can keep a document of its own (plain objects with appendChild,
+// insertBefore, removeChild and createElement) and render a portal into it to
+// read a tree of elements back: react-aria-components builds its collections
+// (the items of a ListBox, a Menu, a Table) this way. This reconciler works on
+// DOM nodes and places comment markers, so such a portal renders into a
+// detached DOM element, its shadow, where each element also makes its twin
+// in the library's document (`el._compatMirror`); when a commit has changed
+// the shadow, the twins are put in the same order under the library's nodes,
+// before refs attach (a ref there gets the twin).
+
+/** @type {Set<{ doc: any, target: any, shadow: Element, observer: MutationObserver | null }>} */
+const mirrors = new Set();
+
+function isForeignHost(target) {
+  if (target == null || typeof target.insertBefore !== 'function') return false;
+  const doc = target.nodeType === 9 ? target : target.ownerDocument;
+  // A real document says so in any realm (an iframe's included).
+  return doc == null || !/Document\]$/.test(Object.prototype.toString.call(doc));
+}
+
+function createMirror(target) {
+  const shadow = document.createElement('div');
+  const doc = target.ownerDocument || target;
+  const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => {}) : null;
+  if (observer !== null) observer.observe(shadow, { childList: true, subtree: true });
+  const mirror = { doc, target, shadow, observer };
+  mirrors.add(mirror);
+  return mirror;
+}
+
+function syncMirrors() {
+  for (const mirror of mirrors) {
+    // No observer (a test DOM without one): compare every time.
+    if (mirror.observer !== null && mirror.observer.takeRecords().length === 0) continue;
+    syncMirror(mirror.shadow, mirror.target);
+  }
+}
+
+// Put the twins of `real`'s element children under `host`, in their order.
+function syncMirror(real, host) {
+  let at = host.firstChild;
+  for (let child = real.firstChild; child !== null; child = child.nextSibling) {
+    const twin = child._compatMirror;
+    if (twin === undefined) continue; // a marker
+    if (at === twin) at = at.nextSibling;
+    else host.insertBefore(twin, at);
+    syncMirror(child, twin);
+  }
+  while (at != null) {
+    const next = at.nextSibling;
+    host.removeChild(at);
+    at = next;
+  }
+}
+
+function disposeMirror(mirror) {
+  syncMirror(mirror.shadow, mirror.target);
+  if (mirror.observer !== null) mirror.observer.disconnect();
+  mirrors.delete(mirror);
 }
 
 // Opaque subtree: delegate to what-core's renderer. We mount into a detached
@@ -716,8 +883,9 @@ function patchElement(rn, v, svg, owner) {
   const el = rn.dom;
   const oldProps = (rn.vnode && rn.vnode.props) || EMPTY_OBJ;
   const newProps = v.props || EMPTY_OBJ;
-  const isSvgEl = svg || v.tag === 'svg';
-  const childSvg = (svg || v.tag === 'svg') && v.tag !== 'foreignObject';
+  const mirror = typeof svg === 'object' && svg !== null ? svg : null;
+  const isSvgEl = mirror === null && (svg || v.tag === 'svg');
+  const childSvg = mirror !== null ? mirror : (svg || v.tag === 'svg') && v.tag !== 'foreignObject';
 
   if (oldProps !== newProps) {
     // Removed props
@@ -746,8 +914,8 @@ function patchElement(rn, v, svg, owner) {
     // Refs
     const newRef = newProps.ref || null;
     if (rn.ref !== newRef) {
-      if (rn.ref) applyRef(rn.ref, null);
-      if (newRef) applyRef(newRef, el);
+      if (rn.ref) detachRef(rn, rn.ref);
+      if (newRef) attachRef(rn, newRef, el);
       rn.ref = newRef;
     }
   } else {
@@ -789,13 +957,24 @@ function patchComponent(rn, v) {
 
 function patchPortal(rn, v, owner) {
   const target = v.props && v.props.container;
-  if (target === rn.container) {
+  if (target === rn.container && rn.mirror !== undefined) {
+    rn.children = patchChildren(rn.mirror.shadow, rn.children, normalizeChildren(v.children), null, rn.mirror, owner);
+  } else if (target === rn.container) {
     if (target) {
       rn.children = patchChildren(target, rn.children, normalizeChildren(v.children), null, targetSvg(target), owner);
     }
   } else {
     for (const child of rn.children) unmountRNode(child, true);
+    unregisterPortal(rn);
+    if (rn.mirror !== undefined) { disposeMirror(rn.mirror); rn.mirror = undefined; }
     rn.container = target || null;
+    if (target && isForeignHost(target)) {
+      rn.mirror = createMirror(target);
+      rn.children = patchChildren(rn.mirror.shadow, [], normalizeChildren(v.children), null, rn.mirror, owner);
+      rn.vnode = v;
+      return rn;
+    }
+    if (target) registerPortal(rn);
     rn.children = target
       ? patchChildren(target, [], normalizeChildren(v.children), null, targetSvg(target), owner)
       : [];
@@ -815,19 +994,24 @@ export function unmountRNode(rn, removeDom) {
     case KIND_ELEMENT: {
       for (const child of rn.children) unmountRNode(child, false);
       if (rn.ref) {
-        try { applyRef(rn.ref, null); } catch (e) { console.error('[what-react] ref cleanup error:', e); }
+        try { detachRef(rn, rn.ref); } catch (e) { console.error('[what-react] ref cleanup error:', e); }
         rn.ref = null; // invalidates any queued mount-time ref entry
       }
       if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
       return;
     }
     case KIND_COMPONENT: {
+      // Its nodes are listed before the unmount empties the tree, and leave
+      // the document after the cleanups ran, which may still read layout.
+      const nodes = removeDom ? domNodesOf(rn) : null;
       unmountInstance(rn.inst);
-      if (removeDom) removeRange(rn.start, rn.end);
+      if (nodes !== null) removeNodes(nodes);
       return;
     }
     case KIND_PORTAL: {
       for (const child of rn.children) unmountRNode(child, true); // other container
+      unregisterPortal(rn);
+      if (rn.mirror !== undefined) { disposeMirror(rn.mirror); rn.mirror = undefined; }
       if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
       return;
     }
@@ -1011,11 +1195,22 @@ function handleRenderError(inst, err, fromChildren) {
     let boundary = fromChildren ? inst : inst.parent;
     while (boundary && !boundary._isSuspense) boundary = boundary.parent;
     if (boundary) {
+      // The component that threw renders again when the boundary wakes.
+      if (!fromChildren) (boundary._suspended || (boundary._suspended = new Set())).add(inst);
       boundary._suspendCount = (boundary._suspendCount || 0) + 1;
-      scheduleUpdate(boundary);
+      if (boundary._suspendCount === 1) {
+        // Content already on screen stays mounted, hidden behind the
+        // fallback, so its state survives (React does the same). On a first
+        // mount nothing has been shown yet: the fallback takes its place.
+        boundary._keepPrimary = boundary._primaryShown === true;
+        scheduleUpdate(boundary);
+      }
       const wake = () => {
-        boundary._suspendCount--;
-        if (!boundary.unmounted) scheduleUpdate(boundary);
+        if (--boundary._suspendCount > 0 || boundary.unmounted) return;
+        const waiting = boundary._suspended;
+        boundary._suspended = null;
+        scheduleUpdate(boundary);
+        if (waiting) for (const suspended of waiting) scheduleUpdate(suspended);
       };
       err.then(wake, wake);
       return;
@@ -1033,6 +1228,38 @@ function handleRenderError(inst, err, fromChildren) {
   throw err;
 }
 
+/**
+ * Hide or show what `inst` rendered, without unmounting it: a <Suspense>
+ * whose content suspended after it was shown (index.js). Elements get
+ * `display: none !important` (their own inline display comes back after),
+ * text nodes are emptied.
+ */
+export function _setRangeHidden(inst, hidden) {
+  if (!inst.start) return;
+  for (let n = inst.start.nextSibling; n && n !== inst.end; n = n.nextSibling) {
+    if (n.nodeType === 1 && n.style) {
+      if (hidden) {
+        if (n._compatDisplay === undefined) {
+          n._compatDisplay = [n.style.getPropertyValue('display'), n.style.getPropertyPriority('display')];
+          n.style.setProperty('display', 'none', 'important');
+        }
+      } else if (n._compatDisplay !== undefined) {
+        const [value, priority] = n._compatDisplay;
+        n._compatDisplay = undefined;
+        if (value) n.style.setProperty('display', value, priority);
+        else n.style.removeProperty('display');
+      }
+    } else if (n.nodeType === 3) {
+      if (hidden) {
+        if (n._compatText === undefined) { n._compatText = n.data; n.data = ''; }
+      } else if (n._compatText !== undefined) {
+        n.data = n._compatText;
+        n._compatText = undefined;
+      }
+    }
+  }
+}
+
 // =====================================================================
 // Roots — entry points used by react-compat's ReactDOM implementation
 // =====================================================================
@@ -1044,6 +1271,7 @@ export function mountRoot(element, container) {
 }
 
 export function patchRoot(root, element) {
+  _flushPendingPassive();
   const isSvg = typeof SVGElement !== 'undefined' && root.container instanceof SVGElement;
   root.rns = runInCommit(() => patchChildren(root.container, root.rns, normalizeChildren(element), null, isSvg, null));
   return root;
@@ -1207,9 +1435,28 @@ export function getBridge(renderFn) {
 // DOM props — React prop semantics (className, style px, onChange→input, ...)
 // =====================================================================
 
-function applyRef(ref, value) {
-  if (typeof ref === 'function') ref(value);
-  else if (ref && typeof ref === 'object') ref.current = value;
+// A callback ref may return a cleanup function (React 19): it is called when
+// the ref detaches, in place of the call with null.
+function attachRef(rn, ref, el) {
+  rn._refAttached = true;
+  // In a mirrored portal the element the library knows is its own document's.
+  if (el != null && el._compatMirror !== undefined) el = el._compatMirror;
+  if (typeof ref === 'function') {
+    const cleanup = ref(el);
+    rn._refCleanup = typeof cleanup === 'function' ? cleanup : null;
+  } else if (ref && typeof ref === 'object') ref.current = el;
+}
+
+function detachRef(rn, ref) {
+  // Never attached: unmounted in the commit that mounted it.
+  if (rn._refAttached !== true) return;
+  rn._refAttached = false;
+  if (typeof ref === 'function') {
+    const cleanup = rn._refCleanup;
+    rn._refCleanup = null;
+    if (cleanup) cleanup();
+    else ref(null);
+  } else if (ref && typeof ref === 'object') ref.current = null;
 }
 
 // preact's unitless-CSS-property test
@@ -1261,20 +1508,205 @@ function changeEventFor(el) {
   return 'change';
 }
 
+// What a React handler is handed: a synthetic event, a plain object with the
+// native event's fields as its own properties and React's methods. Libraries
+// treat it as one: they copy it (`{ ...event }`, which takes own properties
+// only and would leave a DOM event's `key`, `target` and `clientX` behind),
+// call `isPropagationStopped()` and `persist()`, and read `nativeEvent`. One
+// object per native event, shared by every handler it reaches, as in React.
+function syntheticEvent(native) {
+  let event = native._compatSynthetic;
+  if (event !== undefined) return event;
+  event = {};
+  // DOM event fields are enumerable accessors on the prototypes: for-in sees them.
+  for (const key in native) {
+    const value = native[key];
+    if (typeof value !== 'function') event[key] = value;
+  }
+  event.nativeEvent = native;
+  event.preventDefault = function () { this.defaultPrevented = true; native.preventDefault(); };
+  event.stopPropagation = function () { native.stopPropagation(); };
+  event.isDefaultPrevented = function () { return native.defaultPrevented; };
+  // The browser sets cancelBubble when stopPropagation() is called.
+  event.isPropagationStopped = function () { return native.cancelBubble === true; };
+  event.persist = noop;
+  event.isPersistent = returnTrue;
+  if (typeof native.getModifierState === 'function') event.getModifierState = (key) => native.getModifierState(key);
+  try { native._compatSynthetic = event; } catch { /* a frozen event: one object per call */ }
+  return event;
+}
+
+function returnTrue() { return true; }
+
+// The type React reports for a native event it listens to under another name.
+const REACT_TYPE = { focusin: 'focus', focusout: 'blur' };
+
+// Call one handler: `prop` is the React prop it came in as (onChange reports
+// the type `change` whatever native event carried it), `currentTarget` the
+// element it is on.
+function callHandler(handler, native, currentTarget, prop) {
+  const event = syntheticEvent(native);
+  event.currentTarget = currentTarget;
+  event.type = prop === 'onChange' ? 'change' : (REACT_TYPE[native.type] || native.type);
+  event.defaultPrevented = native.defaultPrevented;
+  return handler(event);
+}
+
+// An element's handlers for one native event, by the React prop that set
+// them: `onInput` and `onChange` both listen to `input` on a text field, and
+// each keeps its own handler (a library passes `onInput={undefined}` next to
+// its `onChange`). React calls onChange after the others.
+function callHandlers(handlers, e, currentTarget) {
+  for (const prop in handlers) {
+    if (prop !== 'onChange') callHandler(handlers[prop], e, currentTarget, prop);
+  }
+  if (handlers.onChange !== undefined) callHandler(handlers.onChange, e, currentTarget, 'onChange');
+}
+
 /** @this {any} */
 function eventProxy(e) {
-  if (!e.nativeEvent) e.nativeEvent = e;
-  if (!e.persist) e.persist = noop;
-  const handler = this._compatListeners && this._compatListeners[e.type];
-  if (handler) return handler(e);
+  const handlers = this._compatListeners && this._compatListeners[e.type];
+  if (handlers) callHandlers(handlers, e, this);
 }
 
 /** @this {any} */
 function eventProxyCapture(e) {
-  if (!e.nativeEvent) e.nativeEvent = e;
-  if (!e.persist) e.persist = noop;
-  const handler = this._compatListenersCapture && this._compatListenersCapture[e.type];
-  if (handler) return handler(e);
+  const handlers = this._compatListenersCapture && this._compatListenersCapture[e.type];
+  if (handlers) callHandlers(handlers, e, this);
+}
+
+// ---- Form actions ----
+// One submit listener on the document, which runs after the form's own
+// onSubmit handlers: a handler that calls preventDefault() keeps the action
+// from running, as in React.
+
+let submitsListened = false;
+/** @type {((form: any, action: Function, data: FormData) => void) | null} */
+let formActionRunner = null;
+
+/** hooks.js installs how an action runs (inside a transition, with the form's status). */
+export function _setFormActionRunner(runner) {
+  formActionRunner = runner;
+}
+
+function listenForSubmits() {
+  if (submitsListened || typeof document === 'undefined') return;
+  submitsListened = true;
+  document.addEventListener('submit', (e) => {
+    const form = /** @type {any} */ (e.target);
+    if (e.defaultPrevented || form == null || form.tagName !== 'FORM') return;
+    const submitter = /** @type {any} */ (e).submitter;
+    const action = submitter && typeof submitter._compatAction === 'function' ? submitter._compatAction : form._compatAction;
+    if (typeof action !== 'function' || formActionRunner === null) return;
+    e.preventDefault();
+    let data;
+    try { data = submitter ? new FormData(form, submitter) : new FormData(form); } catch { data = new FormData(form); }
+    formActionRunner(form, action, data);
+  });
+}
+
+// ---- Events through portals ----
+// In React an event inside a portal goes on through the portal's React
+// parents: a press in a popover rendered into <body> from inside a dialog
+// reaches the dialog's handlers, although the dialog is not its DOM ancestor.
+// Dismissable layers, click-away listeners and focus scopes are built on it.
+// Handlers here are native listeners on their elements, which the browser
+// calls along the DOM path only; two document listeners per event type call
+// the rest of the React path: the capture one first of all (outermost React
+// parent first), the bubble one last of all (innermost first).
+
+/** @type {WeakMap<Node, Set<any>>} portal container → the portals rendered into it */
+const portalsIn = new WeakMap();
+let portalCount = 0;
+let everPortal = false;
+/** The native event types some element has a React handler for. */
+const usedEvents = new Set();
+
+function registerPortal(rn) {
+  let set = portalsIn.get(rn.container);
+  if (set === undefined) portalsIn.set(rn.container, set = new Set());
+  set.add(rn);
+  rn._registered = true;
+  portalCount++;
+  if (!everPortal) {
+    everPortal = true;
+    for (const type of usedEvents) bridgeEvent(type);
+  }
+}
+
+function unregisterPortal(rn) {
+  if (rn._registered !== true) return;
+  rn._registered = false;
+  const set = portalsIn.get(rn.container);
+  if (set !== undefined) set.delete(rn);
+  portalCount--;
+}
+
+function bridgeEvent(type) {
+  if (typeof document === 'undefined') return;
+  document.addEventListener(type, bridgeCapture, true);
+  document.addEventListener(type, bridgeBubble, false);
+}
+
+// The portal whose children include `node`, a child of `container`.
+function portalOwning(container, node) {
+  const set = portalsIn.get(container);
+  if (set === undefined || set.size === 0) return null;
+  for (const rn of set) {
+    for (let i = 0; i < rn.children.length; i++) {
+      const nodes = domNodesOf(rn.children[i]);
+      for (let n = 0; n < nodes.length; n++) if (nodes[n] === node) return rn;
+    }
+  }
+  return null;
+}
+
+// The elements a React event at `target` passes that are not its DOM
+// ancestors: the React parents of every portal it is inside, innermost
+// first. Null when the target is in no portal.
+function reactPathOutside(target) {
+  /** @type {any[] | null} */
+  let path = null;
+  let node = target;
+  while (node != null) {
+    const parent = node.parentNode;
+    if (parent == null) break;
+    const portal = portalOwning(parent, node);
+    if (portal !== null) {
+      if (path === null) path = [];
+      node = portal.dom; // the portal's place in its React parent
+      continue;
+    }
+    if (path !== null && parent.nodeType === 1 && !parent.contains(target)) path.push(parent);
+    node = parent;
+  }
+  return path;
+}
+
+function bridgeCapture(e) {
+  if (portalCount === 0 || e.target == null || typeof e.target.nodeType !== 'number') return;
+  const path = reactPathOutside(e.target);
+  if (path === null) return;
+  e._reactPath = path;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const handlers = path[i]._compatListenersCapture && path[i]._compatListenersCapture[e.type];
+    if (handlers) {
+      callHandlers(handlers, e, path[i]);
+      if (e.cancelBubble) return;
+    }
+  }
+}
+
+function bridgeBubble(e) {
+  const path = e._reactPath;
+  if (path === undefined || !e.bubbles) return;
+  for (let i = 0; i < path.length; i++) {
+    const handlers = path[i]._compatListeners && path[i]._compatListeners[e.type];
+    if (handlers) {
+      callHandlers(handlers, e, path[i]);
+      if (e.cancelBubble) return;
+    }
+  }
 }
 
 function noop() {}
@@ -1296,17 +1728,62 @@ function setEvent(el, name, value) {
     ? (el._compatListenersCapture || (el._compatListenersCapture = {}))
     : (el._compatListeners || (el._compatListeners = {}));
   const proxy = useCapture ? eventProxyCapture : eventProxy;
-  const had = store[event];
-  if (value) {
-    store[event] = value;
-    if (!had) el.addEventListener(event, proxy, useCapture);
-  } else if (had) {
-    delete store[event];
-    el.removeEventListener(event, proxy, useCapture);
+  // The prop the handler came in as, without its Capture suffix.
+  const prop = 'on' + base;
+  let handlers = store[event];
+  if (typeof value === 'function') {
+    if (handlers === undefined) {
+      handlers = store[event] = {};
+      if (!usedEvents.has(event)) {
+        usedEvents.add(event);
+        if (everPortal) bridgeEvent(event);
+      }
+      el.addEventListener(event, proxy, useCapture);
+    }
+    handlers[prop] = value;
+  } else if (handlers !== undefined && handlers[prop] !== undefined) {
+    delete handlers[prop];
+    let left = false;
+    for (const _ in handlers) { left = true; break; }
+    if (!left) {
+      delete store[event];
+      el.removeEventListener(event, proxy, useCapture);
+    }
   }
 }
 
+// A controlled field shows its prop, whatever the user did: when a change
+// handler does not take the edit (it validates and returns, or there is no
+// handler), React puts the field back to the value it was rendered with. The
+// native listener runs after the element's own React handler, and puts the
+// prop back once the updates that handler scheduled have rendered.
+function controlField(el) {
+  if (el._compatControlled === true) return;
+  el._compatControlled = true;
+  const restore = () => queueMicrotask(() => {
+    // After the re-render this event caused, if any.
+    if (dirtyQueue.size > 0) flushUpdates();
+    const value = el._compatValue;
+    if (value != null && el.tagName !== 'SELECT') {
+      const str = String(value);
+      if (el.value !== str) el.value = str;
+    } else if (value != null && !el.multiple) {
+      const str = String(value);
+      if (el.value !== str) el.value = str;
+    }
+    const checked = el._compatChecked;
+    if (checked != null && el.checked !== !!checked) el.checked = !!checked;
+  });
+  // The event React's onChange listens to for this field: a checkbox fires
+  // `input` first, and putting `checked` back then would hide the user's
+  // click from the handler on `change`.
+  el.addEventListener(changeEventFor(el), restore);
+}
+
 function setValueProp(el, value) {
+  // Controlled when the prop is a value (React: neither null nor undefined).
+  el._compatValue = value;
+  if (value != null && typeof el.addEventListener === 'function' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) controlField(el);
   if (el.tagName === 'SELECT') {
     const str = value == null ? '' : String(value);
     el.value = str;
@@ -1340,6 +1817,18 @@ export function setProperty(el, name, value, oldValue, svg) {
     setEvent(el, name, value);
     return;
   }
+  // Focused when it mounts (mountElement), never written as an attribute.
+  if (name === 'autoFocus') return;
+  // React 19: a function as a form's `action` (or a button's `formAction`)
+  // runs on submit with the form's data, in a transition.
+  if ((name === 'action' || name === 'formAction') && (typeof value === 'function' || typeof oldValue === 'function')) {
+    el._compatAction = typeof value === 'function' ? value : null;
+    if (typeof value === 'function') {
+      listenForSubmits();
+      el.removeAttribute(name);
+      return;
+    }
+  }
   if (name === 'dangerouslySetInnerHTML') {
     el.innerHTML = (value && value.__html) || '';
     return;
@@ -1349,6 +1838,8 @@ export function setProperty(el, name, value, oldValue, svg) {
     return;
   }
   if (name === 'checked') {
+    el._compatChecked = value;
+    if (value != null && el.tagName === 'INPUT') controlField(el);
     el.checked = !!value;
     return;
   }
@@ -1361,8 +1852,10 @@ export function setProperty(el, name, value, oldValue, svg) {
     return;
   }
   if (name.startsWith('data-') || name.startsWith('aria-')) {
-    if (value == null || value === false) el.removeAttribute(name);
-    else el.setAttribute(name, value === true ? 'true' : value);
+    // React writes a boolean here as its text: aria-pressed={false} is the
+    // attribute "false" (a state), never a missing attribute.
+    if (value == null || typeof value === 'function' || typeof value === 'symbol') el.removeAttribute(name);
+    else el.setAttribute(name, value);
     return;
   }
 
@@ -1384,10 +1877,22 @@ export function setProperty(el, name, value, oldValue, svg) {
     return;
   }
 
+  // A prop that is null or undefined is left out, as React leaves it out. It
+  // is never written as '': the DOM reads that as 0 for maxLength (a field
+  // that takes no text), as a link to this page for href, as focusable for
+  // tabIndex, as a 0-pixel canvas for width. One that was set is taken back.
+  if (value == null) {
+    if (oldValue != null) {
+      try { if (typeof el[name] === 'boolean') el[name] = false; } catch { /* read-only */ }
+      el.removeAttribute(name);
+    }
+    return;
+  }
+
   // Property when available, attribute otherwise.
   if (name !== 'list' && name !== 'form' && name !== 'tagName' && name !== 'download' && name in el) {
     try {
-      el[name] = value == null ? '' : value;
+      el[name] = value;
       return;
     } catch { /* read-only property — fall through to attribute */ }
   }

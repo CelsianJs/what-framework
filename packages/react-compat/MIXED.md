@@ -68,7 +68,9 @@ makes a file native whatever it imports.
 
 A JSX tag whose component comes from React (an npm package that depends on
 `react`, or a React file of your app, also through `export ... from` barrels)
-starts a **React island**. Everything inside that tag follows React's rules:
+starts a **React island**. A member tag counts by its object: `<motion.div>`
+and `<Dialog.Root>` are React tags when `motion` and `Dialog` come from React.
+Everything inside that tag follows React's rules:
 
 - Props are values. They are built again whenever a signal they read
   changes, and the React tree below is reconciled, so React state survives.
@@ -138,6 +140,15 @@ React packages they depend on, so their `import 'react'` reaches what-react.
   and `import X` + `export { X }`. A component reached any other way
   (`export const Chart = lib.Chart`) is native unless its file is a React
   file; use the `react` option or the pragma.
+- A component is React code where it is written, not where it is used. Three
+  things therefore belong in a React file, imported into the native one:
+  a component made by calling a library (`const Tag = styled('span')(...)`,
+  `styled.button`), a component handed to a React package as a prop
+  (`rowComponent={Row}`, `components={{ a: Link }}`), and JSX handed to a
+  React package from outside a React tag (`toast.custom(() => <b>…</b>)` in a
+  native click handler). JSX written inside a React tag's own props is
+  React's already: a render prop (`itemContent={(i) => <div>…</div>}`,
+  `renderInput={(params) => <TextField {...params} />}`) needs nothing.
 - In development, a change to what makes a file a React file (adding a
   `react` import, a re-export) reloads the page.
 - Inside a React tag the cost is React's; outside, What's.
@@ -160,7 +171,10 @@ native component once with a props object of getters. what-compiler skips
 React files and compiles native files as usual. Tests:
 `test/mixed-plugin.test.js` (which files and tags are React),
 `test/mixed.test.js` (state, props, context and cleanup across the boundary),
-`test/mixed-ssr.test.js` (server render, the stream, hydration, keyed rows)
-and `test/mixed-browser.mjs` (a Vite build, the dev server, and a server
+`test/mixed-ssr.test.js` (server render, the stream, hydration, keyed rows),
+`test/mixed-browser.mjs` (a Vite build, the dev server, and a server
 render the browser hydrates, in Chromium, with Recharts, react-hook-form and
-React context).
+React context) and `test/matrix-browser.mjs` (38 package fixtures driven in
+Chromium as React files inside a native app, 19 of them also written as
+native files: Radix, MUI, Ant Design, Headless UI, Recharts, react-select,
+framer-motion and others; the table is in REACT-COMPAT.md).

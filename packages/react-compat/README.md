@@ -2,7 +2,7 @@
 
 React compatibility layer for [What Framework](https://whatfw.com). Run React ecosystem libraries on What — `what-react` ships a dedicated React-semantics runtime (value-returning hooks, re-renders with keyed reconciliation, working context) that coexists with What's run-once signal engine.
 
-**Verified end-to-end (2026-06-09, real browser + jsdom CI):** zustand, @tanstack/react-query, react-hook-form, react-hot-toast, @headlessui/react, framer-motion. Other libraries are untested on the current runtime — see [REACT-COMPAT.md](https://github.com/CelsianJs/what-framework/blob/main/REACT-COMPAT.md) for the full verified matrix, method, and known limitations.
+**Tested packages (2026-11-24):** 47 React packages across 38 browser fixtures pass on what-react alone and inside a native What app, among them Radix, MUI, Ant Design, react-aria-components, Headless UI, react-router, Redux Toolkit, zustand, jotai, TanStack Query, Table and Virtual, SWR, react-hook-form, formik, Floating UI, cmdk, sonner, vaul, dnd-kit, react-select, react-day-picker, framer-motion, recharts and styled-components. Anything else is untested. See [REACT-COMPAT.md](https://github.com/CelsianJs/what-framework/blob/main/REACT-COMPAT.md) for the table, the method, what it does not cover and the known limitations.
 
 ## Install
 

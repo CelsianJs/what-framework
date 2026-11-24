@@ -6,28 +6,17 @@
  * React.createElement. This module provides those functions.
  */
 
-import { createElement } from './index.js';
+import { _element } from './index.js';
 import { Fragment } from 'what-core';
 
 export { Fragment };
 
+// The automatic runtime hands the children over in props, where React keeps
+// them: the element takes the props as they are.
 export function jsx(type, props, key) {
-  if (key !== undefined) {
-    props = { ...props, key };
-  }
-
-  // Extract children from props (automatic runtime puts children in props)
-  const { children, ...rest } = props || {};
-
-  if (children === undefined) {
-    return createElement(type, rest);
-  }
-
-  if (Array.isArray(children)) {
-    return createElement(type, rest, ...children);
-  }
-
-  return createElement(type, rest, children);
+  if (props == null) props = {};
+  if (key !== undefined) props = { ...props, key };
+  return _element(type, props);
 }
 
 // jsxs is the same as jsx — React uses it for static children optimization

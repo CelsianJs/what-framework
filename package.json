@@ -52,6 +52,7 @@
     "test:prod": "node --conditions=production scripts/check-prod-build.mjs && NODE_ENV=production node --conditions=production scripts/check-prod-build.mjs",
     "test:browser:roundtrip": "node --test smoke/storefront-roundtrip.mjs",
     "test:browser:mixed": "node packages/react-compat/test/mixed-browser.mjs && node packages/react-compat/test/mixed-browser.mjs --dev && node packages/react-compat/test/mixed-browser.mjs --ssr",
+    "test:browser:matrix": "node packages/react-compat/test/matrix-browser.mjs",
     "smoke:workspace-apps": "node smoke/workspace-apps.mjs",
     "smoke:app-budgets": "node smoke/workspace-apps.mjs --budgets",
     "smoke:scaffold": "node scripts/smoke-scaffold.mjs",

@@ -19,7 +19,7 @@ import {
   scheduleUpdate,
   _pushLayout,
   _pushPassive,
-  flushUpdates,
+  _setFormActionRunner,
 } from './runtime.js';
 
 function depsChanged(oldDeps, newDeps) {
@@ -41,6 +41,11 @@ export function useState(initial) {
     slot.init = true;
     slot.value = typeof initial === 'function' ? initial() : initial;
     slot.set = (next) => {
+      // Inside a transition the update waits for the transition (below).
+      if (currentTransition !== null) {
+        currentTransition.updates.push(() => slot.set(next));
+        return;
+      }
       const resolved = typeof next === 'function' ? next(slot.value) : next;
       if (Object.is(resolved, slot.value)) return;
       slot.value = resolved;
@@ -60,6 +65,10 @@ export function useReducer(reducer, initialArg, init) {
     slot.value = init ? init(initialArg) : initialArg;
     slot.reducer = reducer;
     slot.dispatch = (action) => {
+      if (currentTransition !== null) {
+        currentTransition.updates.push(() => slot.dispatch(action));
+        return;
+      }
       const next = slot.reducer(slot.value, action);
       if (Object.is(next, slot.value)) return;
       slot.value = next;
@@ -164,8 +173,8 @@ export function useImperativeHandle(ref, createHandle, deps) {
   useLayoutEffect(() => {
     if (typeof ref === 'function') {
       const handle = createHandle();
-      ref(handle);
-      return () => ref(null);
+      const cleanup = ref(handle);
+      return typeof cleanup === 'function' ? cleanup : () => ref(null);
     } else if (ref && typeof ref === 'object') {
       ref.current = createHandle();
       return () => { ref.current = null; };
@@ -211,6 +220,8 @@ export function createContext(defaultValue) {
 
   context.Provider = Provider;
   context.Consumer = Consumer;
+  // React 19: <Context value> is the provider (index.js renders the context
+  // object as its Provider).
   return context;
 }
 
@@ -275,20 +286,238 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
 }
 
 // ---- useTransition / useDeferredValue / startTransition ----
-// Rendering here is synchronous — transitions degrade to immediate updates.
+// Rendering here is not time-sliced: a transition's updates render in the
+// next flush, like any other. What a transition adds is its async form
+// (React 19 actions): while the promise its callback returned is pending,
+// useTransition reports isPending and optimistic state stays in place.
+
+/**
+ * The transition whose callback is running. State updates made while it runs
+ * are its updates, and optimistic updates last as long as it does.
+ * @type {{ settle: Array<() => void>, wait: Array<Promise<unknown>>, updates: Array<() => void> } | null}
+ */
+let currentTransition = null;
+/** Async transitions (actions) still running, and the state updates held for them. */
+let asyncTransitions = 0;
+/** @type {Array<() => void>} */
+const heldUpdates = [];
+
+function applyUpdates(updates) {
+  for (let i = 0; i < updates.length; i++) updates[i]();
+}
+
+// Run `fn` as a transition; `done` runs when it has finished, also when it
+// threw or its promise rejected. Returns a promise for an async one (its
+// callback returned a promise, or dispatched an action that is still
+// running), or null for a sync one.
+//
+// A sync transition's updates render in the next flush. An async one's are
+// held until it has finished, with those of every transition started
+// meanwhile (a `startTransition` after an `await`), and then render together
+// with the end of its pending and optimistic state: React commits an action's
+// updates in one go, so the screen never shows the new state next to the
+// optimistic one.
+function runTransition(fn, done) {
+  const scope = { settle: /** @type {Array<() => void>} */ ([]), wait: /** @type {Array<Promise<unknown>>} */ ([]), updates: /** @type {Array<() => void>} */ ([]) };
+  const prev = currentTransition;
+  currentTransition = scope;
+  let result;
+  /** @type {{ error: unknown } | null} */
+  let thrown = null;
+  try {
+    result = fn();
+  } catch (error) {
+    thrown = { error };
+  }
+  currentTransition = prev;
+  const thenable = thrown === null && result !== null && typeof result === 'object' && typeof result.then === 'function';
+  if (thenable || scope.wait.length > 0) {
+    asyncTransitions++;
+    for (const update of scope.updates) heldUpdates.push(update);
+    const finish = () => {
+      if (--asyncTransitions === 0) applyUpdates(heldUpdates.splice(0));
+      for (const settle of scope.settle) settle();
+      if (done) done();
+    };
+    const all = Promise.all([result, ...scope.wait]);
+    all.then(finish, finish);
+    return all;
+  }
+  // A sync transition: its updates apply now, unless an action is running
+  // (they are part of what it commits). It is over once they have rendered.
+  if (asyncTransitions > 0) for (const update of scope.updates) heldUpdates.push(update);
+  else applyUpdates(scope.updates);
+  queueMicrotask(() => {
+    for (const settle of scope.settle) settle();
+    if (done) done();
+  });
+  if (thrown !== null) throw thrown.error;
+  return null;
+}
 
 export function useTransition() {
-  _requireInstance('useTransition');
-  return [false, startTransition];
+  const inst = _requireInstance('useTransition');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.pending = 0;
+    slot.start = (fn) => {
+      let counted = false;
+      const promise = runTransition(fn, () => {
+        if (counted && --slot.pending === 0) scheduleUpdate(inst);
+      });
+      if (promise !== null) {
+        counted = true;
+        if (slot.pending++ === 0) scheduleUpdate(inst);
+        // React reports a rejected action at the nearest error boundary.
+        promise.then(undefined, (error) => { slot.error = { error }; scheduleUpdate(inst); });
+      }
+    };
+  }
+  if (slot.error) {
+    const { error } = slot.error;
+    slot.error = null;
+    throw error;
+  }
+  return [slot.pending > 0, slot.start];
 }
 
 export function startTransition(fn) {
-  fn();
-  flushUpdates();
+  const promise = runTransition(fn, null);
+  if (promise !== null) promise.then(undefined, (error) => { console.error('[what-react] a transition rejected:', error); });
 }
 
 export function useDeferredValue(value) {
   return value;
+}
+
+// ---- useOptimistic ----
+// The value with the optimistic updates applied, for as long as the
+// transition (action) that added them is running; then `passthrough` again.
+
+export function useOptimistic(passthrough, reducer) {
+  const inst = _requireInstance('useOptimistic');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.actions = [];
+    slot.add = (action) => {
+      const entry = { action };
+      slot.actions.push(entry);
+      scheduleUpdate(inst);
+      const revert = () => {
+        const at = slot.actions.indexOf(entry);
+        if (at !== -1) slot.actions.splice(at, 1);
+        scheduleUpdate(inst);
+      };
+      // Outside a transition React drops the update at once.
+      if (currentTransition !== null) currentTransition.settle.push(revert);
+      else queueMicrotask(revert);
+    };
+  }
+  slot.reducer = reducer;
+  let value = passthrough;
+  for (const entry of slot.actions) value = typeof slot.reducer === 'function' ? slot.reducer(value, entry.action) : entry.action;
+  return [value, slot.add];
+}
+
+// ---- useActionState ----
+// [state, dispatch, isPending]: dispatch(payload) runs action(state, payload)
+// in a transition, one call after the other, each with the last one's result.
+
+export function useActionState(action, initialState) {
+  const inst = _requireInstance('useActionState');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.state = initialState;
+    slot.pending = 0;
+    slot.queue = Promise.resolve();
+    slot.dispatch = (payload) => {
+      if (slot.pending++ === 0) scheduleUpdate(inst);
+      const run = () => {
+        const result = runTransition(() => slot.action(slot.state, payload), null);
+        return result === null ? slot.lastSync : result.then((values) => values[0]);
+      };
+      const done = slot.queue.then(run).then(
+        (next) => { slot.state = next; },
+        (error) => { slot.error = { error }; },
+      ).then(() => {
+        slot.pending--;
+        scheduleUpdate(inst);
+      });
+      slot.queue = done;
+      // The transition that dispatched (a form action) lasts as long as the action.
+      if (currentTransition !== null) currentTransition.wait.push(done);
+    };
+  }
+  // The latest action, wrapped so a sync result is kept for the queue.
+  slot.action = (state, payload) => {
+    const result = action(state, payload);
+    slot.lastSync = result;
+    return result;
+  };
+  if (slot.error) {
+    const { error } = slot.error;
+    slot.error = null;
+    throw error;
+  }
+  return [slot.state, slot.dispatch, slot.pending > 0];
+}
+
+// ---- useEffectEvent ----
+// A function that always calls the latest `fn`, for use inside effects.
+
+export function useEffectEvent(fn) {
+  const inst = _requireInstance('useEffectEvent');
+  const slot = _getHookSlot(inst);
+  slot.fn = fn;
+  if (!slot.init) {
+    slot.init = true;
+    slot.call = (...args) => slot.fn(...args);
+  }
+  return slot.call;
+}
+
+// ---- Form actions and useFormStatus (react-dom) ----
+
+const NOT_PENDING = Object.freeze({ pending: false, data: null, method: null, action: null });
+const formStatusListeners = new Set();
+
+// How a form's function action runs (runtime.js calls this on submit): in a
+// transition, with the form's status published for useFormStatus, and the
+// form's uncontrolled fields reset once it has succeeded.
+_setFormActionRunner((form, action, data) => {
+  const publish = (status) => {
+    form._compatStatus = status;
+    for (const listener of [...formStatusListeners]) listener();
+  };
+  publish({ pending: true, data, method: 'post', action });
+  let failed = false;
+  try {
+    const promise = runTransition(() => action(data), () => {
+      publish(NOT_PENDING);
+      if (!failed && form.isConnected) form.reset();
+    });
+    if (promise !== null) promise.then(undefined, (error) => { failed = true; console.error('[what-react] a form action rejected:', error); });
+  } catch (error) {
+    failed = true;
+    console.error('[what-react] a form action threw:', error);
+  }
+});
+
+/** The status of the <form> this component is inside (react-dom's useFormStatus). */
+export function useFormStatus() {
+  const inst = _requireInstance('useFormStatus');
+  return useSyncExternalStore(
+    (notify) => { formStatusListeners.add(notify); return () => formStatusListeners.delete(notify); },
+    () => {
+      const parent = inst.start && inst.start.parentNode;
+      const form = parent && typeof parent.closest === 'function' ? parent.closest('form') : null;
+      return (form && form._compatStatus) || NOT_PENDING;
+    },
+    () => NOT_PENDING,
+  );
 }
 
 // ---- useId ----

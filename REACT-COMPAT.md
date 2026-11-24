@@ -1,18 +1,19 @@
 # React Compatibility Layer (`what-react`)
 
-`what-react` lets you run React ecosystem libraries on What Framework. It is a
-secondary feature — What's native APIs (`signal`, `computed`, `createStore`,
-`useSWR`, …) are preferred for new code. Reach for the compat layer when you
-need a specific React library with no What equivalent.
+`what-react` runs React packages on What Framework. It is a secondary feature:
+What's native APIs (`signal`, `computed`, `createStore`, `query`, …) are
+preferred for new code. Reach for the compat layer when you need a React
+package with no What equivalent.
 
-**Honesty note (2026-06-09):** the compat runtime was rewritten this sprint.
-Before the rewrite, hooks re-exported What's accessor-returning hooks
-(`useState` returned `[signalFn, setFn]`, not `[value, set]`), components never
-re-rendered, and `createContext`/`useContext` did not propagate values — most
-React libraries crashed or silently broke. Every compatibility claim in this
-file was re-established against the NEW runtime, with the date and method
-listed. Older lists claiming "49/90+ confirmed packages" referred to the old
-runtime and should be considered void.
+It is used two ways:
+
+- **Mixed mode** (`plugins: [what(), reactCompat()]`): your files stay native
+  What, and a React package's components are used in them with plain JSX
+  (`<BarChart data={rows()} />`). Only the files that import `react` or call a
+  React package's hook are React code. Rules:
+  [packages/react-compat/MIXED.md](packages/react-compat/MIXED.md).
+- **Full compat** (`reactCompat()` alone): every JSX file is React code and
+  the whole app runs on what-react.
 
 ## Setup
 
@@ -23,140 +24,250 @@ npm install what-react what-core
 ```js
 // vite.config.js
 import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
 import { reactCompat } from 'what-react/vite';
 
 export default defineConfig({
-  plugins: [reactCompat()],
+  plugins: [what(), reactCompat()],   // mixed mode; reactCompat() alone for full compat
 });
 ```
 
-The plugin aliases `react`, `react-dom`, `react/jsx-runtime`, and
-`use-sync-external-store` to `what-react`, sets the automatic JSX runtime, and
-excludes React-ecosystem packages from Vite pre-bundling so a single module
-instance is shared.
+The plugin aliases `react`, `react-dom`, `react-dom/client`,
+`react/jsx-runtime`, `react/compiler-runtime` and `use-sync-external-store` to
+`what-react`, sets the automatic JSX runtime, and excludes React packages from
+Vite's dependency pre-bundling so one module instance is shared.
 
-**Mixed apps:** with what-compiler's `what()` plugin next to `reactCompat()`,
-your files stay native What and React components render as React islands
-inside them; only files that import `react` (or call a React package's hook)
-are React code. See [packages/react-compat/MIXED.md](packages/react-compat/MIXED.md).
+## How it works
 
-## How It Works
+`what-react` has its own renderer (`packages/react-compat/src/runtime.js`)
+next to What's run-once renderer. what-core is not modified.
 
-`what-react` ships its own React-semantics runtime (`what-react/src/runtime.js`)
-that runs alongside What's run-once renderer — **what-core is not modified**:
+- **Hooks return values**, and a state change re-runs the component. The new
+  output is reconciled against the last one, so DOM elements, focus, input
+  state and child component state survive, as in React.
+- **Children are matched as React matches them**: by key, or by index inside
+  their own list, where a nested array (a `.map()`) is a list of its own. A
+  kept node is moved only when its list's own order changed; nodes a library
+  inserted or moved itself are left where they are.
+- **Effects follow React's order**: refs attach after the DOM is in place,
+  layout effects run in the commit (children before parents), passive effects
+  after it and always before the next render.
+- **Events** are native listeners on the elements, and a handler receives a
+  synthetic event object (the native event's fields as own properties, React's
+  methods, `nativeEvent`). An event inside a portal goes on to the portal's
+  React parents.
+- **Context, Suspense and error boundaries** work across the tree. Suspense
+  keeps content that was already shown mounted and hidden while it waits.
+- **Class components** get their lifecycles, `shouldComponentUpdate`,
+  `PureComponent`, context in the constructor and refs to the instance.
+- Compat rules apply only to elements made by what-react's `createElement` or
+  JSX runtime. What's own components are unaffected by this package.
 
-- **Hooks return values.** `useState` → `[value, setState]`, `useMemo` → the
-  memoized value, `useReducer` → `[state, dispatch]`, etc. Functional updates,
-  `Object.is` bail-outs, and batched re-renders (microtask flush) work like
-  React's.
-- **Components re-render.** On state change the component function re-executes
-  and its new output is **reconciled** against the previous tree (keyed,
-  type-matched diff). DOM elements and child component instances are preserved
-  — focus, input state, and child hook state survive re-renders.
-- **Granularity:** only the instance whose state changed re-renders (plus its
-  children via the normal React cascade). Siblings and ancestors don't run.
-  An infinite-loop guard (100 flush cycles / 250 renders-per-instance window)
-  logs and stops runaway update loops instead of hanging.
-- **Context works.** `createContext`/`useContext` return actual values, providers
-  propagate to arbitrarily deep children, nested providers shadow correctly, and
-  context updates reach consumers even through `React.memo`-skipped subtrees.
-- **Effects follow React timing.** Element refs attach after DOM insertion,
-  `useLayoutEffect` runs synchronously at commit, `useEffect` runs async,
-  children's effects run before the parent's, cleanup on deps-change/unmount.
-- **Interop is explicit.** Compat semantics apply ONLY to elements created via
-  what-react's `createElement`/JSX runtime. Native What vnodes inside a compat
-  tree are delegated verbatim to what-core (signals keep working); compat
-  components inside native What trees render through a run-once bridge
-  component. What's own components are unaffected by this package.
+## The package matrix
 
-## Verified compatibility matrix
+`packages/react-compat/test/matrix-browser.mjs` builds a fixture for each
+package with Vite for production and drives it in headless Chromium:
+open, type, select, navigate, drag, sort, with assertions on the DOM after
+each step. Every fixture runs four ways with the same assertions:
 
-`✅ Verified` = exercised end-to-end on the current runtime. Method legend:
-**B** = real browser (headless Chromium driving the Vite fixture at
-`packages/react-compat/test/fixtures/acceptance`, dev AND production build),
-**J** = jsdom CI tests (`packages/react-compat/test/libs.test.js`, run by
-`npm test`).
-
-| Library | Version | Status | Verified | Method | What was tested |
-|---|---|---|---|---|---|
-| react (API surface) | 18.3-level | ✅ Verified | 2026-06-09 | B+J | hooks, context, refs, keyed lists, portals, class components, error boundaries, lazy+Suspense (47 unit tests) |
-| zustand | 5.0.11 | ✅ Verified | 2026-06-09 | B+J | selector returns value, `count*2` renders, store action click updates UI, external `getState().action()` updates UI |
-| @tanstack/react-query | 5.90.21 | ✅ Verified | 2026-06-09 | B+J | `QueryClientProvider` + `useQuery` (pending → data), `useMutation` |
-| react-hook-form | 7.71.1 | ✅ Verified | 2026-06-09 | B+J | `register`, submit, validation error display + clear, focus-on-error, typed value preserved across error re-render |
-| react-hot-toast | 2.6.0 | ✅ Verified | 2026-06-09 | B+J | `<Toaster/>` mounts, `toast.success()` renders with enter animation, auto-dismisses and is removed |
-| @headlessui/react | 2.2.9 | ✅ Verified | 2026-06-09 | B+J | Menu opens with ARIA (`aria-expanded`, `role=menu/menuitem`), item click runs handler and closes menu; Switch toggles |
-| framer-motion | 11.18.2 | ✅ Verified | 2026-06-09 | B | mount animation (opacity 0→1), `animate={{x}}` transform, `AnimatePresence` exit animation + DOM removal, re-mount |
-| use-sync-external-store (shim) | — | ✅ Verified | 2026-06-09 | J | `useSyncExternalStoreWithSelector` selector + isEqual semantics (the shim previously crashed on what-react's own `useMemo`) |
-| recharts | 3.8.1 | ✅ Verified | 2026-06-25 | B | AreaChart + LineChart render real SVG geometry (SVG-namespace portal layers, kebab SVG attrs, dashed grid); ResponsiveContainer measures container; no render-loop |
-
-Everything else — including the libraries on the old "confirmed" lists (Radix,
-MUI, AntD, react-router, redux, jotai, SWR, TanStack Table, …) — is
-**Untested** on the current runtime. They are plausible (the runtime now
-implements the semantics they rely on) but no claim is made until they're
-re-verified. The verified entries are those listed in the table above; the `sites/react-compat` showcase site is maintained separately and may not reflect every entry in this table.
-
-### Previously-broken findings, re-checked this sprint
-
-| 0.10.0 audit finding | Status now |
+| Column | What runs |
 |---|---|
-| `useState` returns accessor → `count * 2` renders `NaN` | Fixed — values returned; tested |
-| zustand selectors return functions; actions become no-ops | Fixed — verified in browser + jsdom |
-| react-query / react-hook-form / framer-motion / react-hot-toast / headlessui crash at mount | All five mount and function; verified |
-| `createContext`/`useContext`: Provider value never reaches a direct child | Fixed — root cause was reliance on core's `_parentCtx` chain, which is not maintained on the lazy h()/createDOM path; compat now tracks its own instance parent chain |
-| what-react's own `use-sync-external-store-with-selector.js` crashes on its own `useMemo` | Fixed by the hooks rework; regression-tested |
-| Components run once → no re-render mechanism for React libs | Compat runtime re-renders + reconciles (keyed diff, DOM/state preserving) |
+| Real React | React 19.3.1 and react-dom. The control: a fixture that fails here is a fixture bug. All 38 pass. |
+| Full compat | `reactCompat()` alone, the whole fixture on what-react. |
+| Mixed, React file | `what()` + `reactCompat()`: a native What app mounts the fixture (a React file) as a React island. |
+| Mixed, native file | `what()` + `reactCompat()`: the same screen written as a native What file, with signals for state and the package's tags as plain JSX. "not written" means no native variant exists for that fixture (see the note under the table). |
 
-## Known limitations (honest list)
+Results of 2026-11-24, on the 0.15 working tree: 38 fixtures, covering 47
+packages besides React itself.
+`pass` = every step of the fixture passed.
 
-- **No SSR.** Compat components render in the browser (or jsdom) only.
-  `renderToString`-ing a compat vnode is unsupported. `hydrateRoot` replaces
-  server HTML with a fresh client mount (no real hydration).
-- **Suspense is minimal.** Thrown thenables (`lazy()`, `use(promise)`) switch
-  the nearest `<Suspense>` to its fallback and back. While the fallback shows,
-  the suspended subtree is unmounted (state lost) — React 18 preserves it.
-- **Error boundaries** catch render-phase errors (`getDerivedStateFromError` /
-  `componentDidCatch`). Errors thrown inside effects are logged to the console,
-  not routed to boundaries (React routes those too).
-- **`useTransition`/`useDeferredValue` are synchronous.** Rendering is not
-  time-sliced; transitions degrade to immediate updates (`isPending` is always
-  false). Correct but not concurrent.
-- **Class components:** supported (state/lifecycle/error boundaries/contextType),
-  but `shouldComponentUpdate` is not consulted — use `React.memo` for skipping.
-  `getSnapshotBeforeUpdate` is approximated (called before commit, not between
-  render and mutation).
-- **Native What children inside compat trees mount once.** Reactivity flows
-  through signals, as in What itself; plain-value props passed from a compat
-  parent to a What component will not propagate on compat re-renders.
-- **Bridge-mounted compat components** (compat component used inside a native
-  What tree) attach refs/layout effects before the surrounding What fragment is
-  inserted into the document, so layout measurement there can read zeros on
-  first mount. When `createRoot` from `what-react/dom` owns the tree (the
-  normal case), ref/layout timing matches React.
-- **Render-phase cleanup on errors:** if a descendant throws during a subtree
-  commit, partially-mounted children's effect cleanups may not run before the
-  boundary fallback replaces them.
-- **Event mapping:** `onChange` maps to native `input` for text controls and
-  `change` for checkbox/radio/file/select (React semantics). `onFocus`/`onBlur`
-  use `focusin`/`focusout` (bubbling, like React's delegated events). Events are
-  attached directly to elements — there is no synthetic event pooling
-  (`e.persist()` is a no-op shim).
+| Package | Version | Full compat | Mixed, React file | Mixed, native file | What the fixture does |
+|---|---|---|---|---|---|
+| react, react-dom (API surface) | 19.3.1 | pass | pass | not written | Events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, a subtree that suspends after mounting keeps its state, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props, synthetic events, controlled fields, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors |
+| @radix-ui/react-dialog, react-popover, react-tooltip, react-slot | 1.3.1, 1.3.1, 1.4.1, 1.5.0 | pass | pass | pass | Dialog: `asChild` trigger, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned. Popover positioned and closed by an outside press. Tooltip on hover. `Slot` merging props |
+| @radix-ui/react-dropdown-menu, react-select, react-tabs | 2.2.1, 2.4.1, 1.2.1 | pass | pass | pass | Menu in a portal, arrow keys past a disabled item, Enter selects and closes, a checkbox item, a submenu by keyboard. Select by keyboard and by pointer. Tabs by click and arrow keys |
+| @mui/material, @emotion/react, @emotion/styled | 9.6.0, 11.14.0, 11.14.1 | pass | pass | pass | Emotion styles from a custom theme, Button, a controlled TextField, Select (Popover and Modal portal, keyboard and pointer), Dialog (focus trap, `autoFocus`, a Select inside it, fade-out then unmount), Checkbox, Autocomplete, Tabs, Tooltip, Snackbar auto-hide |
+| antd | 6.7.2 | pass | pass | pass | CSS-in-JS theme token, a controlled Input with clear, Select, Modal with `message`, Form validation fail then pass, Table sort and pagination, Tabs, the static `message.info` |
+| react-aria-components | 1.22.1 | pass | pass | not written | Button `onPress`, a controlled TextField, Select (collection built from JSX, keyboard pick), ComboBox, modal Dialog (portal, autoFocus, focus containment, Escape), Checkbox, Switch, Tabs |
+| @headlessui/react | 2.2.10 | pass | pass | pass | Menu, Switch, Listbox, Combobox, Dialog (portal, focus trap, Escape), Disclosure, Tabs |
+| react-router (data router) | 7.18.6 | pass | pass | not written | `createBrowserRouter` and `RouterProvider`: `Link`, `NavLink` active state, nested `Outlet`, a route `loader`, browser back and forward, `useSearchParams`, `useNavigate`, a `<Form>` action, an `errorElement`, layout state kept |
+| react-router (declarative) | 7.18.6 | pass | pass | not written | `BrowserRouter`, `Routes`, `Route`: `NavLink` class function, `useLocation`, link state, `useParams`, `<Navigate>`, replace navigation, back, a catch-all route |
+| @reduxjs/toolkit, react-redux | 2.15.0, 9.3.1 | pass | pass | not written | `configureStore`, `createSlice`, `useSelector` (plain, `createSelector`, `shallowEqual`), `createAsyncThunk`, a dispatch from outside React, no re-render for another slice |
+| zustand | 5.1.0 | pass | pass | not written | Selectors, `useShallow`, actions from a click and from outside React, `persist`, no re-render for another slice |
+| jotai | 3.0.2 | pass | pass | not written | Primitive, derived and writable atoms, a controlled input on an atom, `atomWithStorage`, an async atom under Suspense, `unwrap`, a store write from outside React |
+| @tanstack/react-query | 5.108.4 | pass | pass | not written | `useQuery` pending, data and error, a key change with placeholder data, the cache, `useMutation` with `invalidateQueries`, `useSuspenseQuery`, `useIsFetching` |
+| swr | 2.5.1 | pass | pass | not written | `useSWR` loading then data, one request for three hooks on a key, a key change, local and global `mutate`, `useSWRMutation` |
+| @tanstack/react-table | 9.3.1 | pass | pass | not written | `useTable` with sorting, filtering and pagination, `FlexRender`, a header click cycling the sort, typing in a filter, new data |
+| @tanstack/react-virtual | 3.14.28 | pass | pass | not written | 10,000 rows of two heights: a window in the DOM, scrolling, `scrollToIndex`, `measureElement`, a click on a virtual row |
+| react-window | 2.5.4 | pass | pass | pass | `List` over 5,000 rows: a window in the DOM, scrolling, `scrollToRow`, changing row props |
+| react-virtuoso | 4.18.24 | pass | pass | pass | 2,000 rows of measured heights: scrolling, `scrollToIndex`, `rangeChanged`, a growing count |
+| react-hook-form | 7.92.0 | pass | pass | not written | `register`, validation on submit with focus on the first error, `Controller`, `useFieldArray`, `useWatch`, `setFocus`, `reset` |
+| formik | 2.4.9 | pass | pass | not written | `<Formik>`, `<Field>` as input, select and checkbox, `validate` with `<ErrorMessage>`, `useField`, `<FieldArray>`, submit and reset |
+| @floating-ui/react | 0.27.20 | pass | pass | not written | `useFloating` with offset, flip, shift, arrow and `autoUpdate`; click, dismiss, role and hover interactions; `FloatingPortal`; `FloatingFocusManager`; `useListNavigation`; the measured position |
+| cmdk | 1.1.1 | pass | pass | pass | Filtering and ranking as you type (items and groups hide), the empty state, arrow keys, Enter; `Command.Dialog` |
+| sonner | 2.0.8 | pass | pass | pass | Plain and success toasts, an action button, `toast.promise`, a JSX toast, measured stacking, dismiss one and all |
+| vaul | 1.1.2 | pass | pass | pass | A controlled drawer in a portal, a controlled input inside, Close and Escape with the exit animation, a pointer drag down that dismisses it |
+| @dnd-kit/core, @dnd-kit/sortable | 6.3.1, 10.0.0 | pass | pass | not written | A sortable list: a pointer drag with `DragOverlay`, a keyboard drag with the screen-reader announcement, DOM nodes kept across the reorder |
+| react-select | 5.10.2 | pass | pass | pass | A single select (menu in a portal, type to filter, keyboard, clear), a multi select with removable values, an async select |
+| react-day-picker | 10.0.2 | pass | pass | pass | A single-date picker by click and by arrow keys, month navigation, a range picker with disabled days |
+| framer-motion | 14.14.0 | pass | pass | pass | Mount and prop-driven animation, `AnimatePresence` exit before unmount, variants with staggered children, `whileHover`, pointer `drag` writing a motion value |
+| recharts | 3.11.1 | pass | pass | pass | BarChart with grid, axes, legend, a hover Tooltip and a click on a bar, new data in the same SVG, a LineChart in `ResponsiveContainer`, a PieChart |
+| styled-components | 6.6.0 | pass | pass | not written | Styles from props and `ThemeProvider`, a prop and a theme change in place, `styled(Component)`, `css`, `as`, `.attrs`, transient props, `createGlobalStyle`, `keyframes` |
+| react-markdown, remark-gfm | 10.1.0, 4.0.1 | pass | pass | pass | CommonMark and GFM to elements, custom `components`, raw HTML kept as text, new source |
+| lucide-react | 1.79.0 | pass | pass | pass | Icons as `forwardRef` SVG components: size, color, stroke and class as real SVG attributes, a ref, swapping icons |
+| react-i18next, i18next | 18.0.3, 27.2.7 | pass | pass | not written | `useTranslation` with interpolation, plurals and a namespace, `<Trans>` with an element, `changeLanguage` from inside and outside React |
+| react-hot-toast | 2.6.1 | pass | pass | pass | Success and error toasts, an id that is not duplicated, a toast that removes itself, `toast.promise`, a JSX toast, dismiss all |
+| react-transition-group | 4.4.5 | pass | pass | not written | `CSSTransition` enter and exit classes with callbacks and `unmountOnExit`, `TransitionGroup` (add, and removal held until the exit ends), `SwitchTransition` |
+| react-error-boundary | 6.1.6 | pass | pass | not written | A render error shows the fallback and calls `onError`, `resetErrorBoundary`, `resetKeys`, `useErrorBoundary().showBoundary` |
+| react-resizable-panels | 4.24.1 | pass | pass | pass | A pointer drag on the separator, arrow keys on it, `onLayoutChange`, panel state kept |
+| input-otp | 1.5.0 | pass | pass | pass | A hidden real input driving rendered slots, the active slot, a pattern refusing letters, Backspace, `onComplete`, a reset from outside |
 
-## Re-running the verification
+**"not written" in the native-file column.** A package whose API is hooks
+(zustand, jotai, Redux, TanStack Query, Table and Virtual, SWR,
+react-hook-form, formik, Floating UI, dnd-kit, react-i18next) has no
+native-file form: the file that calls its hook is a React file, which is the
+"Mixed, React file" column. For react-router, styled-components,
+react-transition-group, react-error-boundary and react-aria-components a
+native variant is possible in part and was not written; nothing is claimed
+for it.
+
+### What the matrix does not cover
+
+- **Server rendering and hydration** of these packages. The fixtures are
+  client-rendered. Mixed mode renders React islands on the server (MIXED.md);
+  no package in this table was run that way, except recharts and
+  react-hook-form in `npm run test:browser:mixed`.
+- **The Vite dev server.** The matrix runs production builds. Dev mode is
+  covered for recharts and react-hook-form only (`test:browser:mixed`).
+- **Other browsers.** Chromium only.
+- **Performance.** Nothing here measures speed or bundle size.
+- **Each package's whole API.** A row says the listed interactions work.
+
+### Not run: no claim either way
+
+Chakra UI, Mantine, Base UI, Apollo Client, MobX, valtio, react-dnd,
+@hello-pangea/dnd, TipTap, Lexical, Slate, React Flow (@xyflow/react),
+react-spring, Embla, Swiper, react-dropzone, react-pdf (the viewer),
+react-toastify, react-helmet-async, next-themes, react-intl, Stripe's React
+bindings, and everything else not in the table.
+
+### Unsupported
+
+| What | Why |
+|---|---|
+| react-three-fiber, react-konva, ink, @react-pdf/renderer, anything built on `react-reconciler` | They bring their own renderer and drive it through React's reconciler package, which what-react does not implement. |
+| React Server Components and packages that need them (`server-only`, the Next.js app router) | what-react is a client runtime. |
+| `react-dom/server` (`renderToString` and friends) | Not provided. A package that calls it in the browser gets real React's, which cannot render what-react elements. |
+| Packages that read React's internals (`__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE`, fibers on DOM nodes, React DevTools hooks) | There are no fibers. The React 18 internals object exists with empty dispatchers only. |
+
+## What the matrix found, by cause
+
+Run with the same fixtures, what-react as it was before this work (commit
+`de9f188b`) passed 24 of the 37 package fixtures in full compat, 22 of 37 as
+React files in a native app and 8 of the 19 native-file variants, and could
+not build the React-surface fixture (missing exports). Each cause below is
+fixed in `packages/react-compat/src` and has a unit test in
+`packages/react-compat/test/react-semantics.test.js` (or the file named);
+all 28 tests of that file fail on the old runtime.
+
+| Cause | Packages it broke | Fix |
+|---|---|---|
+| Unkeyed children were matched by position among unkeyed siblings, so a keyed sibling that left moved every later child into another slot and remounted it | react-select (the input lost focus and its text on the first key) | Children are matched by key or by index inside their own list; a nested array is its own list |
+| Kept nodes were re-inserted whenever their container held nodes the list did not own | Radix Dialog (two portals in `<body>` re-inserted each other, blurring the focused input) | A kept node moves only when its list's order changed |
+| Unmounting removed what stood between a component's markers | cmdk (it sorts its items in the DOM; filtered items stayed on screen) | A component's nodes are found through its rendered tree |
+| A re-render could start before the last commit's passive effects ran | Radix DropdownMenu, Select (a layer read a registry before registering; its content stayed `pointer-events: none`) | Pending passive effects run before every render |
+| A parent's layout effect ran before its descendant's when both re-rendered on their own in one commit | cmdk (no item selected after clearing the search) | Descendants' effects are queued first |
+| Events inside a portal did not reach the portal's React parents | Radix (a Popover inside a Dialog), MUI | Two document listeners per event type carry the event along the React path |
+| Handlers received the native event: no `isPropagationStopped()`, and `{ ...event }` copied nothing | Ant Design Table (sorting threw), Radix Select, react-aria-components (keyboard navigation dead) | A synthetic event object with own fields and React's methods |
+| `onInput` and `onChange` on one field shared a listener slot; `onInput={undefined}` removed the `onChange` handler | react-aria-components | Handlers are kept per React prop |
+| A prop that was `undefined` was written as `''` (`maxLength` became 0, `href` a link to the page, `tabIndex` focusable) | react-aria-components (the text field accepted no text) | Null and undefined props are left out, and taken back when they become undefined |
+| `aria-*={false}` removed the attribute | Headless UI Switch (`aria-checked`), Radix menu checkbox items, react-window rows (`aria-selected`) | Written as text, as React does |
+| `autoFocus` was not applied | MUI Dialog, cmdk | The element is focused when it mounts |
+| A controlled field kept what the user typed when the handler refused it | input-otp | The field goes back to its prop after the change event |
+| Class components were constructed without context, `shouldComponentUpdate` was ignored, `this.state` changed at the `setState` call, a ref was passed as a prop | react-transition-group (`TransitionGroup` never animated new items), react-select refs | Rewritten class wrapper (`runtime.test.js`, `react-semantics.test.js`) |
+| A portal into an object that is not a DOM node crashed | react-aria-components (it renders its collections into a document of its own) | Such a portal renders into a detached shadow tree and mirrors its elements into the library's document |
+| `<motion.div>` and `<table.FlexRender>` were lowered as host elements in mixed mode | framer-motion, TanStack Table (mixed mode only) | A member tag's object is a variable (`mixed-plugin.test.js`) |
+| React 19 names were missing; a missing named export fails the whole build | any package importing them | `useOptimistic`, `useActionState`, `useEffectEvent`, `Profiler`, `Activity`, `cache`, `useFormStatus`, form `action` functions, `<Context value>`, ref cleanup functions, async transitions, `react/compiler-runtime` |
+| `Children.count`, `map` and `toArray` skipped empty children and gave no keys | found with the React-surface fixture | React's rules (`runtime.test.js`) |
+| An error thrown in an effect was logged, not routed | found with the React-surface fixture | It goes to the nearest error boundary |
+| Content that suspended after mounting was unmounted, losing its state | found with the React-surface fixture | It stays mounted and hidden behind the fallback |
+| `reactCompat()` alone set Vite's deprecated `esbuild` option on Vite 8 | every full-compat build (a warning) | The `oxc` option on Vite 8 and later |
+
+vaul also failed on the old runtime (the input inside its drawer could not be
+clicked) and passes now; which of the fixes above it needed was not isolated.
+
+## Known limitations
+
+- **Rendering is synchronous.** There is no time slicing. A transition's
+  updates render in the next flush like any other; `isPending` is true only
+  while an async action is running. `useDeferredValue` returns the value it
+  was given. A transition does not keep the old screen while new content
+  suspends: the Suspense fallback shows. No package in the matrix was
+  affected.
+- **Suspense.** Content that suspends on its first mount is not mounted
+  until the promise settles (React also shows only the fallback). Content
+  that suspends after it was shown stays mounted and hidden, and keeps its
+  state. Unlike React, its layout effects are not cleaned up while it is
+  hidden and run again when it returns.
+- **`<Activity mode="hidden">` renders nothing.** React keeps the hidden
+  tree's state; here it unmounts.
+- **Server rendering.** Full compat has none: `renderToString` of a compat
+  element is unsupported and `hydrateRoot` replaces the server's HTML with a
+  client render. In mixed mode React islands render on the server and their
+  HTML is replaced on load instead of adopted (MIXED.md), so text typed into
+  a React field before the page hydrates is lost. Not exercised by the matrix.
+- **Class components.** `getSnapshotBeforeUpdate` is called before the commit
+  rather than between render and mutation. Legacy context (`contextTypes`,
+  `childContextTypes`) and string refs are not supported.
+- **Events.** Handlers are native listeners on their elements, not delegated
+  to the root. A handler therefore runs in DOM order with any native listener
+  on the same path, and `stopPropagation()` in a React handler also stops
+  native listeners further up, which React does only from the root on.
+  `onMouseEnter` and `onMouseLeave` do not cross portals. The synthetic event
+  is one object per native event.
+- **React's version.** `React.version` is `18.3.1` and elements carry React
+  18's brand (`Symbol.for('react.element')`), with React 19's API on top
+  (`ref` is a prop and is also on the element). A package that branches on
+  the version takes its React 18 path. A package bundling `react-is` 19,
+  which looks for React 19's brand, would not recognise these elements; none
+  in the matrix did so in a way a fixture noticed, and it was not tested
+  directly.
+- **`Profiler` measures nothing**, and the resource hints of `react-dom`
+  (`preload`, `preinit`, …) do nothing.
+- **A portal into a library's own document** (react-aria-components) is
+  compared with its mirror after each commit that changed it, in time
+  proportional to the collection's size.
+- **Bridge-mounted compat components** (a compat component rendered by
+  what-core outside mixed mode) attach refs and layout effects before the
+  surrounding What fragment is in the document, so layout read there on first
+  mount can be zero. Not re-checked in this pass.
+- **Render-phase cleanup on errors:** if a descendant throws during a
+  subtree commit, effect cleanups of partially mounted children may not run
+  before the boundary's fallback replaces them. Not re-checked in this pass.
+
+## Re-running
 
 ```bash
-# jsdom CI suites (run automatically by `npm test` at the repo root)
-node --test packages/react-compat/test/
+# Unit suites (jsdom), part of `npm test`
+node --test 'packages/react-compat/test/*.test.js'
 
-# Browser acceptance fixture (real Chromium, uses the reactCompat() plugin)
-cd packages/react-compat/test/fixtures/acceptance
-npm install
-npm run dev        # http://localhost:4600 — interact with the 8 sections
-npm run build && npm run preview   # same checks against the production build
+# The package matrix (Chromium). Install the fixture's packages once:
+(cd packages/react-compat/test/fixtures/matrix && npm install)
+npm run test:browser:matrix
+#   --mode=react,compat,mixed   which builds (default: all three; mixed runs both mixed columns)
+#   --only=mui,cmdk             which fixtures
+#   --md                        print table rows   --json=out.json   full results
+#   --retries=1                 rerun a failed fixture once before calling it failed
+#   --timeout=15000             per-wait timeout in ms, for a slow machine
+
+# Mixed mode end to end: production build, dev server, server render and hydration
+npm run test:browser:mixed
 ```
 
-The fixture's sections map 1:1 to the matrix rows; each renders IDs
-(`#ctx-value`, `#z-count`, `#q-data`, `#f-error`, `#m-picked`, `#mo-box`, …)
-so the flows can be asserted by any browser automation tool. The jsdom suite
-(`test/libs.test.js`) imports the same libraries from
-`packages/react-compat/test/app/node_modules` and skips with a notice if that
-fixture isn't installed.
+The matrix exits 0 when real React passes every fixture and every what-react
+result is a pass or a failure the fixture's spec lists under `known` with its
+reason. Each fixture is a folder in
+`packages/react-compat/test/fixtures/matrix/src/libs`: `fixture.jsx` (a React
+file), `spec.mjs` (the steps and assertions, shared by every column), and
+`native.jsx` where the same screen exists as a native What file. Adding a
+package is adding a folder and its dependency to the fixture's `package.json`.

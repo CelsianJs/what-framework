@@ -613,6 +613,21 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`create-what`'s React option scaffolds a native app with a React file in
   it** (`what()` and `reactCompat()`, a native `main.jsx`, zustand in
   `BearCounter.jsx`), instead of an app whose JSX all ran through what-react.
+- **A browser matrix of 47 popular React packages** (`npm run
+  test:browser:matrix`, `REACT-COMPAT.md`): Radix, MUI with Emotion, Ant
+  Design, react-aria-components, Headless UI, react-router, Redux Toolkit,
+  zustand, jotai, TanStack Query, Table and Virtual, SWR, react-hook-form,
+  formik, Floating UI, cmdk, sonner, vaul, dnd-kit, react-select,
+  react-day-picker, framer-motion, recharts, styled-components and others.
+  Each fixture is driven in Chromium through a production Vite build, on real
+  React 19 as the control, on what-react alone, as a React file inside a
+  native What app, and (19 of them) rewritten as a native What file. All pass.
+- **what-react has React 19's API**: `useOptimistic`, `useActionState`,
+  `useEffectEvent`, `useFormStatus`, a function as a form's `action`, async
+  transitions (`isPending` while the action runs, its updates committed
+  together), `<Context value>` as a provider, callback refs that return a
+  cleanup, `Profiler`, `Activity`, `cache`, and `react/compiler-runtime` for
+  packages built with React Compiler.
 
 - **`ERR_COMPILER_RUNTIME_MISMATCH`**: what-compiler/vite and the Babel plugin
   stop a build whose what-framework or what-core is a different release.
@@ -774,6 +789,28 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (jsdom) no longer logs "Not implemented: window.scrollTo" on navigation.
 - **what-react writes `tabIndex` on SVG elements as `tabindex`**, the attribute
   that makes them focusable (recharts' chart surface).
+- **what-react follows React where popular packages depend on it** (found by
+  the package matrix; `REACT-COMPAT.md` lists each cause). Children are
+  matched by key or by index inside their own list, so an input no longer
+  remounts when a keyed sibling leaves. A kept node is no longer re-inserted
+  among nodes its list does not own (two portals in `<body>` blurred each
+  other's focused field). Passive effects run before the next render, and a
+  descendant's effects before its ancestor's. An event inside a portal reaches
+  the portal's React parents. Handlers get a synthetic event object. A prop
+  that is `undefined` is left out instead of written as `''` (`maxLength`
+  became 0). `aria-*={false}` is written. `autoFocus` focuses. A controlled
+  field goes back to its prop when the handler refuses an edit. Class
+  components get context in the constructor, `shouldComponentUpdate` and
+  `PureComponent`, a ref to the instance, and `this.state` that changes at the
+  render. Content that suspends after it was shown keeps its state. An error
+  in an effect reaches the error boundary. A portal into a library's own
+  document (react-aria-components) works. `<motion.div>` and
+  `<table.FlexRender>` compile in mixed mode.
+  *Changed for code that relied on the old behaviour:* `Children.count()`
+  counts empty children and `Children.toArray()` keys its result, as React's
+  do; `unstable_batchedUpdates()` and `startTransition()` no longer render
+  before they return (`flushSync()` does); `componentDidMount` runs in the
+  commit, not after it.
 
 - **A `<Head>` title, meta or link whose hole reads a value goes to the head
   on the server.** `<title>{name()}</title>` or `content={'about ' + name()}`

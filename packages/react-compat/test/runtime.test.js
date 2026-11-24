@@ -823,11 +823,45 @@ test('cloneElement merges props and preserves type', () => {
   assert.equal(container.firstChild.textContent, 'child');
 });
 
-test('Children.map / count / toArray skip holes', () => {
-  const kids = [h('i'), null, false, [h('b'), 'text']];
-  assert.equal(React.Children.count(kids), 3);
-  assert.equal(React.Children.toArray(kids).length, 3);
-  assert.equal(React.Children.map(kids, (c, i) => i).length, 3);
+// React's own answers for these children (checked against react 19.3): an
+// empty child (null, false) counts and reaches the callback as null, a
+// nested array is walked in place, and toArray drops the empties and keys
+// what is left by where it came from.
+test('Children.count / map / toArray follow React\'s rules for empty children', () => {
+  const kids = [h('i', { key: 'x' }), null, false, [h('b'), 'text']];
+  assert.equal(React.Children.count(kids), 5);
+  const seen = [];
+  assert.deepEqual(React.Children.map(kids, (c, i) => { seen.push(c === null ? null : typeof c === 'string' ? c : c.type); return i; }), [0, 1, 2, 3, 4]);
+  assert.deepEqual(seen, ['i', null, null, 'b', 'text']);
+  const array = React.Children.toArray(kids);
+  assert.equal(array.length, 3);
+  assert.equal(array[0].key, '.$x');
+  assert.equal(array[1].key, '.3');
+  assert.equal(array[2], 'text');
+  assert.equal(React.Children.map(null, (c) => c), null);
+  assert.equal(React.Children.count(undefined), 0);
+});
+
+test('Children.toArray keys keep a child\'s identity when an earlier sibling goes', () => {
+  function Field() {
+    const [n] = useState(() => ++made);
+    return h('i', null, n);
+  }
+  let made = 0;
+  let setShow;
+  function List({ children }) {
+    return h('div', null, React.Children.toArray(children));
+  }
+  function App() {
+    const [show, s] = useState(true);
+    setShow = s;
+    return h(List, null, show ? h('b', null, 'first') : null, h(Field));
+  }
+  const { container } = mount(h(App));
+  assert.equal(container.querySelector('i').textContent, '1');
+  act(() => setShow(false));
+  assert.equal(container.querySelector('b'), null);
+  assert.equal(container.querySelector('i').textContent, '1', 'the Field was kept, not mounted again');
 });
 
 test('element.type exposes the original component for library type checks', () => {

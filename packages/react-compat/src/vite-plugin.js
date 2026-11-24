@@ -192,6 +192,18 @@ function exactAlias(specifier, replacement) {
   return { find: new RegExp(`^${escaped}$`), replacement };
 }
 
+// The major version of the Vite running the plugin: from the hook's context
+// (Vite 5.1 and later), else from the Vite the project resolves.
+function viteMajor(root, context) {
+  const version = context && context.meta && context.meta.viteVersion;
+  if (typeof version === 'string') return parseInt(version, 10) || 0;
+  try {
+    return parseInt(createRequire(root + '/')('vite/package.json').version, 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 // Whether the app's config also uses what-compiler's plugin (what()).
 function usesWhatCompiler(plugins) {
   const list = Array.isArray(plugins) ? plugins.flat(Infinity) : [];
@@ -259,6 +271,7 @@ export function reactCompat(options = {}) {
       const alias = [
         exactAlias('react/jsx-runtime', path.join(compatSrc, 'jsx-runtime.js')),
         exactAlias('react/jsx-dev-runtime', path.join(compatSrc, 'jsx-dev-runtime.js')),
+        exactAlias('react/compiler-runtime', path.join(compatSrc, 'compiler-runtime.js')),
         exactAlias('react-dom/client', path.join(compatSrc, 'dom.js')),
         exactAlias('react-dom', path.join(compatSrc, 'dom.js')),
         exactAlias('react', path.join(compatSrc, 'index.js')),
@@ -271,15 +284,18 @@ export function reactCompat(options = {}) {
         exactAlias('use-sync-external-store/shim', path.join(compatSrc, 'index.js')),
       ];
 
+      // The automatic JSX runtime, importing from `react` (aliased to
+      // what-react): Vite 8 transforms with Oxc and warns about the `esbuild`
+      // option, earlier Vites only know that one.
+      /** @type {import('vite').UserConfig} */
+      const jsx = viteMajor(root, this) >= 8
+        ? { oxc: { jsx: { runtime: 'automatic', importSource: 'react' } } }
+        : { esbuild: { jsx: 'automatic', jsxImportSource: 'react' } };
+
       return {
         // Mixed mode: what-compiler keeps JSX for itself, and React files are
         // lowered by the mixed plugin; otherwise every file is React code.
-        ...(mixedOn ? {} : {
-          esbuild: {
-            jsx: 'automatic',
-            jsxImportSource: 'react', // aliased to what-react
-          },
-        }),
+        ...(mixedOn ? {} : jsx),
         resolve: {
           alias,
           // what-framework and what-core are not aliased: each import,

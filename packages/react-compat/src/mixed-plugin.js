@@ -403,11 +403,13 @@ export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
   const natives = new Map();
 
   const rootName = (n) => (t.isJSXMemberExpression(n) ? rootName(n.object) : t.isJSXIdentifier(n) ? n.name : null);
-  const tagOf = (n) => {
+  // `member`: the name starts a member expression (<motion.div>,
+  // <table.FlexRender>), where it is a variable whatever its case.
+  const tagOf = (n, member = false) => {
     if (t.isJSXNamespacedName(n)) return t.stringLiteral(`${n.namespace.name}:${n.name.name}`);
-    if (t.isJSXMemberExpression(n)) return t.memberExpression(tagOf(n.object), t.identifier(n.property.name));
+    if (t.isJSXMemberExpression(n)) return t.memberExpression(tagOf(n.object, true), t.identifier(n.property.name));
     if (n.name === 'this') return t.thisExpression();
-    return t.react.isCompatTag(n.name) ? t.stringLiteral(n.name) : t.identifier(n.name);
+    return !member && t.react.isCompatTag(n.name) ? t.stringLiteral(n.name) : t.identifier(n.name);
   };
 
   // A component tag inside React code. In a React file: a native component
@@ -488,7 +490,10 @@ export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
   } else {
     babel.traverse(ast, {
       JSXElement(p) {
-        const name = rootName(p.node.openingElement.name);
+        const tagNode = p.node.openingElement.name;
+        // A bare lowercase tag is a host element, whatever variable shares its name.
+        if (t.isJSXIdentifier(tagNode) && t.react.isCompatTag(tagNode.name)) return;
+        const name = rootName(tagNode);
         if (name === null || !reactTags.has(name) || p.scope.hasBinding(name) && p.scope.getBinding(name).kind !== 'module') return;
         const svg = p.findParent((q) => q.isJSXElement() && t.isJSXIdentifier(q.node.openingElement.name, { name: 'svg' })) !== null;
         // A row of a native .map() list keeps its key, so what-compiler keeps
@@ -605,8 +610,11 @@ export function mixedJsx(options = {}) {
       babel.traverse(ast, {
         JSXOpeningElement(p) {
           let n = p.node.name;
+          // The object of a member tag is a variable, lowercase or not
+          // (<motion.div>): only a bare lowercase name is a host element.
+          const member = t.isJSXMemberExpression(n);
           while (t.isJSXMemberExpression(n)) n = n.object;
-          if (t.isJSXIdentifier(n) && !t.react.isCompatTag(n.name)) tagNames.add(n.name);
+          if (t.isJSXIdentifier(n) && n.name !== 'this' && (member || !t.react.isCompatTag(n.name))) tagNames.add(n.name);
         },
       });
       if (!reactFile && tagNames.size === 0) return null;

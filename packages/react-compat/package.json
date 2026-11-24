@@ -35,6 +35,11 @@
       "import": "./src/jsx-dev-runtime.js",
       "default": "./src/jsx-dev-runtime.js"
     },
+    "./compiler-runtime": {
+      "types": "./compiler-runtime.d.ts",
+      "import": "./src/compiler-runtime.js",
+      "default": "./src/compiler-runtime.js"
+    },
     "./vite": {
       "types": "./vite.d.ts",
       "import": "./src/vite-plugin.js",
@@ -47,6 +52,7 @@
     "dom.d.ts",
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
+    "compiler-runtime.d.ts",
     "vite.d.ts",
     "mixed.d.ts",
     "MIXED.md"

@@ -232,6 +232,34 @@ test('the plugin marks React files for what-compiler and leaves native files wit
   assert.ok(!mixed.code.includes(REACT_SOURCE_MARKER));
 });
 
+// Found by the package matrix: framer-motion's <motion.div> and TanStack
+// Table's <table.FlexRender> were read as the host elements "motion" and
+// "table" with a property, so the tag was undefined.
+test('a member tag whose object is lowercase is a component, never a host element (<motion.div>, <table.FlexRender>)', () => {
+  const react = lower(`
+import { motion } from 'ui-kit';
+export const A = ({ table }) => <motion.div><table.FlexRender cell={1} /><table /></motion.div>;`, { reactFile: true });
+  assert.match(react.code, /_createElement\(motion\.div, null, _createElement\(table\.FlexRender, \{\s*"cell": 1\s*\}\), _createElement\("table", null\)\)/);
+
+  const native = lower(`
+import { motion } from 'ui-kit';
+export const A = () => <section><motion.div animate={x()} /><motion /></section>;`, { reactTags: new Set(['motion']) });
+  assert.match(native.code, /<section><WhatReactIsland view=\{\(\) => _createElement\(motion\.div, \{\s*"animate": x\(\)\s*\}\)\} \/><motion \/><\/section>/, 'the member tag is an island; a bare lowercase tag stays a host element');
+});
+
+test('the plugin finds a React package behind a lowercase member tag in a native file', async () => {
+  const p = project({
+    ...PACKAGES,
+    'node_modules/ui-kit/index.js': 'export const motion = { div() {} };',
+    'src/Animated.jsx': "import { motion } from 'ui-kit';\nexport const A = () => <section><motion.div /></section>;",
+  });
+  const plugin = mixedJsx();
+  plugin.configResolved({ root: p.root });
+  const ctx = { resolve: async (s, i) => ({ id: await p.resolve(s, i) }), environment: null };
+  const out = await plugin.transform.call(ctx, fs.readFileSync(p.at('src/Animated.jsx'), 'utf8'), p.at('src/Animated.jsx'));
+  assert.match(out.code, /<section><WhatReactIsland view=\{\(\) => _createElement\(motion\.div, null\)\} \/><\/section>/);
+});
+
 test('a server build bundles the React packages the app depends on, with their React dependencies', () => {
   const p = project({
     'package.json': { name: 'app', dependencies: { 'chart-kit': '1', 'plain-util': '1', 'cjs-react-thing': '1', 'what-router': '1' } },
