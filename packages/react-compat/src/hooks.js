@@ -17,9 +17,13 @@ import {
   _getCurrentInstance,
   _getHookSlot,
   scheduleUpdate,
+  _pushInsertion,
   _pushLayout,
   _pushPassive,
   _setFormActionRunner,
+  EFFECT_INSERTION,
+  EFFECT_LAYOUT,
+  EFFECT_PASSIVE,
 } from './runtime.js';
 
 function depsChanged(oldDeps, newDeps) {
@@ -32,6 +36,55 @@ function depsChanged(oldDeps, newDeps) {
   return false;
 }
 
+// ---- State queues (useState, useReducer) ----
+// A setter queues its action and the next render applies the queue in order,
+// as React's update queue does. A reducer or an updater therefore runs while
+// the component renders: what it throws reaches the error boundary, an
+// updater queued behind another sees the result of the one before it, and
+// one whose component unmounts first never runs.
+//
+// With nothing queued the action is tried at the call (React's eager state):
+// a state that does not change schedules no render, and the result is kept
+// for the render, so the updater runs once. What it throws there is dropped:
+// the render runs it again, and throws where a boundary catches it.
+// useReducer takes the same path with the reducer of the last render, as
+// React 17 did (React 18 runs every action at render and discards a render
+// whose state came out the same; a render is not discarded here).
+
+function basicStateReducer(state, action) {
+  return typeof action === 'function' ? action(state) : action;
+}
+
+function enqueueAction(inst, slot, action, reducer) {
+  const update = { action, eager: false, value: undefined };
+  if (slot.queue.length === 0) {
+    try {
+      const next = reducer(slot.value, action);
+      if (Object.is(next, slot.value)) return;
+      update.eager = true;
+      update.value = next;
+    } catch { /* thrown again by the render */ }
+  }
+  if (inst.unmounted) return;
+  slot.queue.push(update);
+  scheduleUpdate(inst);
+}
+
+// The state for this render: the queued actions applied to the last one. An
+// action that throws takes the queue with it (the boundary above replaces
+// the component).
+function applyActions(slot, reducer) {
+  const queue = slot.queue;
+  if (queue.length === 0) return;
+  slot.queue = [];
+  let value = slot.value;
+  for (let i = 0; i < queue.length; i++) {
+    const update = queue[i];
+    value = update.eager ? update.value : reducer(value, update.action);
+  }
+  slot.value = value;
+}
+
 // ---- useState ----
 
 export function useState(initial) {
@@ -40,17 +93,17 @@ export function useState(initial) {
   if (!slot.init) {
     slot.init = true;
     slot.value = typeof initial === 'function' ? initial() : initial;
+    slot.queue = [];
     slot.set = (next) => {
       // Inside a transition the update waits for the transition (below).
       if (currentTransition !== null) {
         currentTransition.updates.push(() => slot.set(next));
         return;
       }
-      const resolved = typeof next === 'function' ? next(slot.value) : next;
-      if (Object.is(resolved, slot.value)) return;
-      slot.value = resolved;
-      scheduleUpdate(inst);
+      enqueueAction(inst, slot, next, basicStateReducer);
     };
+  } else {
+    applyActions(slot, basicStateReducer);
   }
   return [slot.value, slot.set];
 }
@@ -63,19 +116,19 @@ export function useReducer(reducer, initialArg, init) {
   if (!slot.init) {
     slot.init = true;
     slot.value = init ? init(initialArg) : initialArg;
-    slot.reducer = reducer;
+    slot.queue = [];
     slot.dispatch = (action) => {
       if (currentTransition !== null) {
         currentTransition.updates.push(() => slot.dispatch(action));
         return;
       }
-      const next = slot.reducer(slot.value, action);
-      if (Object.is(next, slot.value)) return;
-      slot.value = next;
-      scheduleUpdate(inst);
+      enqueueAction(inst, slot, action, slot.reducer);
     };
+  } else {
+    // Queued actions run with this render's reducer (it may close over props).
+    applyActions(slot, reducer);
   }
-  slot.reducer = reducer; // always use the latest reducer closure
+  slot.reducer = reducer;
   return [slot.value, slot.dispatch];
 }
 
@@ -116,13 +169,15 @@ export function useRef(initial) {
 }
 
 // ---- useEffect / useLayoutEffect / useInsertionEffect ----
+// The hook queues its effect; the commit runs it (runtime.js): insertion
+// effects first, then layout effects, then passive ones after the commit.
 
-function useEffectImpl(hookName, push, fn, deps) {
+function useEffectImpl(hookName, kind, push, fn, deps) {
   const inst = _requireInstance(hookName);
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot._isEffect = true;
+    slot._effect = kind;
     slot.cleanup = null;
     slot.deps = undefined;
     slot._pending = null;
@@ -134,37 +189,17 @@ function useEffectImpl(hookName, push, fn, deps) {
 }
 
 export function useEffect(fn, deps) {
-  useEffectImpl('useEffect', _pushPassive, fn, deps);
+  useEffectImpl('useEffect', EFFECT_PASSIVE, _pushPassive, fn, deps);
 }
 
 export function useLayoutEffect(fn, deps) {
-  useEffectImpl('useLayoutEffect', _pushLayout, fn, deps);
+  useEffectImpl('useLayoutEffect', EFFECT_LAYOUT, _pushLayout, fn, deps);
 }
 
-// Runs synchronously during render (before this component's DOM mutations) —
-// the closest approximation of React's insertion phase for CSS-in-JS libs.
+// In the commit, before refs attach and layout effects run, children before
+// parents: where a CSS-in-JS library writes its rules.
 export function useInsertionEffect(fn, deps) {
-  const inst = _requireInstance('useInsertionEffect');
-  const slot = _getHookSlot(inst);
-  if (!slot.init) {
-    slot.init = true;
-    slot._isEffect = true;
-    slot.cleanup = null;
-    slot.deps = undefined;
-  }
-  if (depsChanged(slot.deps, deps)) {
-    slot.deps = deps;
-    if (slot.cleanup) {
-      try { slot.cleanup(); } catch (e) { console.error('[what-react] insertion effect cleanup error:', e); }
-      slot.cleanup = null;
-    }
-    try {
-      const result = fn();
-      if (typeof result === 'function') slot.cleanup = result;
-    } catch (e) {
-      console.error('[what-react] insertion effect error:', e);
-    }
-  }
+  useEffectImpl('useInsertionEffect', EFFECT_INSERTION, _pushInsertion, fn, deps);
 }
 
 // ---- useImperativeHandle ----
@@ -188,6 +223,10 @@ export function createContext(defaultValue) {
   const context = {
     $$typeof: Symbol.for('react.context'),
     _defaultValue: defaultValue,
+    // React's fields: the value outside every provider. (React also keeps
+    // the nearest provider's value here while it renders; this does not.)
+    _currentValue: defaultValue,
+    _currentValue2: defaultValue,
     displayName: 'Context',
   };
 
@@ -209,6 +248,9 @@ export function createContext(defaultValue) {
   }
   Provider.displayName = 'Context.Provider';
   Provider._context = context;
+  // The brands React 18 gives them, which react-is 18 reads from an
+  // element's type (isContextProvider, isContextConsumer).
+  Provider.$$typeof = Symbol.for('react.provider');
 
   function Consumer(props) {
     const value = useContext(context);
@@ -217,6 +259,7 @@ export function createContext(defaultValue) {
   }
   Consumer.displayName = 'Context.Consumer';
   Consumer._context = context;
+  Consumer.$$typeof = Symbol.for('react.context');
 
   context.Provider = Provider;
   context.Consumer = Consumer;
@@ -256,7 +299,7 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot._isEffect = true; // unmount runs slot.cleanup (the unsubscribe)
+    slot._effect = EFFECT_LAYOUT; // unmount runs slot.cleanup (the unsubscribe)
     slot.cleanup = null;
     slot.subscribe = undefined;
     slot._pending = null;
@@ -387,7 +430,24 @@ export function startTransition(fn) {
   if (promise !== null) promise.then(undefined, (error) => { console.error('[what-react] a transition rejected:', error); });
 }
 
-export function useDeferredValue(value) {
+// React 19's second argument: the value for the first render, which commits
+// before a render with `value` follows. Later changes of `value` are not
+// deferred (rendering here is not time-sliced).
+export function useDeferredValue(value, initialValue) {
+  const inst = _requireInstance('useDeferredValue');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.initial = initialValue !== undefined && !Object.is(initialValue, value);
+  }
+  if (slot.initial) {
+    // Queued on every render until it ran (a render that suspends drops it).
+    _pushPassive(inst, slot, () => {
+      slot.initial = false;
+      scheduleUpdate(inst);
+    });
+    return initialValue;
+  }
   return value;
 }
 

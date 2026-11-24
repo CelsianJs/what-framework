@@ -45,17 +45,31 @@ next to What's run-once renderer. what-core is not modified.
 - **Hooks return values**, and a state change re-runs the component. The new
   output is reconciled against the last one, so DOM elements, focus, input
   state and child component state survive, as in React.
+- **State updates are queued** and applied when the component renders: a
+  reducer or an updater that throws reaches the error boundary, and an
+  updater queued behind another sees its result.
 - **Children are matched as React matches them**: by key, or by index inside
   their own list, where a nested array (a `.map()`) is a list of its own. A
   kept node is moved only when its list's own order changed; nodes a library
   inserted or moved itself are left where they are.
-- **Effects follow React's order**: refs attach after the DOM is in place,
-  layout effects run in the commit (children before parents), passive effects
-  after it and always before the next render.
+- **A commit runs its effects in React's phases**: insertion effects, then
+  refs (the DOM is in place), then layout effects, all before the commit
+  returns, children before parents; passive effects after it and always
+  before the next render. In the layout phase and in the passive phase every
+  cleanup runs before any effect. A subtree that is removed is cleaned up
+  parents first: its layout cleanups while its refs and its DOM are still
+  there, its passive cleanups with the commit's other passive effects. Where
+  the order still differs from React's is listed under Known limitations.
 - **Events** are native listeners on the elements, and a handler receives a
   synthetic event object (the native event's fields as own properties, React's
-  methods, `nativeEvent`). An event inside a portal goes on to the portal's
-  React parents.
+  methods, `nativeEvent`), one per native event and React event type, with
+  `currentTarget` set while the handler runs. `onChange` fires when the
+  field's value changed, on the field and on the elements above it. An event
+  inside a portal goes on to the portal's React parents.
+- **Controlled fields** show their props: when no handler takes an edit, the
+  field (a text field, a checkbox, a radio group, a select, single or
+  multiple) is put back at the end of the event's dispatch, after what the
+  handlers set has rendered.
 - **Context, Suspense and error boundaries** work across the tree. Suspense
   keeps content that was already shown mounted and hidden while it waits.
 - **Class components** get their lifecycles, `shouldComponentUpdate`,
@@ -83,8 +97,8 @@ packages besides React itself.
 
 | Package | Version | Full compat | Mixed, React file | Mixed, native file | What the fixture does |
 |---|---|---|---|---|---|
-| react, react-dom (API surface) | 19.3.1 | pass | pass | not written | Events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, a subtree that suspends after mounting keeps its state, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props, synthetic events, controlled fields, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors |
-| @radix-ui/react-dialog, react-popover, react-tooltip, react-slot | 1.3.1, 1.3.1, 1.4.1, 1.5.0 | pass | pass | pass | Dialog: `asChild` trigger, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned. Popover positioned and closed by an outside press. Tooltip on hover. `Slot` merging props |
+| react, react-dom (API surface) | 19.3.1 | pass | pass | not written | Events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, a subtree that suspends after mounting keeps its state, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props, synthetic events, controlled fields (a refused edit, a radio group, a multiple select, an `onChange` on the form, a field that stops being controlled), uncontrolled selects, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors and for a reducer that throws |
+| @radix-ui/react-dialog, react-popover, react-tooltip, react-slot | 1.3.1, 1.3.1, 1.4.1, 1.5.0 | pass | pass | pass | Dialog: `asChild` trigger, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned. Popover positioned and closed by an outside press. Tooltip on hover. `Slot` merging props and joining the class names of both sides. The page's scroll locked while the dialog is open (react-remove-scroll, switched on by a function component's `defaultProps`) |
 | @radix-ui/react-dropdown-menu, react-select, react-tabs | 2.2.1, 2.4.1, 1.2.1 | pass | pass | pass | Menu in a portal, arrow keys past a disabled item, Enter selects and closes, a checkbox item, a submenu by keyboard. Select by keyboard and by pointer. Tabs by click and arrow keys |
 | @mui/material, @emotion/react, @emotion/styled | 9.6.0, 11.14.0, 11.14.1 | pass | pass | pass | Emotion styles from a custom theme, Button, a controlled TextField, Select (Popover and Modal portal, keyboard and pointer), Dialog (focus trap, `autoFocus`, a Select inside it, fade-out then unmount), Checkbox, Autocomplete, Tabs, Tooltip, Snackbar auto-hide |
 | antd | 6.7.2 | pass | pass | pass | CSS-in-JS theme token, a controlled Input with clear, Select, Modal with `message`, Form validation fail then pass, Table sort and pagination, Tabs, the static `message.info` |
@@ -183,12 +197,12 @@ all 28 tests of that file fail on the old runtime.
 | A prop that was `undefined` was written as `''` (`maxLength` became 0, `href` a link to the page, `tabIndex` focusable) | react-aria-components (the text field accepted no text) | Null and undefined props are left out, and taken back when they become undefined |
 | `aria-*={false}` removed the attribute | Headless UI Switch (`aria-checked`), Radix menu checkbox items, react-window rows (`aria-selected`) | Written as text, as React does |
 | `autoFocus` was not applied | MUI Dialog, cmdk | The element is focused when it mounts |
-| A controlled field kept what the user typed when the handler refused it | input-otp | The field goes back to its prop after the change event |
+| A controlled field kept what the user typed when the handler refused it | input-otp | The field goes back to its prop at the end of the change event's dispatch (the second review, below, made this synchronous and covered selects and radio groups) |
 | Class components were constructed without context, `shouldComponentUpdate` was ignored, `this.state` changed at the `setState` call, a ref was passed as a prop | react-transition-group (`TransitionGroup` never animated new items), react-select refs | Rewritten class wrapper (`runtime.test.js`, `react-semantics.test.js`) |
 | A portal into an object that is not a DOM node crashed | react-aria-components (it renders its collections into a document of its own) | Such a portal renders into a detached shadow tree and mirrors its elements into the library's document |
 | `<motion.div>` and `<table.FlexRender>` were lowered as host elements in mixed mode | framer-motion, TanStack Table (mixed mode only) | A member tag's object is a variable (`mixed-plugin.test.js`) |
 | React 19 names were missing; a missing named export fails the whole build | any package importing them | `useOptimistic`, `useActionState`, `useEffectEvent`, `Profiler`, `Activity`, `cache`, `useFormStatus`, form `action` functions, `<Context value>`, ref cleanup functions, async transitions, `react/compiler-runtime` |
-| `Children.count`, `map` and `toArray` skipped empty children and gave no keys | found with the React-surface fixture | React's rules (`runtime.test.js`) |
+| `Children.count`, `map` and `toArray` skipped empty children and gave no keys | found with the React-surface fixture | React's rules for empty children (`runtime.test.js`); React's keys came with the second review, below |
 | An error thrown in an effect was logged, not routed | found with the React-surface fixture | It goes to the nearest error boundary |
 | Content that suspended after mounting was unmounted, losing its state | found with the React-surface fixture | It stays mounted and hidden behind the fallback |
 | `reactCompat()` alone set Vite's deprecated `esbuild` option on Vite 8 | every full-compat build (a warning) | The `oxc` option on Vite 8 and later |
@@ -196,14 +210,94 @@ all 28 tests of that file fail on the old runtime.
 vaul also failed on the old runtime (the input inside its drawer could not be
 clicked) and passes now; which of the fixes above it needed was not isolated.
 
+## What the second review found
+
+A reviewer ran the same components on real React (19.3.0, and 18.3.1 for
+effect order and `defaultProps`) and on what-react as it was at commit
+`cbbfd764`, in jsdom. Each row below was a difference then and is fixed. The
+tests are in `packages/react-compat/test/react-semantics.test.js` under "The
+second review" (`mixed.test.js` and `mixed-plugin.test.js` for the mixed-mode
+rows); each states the value React printed. 27 of the 31 tests added to
+`react-semantics.test.js` fail on `cbbfd764`; the other four hold behaviour
+that was already right.
+
+| Difference at `cbbfd764` | Now |
+|---|---|
+| A reducer or a `useState` updater ran inside `dispatch`/`setState`: what it threw went to the caller, not to the error boundary, and an updater ran even when its component unmounted first | Actions are queued per hook and applied by the render. With nothing queued the action is tried at the call, as React does for `useState` (a state that does not change schedules no render; what it throws is thrown again by the render) |
+| A refused edit stayed in a controlled field until a microtask later; `<select multiple value={[…]}>` selected nothing and was never restored; a refused click in a controlled radio group left nothing checked; a field whose `value` or `checked` became undefined was emptied | The field is restored when the event's dispatch ends, after what the handlers set has rendered. A select's options follow its value (an array for `multiple`; the first option when none matches). The other members of a radio group are put back with the one that was clicked. A field that stops being controlled keeps what it shows |
+| An uncontrolled `<select>` showed its last option (the reconciler inserts new children last to first), ignored `defaultValue` unless it named the last option, and ignored it for `multiple` | It starts as a browser shows one built in order: its `defaultValue`, the last option marked `selected`, or the first option that is not disabled |
+| An `onChange` on an element above a text field (a form) fired when the field lost focus, not per keystroke; a native `change` on a text field with a new value fired none | `onChange` on any element hears React's change event of the fields inside it; a text field's `change` counts when its value is new (`fireEvent.change`) |
+| `onChange` fired for an `input` event that changed nothing | It fires when the field's value (or `checked`) is not the one last seen, as React's value tracking decides |
+| A layout cleanup ran right before its own effect, component by component; passive effects the same | Per phase, every cleanup, then every effect |
+| Unmounting ran children's cleanups before parents', detached an element's ref before the layout cleanups above it, and ran passive cleanups together with layout cleanups | Parents first; layout cleanups see their refs and their DOM; passive cleanups run in the passive phase, with refs already null |
+| `useInsertionEffect` ran while its component rendered (parent before child, also for a render that then threw) | It runs in the commit, children before parents, before refs and layout effects |
+| A host element's `props` had `class` and `for` in place of `className` and `htmlFor`: a Radix `Slot` (and any `cloneElement` merge) lost the child's classes | The props keep React's names |
+| `defaultProps` of a function component, a `forwardRef` or a `memo` were ignored (Radix Dialog never locked the page's scroll: react-remove-scroll's `enabled` is a default prop) | Resolved when the element is made, for every component type; a `memo`'s inner component's too, as React 18 does |
+| `Children.toArray`/`map` keys were not React's: no escaping, and nested arrays shared one counter, so two children could get one key and one of them was remounted on the next render | React's keys (`.$a=0b=2c`, `.1:0`, `.1:$x`) |
+| `Context.Provider` and `Context.Consumer` had no `$$typeof`, `Fragment` was what-core's function, a `forwardRef` had no `render`: `react-is` 18's `isContextProvider`, `isContextConsumer` and `isFragment` answered false | `Provider.$$typeof` is `react.provider`, `Consumer.$$typeof` is `react.context`, `Fragment` is `Symbol.for('react.fragment')` (an element made with what-core's Fragment gets it too), `forwardRef(render).render` is `render`, a context has `_currentValue` |
+| One synthetic event object per native event: an `onInput` handler that kept its event later read `type: 'change'`, and `currentTarget` stayed set | One object per native event and React type; `currentTarget` is null outside a handler |
+| A form's function `action` did not run when an `onSubmit` handler called `stopPropagation()` | It runs unless a handler called `preventDefault()` |
+| `componentDidCatch` got `componentStack: ''` | One `\n    at Name` line per component, from the one that threw to the root |
+| `useDeferredValue(value, initialValue)` ignored `initialValue` | The first render gets `initialValue`, and a render with `value` follows |
+| `getSnapshotBeforeUpdate` was called before `render()` | After `render()`, before the component's DOM changes |
+| An effect whose deps changed in a render that then suspended (or threw) never ran when the component rendered again | The render that did not commit leaves the effect to the next one |
+| Mixed mode: a hook called on an import (`rhf.useForm()` with `import * as rhf`) did not make the file a React file | It does (`mixed-plugin.test.js`) |
+| Mixed mode: a native component inside a React tree got several React children as one placeholder | An array with a placeholder per child (`mixed.test.js`, MIXED.md) |
+
+The second-review probes that already matched React still do: capture and
+bubble order, `stopPropagation` among React handlers, focus and blur
+bubbling, events through nested portals, `onScroll` not bubbling,
+select/radio/file `onChange`, textarea children, class lifecycles and
+`setState` callbacks, errors from render and effects reaching boundaries,
+Suspense keeping shown state, render-phase updates, `useOptimistic`,
+`useActionState`, form actions with `useFormStatus`, `use()`, keyed and
+nested-array reconciliation, `cloneElement`, `startTransition` and
+`unstable_batchedUpdates`.
+
 ## Known limitations
 
 - **Rendering is synchronous.** There is no time slicing. A transition's
   updates render in the next flush like any other; `isPending` is true only
-  while an async action is running. `useDeferredValue` returns the value it
-  was given. A transition does not keep the old screen while new content
-  suspends: the Suspense fallback shows. No package in the matrix was
-  affected.
+  while an async action is running. `useDeferredValue` defers nothing after
+  its initial value: it returns the value it was given. A transition does
+  not keep the old screen while new content suspends: the Suspense fallback
+  shows. No package in the matrix was affected.
+- **Render and commit are one pass.** React renders a whole tree, then
+  commits it; here each component is rendered and its DOM patched in turn.
+  What follows from it:
+  - A removed component's layout cleanups (and `componentWillUnmount`) run
+    while the reconciler is at its place in the tree, before the components
+    after it have rendered. In React they run after every render of the
+    commit.
+  - `getSnapshotBeforeUpdate` is called after its component's `render()` and
+    before that component's own DOM changes, but DOM that an earlier part of
+    the same commit patched (a parent's attributes, an earlier sibling) is
+    already new.
+  - A ref whose callback changed is detached and attached again while its
+    element is patched, before the commit's insertion and layout effects.
+    React attaches it in the layout phase.
+  - Refs of new elements attach before the layout phase's cleanups, and
+    every insertion effect runs before them. React runs a component's
+    insertion effects and layout cleanups together, component by component,
+    and attaches refs with the layout effects.
+  - If a descendant throws during a subtree's first commit, effect cleanups
+    of partially mounted children may not run before the boundary's fallback
+    replaces them. Not re-checked in this pass.
+- **State updates.**
+  - `useReducer` runs an action at the `dispatch` call when nothing is
+    queued, with the reducer of the last render (React 17's behaviour), and
+    keeps the result. React 18 runs every action while rendering, with that
+    render's reducer.
+  - A render whose queued actions leave the state as it was is committed
+    like any other (its children render, its effects without deps run).
+    React discards it.
+  - Setting another component's state while a component renders works, with
+    no warning.
+- **`StrictMode` does nothing.** No double render, no second run of effects
+  in development.
+- **`useActionState`.** `isPending` is true while an action runs that was
+  dispatched outside a transition; React reports false there, with a
+  warning.
 - **Suspense.** Content that suspends on its first mount is not mounted
   until the promise settles (React also shows only the fallback). Content
   that suspends after it was shown stays mounted and hidden, and keeps its
@@ -216,34 +310,71 @@ clicked) and passes now; which of the fixes above it needed was not isolated.
   client render. In mixed mode React islands render on the server and their
   HTML is replaced on load instead of adopted (MIXED.md), so text typed into
   a React field before the page hydrates is lost. Not exercised by the matrix.
-- **Class components.** `getSnapshotBeforeUpdate` is called before the commit
-  rather than between render and mutation. Legacy context (`contextTypes`,
-  `childContextTypes`) and string refs are not supported.
-- **Events.** Handlers are native listeners on their elements, not delegated
-  to the root. A handler therefore runs in DOM order with any native listener
-  on the same path, and `stopPropagation()` in a React handler also stops
-  native listeners further up, which React does only from the root on.
-  `onMouseEnter` and `onMouseLeave` do not cross portals. The synthetic event
-  is one object per native event.
-- **React's version.** `React.version` is `18.3.1` and elements carry React
-  18's brand (`Symbol.for('react.element')`), with React 19's API on top
-  (`ref` is a prop and is also on the element). A package that branches on
-  the version takes its React 18 path. A package bundling `react-is` 19,
-  which looks for React 19's brand, would not recognise these elements; none
-  in the matrix did so in a way a fixture noticed, and it was not tested
-  directly.
+- **Class components.** Legacy context (`contextTypes`, `childContextTypes`)
+  and string refs are not supported. `componentDidCatch`'s `componentStack`
+  names components only: no host elements, no source locations.
+- **Events are not delegated to the root.** Handlers are native listeners on
+  their elements. What follows from it:
+  - A handler runs in DOM order with any native listener on the same path.
+  - `stopPropagation()` in a React handler also stops native listeners
+    further up, which React does only from the root on. Inside a portal that
+    includes native listeners on the portal's container (a click-away
+    listener a library put on the element it portals into): React lets them
+    run, here they do not.
+  - `onMouseEnter` and `onMouseLeave` do not cross portals.
+  - A form's function `action` does not run when a listener that is not
+    React's stops the `submit` event before it reaches the document.
+  - `onWheel`, `onTouchStart` and `onTouchMove` listeners are not passive
+    (React's are on the root, passive): `preventDefault()` takes effect in
+    them, where React ignores it. What that costs while scrolling was not
+    measured.
+- **`onChange`.**
+  - A checkbox or a radio fires it on the native `change` event; React fires
+    it during the `click` before that event. A click gives the same result
+    either way. A script that sets `checked` and dispatches only `change`
+    fires `onChange` here and not in React.
+  - A value a script assigned (`input.value = 'x'`) counts as a change at
+    the next event. React counts the assignment as seen and fires nothing,
+    which is why tests written for React use the prototype's setter; both
+    ways fire here.
+  - A `change` event from any element that is not a form field reaches
+    `onChange`; React passes it on for custom elements only.
+- **Controlled fields.**
+  - When a listener that is not React's stops a field's change event, or the
+    event does not bubble, a refused edit is put back a microtask (in a
+    browser, at worst a task) after the dispatch instead of at its end.
+  - The `value` attribute is not kept in step with a controlled input's
+    value (React writes it, except for a focused number field).
+  - `defaultValue` on a `<select>` whose options arrive in a later render is
+    not applied: the first option is shown, as in React.
+- **Elements.**
+  - A host element given both `class` and `className` keeps `className`.
+  - `React.version` is `18.3.1` and elements carry React 18's brand
+    (`Symbol.for('react.element')`), with React 19's API on top (`ref` is a
+    prop and is also on the element). A package that branches on the version
+    takes its React 18 path. `react-is` 18 recognises elements, memo,
+    forwardRef, fragments, providers and consumers; `react-is` 19, which
+    looks for React 19's brand, recognises none of them (run against
+    `react-is` 19.3.1). No package in the matrix was affected.
+  - `Suspense`, `StrictMode` and `Profiler` are functions, not React's
+    symbols: `react-is`'s `isSuspense`, `isStrictMode` and `isProfiler`
+    answer false.
+  - A context's `_currentValue` is its default value; React also keeps the
+    nearest provider's value there while it renders.
+  - A `memo`'s inner component's `defaultProps` apply (React 18.3.1; React 19
+    dropped them).
 - **`Profiler` measures nothing**, and the resource hints of `react-dom`
   (`preload`, `preinit`, …) do nothing.
 - **A portal into a library's own document** (react-aria-components) is
   compared with its mirror after each commit that changed it, in time
   proportional to the collection's size.
+- **Cost on long lists and many portals.** Reconciling a list reads the DOM
+  nodes of every kept child on each patch, and routing an event out of a
+  portal scans the children of the portals in its containers. Not measured.
 - **Bridge-mounted compat components** (a compat component rendered by
   what-core outside mixed mode) attach refs and layout effects before the
   surrounding What fragment is in the document, so layout read there on first
   mount can be zero. Not re-checked in this pass.
-- **Render-phase cleanup on errors:** if a descendant throws during a
-  subtree commit, effect cleanups of partially mounted children may not run
-  before the boundary's fallback replaces them. Not re-checked in this pass.
 
 ## Re-running
 

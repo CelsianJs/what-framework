@@ -110,7 +110,7 @@ test('the server renders React islands with React rules, native components insid
   const html = server.renderToString(h(ssr.Page));
   assert.equal(html,
     '<main><h1>Title 1</h1>'
-    + '<button style="margin-top:4px;opacity:0.5" class="clicker">n1:0</button>'
+    + '<button class="clicker" style="margin-top:4px;opacity:0.5">n1:0</button>'
     + '<section class="panel"><h2>P1</h2><em>dark</em></section>'
     + '<i class="fallback">loading</i>'
     + '<b class="store">server</b>'
@@ -132,7 +132,7 @@ test('a React component that throws on the server leaves its island to the brows
 
 test('hydration adopts the native nodes and replaces each island with its client render, with no mismatch', async () => {
   const html = server.renderToHydratableString(h(ssr.Page));
-  assert.match(html, /<!--\[\]--><button [^>]*class="clicker">n1:0<\/button><!--\/\[\]-->/, 'each island is bracketed');
+  assert.match(html, /<!--\[\]--><button [^>]*class="clicker"[^>]*>n1:0<\/button><!--\/\[\]-->/, 'each island is bracketed');
   assert.match(html, /<section data-hk="\w+" class="panel"><h2>P1<\/h2><!--\[\]--><em>dark<\/em><!--\/\[\]--><\/section>/, 'a nested island inside a native component has its own brackets');
 
   document.body.innerHTML = `<div id="app">${html}</div>`;
@@ -182,10 +182,10 @@ test('the streaming renderer and the async renderer write the same islands', asy
     const decoder = new TextDecoder();
     for (let r = await reader.read(); !r.done; r = await reader.read()) html += typeof r.value === 'string' ? r.value : decoder.decode(r.value);
   }
-  assert.match(html, /<!--\[\]--><button [^>]*class="clicker">n1:0<\/button><!--\/\[\]-->/);
+  assert.match(html, /<!--\[\]--><button [^>]*class="clicker"[^>]*>n1:0<\/button><!--\/\[\]-->/);
   assert.match(html, /<em>dark<\/em>/);
   const { body } = await server.renderToStringAsync(h(ssr.Page));
-  assert.match(body, /<!--\[\]--><button [^>]*class="clicker">n1:0<\/button><!--\/\[\]-->/);
+  assert.match(body, /<!--\[\]--><button [^>]*class="clicker"[^>]*>n1:0<\/button><!--\/\[\]-->/);
 });
 
 test('React components as rows of a native keyed list hydrate and keep their state by key', async () => {

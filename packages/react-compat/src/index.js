@@ -18,7 +18,7 @@
 
 import { h, Fragment as WhatFragment } from 'what-core';
 import { isVNode } from 'what-core/internal';
-import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden } from './runtime.js';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack } from './runtime.js';
 import {
   useState,
   useReducer,
@@ -69,7 +69,20 @@ export {
   use,
 };
 
-export const Fragment = WhatFragment;
+// React's Fragment is a symbol, and `react-is` (inside MUI, Ant Design,
+// react-redux and others) recognises a fragment element by it. An element
+// made with what-core's Fragment (the mixed compiler's `<>`, a file that
+// imports it from what-framework) carries the same symbol as its type.
+const REACT_FRAGMENT_TYPE = Symbol.for('react.fragment');
+export const Fragment = REACT_FRAGMENT_TYPE;
+
+function FragmentComponent(props) {
+  return props.children;
+}
+FragmentComponent.displayName = 'Fragment';
+// Not a frame of its own in a component stack.
+FragmentComponent._hidden = true;
+const fragmentBridge = getBridge(FragmentComponent);
 
 // ---- Class components ----
 
@@ -178,17 +191,23 @@ function getClassWrapper(ClassComp) {
     if (isErrorBoundary) {
       const inst = _getCurrentInstance();
       if (inst && !inst._errorHandler) {
-        inst._errorHandler = (error) => {
+        // `origin`: the instance whose render or effect threw (the runtime
+        // passes it; the instance type in types/internal.d.ts declares one
+        // argument, hence the cast).
+        inst._errorHandler = /** @type {(error: any) => void} */ (/** @type {unknown} */ ((error, origin) => {
           if (ClassComp.getDerivedStateFromError) {
             const derived = ClassComp.getDerivedStateFromError(error);
             if (derived != null) instance.state = { ...instance.state, ...derived };
           }
           if (instance.componentDidCatch) {
-            try { instance.componentDidCatch(error, { componentStack: '' }); } catch { /* boundary error */ }
+            // The components from the one that threw up to the root, one
+            // "at Name" line each (React's production format, without host
+            // elements and source locations).
+            try { instance.componentDidCatch(error, { componentStack: origin ? _componentStack(origin) : '' }); } catch { /* boundary error */ }
           }
           instance._forced = true;
           forceRender();
-        };
+        }));
       }
     }
 
@@ -214,12 +233,10 @@ function getClassWrapper(ClassComp) {
       return () => { ref.current = null; };
     }, [ref]);
 
-    // componentDidUpdate (+ getSnapshotBeforeUpdate approximation), then the
-    // callbacks setState and forceUpdate were given.
+    // componentDidUpdate with the snapshot (taken below, after render()),
+    // then the callbacks setState and forceUpdate were given.
     const updated = update && !mounting && last !== undefined;
-    const snapshot = (updated && instance.getSnapshotBeforeUpdate)
-      ? instance.getSnapshotBeforeUpdate(last.props, last.state)
-      : undefined;
+    let snapshot;
     useLayoutEffect(() => {
       if (updated && instance.componentDidUpdate) instance.componentDidUpdate(last.props, last.state, snapshot);
       const callbacks = instance._callbacks;
@@ -234,6 +251,9 @@ function getClassWrapper(ClassComp) {
     // recognises and leaves alone, children included.
     if (!update) return last.output;
     const output = instance.render();
+    // getSnapshotBeforeUpdate: after render() and before this component's
+    // DOM changes (the reconciler patches it once this function returns).
+    if (updated && instance.getSnapshotBeforeUpdate) snapshot = instance.getSnapshotBeforeUpdate(last.props, last.state);
     instance._last = { props: mergedProps, state, output };
     return output;
   };
@@ -269,10 +289,10 @@ const EMPTY_CHILDREN = [];
 // library code in the wild overwhelmingly still compares against
 // 'react.element', which is also what preact/compat brands with.
 //
-// Fragment is deliberately NOT branded here: it is what-core's own export, and
-// stamping a React symbol onto it would mutate a shared object for every
-// consumer of the framework, compat or not. Context is already branded where it
-// is created (hooks.js).
+// what-core's Fragment is not branded (it is the framework's own export):
+// what-react's Fragment is React's symbol, and an element made with core's
+// takes the symbol as its type (above). Context is branded where it is
+// created (hooks.js).
 const REACT_ELEMENT_TYPE = Symbol.for('react.element');
 const REACT_MEMO_TYPE = Symbol.for('react.memo');
 const REACT_LAZY_TYPE = Symbol.for('react.lazy');
@@ -298,27 +318,32 @@ export function _element(type, props) {
   //   compat vnodes; the compat runtime unwraps tag._compatType.
   let tag = type;
   if (typeof type === 'function') {
-    const renderType = isClassComponent(type) ? getClassWrapper(type) : type;
-    tag = getBridge(renderType);
+    if (type === WhatFragment) {
+      type = REACT_FRAGMENT_TYPE;
+      tag = fragmentBridge;
+    } else {
+      const renderType = isClassComponent(type) ? getClassWrapper(type) : type;
+      tag = getBridge(renderType);
+      // React resolves defaultProps when the element is made, for every
+      // component type: a default stands in for a prop that is undefined.
+      const defaults = type.defaultProps;
+      if (defaults != null) props = withDefaults(props, defaults);
+    }
+  } else if (type === REACT_FRAGMENT_TYPE) {
+    tag = fragmentBridge;
   } else if (type !== null && typeof type === 'object' && type.$$typeof === REACT_CONTEXT_TYPE && typeof type.Provider === 'function') {
     // React 19: a context renders as its own provider (<Theme value="dark">).
     tag = getBridge(type.Provider);
   } else if (typeof type !== 'string') {
     console.error('[what-react] createElement: invalid element type:', type);
-  }
-
-  // Normalize className → class, htmlFor → for on host elements so vnodes
-  // also render correctly through what-core's renderer (interop path).
-  if (typeof type === 'string' && ('className' in props || 'htmlFor' in props)) {
+  } else if (props.className !== undefined && props.class !== undefined) {
+    // `className` and `htmlFor` stay in the props under React's names (a
+    // library that merges a child's props reads `child.props.className`);
+    // both renderers write either spelling. An element given both spellings
+    // of the class (a merge of `class` with a library's `className`) keeps
+    // React's.
     props = { ...props };
-    if ('className' in props) {
-      props.class = props.className;
-      delete props.className;
-    }
-    if ('htmlFor' in props) {
-      props.for = props.htmlFor;
-      delete props.htmlFor;
-    }
+    delete props.class;
   }
 
   // The child list: the children, or the array passed as the only child (a
@@ -337,6 +362,19 @@ export function _element(type, props) {
   return Object.assign(h(tag, props), { $$typeof: REACT_ELEMENT_TYPE, type, ref: props.ref !== undefined ? props.ref : null, children: kids, _compat: true });
 }
 
+// `props` with `defaults` standing in for the props that are undefined (the
+// same object when none is).
+function withDefaults(props, defaults) {
+  let out = props;
+  for (const name in defaults) {
+    if (props[name] === undefined) {
+      if (out === props) out = { ...props };
+      out[name] = defaults[name];
+    }
+  }
+  return out;
+}
+
 // ---- forwardRef ----
 // ref stays in props (React 19-style); forwardRef components receive it as
 // the second argument.
@@ -349,6 +387,9 @@ export function forwardRef(render) {
   ForwardRefComponent.displayName = render.displayName || render.name || 'ForwardRef';
   ForwardRefComponent._forwardRef = true;
   ForwardRefComponent.$$typeof = Symbol.for('react.forward_ref');
+  // React's forwardRef object carries the function it wraps; libraries that
+  // wrap a forwardRef component again read it (mobx-react's observer).
+  ForwardRefComponent.render = render;
   return ForwardRefComponent;
 }
 
@@ -365,7 +406,10 @@ export function createRef() {
 export function memo(Component, areEqual) {
   const render = isClassComponent(Component) ? getClassWrapper(Component) : Component;
   function Memoized(props) {
-    return render(props);
+    // The wrapped component's own defaultProps (the memo's are resolved
+    // when the element is made).
+    const defaults = Component.defaultProps;
+    return render(defaults != null ? withDefaults(props, defaults) : props);
   }
   Memoized.displayName = `Memo(${Component.displayName || Component.name || 'Anonymous'})`;
   Memoized._memoCompare = areEqual || shallowEqual;
@@ -432,38 +476,76 @@ function SuspenseContent(props) {
   return props.children;
 }
 SuspenseContent.displayName = 'SuspenseContent';
+SuspenseContent._hidden = true;
 
 // ---- Children utilities ----
 
-// React's rules: a nested array is walked in place; null, undefined and
-// booleans are one empty child each, handed to the callback as null and
-// counted by count(); what the callback returns is flattened, its empties
-// dropped, and each element in the result gets a key made from the child it
-// came from ('.$key' or '.index'), so a list filtered with toArray() keeps its
-// children's identity when one of them comes or goes.
+// React's rules: a nested array (or any iterable) is walked in place; null,
+// undefined and booleans are one empty child each, handed to the callback as
+// null and counted by count(); what the callback returns is flattened, and
+// each element in the result gets React's key for the child it came from, so
+// a list a library rebuilt with map() or toArray() keeps its children's
+// identity (and their state) when one of them comes or goes.
+//
+// The key is the child's path: '.' + its key or index at the top level, and
+// ':' + its key or index for each nested array ('.1:0', '.1:$x'). A child's
+// own key is written '$key' with '=' and ':' escaped ('=0', '=2'), an index
+// in base 36. A key the callback gave its result goes in front, before '/'.
+
+function escapeKey(key) {
+  return '$' + key.replace(/[=:]/g, (match) => (match === '=' ? '=0' : '=2'));
+}
+
+function escapeUserKey(text) {
+  return text.replace(/\/+/g, '$&/');
+}
+
+function keyOf(child, index) {
+  return typeof child === 'object' && child !== null && child.key != null ? escapeKey('' + child.key) : index.toString(36);
+}
+
+function isList(children) {
+  return children !== null && typeof children === 'object' && !isValidElement(children) && typeof children[Symbol.iterator] === 'function';
+}
+
+function identity(child) {
+  return child;
+}
+
+// React's mapIntoArray. Returns the number of children visited.
+function mapInto(children, out, escapedPrefix, nameSoFar, callback) {
+  if (Array.isArray(children) || isList(children)) {
+    const prefix = nameSoFar === '' ? '.' : nameSoFar + ':';
+    let count = 0;
+    let index = 0;
+    for (const child of children) {
+      count += mapInto(child, out, escapedPrefix, prefix + keyOf(child, index), callback);
+      index++;
+    }
+    return count;
+  }
+  const child = children == null || typeof children === 'boolean' ? null : children;
+  let mapped = callback(child);
+  const childKey = nameSoFar === '' ? '.' + keyOf(child, 0) : nameSoFar;
+  if (Array.isArray(mapped)) {
+    mapInto(mapped, out, escapeUserKey(childKey) + '/', '', identity);
+  } else if (mapped != null) {
+    if (isValidElement(mapped)) {
+      // A key the callback gave its result, kept in front of the child's.
+      const own = mapped.key != null && (child === null || typeof child !== 'object' || child.key !== mapped.key) ? escapeUserKey('' + mapped.key) + '/' : '';
+      mapped = cloneElement(mapped, { key: escapedPrefix + own + childKey });
+    }
+    out.push(mapped);
+  }
+  return 1;
+}
+
 function walkChildren(children, visit) {
-  if (Array.isArray(children)) {
-    for (let i = 0; i < children.length; i++) walkChildren(children[i], visit);
+  if (Array.isArray(children) || isList(children)) {
+    for (const child of children) walkChildren(child, visit);
     return;
   }
   visit(children == null || typeof children === 'boolean' ? null : children);
-}
-
-function pushMapped(out, mapped, childKey) {
-  if (Array.isArray(mapped)) {
-    for (let i = 0; i < mapped.length; i++) {
-      const item = mapped[i];
-      const own = isValidElement(item) && item.key != null ? '$' + item.key : i.toString(36);
-      pushMapped(out, item, childKey + '/.' + own);
-    }
-    return;
-  }
-  if (mapped == null || typeof mapped === 'boolean') return;
-  if (isValidElement(mapped)) {
-    out.push(cloneElement(mapped, { key: childKey }));
-    return;
-  }
-  out.push(mapped);
 }
 
 export const Children = {
@@ -471,14 +553,7 @@ export const Children = {
     if (children == null) return children;
     const result = [];
     let index = 0;
-    walkChildren(children, (child) => {
-      const i = index++;
-      const mapped = fn.call(thisArg, child, i);
-      let key = '.' + (isValidElement(child) && child.key != null ? '$' + child.key : i.toString(36));
-      // A key the callback gave its result, kept in front of the child's.
-      if (isValidElement(mapped) && mapped.key != null && (!isValidElement(child) || child.key !== mapped.key)) key = mapped.key + '/' + key;
-      pushMapped(result, mapped, key);
-    });
+    mapInto(children, result, '', '', (child) => fn.call(thisArg, child, index++));
     return result;
   },
 
@@ -496,7 +571,7 @@ export const Children = {
   },
 
   toArray(children) {
-    return Children.map(children, (child) => child) || [];
+    return Children.map(children, identity) || [];
   },
 
   only(children) {

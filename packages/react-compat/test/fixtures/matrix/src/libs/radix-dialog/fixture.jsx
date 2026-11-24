@@ -66,7 +66,7 @@ export default function Fixture() {
         </Tooltip.Portal>
       </Tooltip.Root>
 
-      <SlotLink asChild href="#x" id="rs-slot"><span>slotted</span></SlotLink>
+      <SlotLink asChild href="#x" id="rs-slot" className="from-slot"><span className="from-child">slotted</span></SlotLink>
       <button id="outside" style={{ position: 'fixed', right: 10, bottom: 10 }}>outside</button>
     </Tooltip.Provider>
   );

@@ -74,6 +74,13 @@ test('which files are React files', async () => {
     'src/reads-store-outside-render.jsx': "import { useStore } from './store.js';\nexport const A = () => <p>{useStore.getState().n}</p>;",
     'src/custom-hook.jsx': "import { useToast } from 'ui-kit';\nfunction useNotify() { return useToast(); }\nexport function A() { useNotify(); return <div />; }",
     'src/native-custom-hook.jsx': "import { signal } from 'what-framework';\nfunction useCounter() { return signal(0); }\nexport function A() { const c = useCounter(); return <div>{c()}</div>; }",
+    'src/namespace-hook.jsx': "import * as kit from 'ui-kit';\nexport function A() { const t = kit.useToast(); return <div />; }",
+    'src/namespace-unused.jsx': "import * as kit from 'ui-kit';\nexport const A = () => <div>{kit.version}</div>;",
+    'src/default-hook.jsx': "import kit from 'ui-kit';\nexport function A() { kit.useToast(); return <div />; }",
+    'src/namespace-native-hook.jsx': "import * as tabs from 'what-kit';\nexport function A() { tabs.useTabs(); return <div />; }",
+    'src/namespace-local-hook.jsx': "import * as hooks from './hooks.js';\nexport function A() { hooks.useCount(); return <div />; }",
+    'src/namespace-in-custom-hook.jsx': "import * as kit from 'ui-kit';\nfunction useNotify() { return kit.useToast(); }\nexport function A() { useNotify(); return <div />; }",
+    'src/local-object-hook.jsx': "const api = { useThing() { return 1; } };\nexport function A() { api.useThing(); return <div />; }",
   });
   const c = p.classifier({ react: 'src/legacy/' });
   const kind = async (rel) => (await c.fileIsReact(p.at(rel))) ? 'react' : 'native';
@@ -94,6 +101,17 @@ test('which files are React files', async () => {
   assert.equal(await kind('src/reads-store-outside-render.jsx'), 'native', 'reading the store without calling the hook');
   assert.equal(await kind('src/custom-hook.jsx'), 'react', 'a custom hook that calls a React hook');
   assert.equal(await kind('src/native-custom-hook.jsx'), 'native', 'a custom hook built on signals');
+  // A hook called on an import: `import * as rhf from 'react-hook-form'; rhf.useForm()`.
+  assert.equal(await kind('src/namespace-hook.jsx'), 'react', 'a hook called on a namespace import of a React package');
+  assert.equal(await kind('src/namespace-unused.jsx'), 'native', 'a namespace import with no hook call');
+  assert.equal(await kind('src/default-hook.jsx'), 'react', 'a hook called on a default import of a React package');
+  assert.equal(await kind('src/namespace-native-hook.jsx'), 'native', 'a hook called on a namespace import of a native package');
+  assert.equal(await kind('src/namespace-local-hook.jsx'), 'react', 'a hook called on a namespace import of a file of the app');
+  assert.equal(await kind('src/namespace-in-custom-hook.jsx'), 'react', 'a custom hook that calls one');
+  assert.equal(await kind('src/local-object-hook.jsx'), 'native', 'a use* method of an object the file made');
+  // The facts a file's kind rests on (development: a change reloads the page).
+  assert.notEqual(c.signature(p.at('src/namespace-hook.jsx'), "import * as kit from 'ui-kit';\nexport function A() { const t = kit.useToast(); return <div />; }"),
+    c.signature(p.at('src/namespace-hook.jsx'), "import * as other from 'ui-kit';\nexport function A() { return <div />; }"));
 });
 
 test('React components through re-exports', async () => {

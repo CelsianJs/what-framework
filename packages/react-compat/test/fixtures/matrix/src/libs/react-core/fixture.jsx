@@ -2,7 +2,7 @@
 import {
   Children, Component, Profiler, PureComponent, StrictMode, Suspense, cloneElement, createContext, forwardRef, isValidElement,
   lazy, memo, startTransition, use, useActionState, useCallback, useContext, useDeferredValue, useEffect, useEffectEvent, useId,
-  useImperativeHandle, useLayoutEffect, useOptimistic, useRef, useState, useSyncExternalStore, useTransition,
+  useImperativeHandle, useLayoutEffect, useOptimistic, useReducer, useRef, useState, useSyncExternalStore, useTransition,
 } from 'react';
 import { createPortal, flushSync, useFormStatus } from 'react-dom';
 
@@ -208,6 +208,35 @@ function Dom() {
   );
 }
 
+// ---- form fields: groups, selects, a handler above the field ----
+function Fields() {
+  const [choice, setChoice] = useState('x');
+  const [locked, setLocked] = useState(true);
+  const [tags, setTags] = useState(['b', 'c']);
+  const [form, setForm] = useState({ first: 'a' });
+  const [changes, setChanges] = useState(0);
+  const [controlled, setControlled] = useState(true);
+  return (
+    <div id="c-fields">
+      {['x', 'y'].map((v) => (
+        <input key={v} type="radio" name="c-choice" id={'c-radio-' + v} value={v} checked={choice === v} onChange={() => { if (!locked) setChoice(v); }} />
+      ))}
+      <button id="c-radio-unlock" onClick={() => setLocked(false)}>unlock</button>
+      <select id="c-multi" multiple value={tags} onChange={(e) => setTags([...e.target.selectedOptions].map((o) => o.value).filter((v) => v !== 'a'))}>
+        <option value="a">A</option><option value="b">B</option><option value="c">C</option>
+      </select>
+      <select id="c-plain"><option value="a">A</option><option value="b">B</option></select>
+      <select id="c-default" defaultValue="b"><option value="a">A</option><option value="b">B</option><option value="c">C</option></select>
+      <form id="c-form-change" onChange={(e) => { setChanges((n) => n + 1); setForm({ ...form, [e.target.name]: e.target.value }); }}>
+        <input id="c-form-first" name="first" value={form.first} />
+      </form>
+      {controlled ? <input id="c-switch" value="kept" onChange={() => {}} /> : <input id="c-switch" />}
+      <button id="c-uncontrol" onClick={() => setControlled(false)}>uncontrol</button>
+      <Out id="c-fields-out">{choice}:{tags.join('')}:{form.first}:{changes}</Out>
+    </div>
+  );
+}
+
 // ---- hooks ----
 const store = { value: 1, listeners: new Set() };
 window.coreStore = { set(v) { store.value = v; store.listeners.forEach((l) => l()); } };
@@ -253,6 +282,10 @@ class Boundary extends Component {
 }
 function Thrower({ when }) { if (when) throw new Error('render'); return <span>fine</span>; }
 function EffectThrower({ when }) { useEffect(() => { if (when) throw new Error('effect'); }, [when]); return <span>fine</span>; }
+function ReducerThrower() {
+  const [, dispatch] = useReducer((state, action) => { if (action === 'boom') throw new Error('reducer'); return state; }, 0);
+  return <button id="c-throw-reducer" onClick={() => dispatch('boom')}>throw in a reducer</button>;
+}
 function Errors() {
   const [a, setA] = useState(false);
   const [b, setB] = useState(false);
@@ -260,6 +293,7 @@ function Errors() {
     <div>
       <Boundary id="c-err-render"><Thrower when={a} /></Boundary>
       <Boundary id="c-err-effect"><EffectThrower when={b} /></Boundary>
+      <Boundary id="c-err-reducer"><ReducerThrower /></Boundary>
       <button id="c-throw-render" onClick={() => setA(true)}>throw in render</button>
       <button id="c-throw-effect" onClick={() => setB(true)}>throw in effect</button>
     </div>
@@ -295,6 +329,7 @@ export default function Fixture() {
       <Classes />
       <Reconcile />
       <Dom />
+      <Fields />
       <Hooks />
       <Errors />
       <Concurrent />

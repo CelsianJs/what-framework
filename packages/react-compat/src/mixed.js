@@ -20,12 +20,12 @@
  * React tree finds the What context of the native code around the island.
  */
 
-import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup, Fragment } from 'what-core';
+import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
 import { isVNode, _provide, __DEV__, getServerContext } from 'what-core/internal';
 import { _$createComponent } from 'what-core/render';
-import { createElement } from './index.js';
+import { createElement, Fragment } from './index.js';
 import {
-  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode,
+  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted,
 } from './runtime.js';
 import { serverTree } from './server.js';
 
@@ -146,6 +146,14 @@ function nativeOwnerOf(inst) {
  * writes; a callback is a stable function that calls the latest one; a React
  * element (children, a slot prop) is a placeholder the native component
  * places, filled by React's reconciler with the latest elements.
+ *
+ * Several children (an array holding an element) are an array with one
+ * placeholder per child, so the native component can count them, index them
+ * and place each where it wants. As h() hands children to a native
+ * component, nested arrays are flattened and empty children (null, false)
+ * are left out. Each placeholder is keyed by the child's place in React's
+ * list (its key, or its index), so what-core keeps the placed ones when the
+ * list changes, and React state inside them survives.
  */
 function createLeaf(inst, Comp, first) {
   /** @type {Record<string, any>} */
@@ -155,6 +163,8 @@ function createLeaf(inst, Comp, first) {
   const cells = new Map();
   /** @type {Map<string, any>} */
   const slots = new Map();
+  /** @type {Map<string, { array: any[], slots: any[] }>} prop → its list of placeholders */
+  const lists = new Map();
   /** @type {Map<string, Function>} */
   const callbacks = new Map();
   // No prototype: what-core takes such a props object as the component's own
@@ -162,7 +172,8 @@ function createLeaf(inst, Comp, first) {
   const live = Object.create(null);
 
   const shown = (key, value) => {
-    if (isRich(value)) return slotFor(key, value).vnode;
+    if (isRich(value)) return Array.isArray(value) ? listFor(key, value).array : slotFor(key, value).vnode;
+    if (lists.has(key)) dropList(key);
     if (isCallback(value)) {
       let call = callbacks.get(key);
       if (call === undefined) {
@@ -178,18 +189,66 @@ function createLeaf(inst, Comp, first) {
     return value;
   };
 
-  const slotFor = (key, value) => {
+  // `rowKey`: the key of a placeholder that is one of a list.
+  const slotFor = (key, value, rowKey) => {
     let slot = slots.get(key);
     if (slot === undefined) {
-      slot = { inst, value, mounts: new Set(), vnode: null };
+      slot = { key, inst, value, mounts: new Set(), vnode: null };
       // CompatSlot returns its DOM, as a compiled component does. what-core's
       // declared Component type admits vnode children only, hence the cast.
-      slot.vnode = h(/** @type {import('what-core').Component<{ slot: object }>} */ (/** @type {unknown} */ (CompatSlot)), { slot });
+      const Slot = /** @type {import('what-core').Component<{ slot: object }>} */ (/** @type {unknown} */ (CompatSlot));
+      slot.vnode = rowKey === undefined ? h(Slot, { slot }) : h(Slot, { slot, key: rowKey });
       slots.set(key, slot);
     } else {
       slot.value = value;
     }
     return slot;
+  };
+
+  // The placeholders for a list of children. The same array as last time
+  // when the list has the same children in the same places, so the native
+  // component sees a change only when one came, went or moved.
+  const listFor = (key, values) => {
+    const flat = normalizeChildren(values);
+    const ids = /** @type {Array<number | string>} */ (/** @type {any} */ (flat).slots);
+    const array = [];
+    const used = [];
+    const seen = new Set();
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === null) continue;
+      // A duplicate key gets a place of its own.
+      let id = String(ids[i]);
+      if (seen.has(id)) id += '#' + i;
+      seen.add(id);
+      const slot = slotFor(key + '\0' + id, flat[i], id);
+      used.push(slot);
+      array.push(slot.vnode);
+    }
+    const last = lists.get(key);
+    if (last !== undefined) {
+      let same = last.array.length === array.length;
+      for (let i = 0; same && i < array.length; i++) same = last.array[i] === array[i];
+      if (same) return last;
+      // A child that left: its elements unmount now, with this render.
+      const kept = new Set(used);
+      for (const slot of last.slots) if (!kept.has(slot)) dropSlot(slot);
+    }
+    const list = { array, slots: used };
+    lists.set(key, list);
+    return list;
+  };
+
+  const dropSlot = (slot) => {
+    slots.delete(slot.key);
+    slot.value = null;
+    for (const m of slot.mounts) patchSlot(slot, m);
+  };
+
+  const dropList = (key) => {
+    const list = lists.get(key);
+    if (list === undefined) return;
+    lists.delete(key);
+    for (const slot of list.slots) dropSlot(slot);
   };
 
   for (const key of keys) {
@@ -219,7 +278,12 @@ function createLeaf(inst, Comp, first) {
         for (const key of keys) {
           const value = next[key];
           const cell = cells.get(key);
-          if (isRich(value)) {
+          if (isRich(value) && Array.isArray(value)) {
+            const list = listFor(key, value);
+            for (const slot of list.slots) for (const m of slot.mounts) patchSlot(slot, m);
+            if (cell.peek() !== list.array) cell(() => list.array);
+          } else if (isRich(value)) {
+            if (lists.has(key)) dropList(key);
             const slot = slotFor(key, value);
             for (const m of slot.mounts) patchSlot(slot, m);
             if (cell.peek() !== slot.vnode) cell(() => slot.vnode);
@@ -263,6 +327,7 @@ function CompatSlot(props) {
       for (const rn of m.rns) unmountRNode(rn, false);
       m.rns = [];
     });
+    _flushUnmounted();
   });
   return frag;
 }

@@ -7,7 +7,8 @@
  *
  * - A React file: it imports react or react-dom, carries the
  *   `@jsxImportSource react` pragma, matches the `react` option, or calls a
- *   hook (`useX()`) it imports from React (a React package or a React file).
+ *   hook (`useX()`, or `lib.useX()` on a namespace or default import) it
+ *   imports from React (a React package or a React file).
  *   Its JSX becomes what-react createElement calls, so it runs with React's
  *   rules. A JSX tag in it that is a native component becomes a native
  *   wrapper, so that component still runs once and keeps its state.
@@ -181,6 +182,28 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
     return names;
   }
 
+  // The `use*` functions `node` calls as a member of a variable
+  // (`rhf.useForm()`, `Form.useForm()`): [variable, hook name] pairs.
+  function memberHookCalls(node) {
+    /** @type {Map<string, [string, string]>} */
+    const calls = new Map();
+    t.traverseFast(node, (n) => {
+      if (!t.isCallExpression(n) || !t.isMemberExpression(n.callee) || n.callee.computed) return;
+      const { object, property } = n.callee;
+      if (t.isIdentifier(object) && t.isIdentifier(property) && HOOK_RE.test(property.name)) calls.set(object.name + '.' + property.name, [object.name, property.name]);
+    });
+    return [...calls.values()];
+  }
+
+  // Whether `object.name()` calls a React hook: `object` is a namespace
+  // import (the hook is its export `name`) or a default import (an object
+  // of React code) of the file.
+  function memberHookIsReact(file, ast, object, name, seen) {
+    const imp = infoOf(ast).imports.get(object);
+    if (!imp) return false;
+    return importIsReact(imp.source, file, imp.name === '*' ? name : imp.name, seen);
+  }
+
   // The identifier a call's callee starts from (`create(...)`, `zustand.create(...)`).
   function calleeRoot(callee) {
     while (t.isMemberExpression(callee)) callee = callee.object;
@@ -211,6 +234,9 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
     if (body === null) return false;
     for (const called of hookCalls(body)) {
       if (called !== name && await hookIsReact(file, ast, called, seen)) return true;
+    }
+    for (const [object, called] of memberHookCalls(body)) {
+      if (await memberHookIsReact(file, ast, object, called, seen)) return true;
     }
     return false;
   }
@@ -280,6 +306,9 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
     for (const called of hookCalls(ast.program)) {
       if (!imports.has(called) && !decls.has(called)) continue;
       if (await hookIsReact(file, ast, called, seen)) return true;
+    }
+    for (const [object, called] of memberHookCalls(ast.program)) {
+      if (await memberHookIsReact(file, ast, object, called, seen)) return true;
     }
     return false;
   }
@@ -360,9 +389,11 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
     const ast = parseFile(file, code);
     if (!ast) return '';
     const parts = [pragmaOf(ast) ?? ''];
+    // The imports a hook is called on as a member (`rhf.useForm()`).
+    const hookObjects = new Set(memberHookCalls(ast.program).map(([object]) => object));
     for (const node of ast.program.body) {
       if (t.isImportDeclaration(node)) {
-        parts.push('i:' + node.source.value + ':' + node.specifiers.map((s) => s.local.name).filter((n) => HOOK_RE.test(n) || REACT_SOURCES.has(node.source.value)).join(','));
+        parts.push('i:' + node.source.value + ':' + node.specifiers.map((s) => s.local.name).filter((n) => HOOK_RE.test(n) || hookObjects.has(n) || REACT_SOURCES.has(node.source.value)).join(','));
       } else if ((t.isExportNamedDeclaration(node) && (node.source || node.specifiers.length > 0)) || t.isExportAllDeclaration(node)) {
         parts.push('e:' + (node.source ? node.source.value : '') + ':' + (node.specifiers || []).map((s) => s.exported.name ?? s.exported.value).join(','));
       }

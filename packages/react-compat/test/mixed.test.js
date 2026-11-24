@@ -205,3 +205,86 @@ test('a region that rebuilds a React island reports ERR_REBUILT_COMPONENT: its R
   assert.equal(reports.length, 1, JSON.stringify(getDiagnostics().events.map((e) => e.code)));
   assert.match(reports[0].message, /rebuilt <ReactIsland>/);
 });
+
+test('a native component is handed several React children as an array it can count, index and place', async () => {
+  const seen = [];
+  // A native layout: the first child in a header (placed once, as a
+  // run-once component places what it is given), the rest in a body that
+  // follows the list, and a count.
+  function Split(props) {
+    const kids = () => props.children;
+    seen.push(Array.isArray(kids()) ? kids().length : typeof kids());
+    return h('section', null,
+      h('header', null, kids()[0]),
+      h('main', null, () => kids().slice(1)),
+      h('footer', null, () => String(kids().length)));
+  }
+  let setState;
+  function App() {
+    const [state, set] = useState({ extra: false, order: ['a', 'b'] });
+    setState = set;
+    return rce(native(Split), null,
+      rce(Clicker, { label: 'head' }),
+      state.extra && rce(Clicker, { label: 'extra' }),
+      state.order.map((id) => rce(Clicker, { key: id, label: id })),
+      'text');
+  }
+  const el = container();
+  const root = createRoot(el);
+  act(() => root.render(rce(App)));
+  await settle();
+  // head, a, b and the text: the empty child is left out, the nested list is flat (as h() hands children over).
+  assert.deepEqual(seen, [4]);
+  assert.equal(el.querySelector('header').textContent, 'head:0');
+  assert.equal(el.querySelector('main').textContent, 'a:0b:0text');
+  assert.equal(el.querySelector('footer').textContent, '4');
+  const [head, a, b] = el.querySelectorAll('button');
+  click(head); click(a); click(b);
+  await settle();
+  click(a);
+  await settle();
+  assert.equal(el.querySelector('section').textContent, 'head:1a:2b:1text4');
+
+  // A child comes and two swap places: the native component sees the new
+  // list, and every React child that stayed keeps its state and its DOM.
+  act(() => setState({ extra: true, order: ['b', 'a'] }));
+  await settle();
+  assert.equal(el.querySelector('header').textContent, 'head:1');
+  assert.equal(el.querySelector('main').textContent, 'extra:0b:1a:2text');
+  assert.equal(el.querySelector('footer').textContent, '5');
+  assert.equal(el.querySelector('header button'), head, 'the same button');
+  assert.equal([...el.querySelectorAll('main button')].find((x) => x.textContent === 'a:2'), a);
+  assert.equal(seen.length, 1, 'the native component ran once');
+
+  // A child that leaves is unmounted.
+  act(() => setState({ extra: false, order: ['a'] }));
+  await settle();
+  assert.equal(el.querySelector('main').textContent, 'a:2text');
+  assert.equal(el.querySelector('footer').textContent, '3');
+  act(() => root.unmount());
+});
+
+test('a single React child is still the child itself, and a list that keeps its shape is never handed over again', async () => {
+  let listRuns = 0;
+  function Box(props) {
+    return h('div', { class: 'box' }, () => { listRuns++; return props.children; });
+  }
+  let bump;
+  function App() {
+    const [n, setN] = useState(0);
+    bump = () => setN((x) => x + 1);
+    return rce('div', null,
+      rce(native(Box), null, rce('b', null, 'one' + n)),
+      rce(native(Box), null, rce('i', null, 'x' + n), rce('u', null, 'y' + n)));
+  }
+  const el = container();
+  const root = createRoot(el);
+  act(() => root.render(rce(App)));
+  await settle();
+  const runs = listRuns;
+  act(() => bump());
+  await settle();
+  assert.equal(el.textContent, 'one1x1y1');
+  assert.equal(listRuns, runs, 'React patched the children in place: the native regions did not run again');
+  act(() => root.unmount());
+});

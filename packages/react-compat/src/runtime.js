@@ -161,9 +161,11 @@ export function flushUpdates() {
     runInCommit(() => {
       for (const inst of batch) {
         if (dirtyQueue.has(inst) && !inst.unmounted) {
+          const insertionFrom = insertionQueue.length;
           const layoutFrom = layoutQueue.length;
           const passiveFrom = passiveQueue.length;
           renderInstance(inst);
+          childEffectsFirst(insertionQueue, insertionFrom, inst);
           childEffectsFirst(layoutQueue, layoutFrom, inst);
           childEffectsFirst(passiveQueue, passiveFrom, inst);
         }
@@ -196,10 +198,21 @@ function childEffectsFirst(queue, from, inst) {
 // Commit phase — effect queues (child-first order, layout sync / passive async)
 // =====================================================================
 
+// What kind of effect a hook slot holds (slot._effect), which decides when
+// its cleanup runs as the component unmounts.
+export const EFFECT_INSERTION = 1;
+export const EFFECT_LAYOUT = 2;
+export const EFFECT_PASSIVE = 3;
+
 let commitDepth = 0;
+/** Effect queues being flushed: an effect is running. */
+let effectDepth = 0;
 const refQueue = [];
+const insertionQueue = [];
 const layoutQueue = [];
 const passiveQueue = [];
+/** @type {Array<() => void>} The passive cleanups of components this commit removed. */
+const unmountedPassive = [];
 let passiveScheduled = false;
 
 export function runInCommit(fn) {
@@ -209,12 +222,15 @@ export function runInCommit(fn) {
   } finally {
     commitDepth--;
     if (commitDepth === 0) {
-      // React commit order: attach refs (after DOM insertion), then layout
-      // effects synchronously, then passive effects asynchronously.
+      // React's commit order: insertion effects (a CSS-in-JS library writes
+      // its rules before anything reads layout), then refs (the DOM is in
+      // the document), then layout effects, all synchronously; passive
+      // effects later.
       if (mirrors.size > 0) syncMirrors();
+      flushInsertionQueue();
       flushRefQueue();
       flushEffectQueue(layoutQueue);
-      if (passiveQueue.length > 0 && !passiveScheduled) {
+      if ((passiveQueue.length > 0 || unmountedPassive.length > 0) && !passiveScheduled) {
         passiveScheduled = true;
         queueMicrotask(_flushPassive);
       }
@@ -223,28 +239,33 @@ export function runInCommit(fn) {
 }
 
 function flushRefQueue() {
-  while (refQueue.length > 0) {
-    const entry = refQueue.shift();
-    if (entry.focus === true) {
-      // autoFocus: React focuses the element when it mounts.
-      if (entry.el.isConnected) {
-        try { entry.el.focus(); } catch { /* not focusable */ }
+  effectDepth++;
+  try {
+    while (refQueue.length > 0) {
+      const entry = refQueue.shift();
+      if (entry.focus === true) {
+        // autoFocus: React focuses the element when it mounts.
+        if (entry.el.isConnected) {
+          try { entry.el.focus(); } catch { /* not focusable */ }
+        }
+        continue;
       }
-      continue;
+      // Skip if the element was already unmounted (ref nulled) or ref swapped.
+      if (entry.rn.ref !== entry.ref) continue;
+      try {
+        attachRef(entry.rn, entry.ref, entry.el);
+      } catch (e) {
+        console.error('[what-react] ref error:', e);
+      }
     }
-    // Skip if the element was already unmounted (ref nulled) or ref swapped.
-    if (entry.rn.ref !== entry.ref) continue;
-    try {
-      attachRef(entry.rn, entry.ref, entry.el);
-    } catch (e) {
-      console.error('[what-react] ref error:', e);
-    }
+  } finally {
+    effectDepth--;
   }
 }
 
 export function _flushPassive() {
   passiveScheduled = false;
-  flushEffectQueue(passiveQueue);
+  flushPassiveEffects();
 }
 
 // The passive effects still waiting from earlier commits, run before a new
@@ -252,27 +273,97 @@ export function _flushPassive() {
 // the effects queued after it wait for it to return.
 let flushingPassive = false;
 function _flushPendingPassive() {
-  if (flushingPassive || passiveQueue.length === 0) return;
+  if (flushingPassive || (passiveQueue.length === 0 && unmountedPassive.length === 0)) return;
   flushingPassive = true;
-  try { flushEffectQueue(passiveQueue); } finally { flushingPassive = false; }
+  try { flushPassiveEffects(); } finally { flushingPassive = false; }
 }
 
+// React's passive phase: the cleanups of the components the commit removed,
+// then the cleanups of the effects that run again, then the effects.
+function flushPassiveEffects() {
+  flushUnmountedPassive();
+  flushEffectQueue(passiveQueue);
+}
+
+function flushUnmountedPassive() {
+  if (unmountedPassive.length === 0) return;
+  effectDepth++;
+  try {
+    while (unmountedPassive.length > 0) {
+      const batch = unmountedPassive.splice(0);
+      for (let i = 0; i < batch.length; i++) {
+        try { batch[i](); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+      }
+    }
+  } finally {
+    effectDepth--;
+  }
+}
+
+// One phase of a commit (layout or passive), in React's two passes: every
+// cleanup of the effects that run again, then every effect. Both in queue
+// order, which is children before parents.
 function flushEffectQueue(queue) {
-  while (queue.length > 0) {
-    const entry = queue.shift();
-    const slot = entry.slot;
-    slot._pending = null;
-    if (entry.inst.unmounted) continue;
-    if (slot.cleanup) {
-      try { slot.cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
-      slot.cleanup = null;
+  if (queue.length === 0) return;
+  effectDepth++;
+  try {
+    while (queue.length > 0) {
+      const batch = queue.splice(0);
+      for (let i = 0; i < batch.length; i++) {
+        const entry = batch[i];
+        // An unmounted component's cleanups ran as it unmounted.
+        if (entry.inst.unmounted) continue;
+        const cleanup = entry.slot.cleanup;
+        if (cleanup) {
+          entry.slot.cleanup = null;
+          try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+        }
+      }
+      for (let i = 0; i < batch.length; i++) {
+        const entry = batch[i];
+        // Cleared here, not above: a render between the two passes (a cleanup
+        // that calls flushSync) replaces this entry's function, not queues a second.
+        entry.slot._pending = null;
+        if (entry.inst.unmounted) continue;
+        try {
+          const result = entry.fn();
+          if (typeof result === 'function') entry.slot.cleanup = result;
+        } catch (e) {
+          effectError(entry.inst, e);
+        }
+      }
     }
-    try {
-      const result = entry.fn();
-      if (typeof result === 'function') slot.cleanup = result;
-    } catch (e) {
-      effectError(entry.inst, e);
+  } finally {
+    effectDepth--;
+  }
+}
+
+// Insertion effects: React runs them in the mutation phase, component by
+// component (a component's cleanup, then its effect), children first, before
+// any ref attaches or layout effect runs.
+function flushInsertionQueue() {
+  if (insertionQueue.length === 0) return;
+  effectDepth++;
+  try {
+    while (insertionQueue.length > 0) {
+      const entry = insertionQueue.shift();
+      const slot = entry.slot;
+      slot._pending = null;
+      if (entry.inst.unmounted) continue;
+      if (slot.cleanup) {
+        const cleanup = slot.cleanup;
+        slot.cleanup = null;
+        try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+      }
+      try {
+        const result = entry.fn();
+        if (typeof result === 'function') slot.cleanup = result;
+      } catch (e) {
+        effectError(entry.inst, e);
+      }
     }
+  } finally {
+    effectDepth--;
   }
 }
 
@@ -282,14 +373,34 @@ function effectError(inst, error) {
   let handler = inst.parent;
   while (handler && !handler._errorHandler) handler = handler.parent;
   if (handler) {
-    try { handler._errorHandler(error); return; } catch (e) { error = e; }
+    try { handler._errorHandler(error, inst); return; } catch (e) { error = e; }
   }
   console.error('[what-react] effect error:', error);
+}
+
+/**
+ * The component stack of `inst` for componentDidCatch: one line per component
+ * from `inst` up to the root, in React's format ("\n    at Name"). Host
+ * elements are not listed, and there are no source locations.
+ */
+export function _componentStack(inst) {
+  let stack = '';
+  for (let p = inst; p != null; p = p.parent) {
+    const type = p.type;
+    if (type == null || type._hidden === true) continue;
+    const name = type.displayName || type.name;
+    if (name) stack += '\n    at ' + name;
+  }
+  return stack;
 }
 
 // Hooks push pending effects here; renderInstance moves them to the global
 // queues AFTER the subtree commit so children's effects run before the parent's
 // (React ordering).
+export function _pushInsertion(inst, slot, fn) {
+  _pushEffect(inst._pendingInsertion, inst, slot, fn);
+}
+
 export function _pushLayout(inst, slot, fn) {
   _pushEffect(inst._pendingLayout, inst, slot, fn);
 }
@@ -310,14 +421,33 @@ function _pushEffect(pendingArr, inst, slot, fn) {
   pendingArr.push(entry);
 }
 
+// The effects a render queued and will not run (it threw, or suspended):
+// their slots are as before the render, so the next one queues them again.
+function dropPending(inst) {
+  dropEntries(inst._pendingInsertion);
+  dropEntries(inst._pendingLayout);
+  dropEntries(inst._pendingPassive);
+}
+
+function dropEntries(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const slot = entries[i].slot;
+    slot._pending = null;
+    slot.deps = undefined;
+    if (slot.subscribe !== undefined) slot.subscribe = undefined;
+  }
+  entries.length = 0;
+}
+
 // Drain everything synchronously — used by act() and flushSync().
 export function _drainAll() {
   let guard = 0;
-  while ((dirtyQueue.size > 0 || layoutQueue.length > 0 || passiveQueue.length > 0) && ++guard < 100) {
+  while ((dirtyQueue.size > 0 || layoutQueue.length > 0 || passiveQueue.length > 0 || unmountedPassive.length > 0) && ++guard < 100) {
     flushUpdates();
     flushEffectQueue(layoutQueue);
     _flushPassive();
   }
+  if (restoring.length > 0) restoreFields();
 }
 
 // =====================================================================
@@ -669,6 +799,10 @@ function mountElement(v, container, svg, owner) {
   // Controlled props after children (e.g. <select> options must exist)
   if (hasValue) setProperty(el, 'value', value, undefined, isSvgEl);
   if (hasChecked) setProperty(el, 'checked', checked, undefined, isSvgEl);
+  if (!isSvgEl) {
+    if (tag === 'input' || tag === 'textarea') trackField(el);
+    else if (tag === 'select' && value == null) resetSelect(el, props.defaultValue);
+  }
 
   // Refs attach at commit exit — AFTER the element is inserted into the live
   // DOM — so ref callbacks that measure layout (getBoundingClientRect etc.)
@@ -712,6 +846,7 @@ function newInstance(type, props, key, parent, start, end, svg) {
     rendered: [],
     unmounted: false,
     _renderPhaseUpdate: false,
+    _pendingInsertion: [],
     _pendingLayout: [],
     _pendingPassive: [],
     _guardStart: 0,
@@ -904,12 +1039,16 @@ function patchElement(rn, v, svg, owner) {
       }
     }
 
+    // An uncontrolled select that had no options yet (they load later).
+    const emptySelect = v.tag === 'select' && value == null && el.options !== undefined && el.options.length === 0;
+
     // Children
     const kids = normalizeChildren(v.children !== undefined ? v.children : newProps.children);
     rn.children = patchChildren(el, rn.children, kids, null, childSvg, owner);
 
     if (hasValue) setProperty(el, 'value', value, oldProps.value, isSvgEl);
     if (hasChecked) setProperty(el, 'checked', checked, oldProps.checked, isSvgEl);
+    if (emptySelect && el.options.length > 0) resetSelect(el, null);
 
     // Refs
     const newRef = newProps.ref || null;
@@ -964,9 +1103,7 @@ function patchPortal(rn, v, owner) {
       rn.children = patchChildren(target, rn.children, normalizeChildren(v.children), null, targetSvg(target), owner);
     }
   } else {
-    for (const child of rn.children) unmountRNode(child, true);
-    unregisterPortal(rn);
-    if (rn.mirror !== undefined) { disposeMirror(rn.mirror); rn.mirror = undefined; }
+    teardown(rn); // its children leave the old container
     rn.container = target || null;
     if (target && isForeignHost(target)) {
       rn.mirror = createMirror(target);
@@ -984,6 +1121,12 @@ function patchPortal(rn, v, owner) {
 }
 
 // ---- Unmount ----
+// React's order for a subtree a commit removes: parents first. A component's
+// insertion and layout cleanups run before its children's, an element's ref
+// detaches before the cleanups below it, and all of it happens before the
+// subtree's nodes leave the document (a cleanup may still read layout). The
+// passive cleanups run later, in the same order, with the commit's other
+// passive effects (unmountedPassive).
 
 export function unmountRNode(rn, removeDom) {
   switch (rn.kind) {
@@ -991,39 +1134,62 @@ export function unmountRNode(rn, removeDom) {
     case KIND_TEXT:
       if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
       return;
+    case KIND_ELEMENT:
+      teardown(rn);
+      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      return;
+    case KIND_COMPONENT: {
+      // Its nodes are listed before the unmount empties the tree.
+      const nodes = removeDom ? domNodesOf(rn) : null;
+      teardown(rn);
+      if (nodes !== null) removeNodes(nodes);
+      return;
+    }
+    case KIND_PORTAL:
+      teardown(rn);
+      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      return;
+    case KIND_OPAQUE:
+      teardown(rn);
+      if (removeDom) removeRange(rn.start, rn.end);
+      return;
+  }
+}
+
+// Everything unmounting `rn` does except removing its own nodes from their
+// parent: cleanups and ref detaches, top down.
+function teardown(rn) {
+  switch (rn.kind) {
     case KIND_ELEMENT: {
-      for (const child of rn.children) unmountRNode(child, false);
       if (rn.ref) {
         try { detachRef(rn, rn.ref); } catch (e) { console.error('[what-react] ref cleanup error:', e); }
         rn.ref = null; // invalidates any queued mount-time ref entry
       }
-      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
+      const children = rn.children;
+      for (let i = 0; i < children.length; i++) teardown(children[i]);
       return;
     }
-    case KIND_COMPONENT: {
-      // Its nodes are listed before the unmount empties the tree, and leave
-      // the document after the cleanups ran, which may still read layout.
-      const nodes = removeDom ? domNodesOf(rn) : null;
-      unmountInstance(rn.inst);
-      if (nodes !== null) removeNodes(nodes);
+    case KIND_COMPONENT:
+      teardownInstance(rn.inst);
       return;
-    }
     case KIND_PORTAL: {
-      for (const child of rn.children) unmountRNode(child, true); // other container
+      // Its children stand in another container: they are removed here.
+      const children = rn.children;
+      const nodes = [];
+      for (let i = 0; i < children.length; i++) domNodesOf(children[i], nodes);
+      for (let i = 0; i < children.length; i++) teardown(children[i]);
+      removeNodes(nodes);
       unregisterPortal(rn);
       if (rn.mirror !== undefined) { disposeMirror(rn.mirror); rn.mirror = undefined; }
-      if (removeDom && rn.dom.parentNode) rn.dom.parentNode.removeChild(rn.dom);
       return;
     }
-    case KIND_OPAQUE: {
+    case KIND_OPAQUE:
       if (rn.dispose) rn.dispose();
-      if (removeDom) removeRange(rn.start, rn.end);
       return;
-    }
   }
 }
 
-function unmountInstance(inst) {
+function teardownInstance(inst) {
   if (inst.unmounted) return;
   inst.unmounted = true;
   dirtyQueue.delete(inst);
@@ -1033,17 +1199,24 @@ function unmountInstance(inst) {
     stop();
   }
 
-  // Children first (React effect-cleanup order is bottom-up).
-  for (const child of inst.rendered) unmountRNode(child, false);
-  inst.rendered = [];
-
-  // Hook cleanups (useEffect / useLayoutEffect / useSyncExternalStore subs).
-  for (const slot of inst.hooks) {
-    if (slot && slot._isEffect && slot.cleanup) {
-      try { slot.cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
-      slot.cleanup = null;
+  // Its own insertion and layout cleanups (useSyncExternalStore's
+  // subscription is one), in hook order; the passive ones are queued.
+  const hooks = inst.hooks;
+  for (let i = 0; i < hooks.length; i++) {
+    const slot = hooks[i];
+    if (slot === undefined || slot._effect === undefined || !slot.cleanup) continue;
+    const cleanup = slot.cleanup;
+    slot.cleanup = null;
+    if (slot._effect === EFFECT_PASSIVE) unmountedPassive.push(cleanup);
+    else {
+      try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
     }
   }
+
+  // Then its children's.
+  const rendered = inst.rendered;
+  for (let i = 0; i < rendered.length; i++) teardown(rendered[i]);
+  inst.rendered = [];
 
   // What a component owns outside the compat tree (a native component's
   // What root, mixed.js).
@@ -1061,6 +1234,16 @@ function unmountInstance(inst) {
     }
     inst._ctxDeps = null;
   }
+}
+
+/**
+ * Run the passive cleanups of what was just unmounted, now: when a root or
+ * an island goes (React flushes a synchronous unmount's passive effects
+ * before it returns), not in the middle of a commit, whose passive phase
+ * runs them.
+ */
+export function _flushUnmounted() {
+  if (commitDepth === 0 && effectDepth === 0) flushUnmountedPassive();
 }
 
 function removeRange(start, end) {
@@ -1108,8 +1291,7 @@ export function renderInstance(inst) {
       out = renderTracked(inst);
     } catch (err) {
       currentInstance = prev;
-      inst._pendingLayout.length = 0;
-      inst._pendingPassive.length = 0;
+      dropPending(inst);
       handleRenderError(inst, err, false);
       return;
     }
@@ -1129,13 +1311,14 @@ export function renderInstance(inst) {
     // may not run — documented limitation.
     removeRangeContents(inst.start, inst.end);
     inst.rendered = [];
-    inst._pendingLayout.length = 0;
-    inst._pendingPassive.length = 0;
+    dropPending(inst);
     handleRenderError(inst, err, true);
     return;
   }
 
   // Queue own effects after the subtree's (children queued theirs during patch).
+  for (const e of inst._pendingInsertion) insertionQueue.push(e);
+  inst._pendingInsertion.length = 0;
   for (const e of inst._pendingLayout) layoutQueue.push(e);
   inst._pendingLayout.length = 0;
   for (const e of inst._pendingPassive) passiveQueue.push(e);
@@ -1222,7 +1405,7 @@ function handleRenderError(inst, err, fromChildren) {
   let handler = fromChildren ? inst : inst.parent;
   while (handler && !handler._errorHandler) handler = handler.parent;
   if (handler) {
-    handler._errorHandler(err);
+    handler._errorHandler(err, inst);
     return;
   }
   throw err;
@@ -1282,6 +1465,7 @@ export function unmountRoot(root) {
     for (const rn of root.rns) unmountRNode(rn, true);
     root.rns = [];
   });
+  _flushUnmounted();
 }
 
 // =====================================================================
@@ -1332,7 +1516,8 @@ export function adoptIsland(view, start, end, parent, nativeOwner, svg) {
 
 /** Unmount an island's instance. Its DOM belongs to the native code that placed it. */
 export function unmountIsland(inst) {
-  runInCommit(() => unmountInstance(inst));
+  runInCommit(() => teardownInstance(inst));
+  _flushUnmounted();
 }
 
 /**
@@ -1508,21 +1693,174 @@ function changeEventFor(el) {
   return 'change';
 }
 
+function isCheckable(el) {
+  return el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio');
+}
+
+// ---- What a field showed last ----
+// React fires onChange when a field's value is not the one it last saw: an
+// `input` event that changed nothing fires none, and the `change` a text
+// field sends when it loses focus fires none after the `input` that reported
+// the edit. Each input and textarea therefore carries the value last seen
+// (`_compatSeen`: its `value`, or `checked` for a checkbox or radio), read at
+// mount and at each change event. React tracks the same way.
+//
+// A write through the element's own `value`/`checked` property (a script's
+// `input.value = 'x'`) is noticed: the property is shadowed on the element.
+// React counts such a write as seen, so an event that follows it fires no
+// onChange there (tests reach for the prototype's setter to get around it);
+// here the next event counts as a change, since the script changed the
+// field. what-react's own writes go to the prototype's setter (writeField).
+
+/** @type {WeakMap<object, Record<string, { field: string, set: Function, own: PropertyDescriptor } | null>>} */
+const fieldAccessors = new WeakMap();
+
+function accessorFor(el, field) {
+  const proto = Object.getPrototypeOf(el);
+  let byField = fieldAccessors.get(proto);
+  if (byField === undefined) fieldAccessors.set(proto, byField = {});
+  let accessor = byField[field];
+  if (accessor === undefined) {
+    const native = Object.getOwnPropertyDescriptor(proto, field);
+    if (native === undefined || typeof native.get !== 'function' || typeof native.set !== 'function') accessor = null;
+    else {
+      const { get, set } = native;
+      accessor = {
+        field,
+        set,
+        own: {
+          configurable: true,
+          enumerable: native.enumerable,
+          /** @this {any} */
+          get() { return get.call(this); },
+          /** @this {any} */
+          set(value) {
+            this._compatSeen = '' + value;
+            this._compatWritten = true;
+            set.call(this, value);
+          },
+        },
+      };
+    }
+    byField[field] = accessor;
+  }
+  return accessor;
+}
+
+let resetsListened = false;
+
+// Called once for an input or a textarea, when it has mounted with its props.
+function trackField(el) {
+  const field = isCheckable(el) ? 'checked' : 'value';
+  // Shadowed already (by a library, or by React in a page that has both).
+  if (Object.prototype.hasOwnProperty.call(el, field)) return;
+  const accessor = accessorFor(el, field);
+  if (accessor === null) return;
+  el._compatSeen = '' + el[field];
+  el._compatWritten = false;
+  el._compatTrack = accessor;
+  Object.defineProperty(el, field, accessor.own);
+  if (!resetsListened && typeof document !== 'undefined') {
+    resetsListened = true;
+    // form.reset() changes its fields without a write or an event.
+    document.addEventListener('reset', (e) => {
+      const fields = e.target && /** @type {any} */ (e.target).elements;
+      if (fields == null) return;
+      for (let i = 0; i < fields.length; i++) if (fields[i]._compatTrack !== undefined) fields[i]._compatWritten = true;
+    }, true);
+  }
+}
+
+// Write a field's `value` or `checked` as what-react's own write: seen, and
+// not a script's.
+function writeField(el, field, value) {
+  const accessor = el._compatTrack;
+  if (accessor !== undefined && accessor.field === field) {
+    el._compatSeen = '' + value;
+    accessor.set.call(el, value);
+  } else {
+    el[field] = value;
+  }
+}
+
+function fieldChanged(el, checkable) {
+  if (el._compatTrack === undefined) return true;
+  const now = checkable ? (el.checked ? 'true' : 'false') : el.value;
+  if (el._compatWritten === true) el._compatWritten = false;
+  else if (now === el._compatSeen) return false;
+  el._compatSeen = now;
+  // The browser unchecked the rest of its group without a write or an event.
+  if (checkable && el.type === 'radio' && el.checked) {
+    const group = radioGroup(el);
+    for (let i = 0; i < group.length; i++) {
+      if (group[i] !== el && group[i]._compatTrack !== undefined) group[i]._compatSeen = group[i].checked ? 'true' : 'false';
+    }
+  }
+  return true;
+}
+
+// The radio buttons that share `el`'s name and form (el included).
+function radioGroup(el) {
+  const name = el.name;
+  if (!name) return [el];
+  let root = el;
+  while (root.parentNode) root = root.parentNode;
+  if (typeof root.querySelectorAll !== 'function') return [el];
+  const group = [];
+  const radios = root.querySelectorAll('input[type="radio"]');
+  for (let i = 0; i < radios.length; i++) {
+    if (radios[i].name === name && radios[i].form === el.form) group.push(radios[i]);
+  }
+  return group;
+}
+
+// Whether a native event is React's change event for its target, decided
+// once per event: `input` (or `change`) on a text field whose value is new,
+// `change` on a checkbox or radio whose state is new, and every `change` on
+// a select, a file input or an element that is no form field (a custom
+// element's). An `input` event from a contenteditable is not one.
+function isReactChange(native) {
+  let is = native._compatChange;
+  if (is !== undefined) return is;
+  is = false;
+  const target = native.target;
+  if (target != null && target.nodeType === 1) {
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') {
+      const kind = target.type;
+      if (kind === 'file') is = native.type === 'change';
+      else if (kind === 'checkbox' || kind === 'radio') is = native.type === 'change' && fieldChanged(target, true);
+      else is = fieldChanged(target, false);
+    } else {
+      is = native.type === 'change';
+    }
+  }
+  try { native._compatChange = is; } catch { /* a frozen event: decided per call */ }
+  return is;
+}
+
 // What a React handler is handed: a synthetic event, a plain object with the
 // native event's fields as its own properties and React's methods. Libraries
 // treat it as one: they copy it (`{ ...event }`, which takes own properties
 // only and would leave a DOM event's `key`, `target` and `clientX` behind),
 // call `isPropagationStopped()` and `persist()`, and read `nativeEvent`. One
-// object per native event, shared by every handler it reaches, as in React.
-function syntheticEvent(native) {
-  let event = native._compatSynthetic;
-  if (event !== undefined) return event;
-  event = {};
+// object per native event and React type, as in React: onInput and onChange
+// on one `input` event each get their own, and a handler that keeps its
+// event still reads the type it was called with.
+function syntheticEvent(native, type) {
+  let byType = native._compatSynthetic;
+  if (byType !== undefined) {
+    const made = byType[type];
+    if (made !== undefined) return made;
+  }
+  const event = {};
   // DOM event fields are enumerable accessors on the prototypes: for-in sees them.
   for (const key in native) {
     const value = native[key];
     if (typeof value !== 'function') event[key] = value;
   }
+  event.type = type;
+  event.currentTarget = null;
   event.nativeEvent = native;
   event.preventDefault = function () { this.defaultPrevented = true; native.preventDefault(); };
   event.stopPropagation = function () { native.stopPropagation(); };
@@ -1532,7 +1870,11 @@ function syntheticEvent(native) {
   event.persist = noop;
   event.isPersistent = returnTrue;
   if (typeof native.getModifierState === 'function') event.getModifierState = (key) => native.getModifierState(key);
-  try { native._compatSynthetic = event; } catch { /* a frozen event: one object per call */ }
+  if (byType === undefined) {
+    byType = {};
+    try { native._compatSynthetic = byType; } catch { /* a frozen event: one object per call */ }
+  }
+  byType[type] = event;
   return event;
 }
 
@@ -1543,42 +1885,66 @@ const REACT_TYPE = { focusin: 'focus', focusout: 'blur' };
 
 // Call one handler: `prop` is the React prop it came in as (onChange reports
 // the type `change` whatever native event carried it), `currentTarget` the
-// element it is on.
+// element it is on, for the length of the call (React nulls it after).
 function callHandler(handler, native, currentTarget, prop) {
-  const event = syntheticEvent(native);
+  const event = syntheticEvent(native, prop === 'onChange' ? 'change' : (REACT_TYPE[native.type] || native.type));
   event.currentTarget = currentTarget;
-  event.type = prop === 'onChange' ? 'change' : (REACT_TYPE[native.type] || native.type);
   event.defaultPrevented = native.defaultPrevented;
-  return handler(event);
+  try {
+    return handler(event);
+  } finally {
+    event.currentTarget = null;
+  }
 }
 
 // An element's handlers for one native event, by the React prop that set
 // them: `onInput` and `onChange` both listen to `input` on a text field, and
 // each keeps its own handler (a library passes `onInput={undefined}` next to
-// its `onChange`). React calls onChange after the others.
+// its `onChange`). React calls onChange after the others, and only when the
+// event changed its target's value.
 function callHandlers(handlers, e, currentTarget) {
   for (const prop in handlers) {
     if (prop !== 'onChange') callHandler(handlers[prop], e, currentTarget, prop);
   }
-  if (handlers.onChange !== undefined) callHandler(handlers.onChange, e, currentTarget, 'onChange');
+  if (handlers.onChange !== undefined && isReactChange(e)) callHandler(handlers.onChange, e, currentTarget, 'onChange');
 }
 
 /** @this {any} */
 function eventProxy(e) {
   const handlers = this._compatListeners && this._compatListeners[e.type];
   if (handlers) callHandlers(handlers, e, this);
+  if (e.cancelBubble === true) afterStopped(e);
 }
 
 /** @this {any} */
 function eventProxyCapture(e) {
   const handlers = this._compatListenersCapture && this._compatListenersCapture[e.type];
   if (handlers) callHandlers(handlers, e, this);
+  // On the target itself the bubble handlers still run after a stop.
+  if (e.cancelBubble === true && !(e.target === this && this._compatListeners && this._compatListeners[e.type])) afterStopped(e);
+}
+
+// A React handler stopped the event: it reaches no listener further on, so
+// what waits for the end of its dispatch happens here. React does both after
+// its handlers ran, stopped or not.
+function afterStopped(e) {
+  const type = e.type;
+  if (type === 'submit') runFormAction(e);
+  else if (type === 'input' || type === 'change') {
+    // A handler above the field stopped the event before the field heard it.
+    const target = e.target;
+    if (target != null && target._compatControlled === true && (type === 'change' || changeEventFor(target) === 'input')) restoring.push(target);
+    if (restoring.length > 0) restoreFields();
+  }
 }
 
 // ---- Form actions ----
-// One submit listener on the document, which runs after the form's own
-// onSubmit handlers: a handler that calls preventDefault() keeps the action
-// from running, as in React.
+// React runs a form's function action after the submit event's handlers,
+// unless one of them called preventDefault(); a handler that only stops
+// propagation does not keep it from running. Here it runs when the event
+// reaches the document, or where a React handler stopped it (afterStopped).
+// A listener that is not React's and stops the event below the document
+// still keeps the action from running.
 
 let submitsListened = false;
 /** @type {((form: any, action: Function, data: FormData) => void) | null} */
@@ -1589,20 +1955,25 @@ export function _setFormActionRunner(runner) {
   formActionRunner = runner;
 }
 
+function runFormAction(e) {
+  if (e._compatActionRun === true) return;
+  const form = /** @type {any} */ (e.target);
+  if (form == null || form.tagName !== 'FORM') return;
+  try { e._compatActionRun = true; } catch { /* a frozen event */ }
+  if (e.defaultPrevented) return;
+  const submitter = /** @type {any} */ (e).submitter;
+  const action = submitter && typeof submitter._compatAction === 'function' ? submitter._compatAction : form._compatAction;
+  if (typeof action !== 'function' || formActionRunner === null) return;
+  e.preventDefault();
+  let data;
+  try { data = submitter ? new FormData(form, submitter) : new FormData(form); } catch { data = new FormData(form); }
+  formActionRunner(form, action, data);
+}
+
 function listenForSubmits() {
   if (submitsListened || typeof document === 'undefined') return;
   submitsListened = true;
-  document.addEventListener('submit', (e) => {
-    const form = /** @type {any} */ (e.target);
-    if (e.defaultPrevented || form == null || form.tagName !== 'FORM') return;
-    const submitter = /** @type {any} */ (e).submitter;
-    const action = submitter && typeof submitter._compatAction === 'function' ? submitter._compatAction : form._compatAction;
-    if (typeof action !== 'function' || formActionRunner === null) return;
-    e.preventDefault();
-    let data;
-    try { data = submitter ? new FormData(form, submitter) : new FormData(form); } catch { data = new FormData(form); }
-    formActionRunner(form, action, data);
-  });
+  document.addEventListener('submit', runFormAction);
 }
 
 // ---- Events through portals ----
@@ -1692,7 +2063,7 @@ function bridgeCapture(e) {
     const handlers = path[i]._compatListenersCapture && path[i]._compatListenersCapture[e.type];
     if (handlers) {
       callHandlers(handlers, e, path[i]);
-      if (e.cancelBubble) return;
+      if (e.cancelBubble) { afterStopped(e); return; }
     }
   }
 }
@@ -1704,7 +2075,7 @@ function bridgeBubble(e) {
     const handlers = path[i]._compatListeners && path[i]._compatListeners[e.type];
     if (handlers) {
       callHandlers(handlers, e, path[i]);
-      if (e.cancelBubble) return;
+      if (e.cancelBubble) { afterStopped(e); return; }
     }
   }
 }
@@ -1718,18 +2089,32 @@ function setEvent(el, name, value) {
     useCapture = true;
     base = base.slice(0, -7);
   }
+  // The prop the handler came in as, without its Capture suffix.
+  const prop = 'on' + base;
   let event = base.toLowerCase();
+  if (event === 'change') {
+    // React's change event: `change` for a select, a checkbox, a radio and a
+    // file input. For a text field `input`, and `change` too, which reports
+    // an edit no `input` event did (isReactChange lets one of them through).
+    // An element that is no field hears both from the fields inside it.
+    const own = changeEventFor(el);
+    const tag = el.tagName;
+    if (own === 'input' || (tag !== 'INPUT' && tag !== 'SELECT')) listen(el, 'input', prop, value, useCapture);
+    listen(el, 'change', prop, value, useCapture);
+    return;
+  }
   if (event === 'doubleclick') event = 'dblclick';
-  else if (event === 'change') event = changeEventFor(el);
   else if (event === 'focus') event = 'focusin';   // React synthetic focus bubbles
   else if (event === 'blur') event = 'focusout';
+  listen(el, event, prop, value, useCapture);
+}
 
+// Set or remove the handler the React prop `prop` has for the native `event`.
+function listen(el, event, prop, value, useCapture) {
   const store = useCapture
     ? (el._compatListenersCapture || (el._compatListenersCapture = {}))
     : (el._compatListeners || (el._compatListeners = {}));
   const proxy = useCapture ? eventProxyCapture : eventProxy;
-  // The prop the handler came in as, without its Capture suffix.
-  const prop = 'on' + base;
   let handlers = store[event];
   if (typeof value === 'function') {
     if (handlers === undefined) {
@@ -1752,48 +2137,200 @@ function setEvent(el, name, value) {
   }
 }
 
-// A controlled field shows its prop, whatever the user did: when a change
-// handler does not take the edit (it validates and returns, or there is no
-// handler), React puts the field back to the value it was rendered with. The
-// native listener runs after the element's own React handler, and puts the
-// prop back once the updates that handler scheduled have rendered.
-function controlField(el) {
-  if (el._compatControlled === true) return;
-  el._compatControlled = true;
-  const restore = () => queueMicrotask(() => {
-    // After the re-render this event caused, if any.
-    if (dirtyQueue.size > 0) flushUpdates();
-    const value = el._compatValue;
-    if (value != null && el.tagName !== 'SELECT') {
-      const str = String(value);
-      if (el.value !== str) el.value = str;
-    } else if (value != null && !el.multiple) {
-      const str = String(value);
-      if (el.value !== str) el.value = str;
+// ---- Controlled fields ----
+// A controlled field shows its prop, whatever the user did: when no handler
+// takes the edit (it validates and returns, or there is none), React puts the
+// field back, at the end of the event's dispatch, after rendering what the
+// handlers set. Handlers here are native listeners, so "the end" is found
+// three ways: a listener on the window, which the event reaches last; the
+// React handler that stopped the event (afterStopped); and, for an event
+// that reaches neither (one that does not bubble, or that a listener that is
+// not React's stopped), a microtask, or a timer when the browser is still
+// dispatching the event at that microtask.
+
+/** The controlled fields whose change event is being dispatched. */
+const restoring = [];
+let restoreQueued = false;
+let restoreTimer = false;
+/** @type {WeakMap<object, Set<string>>} window (or document) → the event types it listens to for restores */
+const restoreListeners = new WeakMap();
+
+// A capture listener on the field itself: it runs before the field's handlers
+// and its ancestors', whenever they were added.
+/** @this {any} */
+function fieldEvent(e) {
+  restoring.push(this);
+  if (restoreQueued) return;
+  restoreQueued = true;
+  queueMicrotask(() => {
+    restoreQueued = false;
+    if (restoring.length === 0) return;
+    // The dispatch is over (a script dispatched it), or goes no further.
+    if (e.eventPhase === 0 || e.cancelBubble === true) restoreFields();
+    else if (!restoreTimer) {
+      restoreTimer = true;
+      setTimeout(() => { restoreTimer = false; restoreFields(); }, 0);
     }
-    const checked = el._compatChecked;
-    if (checked != null && el.checked !== !!checked) el.checked = !!checked;
   });
-  // The event React's onChange listens to for this field: a checkbox fires
-  // `input` first, and putting `checked` back then would hide the user's
-  // click from the handler on `change`.
-  el.addEventListener(changeEventFor(el), restore);
 }
 
-function setValueProp(el, value) {
-  // Controlled when the prop is a value (React: neither null nor undefined).
-  el._compatValue = value;
-  if (value != null && typeof el.addEventListener === 'function' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) controlField(el);
-  if (el.tagName === 'SELECT') {
-    const str = value == null ? '' : String(value);
-    el.value = str;
-    if (el.value !== str) {
-      queueMicrotask(() => { el.value = str; });
+function controlField(el) {
+  if (el._compatControlled === true || typeof el.addEventListener !== 'function') return;
+  el._compatControlled = true;
+  // The events React's onChange listens to for this field. A checkbox fires
+  // `input` first: putting `checked` back then would hide the user's click
+  // from the handler on `change`.
+  if (changeEventFor(el) === 'input') watchField(el, 'input');
+  watchField(el, 'change');
+}
+
+function watchField(el, type) {
+  el.addEventListener(type, fieldEvent, true);
+  const doc = el.ownerDocument;
+  const end = (doc && doc.defaultView) || doc;
+  if (end == null || typeof end.addEventListener !== 'function') return;
+  let types = restoreListeners.get(end);
+  if (types === undefined) restoreListeners.set(end, types = new Set());
+  if (types.has(type)) return;
+  types.add(type);
+  end.addEventListener(type, restoreFields);
+}
+
+function restoreFields() {
+  if (restoring.length === 0) return;
+  // Not in the middle of a render or a commit (a field event an effect
+  // dispatched): once it is done.
+  if (currentInstance !== null || commitDepth > 0 || effectDepth > 0) {
+    if (!restoreQueued) {
+      restoreQueued = true;
+      queueMicrotask(() => { restoreQueued = false; restoreFields(); });
     }
     return;
   }
-  const str = value == null ? '' : String(value);
-  if (el.value !== str) el.value = str; // guard preserves caret position
+  // What the handlers set renders first: a field whose edit was taken
+  // already shows its new prop.
+  if (dirtyQueue.size > 0) flushUpdates();
+  const fields = restoring.splice(0);
+  for (let i = 0; i < fields.length; i++) restoreField(fields[i]);
+}
+
+function restoreField(el) {
+  const value = el._compatValue;
+  if (value != null) {
+    if (el.tagName === 'SELECT') setSelectValue(el, value, false);
+    else writeValue(el, value);
+  }
+  const checked = el._compatChecked;
+  if (checked != null) {
+    const on = !!checked;
+    if (el.checked !== on) writeField(el, 'checked', on);
+    if (el.type === 'radio') {
+      // The click unchecked the rest of its group: each controlled member
+      // shows its prop again, and all of them are seen as they now stand.
+      const group = radioGroup(el);
+      for (let i = 0; i < group.length; i++) {
+        const other = group[i];
+        if (other === el) continue;
+        if (other._compatChecked != null && other.checked !== !!other._compatChecked) writeField(other, 'checked', !!other._compatChecked);
+        else if (other._compatTrack !== undefined) other._compatSeen = other.checked ? 'true' : 'false';
+      }
+    }
+  }
+}
+
+// An input's or a textarea's value, written only when it differs (a write
+// moves the caret to the end).
+function writeValue(el, value) {
+  const str = String(value);
+  if (el.type === 'number') {
+    // React's rule: "1." and "1.0" stand for the prop 1 while the user types
+    // (a loose comparison, on purpose).
+    if ((value === 0 && el.value === '') || el.value != value) writeField(el, 'value', str);
+  } else if (el.value !== str) {
+    writeField(el, 'value', str);
+  }
+}
+
+// A select's options as its value (or default value) says: for `multiple`
+// every option whose value is in the array; otherwise the first option with
+// the value, or, when none has it, the first that is not disabled.
+function setSelectValue(el, value, asDefault) {
+  const options = el.options;
+  if (el.multiple) {
+    const wanted = new Set();
+    if (Array.isArray(value)) for (let i = 0; i < value.length; i++) wanted.add(String(value[i]));
+    else wanted.add(String(value));
+    for (let i = 0; i < options.length; i++) {
+      const on = wanted.has(options[i].value);
+      if (options[i].selected !== on) options[i].selected = on;
+      if (on && asDefault) options[i].defaultSelected = true;
+    }
+    return;
+  }
+  const str = String(value);
+  /** @type {any} */
+  let fallback = null;
+  for (let i = 0; i < options.length; i++) {
+    const option = options[i];
+    if (option.value === str) {
+      if (!option.selected) option.selected = true;
+      if (asDefault) option.defaultSelected = true;
+      return;
+    }
+    if (fallback === null && !option.disabled) fallback = option;
+  }
+  if (fallback !== null && !fallback.selected) fallback.selected = true;
+}
+
+// An uncontrolled select as the browser shows one whose options were added
+// in order: the reconciler inserts new children last to first, and a select
+// takes the first option it is given as its selection. Its `defaultValue`
+// decides, or the last option marked `selected`, or the first that is not
+// disabled. A listbox (multiple, or a size above 1) selects nothing by itself.
+function resetSelect(el, defaultValue) {
+  if (defaultValue != null) { setSelectValue(el, defaultValue, true); return; }
+  if (el.multiple || el.size > 1) return;
+  const options = el.options;
+  /** @type {any} */
+  let pick = null;
+  for (let i = options.length - 1; i >= 0 && pick === null; i--) {
+    if (options[i]._compatSelected === true || options[i].defaultSelected) pick = options[i];
+  }
+  for (let i = 0; i < options.length && pick === null; i++) {
+    const parent = options[i].parentNode;
+    if (!options[i].disabled && !(parent && parent.tagName === 'OPTGROUP' && parent.disabled)) pick = options[i];
+  }
+  if (pick !== null && !pick.selected) pick.selected = true;
+}
+
+function setValueProp(el, value, oldValue) {
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    el._compatValue = value;
+    // Null or undefined: not controlled. A field that was keeps what it
+    // shows (React leaves the DOM value when a field becomes uncontrolled).
+    if (value == null) {
+      if (oldValue != null && tag === 'INPUT' && (el.type === 'submit' || el.type === 'reset')) el.removeAttribute('value');
+      return;
+    }
+    controlField(el);
+    if (tag === 'SELECT') setSelectValue(el, value, false);
+    else writeValue(el, value);
+    return;
+  }
+  // Any other element (an option, a button, a progress bar, a list item):
+  // `value` is an ordinary attribute. A custom element takes it as it is.
+  if (value == null) {
+    if (oldValue != null) el.removeAttribute('value');
+    return;
+  }
+  if (tag.indexOf('-') !== -1 && 'value' in el) { el.value = value; return; }
+  const str = String(value);
+  if ('value' in el) {
+    if (el.value !== str || !el.hasAttribute('value')) el.value = str;
+  } else {
+    el.setAttribute('value', str);
+  }
 }
 
 export function setProperty(el, name, value, oldValue, svg) {
@@ -1834,15 +2371,19 @@ export function setProperty(el, name, value, oldValue, svg) {
     return;
   }
   if (name === 'value') {
-    setValueProp(el, value);
+    setValueProp(el, value, oldValue);
     return;
   }
-  if (name === 'checked') {
+  if (name === 'checked' && el.tagName === 'INPUT') {
     el._compatChecked = value;
-    if (value != null && el.tagName === 'INPUT') controlField(el);
-    el.checked = !!value;
+    // Null or undefined: not controlled, and a box that was keeps its state.
+    if (value == null) return;
+    controlField(el);
+    if (el.checked !== !!value) writeField(el, 'checked', !!value);
     return;
   }
+  // An option's own `selected`: its select reads it once the options are in (resetSelect).
+  if (name === 'selected' && el.tagName === 'OPTION') el._compatSelected = value === true;
   if (name === 'defaultValue') {
     if ('defaultValue' in el) el.defaultValue = value == null ? '' : value;
     return;

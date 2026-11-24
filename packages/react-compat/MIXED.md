@@ -56,7 +56,9 @@ A `.jsx`/`.tsx` file of your app is a **React file** when it:
 
 - imports `react` or `react-dom` (type-only imports do not count),
 - calls a hook it imports from React code (`useForm()` from
-  `react-hook-form`, `useStore()` from a zustand store file),
+  `react-hook-form`, `useStore()` from a zustand store file), also as a
+  member of a namespace or default import (`rhf.useForm()` with
+  `import * as rhf from 'react-hook-form'`),
 - starts with `/** @jsxImportSource react */`, or
 - matches the `react` option: `reactCompat({ react: ['src/legacy/'] })`
   (path prefixes from the project root, RegExps or functions).
@@ -92,6 +94,32 @@ native package) runs once and keeps its state. It reads its props live, so
 each React render shows the new values, and a callback prop always calls the
 latest one. React elements it is handed (`children`, a `header` prop) are
 rendered by React where it places them, keeping their state and context.
+
+One React element is handed over as one placeholder to place. Several
+(`children` with more than one child, any array that holds an element) are
+an array with a placeholder per child, so the native component can count
+them, take one by index and place each where it wants:
+
+```jsx
+// Native: the first child in the header, the rest in the body.
+export function Split(props) {
+  return (
+    <section>
+      <header>{props.children[0]}</header>
+      <main>{props.children.slice(1)}</main>
+    </section>
+  );
+}
+```
+
+The array is what a native component gets from native JSX: nested arrays
+are flat and empty children (`null`, `false`) are left out, so
+`{open && <Body />}` adds an entry when `open` turns true. Text children are
+placeholders too. Each placeholder carries a key (the child's key, or its
+position in React's list): when the list changes, what-core keeps the ones
+that stayed, and React state inside them survives. While the list keeps its
+shape the native component is not told anything: React patches each child
+in place.
 
 A What signal read while a React component renders re-renders that component
 when it changes, so React files can read native state directly.
@@ -136,6 +164,22 @@ React packages they depend on, so their `import 'react'` reaches what-react.
   a development warning) when its React parent passes a prop it did not have
   on the first render. Pass every prop from the first render, undefined if
   need be.
+- A native component that reads one child by index in an expression that
+  runs again (`{props.children[0]}`) builds that child again when the list
+  of children changes (a child came, went or moved), and React state inside
+  it is lost. Rendering the list (`{props.children}`, or a slice of it)
+  keeps every child that stayed; so does a child placed once, outside JSX
+  expressions (`const first = props.children[0]`).
+- On the server a native component gets a single child as the child itself
+  also when React's `children` was an array with one entry left; in the
+  browser that is an array of one. Write `[].concat(props.children)` where
+  the count matters.
+- A React tag is rendered as SVG only when an `<svg>` element is its JSX
+  ancestor in the same file. A React component that renders bare SVG
+  children (`<g>`, `<path>`) and is placed inside an `<svg>` written in
+  another file, or inside a native component that renders the `<svg>`,
+  gets HTML elements that do not draw. Write the `<svg>` in the file that
+  uses the React tag, or let the React component render its own `<svg>`.
 - Imports are followed through static `export { X } from`, `export * from`
   and `import X` + `export { X }`. A component reached any other way
   (`export const Chart = lib.Chart`) is native unless its file is a React

@@ -836,7 +836,8 @@ test('Children.count / map / toArray follow React\'s rules for empty children', 
   const array = React.Children.toArray(kids);
   assert.equal(array.length, 3);
   assert.equal(array[0].key, '.$x');
-  assert.equal(array[1].key, '.3');
+  // React 19.3.0: a child of a nested array is keyed by its path ('.3:0').
+  assert.equal(array[1].key, '.3:0');
   assert.equal(array[2], 'text');
   assert.equal(React.Children.map(null, (c) => c), null);
   assert.equal(React.Children.count(undefined), 0);

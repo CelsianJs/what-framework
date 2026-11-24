@@ -1,12 +1,14 @@
 export default {
   packages: ['@radix-ui/react-dialog', '@radix-ui/react-popover', '@radix-ui/react-tooltip', '@radix-ui/react-slot'],
-  exercised: 'Dialog: `asChild` trigger on a `forwardRef` component, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned to the trigger. Popover: positioned by Floating UI, closes on an outside press. Tooltip: opens on hover. `Slot` merges props onto its child',
+  exercised: 'Dialog: `asChild` trigger on a `forwardRef` component, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned to the trigger. Popover: positioned by Floating UI, closes on an outside press. Tooltip: opens on hover. `Slot` merges props onto its child, the class names of both joined. The page\'s scroll is locked while the dialog is open (react-remove-scroll, whose `enabled` comes from a function component\'s `defaultProps`)',
   async run(t) {
     await t.step('asChild puts the trigger props on the custom button', async () => {
       await t.attr('#rd-open', 'aria-haspopup', 'dialog');
       await t.attr('#rd-open', 'data-state', 'closed');
       await t.attr('#rd-open', 'class', 'fancy');
       await t.eval(() => document.querySelector('#rs-slot').tagName + ':' + document.querySelector('#rs-slot').dataset.slotted, 'SPAN:yes');
+      // Slot joins its own className with the child's, which it reads from child.props.className.
+      await t.attr('#rs-slot', 'class', 'from-slot from-child');
     });
     await t.step('the dialog opens in a portal and takes focus', async () => {
       await t.click('#rd-open');
@@ -16,6 +18,9 @@ export default {
       await t.eval(() => document.querySelector('#rd-content').contains(document.activeElement), true, 'focus is inside the dialog');
       await t.eval(() => { const c = document.querySelector('#rd-content'); return c.getAttribute('aria-labelledby') === c.querySelector('h2').id; }, true, 'aria-labelledby names the title');
       await t.text('#rd-state', 'open');
+      // Radix renders <RemoveScroll> without `enabled`: it is on through the component's defaultProps.
+      await t.attr('body', 'data-scroll-locked', '1');
+      await t.style('body', 'overflow', 'hidden');
     });
     await t.step('focus stays trapped in the dialog', async () => {
       for (let i = 0; i < 5; i++) await t.press('Tab');
@@ -50,6 +55,7 @@ export default {
       await t.gone('#rd-overlay');
       await t.focus('rd-open');
       await t.text('#rd-state', 'closed');
+      await t.eval(() => document.body.hasAttribute('data-scroll-locked'), false, 'the scroll lock is released');
     });
     await t.step('the popover is positioned and closes on an outside press', async () => {
       await t.click('#rp-open');

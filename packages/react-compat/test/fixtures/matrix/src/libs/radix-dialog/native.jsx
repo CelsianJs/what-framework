@@ -56,7 +56,7 @@ export default function Native() {
           </Tooltip.Portal>
         </Tooltip.Root>
       </Tooltip.Provider>
-      <Slot data-slotted="yes" href="#x" id="rs-slot"><span>slotted</span></Slot>
+      <Slot data-slotted="yes" href="#x" id="rs-slot" className="from-slot"><span className="from-child">slotted</span></Slot>
       <span id="rd-saved">{saved()}</span>
       <span id="rd-state">{open() ? 'open' : 'closed'}</span>
       <button id="outside" style={{ position: 'fixed', right: '10px', bottom: '10px' }}>outside</button>

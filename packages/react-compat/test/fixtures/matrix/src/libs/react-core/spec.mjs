@@ -1,6 +1,6 @@
 export default {
   packages: ['react', 'react-dom'],
-  exercised: 'React 19 itself, as libraries use it: events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props and synthetic events, controlled fields, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors',
+  exercised: 'React 19 itself, as libraries use it: events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props and synthetic events, controlled fields (a refused edit, a radio group, a multiple select, an `onChange` on the form, a field that stops being controlled), uncontrolled selects, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors and for a reducer that throws',
   async run(t) {
     await t.step('an event in a portal reaches the React parent, capture first; stopPropagation stops it', async () => {
       await t.click('#c-portal-btn');
@@ -79,6 +79,32 @@ export default {
       await t.click('#c-unlock');
       await t.eval(() => document.querySelector('#c-locked').checked, true);
     });
+    await t.step('fields: a radio group and a multiple select as their props say, an onChange on the form, a field that stops being controlled', async () => {
+      const selected = (sel) => t.page.evaluate((s) => [...document.querySelector(s).selectedOptions].map((o) => o.value).join(''), sel);
+      const radios = () => t.page.evaluate(() => document.querySelector('#c-radio-x').checked + ':' + document.querySelector('#c-radio-y').checked);
+      await t.until(() => selected('#c-multi'), (v) => v === 'bc', 'the multiple select shows its value');
+      // Uncontrolled selects: the first option, or the default value.
+      await t.eval(() => document.querySelector('#c-plain').value + document.querySelector('#c-default').value, 'ab');
+      // A click the handler refuses leaves the group as it was.
+      await t.click('#c-radio-y');
+      await t.until(radios, (v) => v === 'true:false', 'the refused radio click is undone');
+      await t.click('#c-radio-unlock');
+      await t.click('#c-radio-y');
+      await t.until(radios, (v) => v === 'false:true', 'the radio click is taken');
+      // The handler never takes "a".
+      await t.page.selectOption('#c-multi', ['a', 'c']);
+      await t.until(() => selected('#c-multi'), (v) => v === 'c', 'the multiple select shows the state again');
+      // A controlled field with no handler of its own: the form's takes each keystroke.
+      await t.click('#c-form-first');
+      await t.type('#c-form-first', 'bc');
+      await t.value('#c-form-first', 'abc');
+      await t.text('#c-fields-out', 'y:c:abc:2');
+      await t.click('#c-uncontrol');
+      await t.value('#c-switch', 'kept');
+      await t.click('#c-switch');
+      await t.type('#c-switch', '!');
+      await t.value('#c-switch', 'kept!');
+    });
     await t.step('synthetic events: focus and blur bubble with React types, double click, key', async () => {
       await t.page.focus('#c-dbl');
       await t.press('x');
@@ -113,6 +139,8 @@ export default {
       await t.text('#c-err-render', 'caught render');
       await t.click('#c-throw-effect');
       await t.text('#c-err-effect', 'caught effect');
+      await t.click('#c-throw-reducer');
+      await t.text('#c-err-reducer', 'caught reducer');
     });
     await t.step('a component that suspends after it mounted keeps its state', async () => {
       await t.click('#c-keep');

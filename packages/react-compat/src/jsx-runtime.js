@@ -6,8 +6,7 @@
  * React.createElement. This module provides those functions.
  */
 
-import { _element } from './index.js';
-import { Fragment } from 'what-core';
+import { _element, Fragment } from './index.js';
 
 export { Fragment };
 
