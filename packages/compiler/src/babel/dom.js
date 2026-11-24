@@ -1031,7 +1031,10 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
   // Hydratable: `_$hole(el, value, flag)`, the flag saying where a client
   // render inserts (3 only child, 2 appended, 1 before its `<!>`, 0 before
   // the next node).
-  function insertCall(value, marker, node, placeholder) {
+  // `plain`: the value is a thunk over an expression that only reads
+  // (isPlainRead), which the runtime reads once before it decides whether an
+  // effect is needed (`_$plain`, `_$hplain`, same arguments).
+  function insertCall(value, marker, node, placeholder, plain) {
     if (hydratable) {
       flushSkip();
       stepped = true;
@@ -1042,7 +1045,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       const args = [t.identifier(elId), value, t.numericLiteral(flag)];
       const name = bindingMetadata(parentNode.openingElement.name.name, 'children', node, state);
       if (name) args.push(name);
-      return t.callExpression(helper(state, '_$hole'), args);
+      return t.callExpression(helper(state, plain ? '_$hplain' : '_$hole'), args);
     }
     const args = [t.identifier(elId), value];
     if (marker === null) args.push(t.nullLiteral());
@@ -1054,7 +1057,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
       if (marker === undefined) args.push(t.unaryExpression('void', t.numericLiteral(0)));
       args.push(name);
     }
-    return t.callExpression(helper(state, '_$insert'), args);
+    return t.callExpression(helper(state, plain ? '_$plain' : '_$insert'), args);
   }
 
   // A plain field of a keyed row's item (`{row.label}`): a text node the
@@ -1131,7 +1134,12 @@ function applyDynamicChildren(statements, elId, children, parentNode, state) {
         // the hole as itself: the server renders it as one region, and a
         // thunk returning it would be a region holding another.
         const value = hydratable && t.isIdentifier(expr) ? expr : t.arrowFunctionExpression([], orderedRows(expr, state, true));
-        const call = insertCall(value, entry.marker, entry.node, entry.placeholder);
+        // An expression that only reads (`{props.title}`, `{item.price *
+        // item.qty}`) needs no effect when what it reads is not reactive, or
+        // is a list row's item alone (render.js _$plain). A bare name is a
+        // signal handed on as it is, never a read.
+        const plain = t.isArrowFunctionExpression(value) && !t.isIdentifier(value.body) && isPlainRead(value.body);
+        const call = insertCall(value, entry.marker, entry.node, entry.placeholder, plain);
         if (isUncertainReactive(expr, state.signalNames, state.importedIdentifiers)) {
           t.addComment(call, 'leading',
             ' @what-dev: reactive wrapping may be unnecessary — expression contains a non-signal function call with reactive args ',
@@ -1593,6 +1601,44 @@ function transformComponentFineGrained(path, state) {
   if (site !== null || (meta && state.hydratable && !isHydrateRoot)) componentArgs.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) componentArgs.push(meta);
   return t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
+}
+
+// An expression that only reads: names, member reads and literals, and the
+// operators over them. No call (but a keyed row's read of its item, which the
+// compiler wrote), no `new`, no assignment, no JSX, no function: evaluating it
+// once more changes nothing, and it creates nothing that would need an owner.
+function isPlainRead(node) {
+  switch (node.type) {
+    case 'Identifier':
+    case 'StringLiteral':
+    case 'NumericLiteral':
+    case 'BooleanLiteral':
+    case 'NullLiteral':
+    case 'BigIntLiteral':
+      return true;
+    case 'MemberExpression':
+    case 'OptionalMemberExpression':
+      return isPlainRead(node.object) && (!node.computed || isPlainRead(node.property));
+    case 'TemplateLiteral':
+      return node.expressions.every(isPlainRead);
+    case 'UnaryExpression':
+      return node.operator !== 'delete' && isPlainRead(node.argument);
+    case 'BinaryExpression':
+    case 'LogicalExpression':
+      return isPlainRead(node.left) && isPlainRead(node.right);
+    case 'ConditionalExpression':
+      return isPlainRead(node.test) && isPlainRead(node.consequent) && isPlainRead(node.alternate);
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSNonNullExpression':
+    case 'TSTypeAssertion':
+      return isPlainRead(node.expression);
+    case 'CallExpression':
+      return node.callee._whatRowItem === true;
+    default:
+      return false;
+  }
 }
 
 // Whether a component prop is passed live, as a getter over its value: an
@@ -2623,6 +2669,8 @@ const RENDER_IMPORTS = [
   ['_$item', '_$item'],
   ['_$field', '_$field'],
   ['_$hfield', '_$hfield'],
+  ['_$plain', '_$plain'],
+  ['_$hplain', '_$hplain'],
   ['_$createSelector', 'createSelector'],
   ['_$spread', 'spread'],
   ['_$setProp', 'setProp'],

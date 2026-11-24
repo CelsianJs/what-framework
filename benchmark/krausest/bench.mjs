@@ -47,6 +47,8 @@
 //
 // Usage:  node bench.mjs [--quick] [--throttle <rate>[,<rate>...]] [framework ...]
 //   Default rates: 1,4 (one table each); --quick defaults to 1 only.
+//   what-rows, solid-rows and solid2-rows (one component per row) run only
+//   when named.
 
 import http from 'node:http';
 import { once } from 'node:events';
@@ -71,6 +73,17 @@ export const FRAMEWORK_LABELS = {
   solid2: 'solid 2.0',
 };
 
+// The same apps with one component per row (`<Row row={row} ... />` in place
+// of the row's markup), to measure what a component call costs. Run only when
+// named: `node bench.mjs what what-rows solid solid-rows solid2 solid2-rows`.
+export const ROW_FRAMEWORKS = ['what-rows', 'solid-rows', 'solid2-rows'];
+
+export const ROW_FRAMEWORK_LABELS = {
+  'what-rows': 'what, component per row',
+  'solid-rows': 'solid 1.9, component per row',
+  'solid2-rows': 'solid 2.0, component per row',
+};
+
 // The label claims a version; the bundle has to back it up. Each entry is a
 // package that must appear exactly once in dist/<fw>/packages.json with a
 // version starting with the given prefix; `absent` packages must not appear.
@@ -79,6 +92,8 @@ const EXPECTED_PACKAGES = {
   solid: { present: { 'solid-js': '1.9.' }, absent: ['@solidjs/signals', '@solidjs/web'] },
   solid2: { present: { 'solid-js': '2.0.', '@solidjs/web': '2.0.', '@solidjs/signals': '2.0.' } },
 };
+EXPECTED_PACKAGES['solid-rows'] = EXPECTED_PACKAGES.solid;
+EXPECTED_PACKAGES['solid2-rows'] = EXPECTED_PACKAGES.solid2;
 
 // ---------------------------------------------------------------------------
 // Static file server for dist/
@@ -425,11 +440,15 @@ export function parseArgs(argv) {
       }
       opts.throttle = [...new Set(rates)];
     } else if (arg.startsWith('--')) throw new Error(`Unknown option ${arg}`);
-    else if (!ALL_FRAMEWORKS.includes(arg)) throw new Error(`Unknown framework ${arg} (expected: ${ALL_FRAMEWORKS.join(', ')})`);
+    else if (!ALL_FRAMEWORKS.includes(arg) && !ROW_FRAMEWORKS.includes(arg)) throw new Error(`Unknown framework ${arg} (expected: ${[...ALL_FRAMEWORKS, ...ROW_FRAMEWORKS].join(', ')})`);
     else opts.frameworks.push(arg);
   }
   opts.throttle ??= opts.quick ? [1] : [1, 4];
-  opts.frameworks = ALL_FRAMEWORKS.filter((f) => !opts.frameworks.length || opts.frameworks.includes(f));
+  // Each component-per-row variant comes right after the app it is a variant
+  // of, and only when it is named.
+  const named = opts.frameworks;
+  opts.frameworks = ALL_FRAMEWORKS.flatMap((f) => (ROW_FRAMEWORKS.includes(`${f}-rows`) ? [f, `${f}-rows`] : [f]))
+    .filter((f) => (ROW_FRAMEWORKS.includes(f) ? named.includes(f) : !named.length || named.includes(f)));
   return opts;
 }
 
@@ -559,7 +578,7 @@ async function main() {
       const packages = await bundledPackages(fw);
       verifyBundledPackages(fw, packages);
       frameworks[fw] = {
-        label: FRAMEWORK_LABELS[fw],
+        label: FRAMEWORK_LABELS[fw] ?? ROW_FRAMEWORK_LABELS[fw],
         packages: (packages ?? []).filter((p) => !p.name.startsWith('what-krausest')),
         bundle: await bundleSizes(fw),
       };

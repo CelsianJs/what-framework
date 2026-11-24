@@ -87,19 +87,25 @@ function bundledPackages() {
   };
 }
 
+const whatTarget = () => ({
+  plugins: [what()],
+  resolve: {
+    alias: [
+      { find: 'what-framework/render', replacement: coreRenderPath },
+      { find: 'what-core/render', replacement: coreRenderPath },
+      { find: 'what-framework', replacement: corePath },
+      { find: 'what-core', replacement: corePath },
+    ],
+  },
+});
+
+// `root` is the implementation's directory under frameworks/ when it is not
+// the target's name. The `-rows` targets are the same apps with one component
+// per row (bench.mjs ROW_FRAMEWORKS); Solid 2.0's lives inside the solid2
+// workspace, where solid-js resolves to 2.0.
 const targets = {
   vanilla: {},
-  what: {
-    plugins: [what()],
-    resolve: {
-      alias: [
-        { find: 'what-framework/render', replacement: coreRenderPath },
-        { find: 'what-core/render', replacement: coreRenderPath },
-        { find: 'what-framework', replacement: corePath },
-        { find: 'what-core', replacement: corePath },
-      ],
-    },
-  },
+  what: whatTarget(),
   react: {
     esbuild: { jsx: 'automatic', jsxImportSource: 'react' },
   },
@@ -109,15 +115,23 @@ const targets = {
   solid2: {
     plugins: [solid2()],
   },
+  'what-rows': whatTarget(),
+  'solid-rows': {
+    plugins: [solid({ solid: { omitNestedClosingTags: true } })],
+  },
+  'solid2-rows': {
+    root: 'solid2/rows',
+    plugins: [solid2()],
+  },
 };
 
 const only = process.argv.slice(2);
-for (const [name, extra] of Object.entries(targets)) {
+for (const [name, { root = name, ...extra }] of Object.entries(targets)) {
   if (only.length && !only.includes(name)) continue;
   const outDir = path.join(here, 'dist', name);
   await build({
     configFile: false,
-    root: path.join(here, 'frameworks', name),
+    root: path.join(here, 'frameworks', root),
     base: './',
     logLevel: 'warn',
     mode: 'production',

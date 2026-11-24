@@ -22,6 +22,18 @@ npm run bench:quick  # smoke run: 3 samples, unthrottled only
 without `--quick`); naming frameworks (`vanilla what solid solid2`) runs a
 subset. The run is non-interactive and fails loudly on any DOM mismatch.
 
+### One component per row
+
+`what-rows`, `solid-rows` and `solid2-rows` are the `what`, `solid` and
+`solid2` apps with the row moved into a `Row` component that is handed the
+row, the selection and the two handlers as props. Nothing else differs, so the
+ratio of a `-rows` variant to its app is what a component call costs in that
+framework. They are built with the rest and run only when named:
+
+```bash
+node bench.mjs --throttle 1 what what-rows solid solid-rows solid2 solid2-rows
+```
+
 Results land in [`RESULTS.md`](RESULTS.md) (tables + machine info + caveats)
 and `results.json` (raw samples, bundled package versions, bundle sizes). The
 driver uses the repo root's `playwright` devDependency (headless Chromium);
@@ -33,6 +45,7 @@ everything else is installed here.
 |---|---|
 | `frameworks/<fw>/` | One self-contained implementation per framework (identical markup/CSS) |
 | `frameworks/solid2/package.json` | npm workspace holding `solid-js@2` and its `@solidjs/*` peers, so Solid 2.0 installs beside the root's Solid 1.9 |
+| `frameworks/what-rows/`, `frameworks/solid-rows/`, `frameworks/solid2/rows/` | The component-per-row variants (Solid 2.0's inside its workspace, where `solid-js` resolves to 2.0) |
 | `shared/main.css` | Identical styling for all implementations |
 | `build-all.mjs` | Vite production builds (`what` is aliased to the repo's `packages/*` sources); writes `dist/<fw>/packages.json` |
 | `bench.mjs` | Playwright driver — methodology documented at the top of the file |

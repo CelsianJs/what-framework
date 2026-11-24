@@ -797,8 +797,10 @@ function sameKeys(keys, prev, next) {
  * @internal Hand a list row its new item (see _rowItem). With `rebuildTaken`,
  * returns true instead when the row took its item as a value, or a field of it
  * the new item holds another value in, and has to be built again. `fields` holds the row's plain-field bindings (render.js
- * _$field) as [target, read, write] triples, written here directly; a write
- * that cannot show its new value also has the row built again.
+ * _$field, _$plain), four entries each (node, read, write, owner):
+ * `write(fields, i, item)` shows the new item's value in the field at `i`
+ * here, directly; a write that cannot show it (it returns false) also has the
+ * row built again.
  */
 export function _setRowItem(node, item, rebuildTaken) {
   const prev = node.value;
@@ -807,8 +809,8 @@ export function _setRowItem(node, item, rebuildTaken) {
   node.value = item;
   const fields = node.fields;
   if (fields !== null) {
-    for (let i = 0; i < fields.length; i += 3) {
-      if (!fields[i + 2](fields[i], fields[i + 1](item)) && rebuildTaken) return true;
+    for (let i = 0; i < fields.length; i += 4) {
+      if (!fields[i + 2](fields, i, item) && rebuildTaken) return true;
     }
   }
   notify(node, node, prev);
@@ -2672,6 +2674,35 @@ export function effect(fn, opts) {
 }
 
 /**
+ * @internal effect(), for a binding that may turn out to need none. `read` is
+ * run as an effect's first run is (tracked, owning what it creates), then
+ * `bind(value, source, read, a, b, owner)` is called inside that run with its
+ * value and what the value came from: null when the read tracked nothing, the
+ * cell of a list row's item (_rowItem) when that is all it read, else the
+ * effect itself. It returns the function the effect runs from then on (the
+ * run under way is its first: it shows `value` itself), or null when it has
+ * shown the value in a way that needs no effect, and none is kept. `owner` is
+ * what the effect is created under, as _ownerRecord takes it. A read that
+ * throws fails or is held as any effect's first run is, and a held one is
+ * read again, and bound, when what it waits for lands.
+ */
+export function _effectWhenNeeded(read, bind, a, b, opts) {
+  const owner = ownerNow();
+  /** @type {(() => any) | null} */
+  let run = null;
+  effect(() => {
+    if (run !== null) return run();
+    const e = /** @type {WhatEffectNode} */ (activeSub);
+    const value = read();
+    const l = e.depHead;
+    run = bind(value, l === null ? null : l === e.depTail && /** @type {any} */ (l.dep).builder !== undefined ? l.dep : e, read, a, b, owner);
+    // No effect: what it read (a row's item) reaches the binding another way,
+    // and with nothing read the effect is released.
+    if (run === null) unlinkAllDeps(e);
+  }, opts);
+}
+
+/**
  * A user-phase effect whose first run waits for the flush: on the microtask
  * after the code that creates it, at the end of the outermost batch(), or in
  * the user round of the flush that is running, after the render-phase effects
@@ -3156,6 +3187,15 @@ function reportCleanupError(node, err) {
 export function getOwner() {
   const now = ownerNow();
   return now === null ? null : scopeOf(now);
+}
+
+/**
+ * @internal The owner record of what is created under `o` (what
+ * _effectWhenNeeded hands its `bind`): `o`, or the record of the run of an
+ * effect or computed, which is disposed when that run is over. Null for null.
+ */
+export function _ownerRecord(o) {
+  return o === null ? null : scopeOf(o);
 }
 
 export function runWithOwner(owner, fn) {
@@ -3828,19 +3868,30 @@ export function __ownerPath(x) {
   return path;
 }
 
-// Development: the start comment of each component's range (or, hydrated, the
-// first node it adopted), for __ownerOf on a DOM node.
+// Development: the node that opens each component's output (its start comment,
+// the element that is all of its output, or, hydrated, the first node it
+// adopted), for __ownerOf on a DOM node.
 const devAnchors = /* @__PURE__ */ new WeakMap();
 
-/** @internal Development: record the DOM node that opens a component's output. */
-export function _devAnchor(node, owner) {
-  if (__DEV__ && node) devAnchors.set(node, owner);
+/**
+ * @internal Development: record the DOM node that opens a component's output.
+ * With `inner`, a node that already opens the output of a live component
+ * stays that component's.
+ */
+export function _devAnchor(node, owner, inner) {
+  if (!__DEV__ || !node) return;
+  if (inner) {
+    const held = devAnchors.get(node);
+    if (held !== undefined && (held.flags & DISPOSED) === 0) return;
+  }
+  devAnchors.set(node, owner);
 }
 
 // The component whose output holds `node`: the nearest component range that
 // opens before it, at its own level or an ancestor's, and has not closed
-// before it; or, for a hydrated component, which has no range markers, the
-// node it adopted when that is `node` or an ancestor of it.
+// before it; or, for a component with no range markers (one whose output is
+// one element, a hydrated one), the node that opens its output when that is
+// `node` or an ancestor of it.
 function devDomOwner(node) {
   let skip = 0;
   let enclosing = true;

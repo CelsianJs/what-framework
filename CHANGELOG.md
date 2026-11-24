@@ -175,6 +175,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   rows read the new item in place and keep their nodes and focus. A row that
   handed the item to a component is built again from it. *Migration:* none,
   unless code relied on a row ignoring the new item.
+- **A component that returns one element is that element in the DOM.** No
+  `<!--c:start-->` and `<!--c:end-->` comments are put around it, so a list
+  row that is a component is one node, as a row written inline is. A
+  component that returns anything else (a fragment, text, an array, a
+  reactive child, nothing), one built from vnodes (`h()`, the JSX runtime),
+  and one that threw or suspended keep the comments. *Migration:* a test or a
+  script that looks for the comments around a compiled component, or counts
+  the nodes beside it, queries the element instead.
 - **`on(el, event, handler)` removes its listener when the current owner is
   disposed.** *Migration:* attach long-lived listeners outside a component.
 - **A style object after a style string replaces the string's declarations**
@@ -725,7 +733,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   re-exports what-router's declarations.
 - **Benchmarks and gates.** Reactivity, SSR, size and krausest harnesses
   against Solid 1.9, Solid 2.0 and React 19 (`benchmark/`),
-  `npm run bench:hydrate` in `benchmark/ssr`, size ceilings in
+  `npm run bench:hydrate` in `benchmark/ssr`, `node page.mjs` there for an
+  ordinary page against another checkout, size ceilings in
   `.size-budgets.json` with the cause of each change, and
   `npm run check:snippets`, which runs every code block shipped in the docs,
   READMEs, skills and MCP resources. `npm run check:node-floor` keeps APIs
@@ -1035,6 +1044,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **A list row that is a component costs close to the same row written
+  inline.** A component that returns one element adds no DOM node: 1,000
+  rows of `<Row key={item.id} item={item} />` leave 1,001 nodes in the list's
+  parent where they left 4,001 (three comments more per row, and two
+  fragments to carry them), and a moved or removed row is one node, not four.
+  A child that only reads (`{props.item.label}`, `{item.price * item.qty}`:
+  no call) makes no effect when what it reads is a plain value or the item of
+  the row being built: the same 1,000 rows, showing two fields and one
+  reactive class, keep 1,000 effects where they kept 3,000. The compiler
+  places such a child with `_$plain`; a value that is not text, or that comes
+  to depend on a signal, is the effect it always was.
 - The compiled create-what counter is smaller than 0.14's: compiled output
   no longer carries the vnode reconciler, and an app with no computed leaves
   out the engine's pull phase. Apps written with `h()`, and apps that use

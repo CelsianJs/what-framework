@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
@@ -143,7 +143,8 @@ export function _$slots(props, slots) {
 
 // --- _$createComponent(Component, props, children, devLoc) ---
 // The compiler's target for `<Component />`. Runs the component once and
-// returns a DocumentFragment: <!--c:start--> its output <!--c:end-->.
+// returns its output: the element itself when the component returned one
+// element, else a DocumentFragment, <!--c:start--> its output <!--c:end-->.
 //
 // `children` is an array, or a zero-arg factory when the children contain
 // elements: building them waits until this component's owner is current, so a
@@ -221,41 +222,44 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
   // Props are read-only to the component; in development a write throws.
   if (__DEV__) Object.freeze(props);
   const owner = _componentOwner(Component, props);
-
-  // Comment boundaries rather than a wrapper element: no DOM pollution, no CSS
-  // selector breakage.
-  const startComment = document.createComment('c:start');
-  const endComment = document.createComment('c:end');
-  if (__DEV__) devComponent(owner, startComment, devLoc);
-
-  const container = document.createDocumentFragment();
-  container.appendChild(startComment);
+  if (__DEV__) devComponent(owner, devLoc);
+  // Its output, and the node that opens it: the element, or its start comment.
+  /** @type {any} */
+  let out;
+  /** @type {any} */
+  let first;
   try {
     const result = _runOwned(owner, Component, props);
     if (__DEV__ && result != null && typeof result.then === 'function') devAsyncComponent(Component);
     // Its JSX props are read after its run from here on (dom.js
     // _installLazyChildren).
     if (endChildrenPass !== null) endChildrenPass(owner);
-    _runOwned(owner, appendOutput, result, container, isSvg);
+    // One element is its own range: nothing the component built can change
+    // where its output starts or ends, so it needs no markers and no fragment
+    // to carry them (a hydrated component has none either). Anything else (a
+    // fragment, an array, a region, a list, text, nothing) is bracketed.
+    if (result != null && result.nodeType === 1 && result._owner === undefined) out = first = result;
+    else first = (out = _runOwned(owner, bracketOutput, result, isSvg)).firstChild;
   } catch (error) {
     _disposeOwner(owner);
-    const left = failComponent(error, owner.owner, startComment, endComment, Component, props, isSvg, devLoc);
+    // Its markers with nothing between them: a component that suspended is
+    // rendered again there.
+    const container = bracketOutput(null, isSvg);
+    const left = failComponent(error, owner.owner, /** @type {Comment} */ (container.firstChild), /** @type {Comment} */ (container.lastChild), Component, props, isSvg, devLoc);
     if (left !== HANDLED) {
       console.error('[what] Uncaught error in component:', Component.name || 'Anonymous', left);
       throw left;
     }
-    while (startComment.nextSibling !== null) container.removeChild(startComment.nextSibling);
-    container.appendChild(endComment);
     return container;
   }
-  container.appendChild(endComment);
+  if (__DEV__) devOutput(owner, first);
   // Built under no owner: compiled `mount(<App />, el)` builds App before
   // mount() makes its root. The root adopts it (_adoptDetached).
   if (owner.owner === null) {
-    /** @type {any} */ (startComment)._owner = owner;
+    first._owner = owner;
     detached++;
   }
-  return container;
+  return out;
 }
 
 // Components built under no owner and not yet adopted.
@@ -281,9 +285,15 @@ function adoptIn(node) {
   for (let c = node.firstChild; c !== null && detached > 0; c = c.nextSibling) adoptIn(c);
 }
 
-function appendOutput(result, container, isSvg) {
+// A component's output between its markers, in a fragment. Comment boundaries
+// rather than a wrapper element: no DOM pollution, no CSS selector breakage.
+function bracketOutput(result, isSvg) {
+  const container = document.createDocumentFragment();
+  container.appendChild(document.createComment('c:start'));
   const nodes = valuesToNodes(result, container, [], isSvg);
   for (let i = 0; i < nodes.length; i++) container.appendChild(nodes[i]);
+  container.appendChild(document.createComment('c:end'));
+  return container;
 }
 
 // A component suspended: it threw a promise (lazy() before its chunk, use()
@@ -377,14 +387,20 @@ function componentFailed(error, owner) {
 }
 
 // Development: what devtools and the owner API know about a component: its
-// name and source location, the nearest component above it, the node that
-// opens its output, and its mount and unmount.
-function devComponent(owner, anchor, devLoc) {
+// name and source location, the nearest component above it, and its mount and
+// unmount; then (devOutput) the node that opens its output.
+function devComponent(owner, devLoc) {
   if (devLoc) owner.devLoc = devLoc;
   owner._parentCtx = parentComponent(owner);
-  owner._wrapper = anchor;
-  _devAnchor(anchor, owner);
   _devMounted(owner);
+}
+
+// An element that is the whole output of several components (`Outer` returns
+// `<Inner />`) opens each one's output: it stays the innermost one's, which is
+// built first, as a node between nested markers is.
+function devOutput(owner, first) {
+  owner._wrapper = first;
+  _devAnchor(first, owner, first.nodeType === 1);
 }
 
 // Development: a component returned a promise, as an `async function`
@@ -535,7 +551,8 @@ export function insert(parent, child, marker, devName) {
     if (child._mapArray) return child(parent, marker || null);
     // Deferred component children: realize once, no reactive wrapper.
     if (child._lazyChildren) return insert(parent, child(), marker);
-    return insertReactive(parent, child, marker, devName);
+    insertReactive(parent, child, marker, devName);
+    return;
   }
 
   if (child != null && type === 'object' && child.nodeType > 0) {
@@ -551,10 +568,14 @@ export function insert(parent, child, marker, devName) {
 // builds and disposes it before the next run, so a component or binding a run
 // creates goes away with the content it belongs to.
 function insertReactive(parent, child, marker, devName) {
-  const m = marker || null;
   // Keyed vnode rows outlive the region's runs: they belong to the owner the
   // region is created under (see _vnodeRows).
-  const scope = vnodeRows !== null ? getOwner() : null;
+  effect(region(parent, child, marker, vnodeRows !== null ? getOwner() : null), __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
+}
+
+// The function a region's effect runs.
+function region(parent, child, marker, scope) {
+  const m = marker || null;
   /** @type {any} */
   let current = null;
   /** @type {Text | null} */
@@ -563,7 +584,7 @@ function insertReactive(parent, child, marker, devName) {
   /** @type {any} */
   let rows = null;
 
-  effect(() => {
+  return () => {
     const val = child();
     const vt = typeof val;
     if (!mounted) {
@@ -602,8 +623,142 @@ function insertReactive(parent, child, marker, devName) {
       }
     }
     current = reconcileInsert(parent, val, current, m);
-  }, __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
-  return current;
+  };
+}
+
+// Text `str` as a child of `parent` before `marker`: its text node, or, with
+// `marker` undefined (the element's only content) and nothing in it yet, one
+// textContent write and `parent` itself: the node is then its first child,
+// which is not looked up (the browser makes its object then) until someone
+// needs it.
+function textAt(parent, str, marker) {
+  if (marker === undefined && str !== '' && parent.firstChild === null) {
+    parent.textContent = str;
+    return parent;
+  }
+  return parent.insertBefore(document.createTextNode(str), marker || null);
+}
+
+// The text node of the row field at `i`. A field that is its element's only
+// content holds the element (textAt) until its node is first needed.
+function fieldNode(fields, i) {
+  const node = fields[i];
+  if (node.nodeType !== 1) return node;
+  const text = node.firstChild;
+  return (fields[i] = text !== null && text.nodeType === 3 ? text : node.insertBefore(document.createTextNode(''), text));
+}
+
+// --- _$plain(parent, read, marker, devName) ---
+// The compiler's form of a child that is an expression with no call in it
+// (`{props.title}`, `{item.price * item.qty}`): reading it twice is reading it
+// once, and nothing but what it reads can change it. It is read once, as the
+// first run of an effect, and what it read decides how it is kept current:
+// - nothing reactive (a prop handed a plain value): its text is written and
+//   nothing is kept;
+// - only the item of a list row being built (a row's component handed the
+//   item, `<Row item={item} />`, reading `props.item.label`): its text node is
+//   a field of the row, which the row's item cell writes when the row gets
+//   another item (_$field), with no effect per field;
+// - anything else, or a value that is not text: the region any reactive child
+//   is, its first run this one.
+export function _$plain(parent, read, marker, devName) {
+  _effectWhenNeeded(read, bindPlain, parent, marker, __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
+}
+
+// What _effectWhenNeeded hands the first value of a plain child to.
+function bindPlain(value, source, read, parent, marker, owner) {
+  if (source === null) {
+    const type = typeof value;
+    if (value == null || type === 'boolean') return null;
+    if (type === 'string' || type === 'number') {
+      const str = String(value);
+      textAt(parent, str, marker);
+      textWritten(parent, str);
+      return null;
+    }
+  } else if (source.building === true) {
+    const text = fieldText(value);
+    if (text !== null) {
+      // A field of the row, with what the binding belongs to: once that is
+      // disposed, the field is dead.
+      bindField(source, textAt(parent, text, marker), read, writePlain, _ownerRecord(owner));
+      textWritten(parent, text);
+      return null;
+    }
+  }
+  return plainRegion(value, read, parent, marker, owner);
+}
+
+// The region a plain child is when it needs an effect, its first value shown:
+// the region's first run is handed the value already read, and reads from
+// then on.
+function plainRegion(value, read, parent, marker, owner) {
+  let first = true;
+  const run = region(parent, () => {
+    if (!first) return read();
+    first = false;
+    const v = value;
+    value = undefined;
+    return v;
+  }, marker, vnodeRows !== null ? _ownerRecord(owner) : null);
+  run();
+  return run;
+}
+
+// A plain child that is a row's field (bindPlain): its row has another item.
+// It is read again as it was first read, under the owner it was created
+// under, unless that is gone; an error goes where an effect's goes, and the
+// field is read again for the row's next item.
+function writePlain(fields, i) {
+  const owner = fields[i + 3];
+  if (owner !== null && _isDisposed(owner)) {
+    dropField(fields, i);
+    return true;
+  }
+  const read = fields[i + 1];
+  try {
+    runWithOwner(owner, () => _effectWhenNeeded(read, rebindPlain, fields, i));
+  } catch (err) {
+    const left = _handleError(owner, err);
+    if (left !== HANDLED) {
+      try { console.error('[what] Uncaught error in effect during update:', left); } catch { /* no console */ }
+    }
+  }
+  return true;
+}
+
+// The field's new value: text from its row's item alone is written to its
+// node; anything else makes it the region it would have been, in the node's
+// place, from here on.
+function rebindPlain(value, source, read, fields, i, owner) {
+  // Gone since the read began (a held read that landed after an upgrade).
+  if (fields[i] === null) return null;
+  const node = fieldNode(fields, i);
+  if (source === null || source.fields === fields) {
+    const text = fieldText(value);
+    if (text !== null) {
+      if (node.data !== text) node.data = text;
+      if (node.parentNode !== null) textWritten(node.parentNode, text);
+      return null;
+    }
+  }
+  dropField(fields, i);
+  const parent = node.parentNode;
+  // Not in the document any more: nothing to show it in.
+  if (parent === null) return null;
+  const marker = node.nextSibling;
+  parent.removeChild(node);
+  return plainRegion(value, read, parent, marker, owner);
+}
+
+// The field at `i` is no longer its row's: it holds nothing and writes nothing.
+function dropField(fields, i) {
+  fields[i] = fields[i + 1] = fields[i + 3] = null;
+  fields[i + 2] = fieldGone;
+}
+
+function fieldGone() {
+  return true;
 }
 
 /** @internal Whether `value` is a DOM node (or looks like one: a node of another realm). */
@@ -4563,18 +4718,22 @@ function fieldText(value) {
   return value == null || type === 'boolean' ? '' : null;
 }
 
-function writeField(node, value) {
-  const text = fieldText(value);
+function writeField(fields, i, item) {
+  const text = fieldText(fields[i + 1](item));
   if (text === null) return false;
+  const node = fieldNode(fields, i);
   if (node.data !== text) node.data = text;
   if (node.parentNode !== null) textWritten(node.parentNode, text);
   return true;
 }
 
-function bindField(cell, node, read) {
+// `node` shows a field of the row whose item `cell` holds: `write(fields, i,
+// item)` shows it for the row's next item (reactive.js _setRowItem). `owner`
+// is what a plain child belongs to (writePlain).
+function bindField(cell, node, read, write, owner) {
   const fields = cell.fields;
-  if (fields === null) cell.fields = [node, read, writeField];
-  else fields.push(node, read, writeField);
+  if (fields === null) cell.fields = [node, read, write, owner];
+  else fields.push(node, read, write, owner);
 }
 
 /** A keyed row's plain field of its item, placed as insert() places a child (`marker`). */
@@ -4584,15 +4743,8 @@ export function _$field(parent, cell, value, marker, read) {
     insert(parent, () => read(_readRowItem(cell)), marker);
     return;
   }
-  let node;
-  if (marker === undefined && text !== '' && parent.firstChild === null) {
-    parent.textContent = text;
-    node = /** @type {Text} */ (parent.firstChild);
-  } else {
-    node = parent.insertBefore(document.createTextNode(text), marker || null);
-  }
+  bindField(cell, textAt(parent, text, marker), read, writeField, null);
   textWritten(parent, text);
-  bindField(cell, node, read);
 }
 
 /** _$field for hydratable output: placed where `flag` says (_$hole), the server's text claimed while hydrating. */
@@ -4613,8 +4765,24 @@ export function _$hfield(parent, cell, value, flag, read) {
     _$field(parent, cell, value, marker, read);
     return;
   }
-  bindField(cell, claimField(c, text), read);
+  bindField(cell, claimField(c, text), read, writeField, null);
   if (flag === 1) c.t = c.t.nextSibling;
+}
+
+/** _$plain for hydratable output: placed where `flag` says (_$hole); while hydrating it is the region the server rendered. */
+export function _$hplain(parent, read, flag, devName) {
+  const c = cur;
+  if (c.h) {
+    _$hole(parent, read, flag, devName);
+    return;
+  }
+  let marker;
+  if (flag === 2) marker = null;
+  else if (flag !== 3) {
+    marker = c.n;
+    if (flag === 1) c.n = marker.nextSibling;
+  }
+  _$plain(parent, read, marker, devName);
 }
 
 // The server's text for a field, as a text node of its own (split from text

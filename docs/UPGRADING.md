@@ -483,6 +483,15 @@ and navigations that are transitions. Each change below has its migration.
 
 ### Lists
 
+- **A component that returns one element is that element in the DOM.** 0.14
+  put `<!--c:start-->` and `<!--c:end-->` comments around every component's
+  output; a compiled component whose function returns one element now has
+  none, so `<Row key={item.id} item={item} />` is one node in its list, as a
+  row written inline is. A component that returns anything else (a fragment,
+  text, an array, a reactive child, nothing), a component built from vnodes,
+  and one that threw or suspended keep the comments. A test or a script that
+  looks for the comments around a compiled component, or counts the nodes
+  beside it, queries the element instead.
 - **A keyed `.map()` row follows an item replaced under its key.** A row is
   kept, with its DOM, for as long as its key is in the list; when an immutable
   update or a refetch hands it a new object with the same key, compiled rows

@@ -231,8 +231,9 @@ describe('compiled JSX: user components that forward children', () => {
       const control = compileJSX(`function Card({ name }) { return <div>{${expr}}</div>; }`);
       assert.match(forwarded, /_\$place\(_props, "children"\)/, 'the rewrite must have fired');
       // The value argument, whether or not a marker follows it (a sole child
-      // takes none).
-      const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?)(?:, (?:_el\$[\w.$]*|null))?\);/)[1];
+      // takes none). An expression that only reads (`name.label`) is placed
+      // by _$plain, any other by _$insert.
+      const inserted = (out) => out.match(/(_\$(?:insert|plain))\(_el\$0, ([\s\S]*?)(?:, (?:_el\$[\w.$]*|null))?\);/).slice(1).join(' ');
       assert.equal(inserted(forwarded), inserted(control), 'the moved props must classify as they did');
     });
   }

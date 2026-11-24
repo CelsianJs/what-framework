@@ -8,6 +8,8 @@ export {
   _$item,
   _$field,
   _$hfield,
+  _$plain,
+  _$hplain,
   createSelector,
   spread,
   setProp,

@@ -172,6 +172,10 @@ export function _$componentVNode(component: unknown, props?: unknown, ...args: u
 export function _$field(parent: Node, cell: unknown, value: unknown, marker: Node | null | undefined, read: (item: any) => unknown): void;
 /** @internal `_$field` for hydratable output (`flag` as `_$hole`'s). */
 export function _$hfield(parent: Node, cell: unknown, value: unknown, flag: number, read: (item: any) => unknown): void;
+/** @internal Compiler output: a child that is an expression with no call in it, read once before the runtime decides whether an effect is needed. */
+export function _$plain(parent: Node, read: () => unknown, marker?: Node | null, devName?: string): void;
+/** @internal `_$plain` for hydratable output (`flag` as `_$hole`'s). */
+export function _$hplain(parent: Node, read: () => unknown, flag: number, devName?: string): void;
 export function _$htemplate(html: string, flag?: number): (() => Node) & { root(): Node };
 export function _$claim(template: (() => Node) & { root(): Node }, flags?: number): any;
 export function _$next(skip: number, flags?: number): any;

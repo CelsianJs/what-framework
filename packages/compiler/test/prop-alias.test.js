@@ -50,9 +50,10 @@ test('an alias of a prop is read as the prop; other initializers are read once',
     let l = props.ev;
     return <li title={ev.title}>{ev.label}:{item.name}:{deep?.x}:{n}:{up}:{l.label}</li>;
   }`));
-  assert.match(code, /_\$insert\(_el\$0, \(\) => props\.ev\.label/);
-  assert.match(code, /_\$insert\(_el\$0, \(\) => props\.ev\.item\.name/, 'an alias of an alias');
-  assert.match(code, /_\$insert\(_el\$0, \(\) => props\.ev\?\.meta\?\.x/, 'an optional chain');
+  // Reads with no call in them are placed by _$plain (what-core render.js).
+  assert.match(code, /_\$plain\(_el\$0, \(\) => props\.ev\.label/);
+  assert.match(code, /_\$plain\(_el\$0, \(\) => props\.ev\.item\.name/, 'an alias of an alias');
+  assert.match(code, /_\$plain\(_el\$0, \(\) => props\.ev\?\.meta\?\.x/, 'an optional chain');
   assert.match(code, /"title", props\.ev\.title/);
   assert.doesNotMatch(code, /const (ev|item|deep) =/, 'the aliases are gone');
   assert.match(code, /const n = props\.count \* 2;/, 'arithmetic is read once');

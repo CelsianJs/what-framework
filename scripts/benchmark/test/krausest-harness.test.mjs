@@ -23,6 +23,13 @@ test('invalid throttle rates, options and framework names fail', () => {
   assert.throws(() => parseArgs(['solid3']), /Unknown framework solid3/);
 });
 
+test('component-per-row variants run only when named, each after the app it is a variant of', () => {
+  assert.deepEqual(parseArgs(['what']).frameworks, ['what']);
+  assert.deepEqual(parseArgs(['solid2-rows', 'what-rows', 'what', 'solid2']).frameworks, ['what', 'what-rows', 'solid2', 'solid2-rows']);
+  assert.deepEqual(parseArgs(['solid-rows']).frameworks, ['solid-rows']);
+  assert.throws(() => parseArgs(['react-rows']), /Unknown framework react-rows/);
+});
+
 const pkg = (name, version) => ({ name, version });
 
 test('bundle labels accept exactly the required major or minor versions', () => {
@@ -33,6 +40,13 @@ test('bundle labels accept exactly the required major or minor versions', () => 
   verifyBundledPackages('solid2', [
     pkg('solid-js', '2.0.0-beta.15'), pkg('@solidjs/web', '2.0.0-beta.15'), pkg('@solidjs/signals', '2.0.3'),
   ]);
+});
+
+test('a component-per-row variant must bundle the Solid major its label names', () => {
+  verifyBundledPackages('what-rows', null);
+  verifyBundledPackages('solid-rows', [pkg('solid-js', '1.9.20')]);
+  assert.throws(() => verifyBundledPackages('solid-rows', [pkg('solid-js', '2.0.3')]), /solid-js@1.9/);
+  assert.throws(() => verifyBundledPackages('solid2-rows', [pkg('solid-js', '1.9.20')]), /solid-js@2.0/);
 });
 
 test('bundle labels reject missing manifests, incorrect versions and duplicate versions', () => {
