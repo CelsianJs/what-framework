@@ -166,8 +166,8 @@ export function detectSsrReactPackages(projectRoot) {
   let app;
   try { app = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')); } catch { return []; }
   const queue = Object.keys({ ...app.dependencies, ...app.optionalDependencies }).map((name) => [name, projectRoot]);
-  while (queue.length > 0) {
-    const [name, fromDir] = queue.shift();
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    const [name, fromDir] = next;
     if (seen.has(name) || name === 'react' || name === 'react-dom' || FRAMEWORK_PACKAGES.includes(name) || name === 'what-react') continue;
     seen.add(name);
     const hit = readPkg(name, fromDir);
@@ -215,8 +215,8 @@ export function reactCompat(options = {}) {
   const mixedPlugin = mixedJsx({ react: options.react });
   const mixedTransform = mixedPlugin.transform;
   const mixedHot = mixedPlugin.handleHotUpdate;
-  mixedPlugin.transform = function (code, id, opts) {
-    return mixedOn ? mixedTransform.call(this, code, id, opts) : null;
+  mixedPlugin.transform = async function (code, id) {
+    return mixedOn ? mixedTransform.call(this, code, id) : null;
   };
   mixedPlugin.handleHotUpdate = function (ctx) {
     return mixedOn ? mixedHot.call(this, ctx) : undefined;

@@ -223,10 +223,12 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
   }
 
   function packageIsReact(resolved, source, importer) {
+    /** @type {{ name?: string, [field: string]: unknown } | null} */
     let pkg = null;
     if (resolved && resolved.includes('/node_modules/') && !isOptimized(resolved)) pkg = packageJsonAbove(resolved);
     if (!pkg && isBare(source)) pkg = packageJsonByName(packageNameOf(source), path.dirname(importer));
-    if (!pkg) return false;
+    // A package.json with no name is not a React package (isReactPackage).
+    if (!pkg || !pkg.name) return false;
     let kind = packageKinds.get(pkg.name);
     if (kind === undefined) {
       kind = isReactPackage(pkg);
@@ -384,7 +386,9 @@ export function createClassifier({ babel, root, react: reactOption, resolve, isO
 export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
   const t = babel.types;
   const program = ast.program;
-  let programPath = null;
+  // The Program's path: the traversal below always visits it, synchronously.
+  /** @type {{ scope: { generateUidIdentifier(name: string): unknown, hasBinding(name: string): boolean, hasGlobal(name: string): boolean, references: Record<string, boolean> } }} */
+  let programPath;
   babel.traverse(ast, { Program(p) { programPath = p; p.stop(); } });
   const uid = (name) => programPath.scope.generateUidIdentifier(name);
   // A JSX tag what-compiler reads as a component starts with a capital.
@@ -541,10 +545,14 @@ function optimizedSource(ctx, id) {
  */
 export function mixedJsx(options = {}) {
   const include = options.include ?? /\.[jt]sx$/;
+  /** @type {ReturnType<typeof loadBabel> | null} */
   let babel = null;
   let root = process.cwd();
+  /** @type {ReturnType<typeof createClassifier> | null} */
   let classifier = null;
+  /** @type {((source: string, importer: string) => Promise<string | null>) | null} */
   let resolveRef = null;
+  /** @type {string | null} */
   let cacheDir = null;
   // A module Vite pre-bundled (its dependency cache, node_modules/.vite by default).
   const isOptimized = (id) => (cacheDir !== null && id.startsWith(cacheDir)) || id.includes('/node_modules/.vite/');
@@ -553,14 +561,14 @@ export function mixedJsx(options = {}) {
   const ensure = () => {
     if (babel === null) babel = loadBabel(root);
     if (classifier === null) {
-      classifier = createClassifier({ babel, root, react: options.react, resolve: (s, i) => resolveRef(s, i), isOptimized });
+      classifier = createClassifier({ babel, root, react: options.react, resolve: (s, i) => (resolveRef === null ? null : resolveRef(s, i)), isOptimized });
     }
     return classifier;
   };
 
   return {
     name: 'what-react-mixed-jsx',
-    enforce: 'pre',
+    enforce: /** @type {const} */ ('pre'),
 
     configResolved(config) {
       root = config.root;

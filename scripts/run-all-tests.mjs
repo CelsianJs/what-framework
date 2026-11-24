@@ -52,6 +52,12 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// Tests that bundle the packages as a production build does resolve the
+// `production` export condition, dist/*.min.js, which `npm run build` writes.
+if (!gcOnly && !isDir(join(root, 'packages', 'what', 'dist'))) {
+  console.warn('[run-all-tests] packages/what/dist is missing: the tests that bundle the production exports will fail. Run `npm run build` first.');
+}
+
 const suites = new Set(files.map((f) => relative(root, dirname(f))));
 console.log(`[run-all-tests] ${files.length} test files across ${suites.size} suites:`);
 for (const s of [...suites].sort()) console.log(`  - ${s}`);

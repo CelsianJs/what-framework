@@ -34,6 +34,10 @@ export function compileJSX(source, options = {}) {
     configFile: false,
     babelrc: false,
     compact: false,
+    // A compile error's code frame is plain text wherever the tests run.
+    // Babel colours it when it detects a colour terminal, and it takes the
+    // `CI` variable for one, so tests that match on the frame failed in CI.
+    highlightCode: false,
   });
   return result?.code || '';
 }

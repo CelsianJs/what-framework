@@ -376,6 +376,7 @@ export function _place(props, key, inPlace, fallback) {
   // (`({ label = 'x' })`), taken where the value is undefined.
   const fallsBack = arguments.length > 3;
   if (_isLiveProp(props, key)) {
+    /** @type {(() => any) & { _forward?: boolean }} */
     const read = fallsBack ? () => { const v = props[key]; return v === undefined ? fallback : v; } : () => props[key];
     // A prop handed on to a component (`<Leaf counts={props.data} />`) is a
     // lazy slot whose factory is this call: readLazy recognises the read and

@@ -32,7 +32,8 @@ artifacts/
 benchmark/apps/
 benchmark/results/
 
-# Lockfiles: ignore everywhere except the repo root and the krausest benchmark.
+# Lockfiles: ignore everywhere except the repo root, the krausest benchmark and
+# the playground example.
 # krausest is exempt because its CI job runs `npm ci --prefix benchmark/krausest`,
 # and `npm ci` hard-fails without a lockfile. While the file was ignored, the job
 # passed locally (where the untracked lockfile exists) and failed on every clean
@@ -42,6 +43,9 @@ benchmark/results/
 **/package-lock.json
 !/package-lock.json
 !/benchmark/krausest/package-lock.json
+# The playground is exempt for the same reason: the app-smoke job installs it
+# with `npm ci --prefix examples/playground`.
+!/examples/playground/package-lock.json
 
 .npmrc
 

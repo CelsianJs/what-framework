@@ -166,6 +166,7 @@ function createLeaf(inst, Comp, first) {
     if (isCallback(value)) {
       let call = callbacks.get(key);
       if (call === undefined) {
+        /** @this {unknown} */
         call = function (...args) {
           const fn = current[key];
           return typeof fn === 'function' ? fn.apply(this, args) : undefined;
@@ -181,7 +182,9 @@ function createLeaf(inst, Comp, first) {
     let slot = slots.get(key);
     if (slot === undefined) {
       slot = { inst, value, mounts: new Set(), vnode: null };
-      slot.vnode = h(CompatSlot, { slot });
+      // CompatSlot returns its DOM, as a compiled component does. what-core's
+      // declared Component type admits vnode children only, hence the cast.
+      slot.vnode = h(/** @type {import('what-core').Component<{ slot: object }>} */ (/** @type {unknown} */ (CompatSlot)), { slot });
       slots.set(key, slot);
     } else {
       slot.value = value;
@@ -195,6 +198,7 @@ function createLeaf(inst, Comp, first) {
     Object.defineProperty(live, key, { get: () => cell(), enumerable: true, configurable: true });
   }
 
+  /** @type {(() => void) | null} */
   let dispose = null;
   const owner = nativeOwnerOf(inst.parent);
   const node = _outsideRender(() => untrack(() => runWithOwner(owner, () => createRoot((d) => {

@@ -234,13 +234,13 @@ export function replaceEqualDeep(prev, next) {
   const array = Array.isArray(prev) && Array.isArray(next);
   if (!array && !(isPlainObject(prev) && isPlainObject(next))) return next;
   const prevKeys = array ? null : Object.keys(prev);
-  const prevSize = array ? prev.length : prevKeys.length;
+  const prevSize = prevKeys === null ? prev.length : prevKeys.length;
   const nextKeys = array ? null : Object.keys(next);
-  const nextSize = array ? next.length : nextKeys.length;
+  const nextSize = nextKeys === null ? next.length : nextKeys.length;
   const copy = array ? new Array(nextSize) : {};
   let equal = 0;
   for (let i = 0; i < nextSize; i++) {
-    const key = array ? i : nextKeys[i];
+    const key = nextKeys === null ? i : nextKeys[i];
     const was = prev[key];
     const shared = (array || Object.prototype.hasOwnProperty.call(prev, key)) ? replaceEqualDeep(was, next[key]) : next[key];
     copy[key] = shared;

@@ -19,6 +19,13 @@ export function serverTree(element, parent) {
   return expand(element, parent, false);
 }
 
+/**
+ * A vnode's tag as the compat runtime marks it: a compat component's bridge
+ * carries the React function (runtime.js), a native wrapper its What
+ * component (mixed.js).
+ * @typedef {Function & { _compatType?: CompatTag, _whatNative?: unknown, _getNative?: () => unknown }} CompatTag
+ */
+
 function expand(v, parent, svg) {
   if (v == null || typeof v === 'boolean') return null;
   const type = typeof v;
@@ -34,9 +41,10 @@ function expand(v, parent, svg) {
     return element(v, parent, svg);
   }
   if (typeof tag !== 'function') return null;
-  const renderFn = tag._compatType;
-  if (renderFn === undefined && !v._compat) return v; // a native vnode: what-server renders it
-  const component = renderFn || tag;
+  const compatTag = /** @type {CompatTag} */ (tag);
+  const renderFn = compatTag._compatType;
+  if (renderFn === undefined && !/** @type {{ _compat?: boolean }} */ (v)._compat) return v; // a native vnode: what-server renders it
+  const component = renderFn || compatTag;
   if (component._whatNative !== undefined) return nativeComponent(component, v.props || {}, parent, svg);
   return reactComponent(component, v.props || {}, parent, svg);
 }

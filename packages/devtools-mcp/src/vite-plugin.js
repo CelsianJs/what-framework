@@ -56,6 +56,14 @@ async function resolveBootstrapCore(context, id, importer, options) {
 // page is open, so polling it is silent; the bridge is contacted Node-side.
 export const DISCOVERY_PATH = '/__what_mcp_discovery';
 
+/** Whether `name` is installed in a node_modules directory at or above `root`. */
+function installedAbove(root, name) {
+  for (let dir = resolve(root); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'node_modules', name, 'package.json'))) return true;
+    if (dirname(dir) === dir) return false;
+  }
+}
+
 /**
  * The discovery endpoint as a plain Node handler, for any dev server: answers
  * { bridge: false } when no bridge is reachable, or { bridge: true, credential,
@@ -66,15 +74,6 @@ export const DISCOVERY_PATH = '/__what_mcp_discovery';
  *   root: the dev server's project root; port: the bridge port when no bridge
  *   file is found; token: a pre-shared pairing key (also WHAT_MCP_TOKEN)
  */
-
-/** Whether `name` is installed in a node_modules directory at or above `root`. */
-function installedAbove(root, name) {
-  for (let dir = resolve(root); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, 'node_modules', name, 'package.json'))) return true;
-    if (dirname(dir) === dir) return false;
-  }
-}
-
 export function createDiscoveryHandler({ root, port = 9229, token = '', https = false } = {}) {
   return async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
@@ -147,6 +146,20 @@ export default function whatDevToolsMCP({ port = 9229, token = '' } = {}) {
   return {
     name: 'what-devtools-mcp',
     apply: 'serve',
+
+    // The bootstrap is a virtual module, which Vite's dependency scan never
+    // reads, so its imports of what-devtools and what-devtools-mcp/client were
+    // found only when a page first asked for it, after the optimizer's first
+    // run. Vite then pre-bundled them, changed its browser hash and told the
+    // page to reload. A page still loading had no HMR socket yet to hear
+    // that: it kept loading, its remaining imports under the new hash, and
+    // ran two copies of what-core (and of what-react, whose hooks then threw
+    // "called outside of a component render") on a blank page. Served as ES
+    // modules, as what-compiler's plugin serves the framework itself, the
+    // two never reach the optimizer. Both are ES modules throughout.
+    config() {
+      return { optimizeDeps: { exclude: ['what-devtools', 'what-devtools-mcp'] } };
+    },
 
     configResolved(config) {
       command = config.command;

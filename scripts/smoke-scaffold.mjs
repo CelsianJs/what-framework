@@ -331,7 +331,10 @@ async function smokeSpa(workDir, tarballs, browser) {
 
 async function checkReactCompatPage(browser, url, label) {
   await withPage(browser, url, async (page, errors) => {
-    assert((await page.innerHTML('#app')).includes('zustand-demo'), `${label}: the page renders the app and the zustand demo`);
+    // What the browser reported goes into the failure: a page that renders
+    // nothing has usually thrown, and the checks below never get to say so.
+    const rendered = (await page.innerHTML('#app')).includes('zustand-demo');
+    assert(rendered, `${label}: the page renders the app and the zustand demo${rendered ? '' : ` (browser reported: ${errors.join('; ') || 'nothing'})`}`);
     await page.click('.counter button:last-of-type');
     await page.click('.counter button:last-of-type');
     await page.getByRole('button', { name: 'Add bear' }).click();

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '../../..');
-const expected = ['hygiene:publish', 'test', 'build', 'hygiene:publish', 'hygiene:types', 'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint', 'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps'];
+const expected = ['hygiene:publish', 'build', 'test', 'hygiene:publish', 'hygiene:types', 'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint', 'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps'];
 
 test('the shared release gate list builds before final pack/type/production checks', async () => {
   const { runReleaseGates } = await import('../correctness-gates.mjs');
