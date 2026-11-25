@@ -23,6 +23,14 @@
 //                                member tag, an alias and memo().
 //   the pull phase               a computed of the other copy read by a copy
 //                                that made none.
+//   optionsChanged               <option>s one copy's list renders into the
+//                                other copy's controlled <select>: the select
+//                                shows its value once they arrive. A copy
+//                                with no select code calls the code the
+//                                select carries (render.js optionsChanged).
+//   the vnode renderer           an h() component of the other copy, rendered
+//                                by a copy that makes no vnode: the vnode
+//                                carries its own copy's renderer.
 //
 // The signal graph stays each copy's own (docs/ARCHITECTURE.md, tiers): a
 // signal of one copy read in an effect of the other is not tracked, so these
@@ -62,8 +70,14 @@ async function bundle(source, dev, globalName) {
 
 // The library: what-core bundled into it, its components on `Lib`.
 const lib = `
-  import { signal, computed, mount, lazy, memo } from 'what-framework';
-  export const state = { pick: signal('a'), label: signal('lib'), n: signal(2), items: signal([{ id: 1, label: 'one' }, { id: 2, label: 'two' }]) };
+  import { signal, computed, mount, lazy, memo, h } from 'what-framework';
+  export const state = { pick: signal('a'), chosen: signal('b'), label: signal('lib'), n: signal(2), items: signal([{ id: 1, label: 'one' }, { id: 2, label: 'two' }]) };
+  export function Choose(props) {
+    return <select id="choose" value={state.chosen()}>{props.children}</select>;
+  }
+  export function Made() {
+    return h('b', { class: 'made', title: () => state.label() }, 'made by h');
+  }
   export const total = computed(() => state.n() * 10);
   export function Picker(props) {
     return <select id={props.id} value={state.pick()} onChange={(e) => props.onPick?.(e.target.value)}><option>a</option><option>b</option><option>c</option></select>;
@@ -163,6 +177,25 @@ const scenarios = {
       function Plain() { return <s>plain</s>; }
       export function start() {
         mount(() => <div><Plain /><Lib.Legacy label="member" /><Alias label="alias" /><Lib.MemoLegacy label="memo" /></div>, document.getElementById('app'));
+      }
+    `,
+  },
+  options: {
+    app: `
+      import { signal, mount } from 'what-framework';
+      export const opts = signal([]);
+      const Lib = globalThis.Lib;
+      export function start() {
+        mount(() => <Lib.Choose>{opts().map((o) => <option key={o}>{o}</option>)}</Lib.Choose>, document.getElementById('app'));
+      }
+    `,
+  },
+  vnode: {
+    app: `
+      import { mount } from 'what-framework';
+      const Lib = globalThis.Lib;
+      export function start() {
+        mount(() => <div class="host"><Lib.Made /></div>, document.getElementById('app'));
       }
     `,
   },
@@ -295,6 +328,35 @@ for (const [engine, type] of engines) {
       it('the class bridge: the other copy\'s class component by a member tag, an alias and memo()', async () => {
         const { page, errors } = await open('classes');
         assert.deepEqual(await page.$$eval('#app b.legacy', (els) => els.map((el) => el.textContent)), ['member', 'alias', 'memo']);
+        assert.deepEqual(errors, []);
+        await page.close();
+      });
+
+      it('optionsChanged: the options one copy renders into the other copy\'s controlled select are selected as its value says', async () => {
+        // The app's copy has no select code: its JSX writes no select prop.
+        const { page, errors } = await open('options');
+        assert.equal(await page.$eval('#choose', (el) => el.options.length), 0);
+        await page.evaluate(() => globalThis.App.opts(['a', 'b', 'c']));
+        await settled(page);
+        assert.equal(await page.$eval('#choose', (el) => el.value), 'b', 'the select shows its value once the options arrive');
+        await page.evaluate(() => globalThis.App.opts(['c', 'b']));
+        await settled(page);
+        assert.equal(await page.$eval('#choose', (el) => el.value), 'b', 'and after they change');
+        await page.evaluate(() => globalThis.Lib.state.chosen('c'));
+        await settled(page);
+        assert.equal(await page.$eval('#choose', (el) => el.value), 'c', 'and follows its value');
+        assert.deepEqual(errors, []);
+        await page.close();
+      });
+
+      it('the vnode renderer: an h() component of the other copy, rendered by a copy that makes no vnode', async () => {
+        const { page, errors } = await open('vnode');
+        // Between the markers of a component whose output is not one element.
+        assert.equal((await html(page, '.host')).replace(/<!--[^>]*-->/g, ''), '<b class="made" title="lib">made by h</b>');
+        // Its binding is its own copy's.
+        await page.evaluate(() => globalThis.Lib.state.label('LIB'));
+        await settled(page);
+        assert.equal(await page.$eval('.made', (el) => el.title), 'LIB');
         assert.deepEqual(errors, []);
         await page.close();
       });

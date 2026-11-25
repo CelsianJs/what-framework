@@ -82,8 +82,11 @@ describe('live props: compiled output', () => {
     const out = compileJSX(`
       export function Badge({ on, label = 'x', items = [] }) { return <b title={label}>{on ? 'Y' : 'N'}{items.length}</b>; }`);
     assert.match(out, /function Badge\(_props\)/);
-    // A default that is not a plain literal keeps its destructuring.
-    assert.match(out, /const \{\s*items = \[\]\s*\} = _props;/);
+    // A default that reads nothing of the component and calls nothing is made
+    // once, when the component runs, and the prop is read where it is used.
+    assert.match(out, /const _itemsDefault = \[\];/);
+    assert.match(out, /\(_items = _props\.items\) === void 0 \? _itemsDefault : _items/);
+    assert.doesNotMatch(out, /items = \[\]\s*\} = _props/);
     assert.match(out, /\(\) => _props\.on \? 'Y' : 'N'/);
   });
 

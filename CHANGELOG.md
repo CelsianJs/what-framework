@@ -520,13 +520,34 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Breaking: compiler
 
+- **Rest props stay live everywhere, and a spread's children render.** Every
+  rest element of destructured props is the props without the names it
+  leaves out, getters kept (`_$omit`): before, the compiler rewrote one only
+  when the pattern also had a prop read where it was used, so
+  `({ as: Tag, ...rest }) => <Tag {...rest} />` showed the first `href` and
+  `className` forever. A rest element destructured again, read by key, used
+  in a nested function or a `.map()` row, declared in the body or beside a ref
+  parameter (`({ ...rest }, ref)`), a nested pattern (`{ style: { color } }`)
+  and a default that reads nothing of the component (`items = []`, made once
+  per component) are live too, and a spread binds a prop handed on to it
+  (`<Tag href={rest.href} />`) as it binds a live one. An element with a
+  spread and no JSX children renders the spread's `children` on both targets,
+  as React does: the client wrote them as a `children` attribute and the
+  server dropped them. A destructured `.map()` row (`({ id, label }) => …`)
+  reads its item where it is used, so it shows an item replaced under its
+  key. Compared shape by shape with React 19.3.0 in a browser
+  (packages/compiler/test/rest-props-react-parity.test.js).
+  *Migration:* none for code written as React writes it; tests that match
+  compiled output of rest elements, spreads or destructured defaults change.
+
 - **Component props are live.** A prop whose value reads a signal is passed
   as a getter over the expression: `<Badge on={count() > 0} />` updates the
   child's `{props.on}`, and a destructured `({ on })`, where it renders, and
   the child still runs once and keeps its state. Before, the value was read
   once and the prop froze with no warning. The compiler reads a destructured
-  prop as `props.<key>` where it is used (unless it is reassigned, nested, or
-  has a default that is not a plain literal), a read of props in JSX is a
+  prop as `props.<key>` where it is used (unless it is reassigned, has a
+  computed key, or has a default that reads the component or calls something,
+  each reported as `ERR_PROP_READ_ONCE`), a read of props in JSX is a
   binding, and `{...props}` spreads and rest elements keep the getters
   (what-core `_$merge`, `_$omit`). Props objects What builds have no
   prototype; `_$createComponent` takes one as the component's own, and h()
@@ -594,6 +615,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   any name test, and the HMR socket accepts the same origins.
 
 ### Added
+
+- **`ERR_PROP_READ_ONCE`**, a compile-time warning in development builds for
+  a destructured prop the compiler reads once, when the component runs (one
+  assigned again, a computed key, one destructured twice, a default that
+  reads another prop or calls something, a nested rest or array pattern, a
+  `var` pattern): it names the prop, the component, `file:line:column` and the
+  fix, so a prop never keeps its first value in silence.
 
 - **`live(source)`**, a read-only live view of the object an accessor returns:
   `view.name` reads the current value's `name`, through getters What reads as
@@ -847,6 +875,25 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   after it is measured, so its warm-up measures that operation alone.
 
 ### Fixed
+
+- **A tag held in a binding is created in the namespace it stands in.**
+  `as="circle"` in an `<svg>` and `as="mi"` were created as unknown HTML
+  elements and did not draw: a name only SVG or MathML has is created in that
+  namespace, and one SVG shares with HTML (`a`, `title`) in the namespace of
+  the place its component is called in (`_$inNs`). The vnode renderer uses
+  the same table of SVG names, which also has `desc`, `switch`, `view` and
+  every filter primitive.
+- **A tag held in a binding hydrates in place.** It was built on the client
+  with a `not-hydratable` mismatch report; it claims the server's element as
+  compiled `<a {...props}>` does, and the server renders its children.
+- **Two copies of what-core:** `<option>`s one copy renders into the other
+  copy's controlled `<select>` are selected as its value says (the select
+  stayed on its first option), and an `h()` component of one copy renders in
+  a copy that has no vnode renderer (it threw `ERR_NO_VNODE_RENDERER` in
+  development and showed `[object Object]` in production): the select and
+  the vnode carry the code that handles them.
+- **An `<ErrorBoundary>` whose `fallback` is a class component** renders it
+  with `{ error, reset }`; it called the class as a function and threw.
 
 - **A tag held in a binding renders the element it names**, as in React:
   `const Tag = props.as || 'div'; <Tag {...rest}>…</Tag>` rendered nothing in
@@ -1295,6 +1342,18 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   what-react's `hydrateRoot()` names itself in `ERR_MOUNT_TARGET_MISSING`.
 
 ### Performance
+
+- **Smaller runtime with the rest-prop fixes in.** Measured by
+  `npm run check:size` against the previous commit (638e7c49): hooks-app
+  14,204 B to 14,079 B gzip, react-counter 22,203 to 22,153,
+  compiled-h-counter 9,789 to 9,725, core-counter 9,059 to 9,006,
+  scaffold-counter 9,107 to 9,058, error-boundary-counter 9,569 to 9,517,
+  data-app 29,211 to 29,146, async-app 20,293 to 20,230, compiled-counter
+  5,242 to 5,226; compiled-hydrate 20,224 to 20,231. A production hook error keeps its code and first sentence (the
+  catalogue has the rest), a spread writes through the same setter as a
+  prop, the vnode renderer shares the compiler-placed table of SVG names, and
+  the list and region code calls the select code through one function rather
+  than a null check at each of nine places.
 
 - **A compiled app carries only the runtime its JSX uses.** Built as the
   scaffold builds it, the create-what counter is 5,242 B gzip (6,041 B

@@ -68,6 +68,12 @@ export function isVNode(value) {
 /** @type {((vnode: any, parent?: any, isSvg?: boolean, inParent?: 1) => Node) | null} */
 export let vnodeRenderer = null;
 
+// The elements only SVG has, by name in any case (`clipPath`, `clippath`): the
+// vnode renderer creates one in SVG wherever it stands (dom.js
+// createElementFromVNode), as what-compiler places a template root by its tag,
+// and so does a tag held in a binding (render.js tagElement).
+export const SVG_TAG = /^(?:svg|animate(?:motion|transform)?|circle|clippath|defs|desc|ellipse|fe[a-z]+|filter|foreignobject|g|image|line|lineargradient|marker|mask|metadata|mpath|path|pattern|poly(?:gon|line)|radialgradient|rect|set|stop|switch|symbol|text|textpath|tspan|use|view)$/i;
+
 // The keyed vnode rows a reactive region renders a keyed vnode list through
 // (render.js _vnodeRows), installed with the renderer for the same reason, and
 // what hydrate() writes a vnode's props onto the element it claims with: the
@@ -83,6 +89,10 @@ export let vnodeRefuses = null;
 
 export function _installVNodeRuntime(render, keyedRows, setProp, refuses) {
   vnodeRenderer = render;
+  // Every vnode carries this copy's renderer, for a copy of what-core that
+  // has none to render it with (render.js valuesToNodes): a vnode is
+  // rendered by the copy that made it.
+  /** @type {any} */ (VNode.prototype)._$r = render;
   vnodeRows = keyedRows;
   vnodeProp = setProp;
   vnodeRefuses = refuses;

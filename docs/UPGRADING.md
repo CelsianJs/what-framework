@@ -271,6 +271,22 @@ are the differences from 0.14.
 
 ### Hooks, context and components
 
+- **A tag held in a binding is created in the namespace it stands in, and
+  hydrates in place.** `<Tag {...rest} />` with `Tag` a string the compiler
+  cannot read (`props.as`) rendered every element as HTML, so `as="circle"` in
+  an `<svg>` or `as="mi"` did not draw; it is SVG or MathML by its name, and a
+  name SVG shares with HTML (`a`, `title`) takes the namespace of the place
+  the component is called in. While hydrating, such an element claims the
+  server's element instead of replacing it (0.14 reported a `not-hydratable`
+  mismatch and rendered it on the client). An `<ErrorBoundary>` whose
+  `fallback` is a class component renders it with `{ error, reset }` (0.14
+  called it as a function, which threw). A vnode made by another copy of
+  what-core on the page (a library bundled with its own) is rendered by that
+  copy when the copy rendering it has no vnode renderer, where 0.14 threw
+  `ERR_NO_VNODE_RENDERER` in development and showed `[object Object]` in
+  production; and `<option>`s one copy renders into the other copy's
+  controlled `<select>` are selected as its value says.
+
 - **A component is an owner.** Its hooks and context resolve through the
   owner chain, so `useContext` returns the provider's value in an effect
   re-run, a region or a list row long after the body ran; 0.14 read a
@@ -555,7 +571,10 @@ and navigations that are transitions. Each change below has its migration.
   `h()` or JSX-runtime row is a vnode made again on every run, so a kept key
   whose vnode renders different data gets a row built from the new vnode;
   functions in a kept row are the ones it was built with. This affects code
-  that relied on a row ignoring a new item with the same key.
+  that relied on a row ignoring a new item with the same key. A row that
+  destructures its item (`({ id, label, ...rest }) => <li key={id}>…`)
+  follows it too: what-compiler reads `label` as the item's field where it is
+  used, and builds the rest element where the row is built, on both targets.
 
 ### Hydration
 
@@ -773,6 +792,27 @@ options.
   above. List what-compiler in `devDependencies` if your build imports it: npm
   and Bun install it with what-framework when you do not, Yarn does not, and
   pnpm does not let the app import it.
+- **Rest props and spreads stay live, and a spread's children render.**
+  what-compiler rewrites every rest element of destructured props into a copy
+  of the props that keeps their live values (`_$omit`): 0.14 rewrote one only
+  when the pattern also had a prop it read where it was used, so the most
+  common polymorphic component, `({ as: Tag, ...rest }) => <Tag {...rest} />`,
+  showed the first `href` and `className` it was handed forever. A rest
+  element destructured again, read by key, declared in the body or in a
+  nested function that renders JSX, beside a ref parameter
+  (`({ ...rest }, ref) => …`) or under a nested pattern is live too, and so is
+  a nested pattern itself (`{ style: { color } }`) and a default that reads
+  nothing of the component and calls nothing (`items = []`, made once per
+  component). An element with a spread and no children of its own renders the
+  spread's `children`, on the client and the server: 0.14 wrote them as a
+  `children` attribute on the client (`<a {...props} />` showed
+  `<a children="…">`) and dropped them on the server. A destructured prop the
+  compiler still reads once (one assigned again, a computed key, a default
+  that reads another prop or calls something) is reported in development
+  builds as `ERR_PROP_READ_ONCE`, with the place and the fix. This affects
+  code that relied on a rest element or a spread keeping its first values,
+  and tests that match compiled output of rest elements, spreads or
+  destructured defaults.
 - **Server transforms compile for the server.** The Vite plugin's `ssr`
   option, on by default, compiles a module Vite transforms for the server with
   the server target, which every what-server renderer accepts. 0.14 refused

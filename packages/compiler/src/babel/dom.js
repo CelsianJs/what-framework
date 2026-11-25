@@ -1678,7 +1678,45 @@ function transformComponentFineGrained(path, state) {
   const site = state.hydratable && !isHydrateRoot ? listSlot(node) : null;
   if (site !== null || (meta && state.hydratable && !isHydrateRoot)) componentArgs.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) componentArgs.push(meta);
-  return t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
+  const call = t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
+  // A component placed in SVG or MathML is told so, for a tag held in a
+  // binding that it builds (render.js _$inNs). Not one this module defines
+  // whose JSX, and that of the components it calls, names no such tag: the
+  // compiler places its elements itself.
+  if (node._whatPlacedNs !== undefined && !isHydrateRoot && node._whatMayBuildTag !== false) {
+    return t.callExpression(helper(state, '_$inNs'), [t.numericLiteral(node._whatPlacedNs), t.arrowFunctionExpression([], call)]);
+  }
+  return call;
+}
+
+// Whether the component JSX tag `name` names can build a tag held in a
+// binding: anything but What's own and a function this module defines whose
+// JSX names only elements and such functions. Read before any JSX is lowered
+// (babel-plugin.js marks each component element, `_whatMayBuildTag`).
+export function mayBuildTag(scope, name, seen = new Set()) {
+  if (!t.isJSXIdentifier(name) || scope == null) return true;
+  const binding = scope.getBinding(name.name);
+  if (!binding || !binding.constant) return true;
+  const node = binding.path.node;
+  if (binding.kind === 'module') return !(t.isImportSpecifier(node) && FRAMEWORK_SOURCES.has(binding.path.parent.source.value));
+  const fn = t.isFunctionDeclaration(node) ? binding.path : t.isVariableDeclarator(node) && t.isFunction(node.init) ? binding.path.get('init') : null;
+  if (fn === null) return true;
+  if (seen.has(fn.node)) return false;
+  seen.add(fn.node);
+  let found = false;
+  fn.traverse({
+    JSXOpeningElement(el) {
+      if (found || !isComponentElement(el.node)) return;
+      if (mayBuildTag(el.scope, el.node.name, seen)) found = true;
+    },
+  });
+  return found;
+}
+
+// `_$inNs(ns, () => call)`: the call it places.
+function placedCall(node, state) {
+  return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$inNs') === node.callee.name
+    && t.isArrowFunctionExpression(node.arguments[1]) ? node.arguments[1].body : node;
 }
 
 // An expression that only reads: names, member reads and literals, and the
@@ -2518,10 +2556,12 @@ function isHelperCall(node, state) {
 }
 
 function isComponentCall(node, state) {
+  node = placedCall(node, state);
   return t.isCallExpression(node) && t.isIdentifier(node.callee) && helperLocals(state).get('_$createComponent') === node.callee.name;
 }
 
 function isClaimCall(node, state) {
+  node = placedCall(node, state);
   return t.isCallExpression(node) && t.isIdentifier(node.callee)
     && CLAIMING.some((name) => helperLocals(state).get(name) === node.callee.name);
 }
@@ -2802,6 +2842,7 @@ const RENDER_IMPORTS = [
   ['_$place', '_$place'],
   ['_$merge', '_$merge'],
   ['_$omit', '_$omit'],
+  ['_$inNs', '_$inNs'],
   ['_$selects', '_$selects'],
 ];
 

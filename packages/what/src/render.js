@@ -94,4 +94,6 @@ export {
   _$merge,
   _$omit,
   _$place,
+  // A component call placed in SVG or MathML, for the tags held in bindings it builds.
+  _$inNs,
 } from 'what-core/render';

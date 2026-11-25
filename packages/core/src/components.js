@@ -22,8 +22,7 @@ import { _islandHost } from './hydration-data.js';
 // (render.js _toFunctionComponent): called as a function it would throw.
 
 export function memo(Component, _areEqual) {
-  const proto = Component.prototype;
-  const render = proto != null && (proto.isReactComponent || proto.render) ? _toFunctionComponent(Component) : Component;
+  const render = _toFunctionComponent(Component);
   // No-op in run-once model — just return the component as-is
   const MemoWrapper = function MemoWrapper(props) {
     return render(props);
@@ -398,7 +397,8 @@ function createErrorBoundary(vnode, parent) {
     untrack(() => {
       if (error) {
         const fallback = vnode.props.fallback;
-        buildErrorArm(typeof fallback === 'function' ? fallback({ error, reset }) : fallback, parent, end, null);
+        // A function is called with them; a class component is rendered with them.
+        buildErrorArm(typeof fallback === 'function' ? _toFunctionComponent(fallback)({ error, reset }) : fallback, parent, end, null);
         return;
       }
       try {

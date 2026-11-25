@@ -6,18 +6,7 @@ import { report, setNextBinding } from './diagnostics.js';
 import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
-import { isVNode } from './vnode-renderer.js';
-// SVG elements that need namespace
-const SVG_ELEMENTS = new Set([
-  'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse',
-  'g', 'defs', 'use', 'symbol', 'clipPath', 'mask', 'pattern', 'image',
-  'text', 'tspan', 'textPath', 'foreignObject', 'linearGradient', 'radialGradient', 'stop',
-  'marker', 'animate', 'animateTransform', 'animateMotion', 'set', 'filter',
-  'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite', 'feConvolveMatrix',
-  'feDiffuseLighting', 'feDisplacementMap', 'feFlood', 'feGaussianBlur', 'feImage',
-  'feMerge', 'feMergeNode', 'feMorphology', 'feOffset', 'feSpecularLighting',
-  'feTile', 'feTurbulence',
-]);
+import { isVNode, SVG_TAG } from './vnode-renderer.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // --- Attribute sanitization (shared by both setProp implementations) ---
@@ -566,9 +555,8 @@ export function _handleNavigationSignal(error) {
 }
 
 function createComponent(vnode, parent, isSvg) {
-  let { tag: Component, props, children } = vnode;
-  const proto = Component.prototype;
-  if (proto && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  const { props, children } = vnode;
+  const Component = _toFunctionComponent(vnode.tag);
 
   const mergedProps = _copyProps(props);
   if (children.length > 0) _setOwnProp(mergedProps, 'children', children.length === 1 ? children[0] : children);
@@ -619,7 +607,8 @@ export function createPortalDOM(vnode, _parent) {
 function createElementFromVNode(vnode, parent, isSvg) {
   const { tag, props, children } = vnode;
 
-  const svgContext = isSvg || SVG_ELEMENTS.has(tag);
+  // In SVG, or an element only SVG has (vnode-renderer.js SVG_TAG).
+  const svgContext = isSvg || SVG_TAG.test(tag);
   const el = svgContext
     ? document.createElementNS(SVG_NS, tag)
     : document.createElement(tag);
@@ -945,8 +934,10 @@ function _keepSelection(el) {
  * or another value of one), and leaves what it shows alone otherwise, so a
  * label written in place of another keeps what the user chose.
  */
-function _optionsChanged(parent) {
+function _optionsChanged(parent, text) {
   const tag = parent.localName;
+  // The text of an option with a value is its label.
+  if (text === 1 && tag === 'option' && parent.hasAttribute('value')) return;
   const select = tag === 'select' ? parent : tag === 'optgroup' || tag === 'option' ? parent.closest('select') : null;
   if (select !== null) refollow(select, false);
 }

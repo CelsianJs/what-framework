@@ -60,4 +60,5 @@ export {
   _$merge,
   _$omit,
   _$place,
+  _$inNs,
 } from 'what-core/render';

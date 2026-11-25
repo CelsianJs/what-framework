@@ -44,8 +44,8 @@
  */
 
 import { t, setTypes } from './babel/types.js';
-import { deferPlacedProps, initFileState, isWhatModuleSource, recordName } from './babel/common.js';
-import { initDomState, finishDomProgram, transformJsxRoot } from './babel/dom.js';
+import { deferPlacedProps, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
+import { initDomState, finishDomProgram, transformJsxRoot, mayBuildTag } from './babel/dom.js';
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
 import { annotatePrimitive } from './babel/dev-metadata.js';
@@ -170,6 +170,9 @@ export default function whatBabelPlugin({ types }) {
           path.traverse({
             JSXElement(elPath) {
               const tag = constantTag(elPath);
+              // Whether a component call can build a tag held in a binding,
+              // which SVG and MathML places are told of (dom.js _$inNs).
+              if (tag === null && !state.ssr && isComponentElement(elPath.node)) elPath.node._whatMayBuildTag = mayBuildTag(elPath.scope, elPath.node.openingElement.name);
               if (tag === null) return;
               elPath.node.openingElement.name = t.jsxIdentifier(tag);
               if (elPath.node.closingElement) elPath.node.closingElement.name = t.jsxIdentifier(tag);
@@ -190,6 +193,13 @@ export default function whatBabelPlugin({ types }) {
             },
             OptionalCallExpression(callPath) {
               calls.push(callPath);
+            },
+          });
+          // A spread's children, read where they render, once the props
+          // they come from are read where they are used.
+          path.traverse({
+            JSXElement(elPath) {
+              spreadChildren(elPath, state);
             },
           });
           resolveCallees(path, calls, state.importedIdentifiers);

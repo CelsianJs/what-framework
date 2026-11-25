@@ -7,12 +7,12 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
-import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
+import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
 export { effect, untrack };
 // The eager memo, for compiled output (branch memoization: the compiler emits
@@ -47,11 +47,11 @@ export function _setTextInsertHook(fn) {
 
 // Dynamic text was written in `parent`: the text engine hears it, and a
 // select follows an option whose text is its value, one with no `value`
-// attribute (dom.js _optionsChanged). The text of an option with a value is
-// its label, and a label changes nothing the select shows.
+// attribute (dom.js _optionsChanged, which passes over the text of an option
+// with a value: its label, which changes nothing the select shows).
 function textWritten(parent, text) {
   if (_onTextInsert !== null) _onTextInsert(parent, text);
-  if (optionsChanged !== null && !(parent.localName === 'option' && parent.hasAttribute('value'))) optionsChanged(parent);
+  optionsChanged(parent, 1);
 }
 
 // --- Vnodes ---
@@ -189,26 +189,56 @@ export function _$createFn(Component, props, _children, devLoc) {
 // string as the element it names, as React renders one
 // (`const Tag = props.as || 'div'; <Tag {...rest} />`).
 function asComponent(Component) {
-  if (typeof Component === 'string') return tagComponent(Component);
-  const proto = Component.prototype;
-  return proto != null && (proto.isReactComponent || proto.render) ? _toFunctionComponent(Component) : Component;
+  return typeof Component === 'string' ? tagComponent(Component) : _toFunctionComponent(Component);
 }
 
 // The component a tag held in a binding renders as: its element, with its
 // props spread on it as `<tag {...props}>` spreads them (a field's value and
 // checked bound as a binding does, a select's or an option's with the select
 // code) and its children inserted. what-compiler writes a tag it can read
-// (`const Tag = 'select'`) as the element itself. An element in HTML: a tag of
-// SVG or MathML held in a binding is not told apart.
+// (`const Tag = 'select'`) as the element itself.
 function tagComponent(tag) {
   return (props) => {
-    const el = document.createElement(tag);
+    const el = tagElement(tag);
     _selectsFor(el);
-    spread(FIELD_TAGS.has(el.localName) ? _$controlled(el) : el, _copyProps(props, ['children']));
+    spread(FIELD_TAGS.has(el.localName) ? _$controlled(el) : el, props);
     const children = props.children;
     if (children != null) insert(el, children);
     return el;
   };
+}
+
+// The element a tag held in a binding names, in the namespace of where it is
+// built. A name only SVG has (`circle`, `clipPath`) is SVG and one only MathML
+// has (`mi`) is MathML, wherever it stands, as the compiler places a template
+// root by its tag; a name SVG shares with HTML (`a`, `title`, `script`,
+// `style`) is in the namespace of its place: compiled JSX gives a component it
+// calls in <svg> or <math>, or in HTML inside one, its place's namespace
+// (_$inNs), which what the component builds inherits through its owners.
+// Anything else is HTML.
+const NAMESPACES = ['http://www.w3.org/1999/xhtml', 'http://www.w3.org/2000/svg', 'http://www.w3.org/1998/Math/MathML'];
+const MATH_TAG = /^(?:math|m(?:action|enclose|error|fenced|frac|i|multiscripts|n|o|over|padded|phantom|prescripts|root|row|s|space|sqrt|style|sub|subsup|sup|table|td|text|tr|under|underover)|annotation(?:-xml)?|semantics)$/i;
+// The context key _$inNs provides the namespace under, and whether it ever did.
+const PLACED_NS = {};
+let placedNs = false;
+
+function tagElement(tag) {
+  const placed = placedNs && /^(?:a|script|style|title)$/i.test(tag) ? _contextOf(PLACED_NS) : null;
+  const ns = placed !== null ? placed.get(PLACED_NS) : SVG_TAG.test(tag) ? NAMESPACES[1] : MATH_TAG.test(tag) ? NAMESPACES[2] : null;
+  return ns == null ? document.createElement(tag) : document.createElementNS(ns, tag);
+}
+
+/**
+ * @internal Compiled JSX: `build()`, a component call placed in SVG (`ns` 1),
+ * MathML (2), or HTML inside one of them (0), in a scope that tells the tags
+ * held in bindings below it which namespace they stand in (tagElement).
+ */
+export function _$inNs(ns, build) {
+  placedNs = true;
+  return createRoot(() => {
+    _provide(PLACED_NS, NAMESPACES[ns]);
+    return build();
+  });
 }
 
 // The props object a compiled component runs with. Compiled JSX builds a
@@ -247,10 +277,14 @@ export function _$merge() {
 export { _copyProps as _$omit };
 
 // A class component runs as a function component that constructs it and calls
-// render(). It lives here rather than with the vnode renderer because compiled
-// JSX renders class components too, and a bundle with no vnode producer has no
-// vnode renderer.
+// render(); any other component is returned as it is. Every path that runs a
+// component it was handed asks here: compiled JSX (asComponent), the vnode
+// renderer and hydration, memo(), and an <ErrorBoundary>'s fallback. It lives
+// here rather than with the vnode renderer because compiled JSX renders class
+// components too, and a bundle with no vnode producer has no vnode renderer.
 export function _toFunctionComponent(ClassComp) {
+  const proto = ClassComp.prototype;
+  if (proto == null || !(proto.isReactComponent || proto.render)) return ClassComp;
   const Bridge = function ClassComponentBridge(props) {
     const instance = new ClassComp(props);
     return instance.render();
@@ -549,12 +583,9 @@ export function _$template(html, flag) {
   return () => (node === null ? (node = parseTemplate(html, flag === 2)) : node).cloneNode(true);
 }
 
-// SVG and MathML elements that are not HTML elements too, by their lowercased
-// names: as a template root without the flag they parse as unknown HTML.
-const FOREIGN_ROOT = /^(?:animate(?:motion|transform)?|circle|clippath|defs|desc|ellipse|fe[a-z]+|filter|foreignobject|g|line|lineargradient|marker|mask|metadata|mpath|path|pattern|poly(?:gon|line)|radialgradient|rect|set|stop|switch|symbol|text|textpath|tspan|use|view|m(?:action|enclose|error|fenced|frac|i|multiscripts|n|o|over|padded|phantom|prescripts|root|row|s|space|sqrt|style|sub|subsup|sup|table|td|text|tr|under|underover)|annotation(?:-xml)?|semantics)$/;
-
 function checkTemplateRoot(node) {
-  if (node.nodeType !== 1 || node.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !FOREIGN_ROOT.test(node.localName)) return;
+  // An SVG or MathML name the HTML parser took as an unknown HTML element.
+  if (node.nodeType !== 1 || node.namespaceURI !== NAMESPACES[0] || !(SVG_TAG.test(node.localName) || MATH_TAG.test(node.localName))) return;
   throw Object.assign(new Error(
     `[what] The template for <${node.localName}> has no namespace flag, so its root would render ` +
     'as an unknown HTML element instead of SVG or MathML. Compiled output like this comes from a ' +
@@ -606,9 +637,15 @@ export function svgTemplate(html) {
 // What has a select a value controls select its options again when a region
 // or list changes the children of `parent` (dom.js _optionsChanged): installed
 // by the field code once a value controls a select, so a program without one
-// carries none of it.
-/** @type {((parent: Node) => void) | null} */
-let optionsChanged = null;
+// carries none of it. Until then, a select another copy of what-core wrote the
+// value of carries that copy's code (`_$select`, dom.js _setSelectValue): the
+// options under it, or under one of its groups, changed, so it writes its
+// value again. `text` 1: the text of `parent` was written.
+/** @type {(parent: any, text?: 1) => void} */
+let optionsChanged = (parent) => {
+  if (!parent._$select) parent = parent.parentNode;
+  parent?._$select?.(parent, parent._$value);
+};
 
 /** @internal */
 export function _installOptionsChanged(fn) {
@@ -701,7 +738,7 @@ function region(parent, child, marker, scope) {
       }
       if (rows !== null) {
         rows.remove();
-        if (optionsChanged !== null) optionsChanged(parent);
+        optionsChanged(parent);
       }
     }
     current = reconcileInsert(parent, val, current, m);
@@ -947,7 +984,7 @@ export function _region(fn, isSvg) {
     removeRegionNodes(host, current);
     current = valuesToNodes(val, host, [], isSvg);
     for (let i = 0; i < current.length; i++) host.insertBefore(current[i], endMarker);
-    if (optionsChanged !== null) optionsChanged(host);
+    optionsChanged(host);
   });
   // Everything between the markers is replaced on every run, so an OUTER
   // region that embeds this one removes the live range rather than trusting a
@@ -1109,7 +1146,7 @@ function createVNodeRows(isSvg, scope, end = document.createComment('/list'), ro
         }
       }
       rows = next;
-      if (optionsChanged !== null) optionsChanged(host);
+      optionsChanged(host);
     },
     // The region's value is no longer a keyed list: drop the rows and their end.
     remove() {
@@ -1166,18 +1203,13 @@ function valuesToNodes(value, parent, out, isSvg) {
   }
 
   // The renderer writes a vnode (by its brand) as DOM and any other object as
-  // its text. With no renderer installed no vnode producer is in the program,
-  // so an object is text; development still explains a vnode from elsewhere.
-  if (vnodeRenderer !== null) {
-    // The renderer asks whether `parent` is an SVG element (h.js).
-    const node = vnodeRenderer(value, parent, isSvg, 1);
-    if (node && node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */ && node.childNodes.length > 0) {
-      for (let child = node.firstChild; child !== null; child = child.nextSibling) out.push(child);
-    } else if (node) {
-      out.push(node);
-    }
-    return out;
-  }
+  // its text; it asks whether `parent` is an SVG element (h.js). With no
+  // renderer installed no vnode producer is in the program, and a vnode
+  // another copy of what-core made (a library bundled with its own) carries
+  // that copy's renderer (vnode-renderer.js, `_$r`): anything else is text.
+  // Development still explains a vnode that reaches a copy with neither.
+  const render = vnodeRenderer !== null ? vnodeRenderer : value._$r;
+  if (typeof render === 'function') return valuesToNodes(render(value, parent, isSvg, 1), parent, out, isSvg);
   if (__DEV__ && isVNode(value)) throw vnodeRuntimeMissing('A vnode');
 
   out.push(document.createTextNode(String(value)));
@@ -1196,7 +1228,7 @@ function sameNodeArray(a, b) {
 
 function reconcileInsert(parent, value, current, marker) {
   const nodes = reconcileNodes(parent, value, current, marker);
-  if (optionsChanged !== null && nodes !== current) optionsChanged(parent);
+  if (nodes !== current) optionsChanged(parent);
   return nodes;
 }
 
@@ -1219,7 +1251,7 @@ function reconcileNodes(parent, value, current, marker) {
       && current && !Array.isArray(current) && current.nodeType === 3) {
     const text = String(value);
     if (current.data !== text) current.data = text;
-    if (optionsChanged !== null) optionsChanged(parent);
+    optionsChanged(parent);
     return current;
   }
 
@@ -1383,7 +1415,7 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
       // captured `parent` goes stale.
       const host = endMarker.parentNode || parent;
       reconcileKeyed(host, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
-      if (optionsChanged !== null) optionsChanged(host);
+      optionsChanged(host);
       // Snapshot for the next diff, defended against in-place mutation.
       items = newItems.length > 0 ? newItems.slice() : newItems;
     });
@@ -2054,57 +2086,29 @@ function spread(el, props) {
   // reading the getter again when what it read changes.
   const live = props != null && typeof props === 'object' && Object.getPrototypeOf(props) === null;
   for (const key in props) {
-    // A live prop is bound as an accessor of it.
-    const value = live && key !== 'ref' && !_isEventProp(key) && _isLiveProp(props, key) ? () => props[key] : props[key];
+    // Children are never an attribute: compiled JSX places a spread's
+    // children in an element that has none of its own (common.js
+    // spreadChildren), as React renders `<a {...props} />`.
+    if (key === 'children') continue;
+    // A getter is bound as an accessor of it: a live prop, and a prop handed
+    // on to the component that spreads it (`<Tag href={rest.href} />`, a lazy
+    // slot that forwards the live prop: dom.js readLazy reads it again).
+    const value = live && key !== 'ref' && !_isEventProp(key) && /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(props, key)).get ? () => props[key] : props[key];
 
     // A field's value or checked that follows state is bound as an attribute
     // of the field binds it, so the field shows it after its events.
-    if (fieldSpread !== null && typeof value === 'function' && (key === 'value' || key === 'checked')) {
-      fieldSpread(el, key, value);
-      continue;
+    if (fieldSpread !== null && typeof value === 'function' && (key === 'value' || key === 'checked')) fieldSpread(el, key, value);
+    // An event handler: a listener the current owner removes ($$name for a
+    // delegated event).
+    else if (_isEventProp(key)) {
+      if (typeof value === 'function') on(el, key.slice(2).toLowerCase(), value);
     }
-
-    // Ref — the element, not a reactive getter.
-    //
-    // This is the one prop whose FUNCTION form is a callback taking the element
-    // rather than an accessor returning a value, which is exactly why the other
-    // two call sites special-case it before the reactive-prop test (setProp
-    // below, and applyProps in dom.js). Spread did not, so a function ref fell
-    // into the reactive branch and was invoked as `value()` with NO ARGUMENT.
-    // Every `{...register('email')}`-shaped API broke in silence on the
-    // compiled path: the ref saw `undefined`, guarded, and returned, so no
-    // element was ever registered and nothing threw to say so.
-    if (key === 'ref') {
-      applyRef(value, el);
-      continue;
-    }
-
-    if (_isEventProp(key)) {
-      // Event handler — a listener the current owner removes. Use $$name for
-      // delegated events.
-      if (typeof value !== 'function') continue;
-      on(el, key.slice(2).toLowerCase(), value);
-      continue;
-    }
-
-    if (key === 'classList') {
-      setClassList(el, value);
-      continue;
-    }
-
-    if (typeof value === 'function') {
-      // Reactive prop: an effect of its own, owned like every binding.
-      if (key === 'class' || key === 'className') {
-        effect(() => { _writeClass(el, value(), _hasSVGElement && el instanceof SVGElement); });
-      } else if (key === 'style') {
-        effect(() => { setStyle(el, value()); });
-      } else {
-        effect(() => { setProp(el, key, value()); });
-      }
-    } else {
-      // Static prop
-      setProp(el, key, value);
-    }
+    // Anything else is written as setProp writes a prop: a ref is handed the
+    // element (a function ref is a callback, never an accessor: a
+    // `{...register('email')}` ref once saw undefined), a classList its
+    // classes, and any other function is an accessor bound as a binding of
+    // its own, owned like every binding.
+    else setProp(el, key, value);
   }
 }
 
@@ -3762,9 +3766,7 @@ function hydrateElementProps(el, props) {
 // The (Component, props, endChildrenPass) createDOM renders a component vnode
 // with (dom.js createComponent).
 function componentArgs(vnode) {
-  let Component = vnode.tag;
-  const proto = Component.prototype;
-  if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  const Component = _toFunctionComponent(vnode.tag);
   const props = vnode.props;
   const children = vnode.children || [];
   const merged = _copyProps(props);
@@ -3935,7 +3937,7 @@ function adoptRegion(fn, devName) {
         }
         if (rows !== null) {
           rows.remove();
-          if (optionsChanged !== null) optionsChanged(host);
+          optionsChanged(host);
         }
       }
       current = reconcileInsert(host, value, current, end);
@@ -4187,7 +4189,7 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
       }
       const host = endMarker.parentNode || parent;
       reconcileKeyed(host, endMarker, items, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
-      if (optionsChanged !== null) optionsChanged(host);
+      optionsChanged(host);
     }
     items = newItems.length > 0 ? newItems.slice() : newItems;
   });
@@ -4337,7 +4339,7 @@ function hydrateErrorBoundary(vnode) {
   const contentFor = (error) => {
     if (!error) return children;
     const fallback = vnode.props.fallback;
-    return typeof fallback === 'function' ? fallback({ error, reset }) : fallback;
+    return typeof fallback === 'function' ? _toFunctionComponent(fallback)({ error, reset }) : fallback;
   };
   const c = cur;
   const parent = c.p;
@@ -5060,7 +5062,32 @@ export function _$exit() {
 
 /** _$createComponent for hydratable output: while hydrating, the component adopts the server's nodes and the nodes come back as an array. `site` is the number what-compiler gave the JSX (hydration-data.js _assignOwnerPath). */
 export function _$hcreateComponent(Component, props, children, site, devLoc) {
-  return _$hcreateFn(asComponent(Component), props, children, site, devLoc);
+  return _$hcreateFn(typeof Component === 'string' ? claimedTag(Component) : asComponent(Component), props, children, site, devLoc);
+}
+
+// A tag held in a binding, in hydratable output: while hydrating, the
+// server's element where the walk stands, claimed as compiled
+// `<a {...props}>{props.children}</a>` claims its own (the attributes the
+// props do not write go, its children are adopted); anything else is built
+// as tagComponent builds it.
+function claimedTag(tag) {
+  const build = tagComponent(tag);
+  return (props) => {
+    const c = cur;
+    if (c === null || !c.h) return build(props);
+    const fresh = tagElement(tag);
+    let el = takeElement(c, tag);
+    if (el === null) enterNode(el = recover(c, fresh, `<${tag}>`), undefined);
+    else {
+      keepTemplateAttrs(el, fresh);
+      enterNode(el, null);
+    }
+    _selectsFor(el);
+    spread(FIELD_TAGS.has(el.localName) ? _$controlled(el) : el, props);
+    _$hole(el, _place(props, 'children', 1), 3);
+    _$exit();
+    return el;
+  };
 }
 
 /** _$hcreateComponent for a module whose every component is a plain function (_$createLazyFn). */

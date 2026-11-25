@@ -508,7 +508,9 @@ export function componentCallee(name) {
 // `props.<key>`.
 export function deferPlacedProps(fnPath, state) {
   const params = fnPath.node.params;
-  if (params.length !== 1 || isRowFunction(fnPath, state)) return;
+  // A second parameter that is a name is forwardRef's render function's ref
+  // (`({ as: Tag, ...rest }, ref) => …`): the first is still the props.
+  if (params.length === 0 || params.length > 2 || (params.length === 2 && !t.isIdentifier(params[1])) || isRowFunction(fnPath, state)) return;
   const param = params[0];
   const rendersJsx = containsJsx(fnPath.node);
   if (t.isObjectPattern(param)) {
@@ -543,32 +545,75 @@ export function deferPlacedProps(fnPath, state) {
       binding = fnPath.scope.getBinding(param.name);
       if (!binding) return;
     }
-    const rewrites = [];
-    const reads = [];
-    for (const ref of binding.referencePaths) {
-      const decl = ref.parentPath;
-      if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
-        // `const { children } = props` in the body.
-        if (decl.parent.kind === 'var' || ref.getFunctionParent() !== fnPath) continue;
-        const found = placedProps(fnPath, decl.node.id, decl.scope, state, rendersJsx);
-        if (found !== null) rewrites.push([decl, found]);
-      } else if (!state.ssr && decl.isMemberExpression() && ref.key === 'object' && !t.isNumericLiteral(decl.node.property)
-          && propertyName(decl.node.property, decl.node.computed) !== null && placesValue(decl, fnPath, state)) {
-        reads.push(decl);
-      }
-    }
-    if (rewrites.length === 0 && reads.length === 0) return;
-    for (const [decl, found] of rewrites) {
-      readAtUse(fnPath, found, param, state);
-      const declarators = otherProps(fnPath, found, param, state);
-      if (declarators.length > 0) decl.replaceWithMultiple(declarators);
-      else decl.remove();
-    }
-    for (const read of reads) read.replaceWith(placingRead(param, propertyName(read.node.property, read.node.computed), state));
+    if (!readPropsWhereUsed(fnPath, binding, param, state, rendersJsx)) return;
   } else {
     return;
   }
   fnPath.scope.crawl();
+  readRestsWhereUsed(fnPath, state, rendersJsx);
+}
+
+// The reads of the props object `binding` (named `id`) where they are used:
+// a pattern destructured from it in the body (`const { children } = props`)
+// and a read `props.<key>` where it is placed. Whether any was rewritten.
+function readPropsWhereUsed(fnPath, binding, id, state, rendersJsx) {
+  const rewrites = [];
+  const reads = [];
+  for (const ref of binding.referencePaths) {
+    const decl = ref.parentPath;
+    if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
+      // `const { children } = props` in the body, or in a function of it
+      // that renders JSX (`const row = () => { const { a, ...rest } = props; … }`).
+      const inner = ref.getFunctionParent();
+      if (inner !== fnPath && !containsJsx(inner.node)) continue;
+      if (decl.parent.kind === 'var') {
+        if (rendersJsx) warnReadOnce(fnPath, state, decl.node.id, `{ ${[...collectNames(decl.node.id)].join(', ')} }`, 'it is declared with `var`', 'declare it with `const`');
+        continue;
+      }
+      const found = placedProps(fnPath, decl.node.id, decl.scope, state, rendersJsx);
+      if (found !== null) rewrites.push([decl, found]);
+    } else if (!state.ssr && decl.isMemberExpression() && ref.key === 'object' && !t.isNumericLiteral(decl.node.property)
+        && propertyName(decl.node.property, decl.node.computed) !== null && placesValue(decl, fnPath, state)) {
+      reads.push(decl);
+    }
+  }
+  if (rewrites.length === 0 && reads.length === 0) return false;
+  for (const [decl, found] of rewrites) {
+    readAtUse(fnPath, found, id, state);
+    const declarators = otherProps(fnPath, found, id, state);
+    if (declarators.length > 0) decl.replaceWithMultiple(declarators);
+    else decl.remove();
+  }
+  for (const read of reads) read.replaceWith(placingRead(id, propertyName(read.node.property, read.node.computed), state));
+  return true;
+}
+
+// A rest element of the props (otherProps marks its declarator,
+// `_whatPropsRest`) holds the props' getters, so it is read the way the props
+// are: destructured again (`const { href, ...more } = rest`), read by key
+// (`rest.href`, a binding in JSX: reactivity.js isPropsRead) and placed
+// (`{rest.children}`). Its own rest elements are, in turn.
+function readRestsWhereUsed(fnPath, state, rendersJsx) {
+  const done = new Set();
+  for (let pass = 0; pass < 8; pass++) {
+    const pending = [];
+    fnPath.traverse({
+      Function(inner) { inner.skip(); },
+      VariableDeclarator(decl) {
+        if (decl.node._whatPropsRest === true && !done.has(decl.node)) pending.push(decl);
+      },
+    });
+    if (pending.length === 0) return;
+    let changed = false;
+    for (const decl of pending) {
+      done.add(decl.node);
+      const binding = decl.scope.getBinding(decl.node.id.name);
+      if (!binding || binding.constantViolations.length > 0) continue;
+      if (readPropsWhereUsed(fnPath, binding, t.identifier(decl.node.id.name), state, rendersJsx)) changed = true;
+    }
+    if (!changed) return;
+    fnPath.scope.crawl();
+  }
 }
 
 // --- Aliases of a prop ---
@@ -683,19 +728,105 @@ function placedProps(fnPath, pattern, scope, state, rendersJsx) {
   const others = [];
   for (const prop of pattern.properties) {
     const entry = t.isObjectProperty(prop) ? readProp(fnPath, prop, scope) : null;
+    // `{ style: { color } }`: each name is read as `props.style.color` where
+    // it is used, as a live prop is, in a function that renders JSX.
+    const nested = entry === null && rendersJsx && t.isObjectProperty(prop) ? nestedProps(fnPath, prop, scope) : null;
+    if (nested !== null && counts.get(nested[0].key) === 1
+        && nested.every((leaf) => leaf.binding.referencePaths.every((ref) => !ref.isJSXIdentifier()))) {
+      live.push(...nested);
+      continue;
+    }
     // A second key would still read the getter where it is destructured.
-    if (entry === null || counts.get(entry.key) !== 1) others.push(prop);
-    else if (entry.binding.referencePaths.every((ref) => placesValue(ref, fnPath, state))) placed.push(entry);
+    if (entry === null || counts.get(entry.key) !== 1) {
+      others.push(prop);
+      if (rendersJsx && t.isObjectProperty(prop)) readOnce(fnPath, state, prop, counts);
+    } else if (entry.binding.referencePaths.every((ref) => placesValue(ref, fnPath, state))) placed.push(entry);
     else if (rendersJsx && entry.binding.referencePaths.every((ref) => !ref.isJSXIdentifier())) live.push(entry);
     else others.push(prop);
   }
-  if (placed.length === 0 && live.length === 0) return null;
   const last = others[others.length - 1];
   const rest = t.isRestElement(last) ? last : null;
+  // A rest element is always built here, even with no prop read where it is
+  // used: destructured natively it would read every getter once
+  // (`({ as: Tag, ...rest }) => <Tag {...rest} />` showed the first `href`
+  // forever), where _$omit keeps them.
+  if (placed.length === 0 && live.length === 0 && rest === null) return null;
   // The rest object is built by naming the keys it leaves out.
   if (rest !== null && (!t.isIdentifier(rest.argument)
-      || others.some((p) => t.isObjectProperty(p) && propertyName(p.key, p.computed) === null))) return null;
+      || others.some((p) => t.isObjectProperty(p) && propertyName(p.key, p.computed) === null))) {
+    if (rendersJsx && t.isIdentifier(rest.argument)) warnReadOnce(fnPath, state, rest, `...${rest.argument.name}`, 'the pattern has a computed key, so the keys the rest element leaves out are not known', `name the keys (\`const { [key]: v } = props\` apart from \`const { a, ...${rest.argument.name} } = props\`)`);
+    return null;
+  }
   return { placed, live, others, rest };
+}
+
+// --- ERR_PROP_READ_ONCE ---
+// A destructured prop the compiler cannot read where it is used is read once,
+// when the component runs, and keeps that value when the parent's state
+// changes, where React would render the new one. That is never silent: a
+// development build says so at compile time, with the fix.
+
+/** Report why the destructured prop `prop` is read once, if it is used. */
+function readOnce(fnPath, state, prop, counts) {
+  const key = propertyName(prop.key, prop.computed);
+  const value = t.isAssignmentPattern(prop.value) ? prop.value.left : prop.value;
+  const name = t.isIdentifier(value) ? value.name : key ?? '(pattern)';
+  if (t.isIdentifier(value)) {
+    const binding = fnPath.scope.getBinding(value.name);
+    if (!binding || binding.referencePaths.length === 0) return;
+    // A component held in a prop and used as a tag (`as: Tag`) is read where
+    // the component runs by design: see docs/GOTCHAS.md.
+    if (binding.referencePaths.some((ref) => ref.isJSXIdentifier())) return;
+    if (binding.constantViolations.length > 0) {
+      return warnReadOnce(fnPath, state, prop, name, 'it is assigned again in the component', `leave the prop as it is and write a new name (\`const shown = () => props.${key ?? name} ?? fallback\`)`);
+    }
+  }
+  if (key === null) return warnReadOnce(fnPath, state, prop, name, 'its key is computed', 'read `props[key]` where it is used');
+  if (counts.get(key) !== 1) return warnReadOnce(fnPath, state, prop, name, `\`${key}\` is destructured twice`, 'destructure it once');
+  if (t.isAssignmentPattern(prop.value)) {
+    return warnReadOnce(fnPath, state, prop, name, 'its default reads a name of the component or calls something', `read \`props.${key} ?? <default>\` where it is used, or make the default a constant at module scope`);
+  }
+  if (t.isObjectPattern(value) || t.isArrayPattern(value)) {
+    return warnReadOnce(fnPath, state, prop, name, 'its pattern holds a rest element, an array, a computed key or a default that is not a literal', `read \`props.${key}\` where it is used`);
+  }
+}
+
+const warnedReadOnce = new Set();
+
+function collectNames(pattern, out = new Set()) {
+  if (t.isIdentifier(pattern)) out.add(pattern.name);
+  else if (t.isAssignmentPattern(pattern)) collectNames(pattern.left, out);
+  else if (t.isRestElement(pattern)) collectNames(pattern.argument, out);
+  else if (t.isObjectPattern(pattern)) for (const p of pattern.properties) collectNames(t.isRestElement(p) ? p : p.value, out);
+  else if (t.isArrayPattern(pattern)) for (const e of pattern.elements) if (e) collectNames(e, out);
+  return out;
+}
+
+function warnReadOnce(fnPath, state, node, name, why, fix) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || !isComponentFunction(fnPath)) return;
+  const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+  const loc = node.loc ? `:${node.loc.start.line}:${node.loc.start.column + 1}` : '';
+  const at = `${fileName}${loc}`;
+  if (warnedReadOnce.has(`${at}::${name}`)) return;
+  warnedReadOnce.add(`${at}::${name}`);
+  console.warn(
+    `[what-compiler] ERR_PROP_READ_ONCE: \`${name}\`, destructured from the props of <${componentName(fnPath)}> at ${at}, ` +
+    `is read once, when the component runs, because ${why}: it keeps that value when the parent's state changes. ` +
+    `Fix: ${fix}. Run what_fix({ error: 'ERR_PROP_READ_ONCE' }) for the worked example.`
+  );
+}
+
+// A function named as a component is (`function Card`, `const Card = …`).
+function isComponentFunction(fnPath) {
+  return /^[A-Z]/.test(componentName(fnPath));
+}
+
+function componentName(fnPath) {
+  if (fnPath.node.id) return fnPath.node.id.name;
+  let at = fnPath.parentPath;
+  // `const Card = memo((props) => …)`, `forwardRef(...)`.
+  while (at && at.isCallExpression()) at = at.parentPath;
+  return at && at.isVariableDeclarator() && t.isIdentifier(at.node.id) ? at.node.id.name : 'anonymous';
 }
 
 // A destructured prop that can be read where it is used: a static key bound
@@ -705,17 +836,92 @@ function readProp(fnPath, prop, scope) {
   if (key === null) return null;
   let local = prop.value;
   let fallback = null;
+  let hoist = false;
   if (t.isAssignmentPattern(local)) {
     fallback = local.right;
     local = local.left;
     // Evaluated where each read stands now, so only a value that is the
-    // same wherever and however often it is evaluated.
-    if (!isPlainLiteral(fallback, fnPath.scope)) return null;
+    // same wherever and however often it is evaluated: a plain literal, or
+    // one that reads nothing of the component and calls nothing
+    // (`items = []`, `onChange = () => {}`, `size = SIZES.md`), made once
+    // when the component runs and kept (readAtUse).
+    if (!isPlainLiteral(fallback, fnPath.scope)) {
+      if (!isClosedValue(fallback, fnPath)) return null;
+      hoist = true;
+    }
   }
   if (!t.isIdentifier(local)) return null;
   const binding = scope.getBinding(local.name);
   if (!binding || binding.constantViolations.length > 0) return null;
-  return { key, binding, fallback };
+  return { key, binding, fallback, hoist };
+}
+
+// A value that evaluated once when the component starts is the value its
+// default would have been: literals, arrays and objects of them, functions
+// (evaluated when called), and names and member reads from outside the
+// component. No call, no `new`, no `this`.
+function isClosedValue(node, fnPath) {
+  switch (node.type) {
+    case 'StringLiteral': case 'NumericLiteral': case 'BooleanLiteral': case 'NullLiteral': case 'BigIntLiteral':
+    case 'ArrowFunctionExpression': case 'FunctionExpression':
+      return true;
+    case 'TemplateLiteral':
+      return node.expressions.every((e) => isClosedValue(e, fnPath));
+    case 'ArrayExpression':
+      return node.elements.every((e) => e === null || isClosedValue(t.isSpreadElement(e) ? e.argument : e, fnPath));
+    case 'ObjectExpression':
+      return node.properties.every((p) => (t.isObjectMethod(p) ? !p.computed
+        : t.isSpreadElement(p) ? isClosedValue(p.argument, fnPath)
+          : (!p.computed || isClosedValue(p.key, fnPath)) && isClosedValue(p.value, fnPath)));
+    case 'Identifier': {
+      const binding = fnPath.scope.getBinding(node.name);
+      return !binding || !(binding.path === fnPath || binding.path.isDescendant(fnPath));
+    }
+    case 'MemberExpression':
+      return isClosedValue(node.object, fnPath) && (!node.computed || isClosedValue(node.property, fnPath));
+    case 'UnaryExpression':
+      return node.operator !== 'delete' && isClosedValue(node.argument, fnPath);
+    case 'BinaryExpression': case 'LogicalExpression':
+      return isClosedValue(node.left, fnPath) && isClosedValue(node.right, fnPath);
+    case 'ConditionalExpression':
+      return isClosedValue(node.test, fnPath) && isClosedValue(node.consequent, fnPath) && isClosedValue(node.alternate, fnPath);
+    default:
+      return false;
+  }
+}
+
+// The names of a nested pattern of prop `prop` (`style: { color, size = 1 }`,
+// `style: { color } = {}`, nested further), each as a live read of its path
+// (`{ key, path, optional, binding, fallback }`), or null when one cannot be:
+// a computed key, a rest element, a default that is not a plain literal (an
+// empty object for the pattern itself, read as `props.style?.color`), a name
+// that is reassigned.
+function nestedProps(fnPath, prop, scope) {
+  const key = propertyName(prop.key, prop.computed);
+  if (key === null) return null;
+  const out = [];
+  const visit = (value, path, optional) => {
+    if (t.isAssignmentPattern(value) && t.isObjectPattern(value.left)) {
+      if (!t.isObjectExpression(value.right) || value.right.properties.length > 0) return false;
+      return visit(value.left, path, true);
+    }
+    if (!t.isObjectPattern(value) || value.properties.length === 0) return false;
+    for (const inner of value.properties) {
+      if (!t.isObjectProperty(inner)) return false;
+      const name = propertyName(inner.key, inner.computed);
+      if (name === null) return false;
+      const at = [...path, { name, optional }];
+      if (t.isObjectPattern(inner.value) || (t.isAssignmentPattern(inner.value) && t.isObjectPattern(inner.value.left))) {
+        if (!visit(inner.value, at, false)) return false;
+        continue;
+      }
+      const entry = readProp(fnPath, { ...inner, key: t.identifier('x'), computed: false }, scope);
+      if (entry === null) return false;
+      out.push({ key, path: at, binding: entry.binding, fallback: entry.fallback });
+    }
+    return true;
+  };
+  return visit(prop.value, [], false) ? out : null;
 }
 
 function propertyName(key, computed) {
@@ -808,6 +1014,63 @@ function placingRead(propsId, key, state, fallback = null) {
   return t.callExpression(callee, args);
 }
 
+// --- A spread's children ---
+// `<a {...props} />` with `props.children` renders the children in React:
+// the element's props are the spread, children included. An element with no
+// children of its own is given the spread's as its content, read where they
+// are placed (`{_$place(props, "children")}` for the DOM back end, the read
+// `props.children` for the server's), so lazy children are built in the
+// element and live ones stay live; the setters never write `children` as an
+// attribute (render.js spread). Several spreads: the last that holds children,
+// as their merge would. Only a spread of a name or a member chain is read
+// again; any other argument is evaluated once by the spread (its children,
+// if any, are not rendered). Not for a void element, a <textarea> (its
+// children are its default, React's warning) or an element that names
+// `children` itself.
+const NO_SPREAD_CHILDREN = new Set(['textarea', 'noscript', 'template']);
+
+export function spreadChildren(elPath, state) {
+  const node = elPath.node;
+  const name = node.openingElement.name;
+  if (!t.isJSXIdentifier(name)) return;
+  // A tag held in a binding may name an element (`<Tag {...rest} />`), which
+  // what-core renders with the props' children (render.js tagComponent). The
+  // server renders it as the vnode `h(Tag, props, ...children)`, so it is
+  // handed them as its children too; a component given them that way gets
+  // the same `props.children`.
+  if (isComponent(name.name) ? !state.ssr || !mayHoldTag(elPath.scope.getBinding(name.name))
+    : isVoidHtmlElement(name.name) || NO_SPREAD_CHILDREN.has(name.name)) return;
+  const attrs = node.openingElement.attributes;
+  const spreads = attrs.filter((a) => t.isJSXSpreadAttribute(a));
+  if (spreads.length === 0 || attrs.some((a) => t.isJSXAttribute(a) && getAttrName(a) === 'children')) return;
+  if (node.children.some((c) => !t.isJSXText(c) || /[^ \t\r\n]/.test(c.value))) return;
+  if (!spreads.every((s) => isNameChain(s.argument))) return;
+  const source = spreads.length === 1 ? spreads[0].argument
+    : state.ssr ? t.objectExpression(spreads.map((s) => t.spreadElement(t.cloneNode(s.argument))))
+      : t.callExpression(helper(state, '_$merge'), spreads.map((s) => t.cloneNode(s.argument)));
+  node.children = [t.jsxExpressionContainer(placingRead(source, 'children', state))];
+  if (node.openingElement.selfClosing) {
+    node.openingElement.selfClosing = false;
+    node.closingElement = t.jsxClosingElement(t.jsxIdentifier(name.name));
+  }
+}
+
+// A binding that may hold an element's name: not a function, a class or an
+// import, which name components.
+function mayHoldTag(binding) {
+  if (!binding || binding.kind === 'module' || binding.kind === 'hoisted') return false;
+  const node = binding.path.node;
+  if (t.isClassDeclaration(node) || t.isFunction(node)) return false;
+  const init = t.isVariableDeclarator(node) ? node.init : null;
+  return !(t.isFunction(init) || t.isClassExpression(init));
+}
+
+// `a`, `this`, `a.b.c`, `a['b']`: read again with no side effect.
+function isNameChain(node) {
+  while (t.isMemberExpression(node) && (!node.computed || t.isStringLiteral(node.property))) node = node.object;
+  return t.isIdentifier(node) || t.isThisExpression(node);
+}
+
 // Moving a parameter pattern into the body changes what its defaults and
 // computed keys see: a name the body declares, which they could not see
 // before.
@@ -832,9 +1095,17 @@ function movesIntoBody(fnPath, others) {
 function readAtUse(fnPath, found, propsId, state) {
   const entries = [
     ...found.placed.map((entry) => [entry, () => placingRead(propsId, entry.key, state)]),
-    ...found.live.map((entry) => [entry, () => propRead(propsId, entry.key)]),
+    ...found.live.map((entry) => [entry, () => pathRead(propRead(propsId, entry.key), entry.path)]),
   ];
-  for (const [{ key, binding, fallback }, read] of entries) {
+  for (const [entry, read] of entries) {
+    const { key, binding } = entry;
+    let fallback = entry.fallback;
+    if (entry.hoist) {
+      // The default, made once when the component runs.
+      const made = fnPath.scope.generateUidIdentifier(`${key}Default`);
+      fnPath.scope.push({ id: made, init: fallback, kind: 'const' });
+      fallback = made;
+    }
     for (const ref of binding.referencePaths) {
       // `{ id }` in an object literal names the prop's value.
       if (ref.parentPath.isObjectProperty({ shorthand: true }) && ref.key === 'value') ref.parent.shorthand = false;
@@ -861,6 +1132,17 @@ function readAtUse(fnPath, found, propsId, state) {
   }
 }
 
+// `read.a.b` for a nested pattern's path, `read?.a` where the pattern
+// defaults to `{}`.
+function pathRead(read, path) {
+  if (path === undefined) return read;
+  for (const { name, optional } of path) {
+    const k = propKey(name);
+    read = optional ? t.optionalMemberExpression(read, k, !t.isIdentifier(k), true) : t.memberExpression(read, k, !t.isIdentifier(k));
+  }
+  return read;
+}
+
 // `props.<key>`, a live read (not a placing one).
 function propRead(propsId, key) {
   const k = propKey(key);
@@ -875,12 +1157,16 @@ function otherProps(fnPath, found, source, state) {
   const declarators = [];
   if (named.length > 0) declarators.push(t.variableDeclarator(t.objectPattern(named), t.cloneNode(source)));
   if (found.rest !== null) {
-    const excluded = [...found.placed.map((p) => p.key), ...found.live.map((p) => p.key), ...named.map((p) => propertyName(p.key, p.computed))].map((name) => t.stringLiteral(name));
+    const excluded = [...new Set([...found.placed.map((p) => p.key), ...found.live.map((p) => p.key), ...named.map((p) => propertyName(p.key, p.computed))])].map((name) => t.stringLiteral(name));
     // The DOM back end's rest keeps live props live (render.js _$omit); the
     // server renders once and reads them.
     const omit = state.ssr ? fnPath.hub.addHelper('objectWithoutProperties') : helper(state, '_$omit');
     const without = t.callExpression(omit, [t.cloneNode(source), t.arrayExpression(excluded)]);
-    declarators.push(t.variableDeclarator(found.rest.argument, without));
+    const rest = t.variableDeclarator(found.rest.argument, without);
+    // It holds the props' getters: its reads are props reads (readRestsWhereUsed).
+    rest._whatPropsRest = true;
+    (fnPath.node._whatPropsRests ||= []).push(found.rest.argument.name);
+    declarators.push(rest);
   }
   return declarators;
 }
@@ -1110,11 +1396,15 @@ function childContext(own, tag, attributes) {
   return 'math';
 }
 
+// A component placed in SVG or MathML, or in HTML inside one of them (an
+// integration point), also gets `_whatPlacedNs` (1 SVG, 2 MathML, 0 HTML):
+// what-core creates a tag held in a binding below it that SVG and HTML both
+// name in that namespace (render.js _$inNs).
 export function annotateNamespaces(root) {
-  const visit = (node, ns) => {
+  const visit = (node, ns, foreign = false) => {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) {
-      for (const item of node) visit(item, ns);
+      for (const item of node) visit(item, ns, foreign);
       return;
     }
     if (node.type === 'JSXElement') {
@@ -1130,22 +1420,25 @@ export function annotateNamespaces(root) {
                     : 'html';
         node._whatNs = own;
         const inner = childContext(own, tag, node.openingElement.attributes);
-        visit(node.openingElement.attributes, inner);
-        visit(node.children, inner);
+        const within = foreign || own === 'svg' || own === 'math';
+        visit(node.openingElement.attributes, inner, within);
+        visit(node.children, inner, within);
       } else {
         // A component renders its children where it stands.
         node._whatNs = ns;
-        visit(node.openingElement.attributes, ns);
-        visit(node.children, ns);
+        if (ns === 'svg' || ns === 'math') node._whatPlacedNs = ns === 'svg' ? 1 : 2;
+        else if (foreign) node._whatPlacedNs = 0;
+        visit(node.openingElement.attributes, ns, foreign);
+        visit(node.children, ns, foreign);
       }
       return;
     }
     if (node.type === 'JSXFragment') {
       node._whatNs = ns;
-      visit(node.children, ns);
+      visit(node.children, ns, foreign);
       return;
     }
-    for (const key of t.VISITOR_KEYS[node.type] || []) visit(node[key], ns);
+    for (const key of t.VISITOR_KEYS[node.type] || []) visit(node[key], ns, foreign);
   };
   visit(root, null);
 }

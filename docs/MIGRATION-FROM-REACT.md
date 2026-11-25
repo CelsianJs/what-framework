@@ -100,6 +100,28 @@ function App() {
 }
 ```
 
+### Spread Props and Polymorphic Components
+
+Rest props, `as` props and wrappers that spread their props keep working as written, and follow the parent's state as React re-renders them:
+
+```jsx
+// A design system's Box, Text or Button with `as`
+const Box = ({ as: Tag = 'div', size = 'md', ...rest }) => <Tag class={'box-' + size} {...rest} />;
+
+// A wrapper that spreads everything, children included
+const Link = (props) => <a {...props} />;
+
+// A forwardRef-style render function (what-react's forwardRef, or React 19's ref prop)
+const Input = ({ label, ...rest }, ref) => <label>{label}<input ref={ref} {...rest} /></label>;
+
+const page = <>
+  <Box as="a" href={url()} title={title()}>{label()}</Box>  {/* every prop and the text stay live */}
+  <svg><Box as="circle" r={radius()} /></svg>                 {/* an SVG element, drawn */}
+</>;
+```
+
+The rest element keeps the props live wherever it goes (spread, handed on, destructured again, read by key), a spread's `children` render as the element's children, and a tag held in a binding (`<Tag />` with `Tag` a string) is created in the namespace it stands in and hydrates in place. Two things are read once, as everything outside JSX is in a component that runs once: the tag (`as={isLink() ? 'a' : 'button'}` keeps its first element; branch in JSX to switch) and an event handler (read the state inside it). Shapes the compiler cannot read where you use them, such as a destructured prop you assign again, are reported at build time as `ERR_PROP_READ_ONCE`. See [GOTCHAS.md](./GOTCHAS.md#26-rest-props-and-polymorphic-components-stay-live).
+
 ### Event Handling
 
 Same `onClick`, `onChange`, `onSubmit` patterns.
@@ -423,7 +445,7 @@ Call the signal in the condition. The compiler wraps a JSX expression that calls
 </For>
 ```
 
-Keep `.map()` with a `key` prop, and call the list's accessor (`items()`). The compiler lowers it to keyed reconciliation with LIS-based minimal DOM moves; each row gets its own reactive scope that is disposed on removal, and a row whose item is replaced under the same key (an immutable update, a refetch) keeps its DOM and shows the new item, as React does. `<For each={items}>` takes the accessor (or an array; compiled JSX makes `each={items().filter(f)}` reactive too), and with `key` hands each row its item as an accessor (`item()`), built once per key.
+Keep `.map()` with a `key` prop, and call the list's accessor (`items()`). The compiler lowers it to keyed reconciliation with LIS-based minimal DOM moves; each row gets its own reactive scope that is disposed on removal, and a row whose item is replaced under the same key (an immutable update, a refetch) keeps its DOM and shows the new item, as React does, a row that destructures its item (`({ id, label, ...rest }) => …`) included. `<For each={items}>` takes the accessor (or an array; compiled JSX makes `each={items().filter(f)}` reactive too), and with `key` hands each row its item as an accessor (`item()`), built once per key.
 
 ## What's Better
 
@@ -623,7 +645,7 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 3. `useMemo` and `useCallback` ignore their dependency arrays: delete them. `useMemo` returns an accessor, so read `total()`
 4. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 5. Call accessors where they render (`{count()}`, `class={active() ? 'on' : ''}`); the compiler makes those reactive. Write `() =>` yourself only when the read hides inside a call whose arguments call nothing
-6. Props written as in React stay live: `<Child count={count()} />` updates the child's `{props.count}` (or a destructured `{count}`) where it renders, and the child keeps its state. A value the child computes in its body outside JSX is read once: write it in JSX or in `computed()`. Passing the accessor itself (`count={count}`, called as `count()` in the child) also works
+6. Props written as in React stay live: `<Child count={count()} />` updates the child's `{props.count}` (or a destructured `{count}`, a nested one or one with a default) where it renders, and the child keeps its state; so do rest props (`({ as: Tag, ...rest }) => <Tag {...rest} />`) and spread props. A value the child computes in its body outside JSX is read once: write it in JSX or in `computed()`. Passing the accessor itself (`count={count}`, called as `count()` in the child) also works. Don't assign a destructured prop (`size = size ?? 'md'`): give it a default (`{ size = 'md' }`) or a new name; the build reports `ERR_PROP_READ_ONCE` where a prop would be read once
 7. Keep `.map()` with a `key` prop for lists, on the accessor: `{items().map(item => <li key={item.id}>…</li>)}`
 8. Replace `React.lazy` with `lazy` from what-framework (same API)
 9. Update imports: `react` --> `what-framework`. React's hooks keep their names there; the domain kits are subpaths (`what-framework/form`, `/data`, `/a11y`, `/ui`, `/motion`, `/dom`)

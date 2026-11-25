@@ -41,11 +41,11 @@ export function useLoaderData() {
 function getCtx(hookName) {
   const ctx = _currentComponent();
   if (!ctx) {
-    throw Object.assign(new Error(
-      `[what] ${hookName || 'Hook'}() can only be called inside a component function. ` +
-      `Did you call it outside of a component or in an async callback? ` +
-      `If you need reactive state outside a component, use signal() directly.`
-    ), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' });
+    // The production tier keeps the code and the first sentence; the
+    // catalogue (ERR_HOOK_OUTSIDE_COMPONENT) has the rest.
+    throw Object.assign(new Error(`[what] ${hookName || 'Hook'}() can only be called inside a component function.` + (__DEV__
+      ? ' Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.'
+      : '')), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' });
   }
   return ctx;
 }

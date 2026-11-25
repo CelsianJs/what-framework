@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 74 of them: 43 errors and 31 warnings.
+Every code in What's error catalogue, all 75 of them: 43 errors and 32 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -56,7 +56,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
 | [`ERR_CLEANUP_WITHOUT_OWNER`](#err-cleanup-without-owner) | warning | onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs. |
 | [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler client output cannot be server-rendered: `file`. |
-| [`ERR_COMPILER_RUNTIME_MISMATCH`](#err-compiler-runtime-mismatch) | error | what-compiler `compiler` cannot build for `name` `version` (`file`): compiled output runs only on the runtime of its own release. |
+| [`ERR_COMPILER_RUNTIME_MISMATCH`](#err-compiler-runtime-mismatch) | error | what-compiler `compiler` cannot build for `name` `version` (`file`). |
 | [`ERR_COMPUTED_CYCLE`](#err-computed-cycle) | error | Computed "`name`" reads its own value, directly or through computeds that read it. |
 | [`ERR_CONTEXT_NOT_PROVIDED`](#err-context-not-provided) | warning | `context` was read with no provider above the component and has no default value, so useContext returned undefined. |
 | [`ERR_DERIVED_WITHOUT_STATE`](#err-derived-without-state) | warning | derived() for "`key`" takes no parameter, so it cannot read the store state. |
@@ -80,10 +80,10 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_ISR_MISSING_CLIENT`](#err-isr-missing-client) | error | [what-isr] createRedisStore requires { client } |
 | [`ERR_ISR_VARY_NO_HEADERS`](#err-isr-vary-no-headers) | error | [what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache. |
 | [`ERR_ISR_VARY_UNRESOLVED`](#err-isr-vary-unresolved) | error | [what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request. |
-| [`ERR_JSX_ISLAND_PROP`](#err-jsx-island-prop) | error | An island's props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. |
+| [`ERR_JSX_ISLAND_PROP`](#err-jsx-island-prop) | error | An island prop holds JSX: `message` |
 | [`ERR_LATE_REDIRECT`](#err-late-redirect) | error | [what-server] redirect(`location`) after the shell was sent needs an inline script, and this stream has noScripts. |
 | [`ERR_MISSING_CLEANUP`](#err-missing-cleanup) | warning | Effect sets up "`resource`" but does not return a cleanup function. |
-| [`ERR_MISSING_KEY`](#err-missing-key) | warning | List rendered without key prop in component "`component`". Items may re-order incorrectly. |
+| [`ERR_MISSING_KEY`](#err-missing-key) | warning | A .map() returns JSX without a key prop. |
 | [`ERR_MISSING_SIGNAL_READ`](#err-missing-signal-read) | warning | Signal "`signalName`" was converted to a string without being called, so the function's source text was used instead of its value. |
 | [`ERR_MOUNT_TARGET_MISSING`](#err-mount-target-missing) | error | `fn`() got no container element. |
 | [`ERR_MOVED_IMPORT`](#err-moved-import) | error | "`name`" is not exported by `source`. `answer` |
@@ -97,6 +97,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_PENDING_READ_UNTRACKED`](#err-pending-read-untracked) | warning | `call` was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen. |
 | [`ERR_PORTAL_TARGET_MISSING`](#err-portal-target-missing) | warning | <Portal target="`selector`"> matched no element, so its children render nowhere. |
 | [`ERR_PRETEXT_NOT_INSTALLED`](#err-pretext-not-installed) | error | [what-text] Failed to load @chenglou/pretext: `message`. |
+| [`ERR_PROP_READ_ONCE`](#err-prop-read-once) | warning | Prop ``name`` is read once, when <`component`> runs: `reason`. |
 | [`ERR_QUERY_OUTSIDE_RENDER`](#err-query-outside-render) | warning | [what] Server query cache used outside a render, loader or action. |
 | [`ERR_REBUILT_COMPONENT`](#err-rebuilt-component) | warning | A reactive region rebuilt <`component`> when it ran again, and the state <`component`> held is gone: "`region`" builds everything it returns anew on every run. |
 | [`ERR_REDIRECT_CYCLE`](#err-redirect-cycle) | error | [what-router] Redirect loop (`kind`): `cycle`. Guards of: `guards`. |
@@ -116,7 +117,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_UNKNOWN_TOOL`](#err-unknown-tool) | error | The MCP client called a tool this server does not expose. |
 | [`ERR_UNSAFE_INNERHTML`](#err-unsafe-innerhtml) | warning | innerHTML set on element without using the __html safety marker. |
 | [`ERR_UNSAFE_REDIRECT`](#err-unsafe-redirect) | error | [what-router] redirect() refused an unsafe target: `target` |
-| [`ERR_UNSAFE_STATIC_MARKUP`](#err-unsafe-static-markup) | error | what-compiler writes static tags, attributes and text straight into markup (the DOM target's template strings, which the browser parses, and the server target's string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a <script> cannot contain "</" or "<!--" and that of a <style> cannot contain "</", and a tag cannot be a namespaced name such as <svg:rect>. |
+| [`ERR_UNSAFE_STATIC_MARKUP`](#err-unsafe-static-markup) | error | Refused unsafe static markup: `message` |
 | [`ERR_USE_INVALID_ARG`](#err-use-invalid-arg) | error | [what-react] use() expects a promise or a context. |
 | [`ERR_USE_UNCACHED_PROMISE`](#err-use-uncached-promise) | error | Component "`component`" keeps suspending on a new promise: use() received a promise made in the component body, which is new on every attempt, so it never finishes. |
 | [`ERR_WRITE_AFTER_AWAIT`](#err-write-after-await) | warning | Signal "`signalName`" was written outside a transition while the async function of a transition that also wrote it was still running: a write after an await is not part of the transition, so it shows before the transition commits. |
@@ -345,7 +346,7 @@ export function Title() { return h('h1', null, 'Hi'); }
   ·  **Raised by:** `what-compiler`
   ·  **Detected:** compile
 
-> what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}): compiled output runs only on the runtime of its own release.
+> what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}).
 
 what-compiler's output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of "Before you start" in UPGRADING.md says.
 
@@ -854,7 +855,7 @@ cacheKey({ path, vary: { 'cookie:session': sessionId } });
   ·  **Raised by:** `what-compiler`
   ·  **Detected:** compile
 
-> {{message}}
+> An island prop holds JSX: {{message}}
 
 An island's props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. what-compiler refuses it on both targets. Pass the markup as a child of the island, which renders on the server and hydrates with it, or pass the data and build the markup inside the island. A function prop (a render prop) is fine: functions are left out of the JSON, and the island makes its own when it hydrates.
 
@@ -926,7 +927,7 @@ effect(() => {
   ·  **Raised by:** `what-compiler`
   ·  **Detected:** compile
 
-> List rendered without key prop in component "{{component}}". Items may re-order incorrectly.
+> A .map() returns JSX without a key prop.
 
 Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.
 
@@ -1222,6 +1223,34 @@ what-text declares pretext as an optional peer so the package installs without i
 // Then load it up front, so a missing install fails at startup:
 import { ensurePretext } from 'what-text';
 await ensurePretext();
+```
+
+## ERR_PROP_READ_ONCE
+
+**Severity:** warning
+  ·  **Raised by:** `what-compiler`
+  ·  **Detected:** compile
+
+> Prop `{{name}}` is read once, when <{{component}}> runs: {{reason}}.
+
+what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`: the compiler reports it at build time (development builds). Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.
+
+```jsx
+// Bad - size is assigned again, so it is read once:
+function Button({ size, ...rest }) {
+  size = size ?? 'md';
+  return <button class={'btn-' + size} {...rest} />;
+}
+
+// Good - the default applies where size is read, and size follows the parent:
+function Button({ size = 'md', ...rest }) {
+  return <button class={'btn-' + size} {...rest} />;
+}
+
+// Good - a computed default, read where it is used:
+function IconButton(props) {
+  return <button class={'btn-' + (props.size ?? defaultSize())} />;
+}
 ```
 
 ## ERR_QUERY_OUTSIDE_RENDER
@@ -1626,7 +1655,7 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');
   ·  **Raised by:** `what-compiler`
   ·  **Detected:** compile
 
-> {{message}}
+> Refused unsafe static markup: {{message}}
 
 what-compiler writes static tags, attributes and text straight into markup (the DOM target's template strings, which the browser parses, and the server target's string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a <script> cannot contain "</" or "<!--" and that of a <style> cannot contain "</", and a tag cannot be a namespaced name such as <svg:rect>. The server target also checks that a tag or attribute name can be emitted verbatim. Fix the value in the source; a dynamic value is still checked at run time.
 

@@ -83,10 +83,16 @@ describe('server target: a row\'s reactive attribute is one function for its lis
     assert.match(code, /\(_f\$(\d+), cell\) => _\$ssrRow\(_tmpl\$\d+, _f\$\1, cell, _\$ssrText\(cell\.text\)\), true, cell => cell\.id, \d+, \[cell => mark\(row, cell\)\]\)/);
   });
 
+  it('a destructured item is read through a named item, so its attribute is one function for the list', () => {
+    // lists.js nameRowParam: `({ id, on })` reads `item.on` where it is used,
+    // on both targets, so the row is any other keyed row.
+    const code = flat(compile(`export function List(props) { return <ul>{props.rows().map(({ id, on }) => <li key={id} class={cls(on)}>x</li>)}</ul>; }`));
+    assert.match(code, /\(_f\$0, (_row\$\d+)\) => _\$ssrRow\(_tmpl\$\d+, _f\$0, \1\), true, \1 => \1\.id, \d+, \[\1 => cls\(\1\.on\)\]\)/, code);
+  });
+
   const KEPT = {
     'the callback\'s index': 'props.rows().map((row, i) => <li key={row.id} class={cls(row, i)}>x</li>)',
     'the callback\'s array': 'props.rows().map((row, i, all) => <li key={row.id} class={cls(all)}>x</li>)',
-    'a destructured item': 'props.rows().map(({ id, on }) => <li key={id} class={cls(on)}>x</li>)',
     'an item with a default': 'props.rows().map((row = fallback) => <li class={cls(row)}>x</li>)',
     'an item the row assigns': 'props.rows().map(row => <li key={row.id} class={cls(row = next(row))}>x</li>)',
     'a block body': 'props.rows().map(row => { const c = cls(row); return <li key={row.id} class={c()}>x</li>; })',

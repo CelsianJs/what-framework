@@ -90,7 +90,7 @@ export function collectSignalNamesFromScope(path) {
     if (scopeNamesCache !== null && own === undefined) scopeNamesCache.set(scope, { signals, props, propsObject });
     for (const name of signals) signalNames.add(name);
     for (const name of props) propNames.add(name);
-    if (propsObject !== null) propsObjects.add(propsObject);
+    if (propsObject !== null) for (const name of propsObject) propsObjects.add(name);
     scope = scope.parent;
   }
 
@@ -166,7 +166,11 @@ function ownSignalNames(scope) {
     // it is still the same props destructuring and classifies the same way.
     if (fnNode._whatMovedProps) extractFromPattern(fnNode._whatMovedProps);
   }
-  return { signals, props, propsObject: (fnNode && fnNode._whatPropsParam) || null };
+  // Its props parameter, and the rest elements of its props (common.js
+  // readRestsWhereUsed), which hold the same getters.
+  const objects = fnNode && fnNode._whatPropsParam ? [fnNode._whatPropsParam] : [];
+  if (fnNode && fnNode._whatPropsParam && fnNode._whatPropsRests) objects.push(...fnNode._whatPropsRests);
+  return { signals, props, propsObject: objects.length > 0 ? objects : null };
 }
 
 // A read of a component's props object (`props.on`, `props.user.name`): its
@@ -179,6 +183,7 @@ function isPropsRead(expr, signalNames) {
   while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
   if (!t.isIdentifier(root) || !objects.has(root.name)) return false;
   const binding = bindingOf(root, signalNames.scope);
+  if (binding !== null && binding.path.node._whatPropsRest === true) return binding.constantViolations.length === 0;
   return binding !== null && binding.kind === 'param' && binding.path.parentPath != null
     && binding.path.parentPath.node._whatPropsParam === root.name;
 }
@@ -246,7 +251,9 @@ export function isPotentiallyReactive(expr, signalNames, importedIds) {
   if (!signalNames) signalNames = new Set();
 
   // A placing read of a prop (common.js placingRead) is the property read.
-  if (t.isCallExpression(expr) && expr.callee._whatPlace) return isPotentiallyReactive(expr.arguments[0], signalNames, importedIds);
+  // Off a name (the props, a rest element of them) the place itself follows a
+  // live prop (what-core dom.js _place), so the read needs no binding.
+  if (t.isCallExpression(expr) && expr.callee._whatPlace) return !t.isIdentifier(expr.arguments[0]) && isPotentiallyReactive(expr.arguments[0], signalNames, importedIds);
 
   if (t.isCallExpression(expr) || t.isOptionalCallExpression(expr)) {
     // If callee is a known signal identifier being called (signal read), it's reactive
@@ -1882,7 +1889,7 @@ export function resolveCallees(program, callPaths, importedIds) {
 // before any JSX is lowered (lowering rewrites a row callback's parameters):
 // a module of thousands of functions reads its top-level bindings once, not
 // once per function.
-/** @type {WeakMap<object, { signals: string[], props: string[], propsObject: string | null }> | null} */
+/** @type {WeakMap<object, { signals: string[], props: string[], propsObject: string[] | null }> | null} */
 let scopeNamesCache = null;
 
 // A `when` prop's shape determines how the condition is formed:

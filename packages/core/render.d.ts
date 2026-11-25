@@ -238,6 +238,8 @@ export function _$slots<P extends object>(props: P, slots: Record<string, () => 
 export function _$merge(...sources: unknown[]): Record<string, unknown>;
 /** @internal Compiled JSX's rest element of destructured props: `props` without `keys`, getters kept. */
 export function _$omit(props: unknown, keys: readonly string[]): Record<string, unknown>;
+/** @internal Compiled JSX: a component call placed in SVG (`ns` 1), MathML (2) or HTML inside one of them (0), so a tag held in a binding below it that SVG and HTML both name is created in that namespace. */
+export function _$inNs<T>(ns: 0 | 1 | 2, build: () => T): T;
 /** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. `inPlace` 1: where the server writes it with no markers of its own (an element's hole, a fragment's or an array's members). */
 export function _$place(props: object, key: string, inPlace?: 1): unknown;
 /** @internal The onHydrationError hook of the hydrate() walking now, or null (what-react's islands report to it after the walk). */

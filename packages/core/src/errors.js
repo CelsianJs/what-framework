@@ -413,13 +413,35 @@ html\`<div>\${sanitizedContent}</div>\``,
   MISSING_KEY: {
     code: 'ERR_MISSING_KEY',
     severity: 'warning',
-    template: 'List rendered without key prop in component "{{component}}". Items may re-order incorrectly.',
+    template: 'A .map() returns JSX without a key prop.',
     suggestion: 'Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.',
     codeExample: `// Bad — no key:
 <ul>{items().map(item => <li>{item.name}</li>)}</ul>
 
 // Good — stable key:
 <ul>{items().map(item => <li key={item.id}>{item.name}</li>)}</ul>`,
+  },
+
+  PROP_READ_ONCE: {
+    code: 'ERR_PROP_READ_ONCE',
+    severity: 'warning',
+    template: 'Prop `{{name}}` is read once, when <{{component}}> runs: {{reason}}.',
+    suggestion: 'what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent\'s state as React re-renders with it, and a rest element keeps the props\' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`: the compiler reports it at build time (development builds). Read the prop where you use it (`props.size ?? \'md\'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.',
+    codeExample: `// Bad - size is assigned again, so it is read once:
+function Button({ size, ...rest }) {
+  size = size ?? 'md';
+  return <button class={'btn-' + size} {...rest} />;
+}
+
+// Good - the default applies where size is read, and size follows the parent:
+function Button({ size = 'md', ...rest }) {
+  return <button class={'btn-' + size} {...rest} />;
+}
+
+// Good - a computed default, read where it is used:
+function IconButton(props) {
+  return <button class={'btn-' + (props.size ?? defaultSize())} />;
+}`,
   },
 
   DUPLICATE_KEY: {
@@ -799,7 +821,7 @@ const _tmpl$0 = _$template("<svg><circle r='1'></circle></svg>", 2);`,
   COMPILER_RUNTIME_MISMATCH: {
     code: 'ERR_COMPILER_RUNTIME_MISMATCH',
     severity: 'error',
-    template: 'what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}): compiled output runs only on the runtime of its own release.',
+    template: 'what-compiler {{compiler}} cannot build for {{name}} {{version}} ({{file}}).',
     suggestion: 'what-compiler\'s output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of "Before you start" in UPGRADING.md says.',
     codeExample: `// Bad — the compiler upgraded alone, peer checks skipped:
 //   npm install -D what-compiler@latest --legacy-peer-deps
@@ -883,7 +905,7 @@ export default defineConfig({
   UNSAFE_STATIC_MARKUP: {
     code: 'ERR_UNSAFE_STATIC_MARKUP',
     severity: 'error',
-    template: '{{message}}',
+    template: 'Refused unsafe static markup: {{message}}',
     suggestion: 'what-compiler writes static tags, attributes and text straight into markup (the DOM target\'s template strings, which the browser parses, and the server target\'s string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a <script> cannot contain "</" or "<!--" and that of a <style> cannot contain "</", and a tag cannot be a namespaced name such as <svg:rect>. The server target also checks that a tag or attribute name can be emitted verbatim. Fix the value in the source; a dynamic value is still checked at run time.',
     codeExample: `// Bad — each of these fails the build:
 <a href="javascript:void 0">Open</a>;
@@ -903,7 +925,7 @@ export default defineConfig({
   JSX_ISLAND_PROP: {
     code: 'ERR_JSX_ISLAND_PROP',
     severity: 'error',
-    template: '{{message}}',
+    template: 'An island prop holds JSX: {{message}}',
     suggestion: 'An island\'s props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. what-compiler refuses it on both targets. Pass the markup as a child of the island, which renders on the server and hydrates with it, or pass the data and build the markup inside the island. A function prop (a render prop) is fine: functions are left out of the JSON, and the island makes its own when it hydrates.',
     codeExample: `// Bad — the icon would reach the browser as {}:
 <Chart client:load icon={<StarIcon />} />;
