@@ -18,6 +18,7 @@ export {
   setProp,
   _$spread,
   _$setProp,
+  _$retype,
   _$setValue,
   _$selects,
   setClass,

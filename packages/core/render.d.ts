@@ -34,6 +34,8 @@ export function _$spreads(el: Element, sources: readonly unknown[] | (() => read
 export function _$xlink(): void;
 /** @internal setProp() as compiled output calls it (see `_$spread`). */
 export function _$setProp(el: Element, key: string, value: any): void;
+/** @internal setProp() for an input's `type` or a select's `multiple`, as compiled output writes them: a change writes the field's value and checked again. */
+export function _$retype(el: Element, key: string, value: any): void;
 /** @internal setValue() as compiled output calls it (see `_$spread`). */
 export function _$setValue(el: Element, value: any, bound?: 1): void;
 /** @internal Compiler output, once at module scope in a module whose JSX writes a prop of a <select> or an <option>: installs the code that keeps their selection. */

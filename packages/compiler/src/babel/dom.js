@@ -622,7 +622,7 @@ const FIELD_TAGS = new Set(['input', 'textarea', 'select']);
 const SELECT_TAGS = new Set(['select', 'option']);
 
 function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
-  if (ns === 'svg' && attributes.some((a) => t.isJSXSpreadAttribute(a) || (getAttrName(a).startsWith('xlink') && t.isJSXExpressionContainer(a.value)))) state.writesXlink = true;
+  if (ns === 'svg' && attributes.some((a) => t.isJSXSpreadAttribute(a) || (/^x(?:link|ml(?!ns))/.test(getAttrName(a)) && t.isJSXExpressionContainer(a.value)))) state.writesXlink = true;
   // Specialized monomorphic setters for statically-known attribute names.
   // The generic _$setProp re-dispatches on the key string
   // (ref/key/url/class/style/innerHTML/boolean/...) on EVERY reactive update;
@@ -665,6 +665,13 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       // A helper (not a raw `.checked =`) so function values still get
       // reactive-accessor treatment, like every other setter.
       return t.callExpression(helper(state, '_$setChecked'), [t.identifier(elId), valueExpr, ...binding]);
+    }
+    // An input's type and a select's multiple: a write that changes one
+    // writes the field's value and checked again (what-core _$retype), as
+    // `type={kind()} value="abc"` shows `abc` again once `date` gives way to
+    // `text`.
+    if ((propName === 'type' && tagName === 'input') || (propName === 'multiple' && tagName === 'select')) {
+      return t.callExpression(helper(state, '_$retype'), [t.identifier(elId), t.stringLiteral(propName), valueExpr]);
     }
     if (isEnumeratedAttr(propName)) {
       return t.callExpression(helper(state, '_$setAttr'), [
@@ -2942,8 +2949,8 @@ export function initDomState(state) {
   // A module whose JSX writes a prop of a select or an option installs the
   // selection code (_$selects()).
   state.makesSelects = false;
-  // A module whose JSX has an SVG element with an XLink attribute or a spread
-  // installs the XLink writer (_$xlink()).
+  // A module whose JSX has an SVG element with an XLink or XML attribute
+  // (`xlinkHref`, `xmlLang`) or a spread installs their writer (_$xlink()).
   state.writesXlink = false;
   state._selectorDecls = [];
   state._selectorIds = new Map();
@@ -2982,6 +2989,7 @@ const RENDER_IMPORTS = [
   ['_$xlink', '_$xlink'],
   ['_$controlled', '_$controlled'],
   ['_$setProp', '_$setProp'],
+  ['_$retype', '_$retype'],
   ['_$memo', '_$memo'],
   ['_$lazyMemo', '_$lazyMemo'],
   ['_$Island', '_$Island'],

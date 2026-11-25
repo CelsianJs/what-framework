@@ -35,6 +35,8 @@ export {
   // The writer of SVG's XLink attributes, installed by a module that may write one.
   _$xlink,
   _$setProp,
+  // An input's type and a select's multiple as compiled output writes them.
+  _$retype,
   _$setValue,
   _$selects,
   // Specialized setters emitted by the compiler for statically-known

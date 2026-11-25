@@ -9,7 +9,7 @@
 
 import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
@@ -2100,7 +2100,7 @@ function spread(el, props, after) {
   // A props object What built (forwarded props, a rest element) may hold live
   // props (dom.js _isLiveProp): each is bound like a reactive attribute,
   // reading the getter again when what it read changes.
-  const live = props != null && typeof props === 'object' && Object.getPrototypeOf(props) === null;
+  const live = props != null && Object.getPrototypeOf(props) === null;
   // An event is one whatever the case of its name (`onClick`, `onclick`):
   // the last name the props hold for it is its handler.
   const events = {};
@@ -2123,23 +2123,46 @@ function spread(el, props, after) {
 
     // A field's value or checked that follows state is bound as an attribute
     // of the field binds it, so the field shows it after its events.
-    if (fieldSpread !== null && typeof value === 'function' && (key === 'value' || key === 'checked')) fieldSpread(el, key, value);
+    if (fieldSpread && typeof value === 'function' && (key === 'value' || key === 'checked')) fieldSpread(el, key, value);
     // An event handler: a listener the current owner removes. A live one
     // (`onClick={open() ? close : show}` handed through a rest) is the
     // current handler, bound again when the parent hands another, as React
     // calls the handler of its last render.
     else if (event) {
-      if (get) effect(() => listen(el, key, value()));
-      else listen(el, key, value);
+      if (get) effect(() => listen(el, name, value()));
+      else listen(el, name, value);
     }
     // Anything else is written as setProp writes a prop: a ref is handed the
     // element (a function ref is a callback, never an accessor: a
     // `{...register('email')}` ref once saw undefined), a classList its
     // classes, and any other function is an accessor bound as a binding of
-    // its own, owned like every binding.
-    else setProp(el, key, value);
+    // its own, owned like every binding. An input's type and a select's
+    // multiple write the field's value again when they change it (retype).
+    else retype(el, key, value);
   }
 }
+
+/**
+ * @internal setProp(), where `key` is an input's `type` or a select's
+ * `multiple` (a spread's props, and those two as compiled JSX writes them):
+ * they decide what the field's value can be (`date` drops `abc`, `text` keeps
+ * it; one option or several), so a write that changes one writes the value and
+ * checked the field's props hold again, as React writes them after its type,
+ * whether a new writer, an accessor's next value or a writer's removal
+ * changed it. A field the user edited and no prop controls keeps the edit.
+ */
+function retype(el, key, value) {
+  if (key === 'type' || key === 'multiple') {
+    if (typeof value === 'function') {
+      if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
+      return effect(() => retype(el, key, value()));
+    }
+    const was = el[key];
+    setProp(el, key, value);
+    if (el[key] !== was) _showControlled(el);
+  } else setProp(el, key, value);
+}
+export { retype as _$retype };
 
 /**
  * Compiled JSX's spreads with other writers (`<button {...rest} {...{ title:
@@ -2153,17 +2176,20 @@ function spread(el, props, after) {
  * element imports it: an element with one plain spread calls _$spread.
  */
 export function _$spreads(el, sources, after) {
-  if (typeof sources !== 'function') return spread(el, winners(sources), after);
+  if (typeof sources !== 'function') return spread(el, winners(sources, el), after);
   // Read again: each name's writer is bound under a scope of its own, the
   // element's owner's, so a run rebinds only the names whose writer changed
   // (a getter of a props object What built that stays, which its binding
   // follows; the same plain value, each read once a run), and unbinds and
   // clears a name no source holds. A field's value and checked are bound
-  // last, once its other props (`type`, `multiple`) are written.
+  // last, once its other props (`type`, `multiple`, `max`) are written; a
+  // later change of its type or multiple writes them again (retype).
   const owner = getOwner();
   /** @type {Map<string, { key: string, src: any, get: any, value: any, field: any, dispose: () => void }>} */
   const shown = new Map();
-  let retype = false;
+  // The names the attributes after the spreads write, as the sources' names
+  // are compared (`tabIndex` after `{...{ tabindex }}` on an HTML element).
+  after = after?.map((key) => writerName(key, el));
   const bind = (name, src, key) => {
     const get = Object.getPrototypeOf(src) === null ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
     const value = get ? undefined : src[key];
@@ -2179,16 +2205,14 @@ export function _$spreads(el, sources, after) {
         return;
       }
       was.dispose();
-      // A field's kind changed (an input's type, a select's multiple): its
-      // value is written again below, for what the new kind accepts (`date`
-      // dropped `abc`, `text` keeps it; one option or several).
-      if (name === 'type' || name === 'multiple') retype = true;
     }
     // A function (a signal, an accessor) is bound as it is, as `value={v}`.
     const field = !get && (key === 'value' || key === 'checked') && typeof value !== 'function' ? signal(value) : null;
     const dispose = untrack(() => runWithOwner(owner, () => createRoot((dispose) => {
       const one = Object.create(null);
-      if (get) Object.defineProperty(one, key, { get, enumerable: true });
+      // A getter is called on its own source, as reading `src[key]` would
+      // (one that reads `this.label`).
+      if (get) Object.defineProperty(one, key, { get: () => get.call(src), enumerable: true });
       else if (field !== null) Object.defineProperty(one, key, { get: field, enumerable: true });
       else one[key] = value;
       spread(el, one);
@@ -2202,83 +2226,81 @@ export function _$spreads(el, sources, after) {
     shown.set(name, { key, src, get, value, field, dispose });
   };
   effect(() => {
-    const next = writers(sources());
+    const next = writers(sources(), el);
     for (const [name, was] of shown) {
       if (next.has(name)) continue;
       was.dispose();
       shown.delete(name);
       // The one writer of the markup is dangerouslySetInnerHTML's.
-      if (!_isEventProp(name)) setProp(el, name === 'innerhtml' ? 'dangerouslySetInnerHTML' : was.key, undefined);
+      if (!_isEventProp(name)) retype(el, name === 'innerhtml' ? 'dangerouslySetInnerHTML' : was.key, undefined);
     }
     for (const [name, [src, key]] of next) {
       if (name !== 'children' && name !== 'value' && name !== 'checked' && !after?.includes(name)) bind(name, src, key);
-    }
-    const field = /** @type {any} */ (el);
-    if (retype && shown.has('value') && !field._$select) {
-      /** @type {any} */ (shown.get('value')).dispose();
-      shown.delete('value');
-      field._$value = undefined;
     }
     for (const name of ['value', 'checked']) {
       const w = next.get(name);
       if (w !== undefined && !after?.includes(name)) bind(name, w[0], w[1]);
     }
-    if (retype) field._$select?.(field, field._$value);
-    retype = false;
   });
 }
 
 // The last writer of each name among `sources`, as one props object (getters
 // of a props object What built kept: render.js _$merge).
-function winners(sources) {
+function winners(sources, el) {
   const out = Object.create(null);
-  for (const [src, key] of writers(sources).values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
+  for (const [src, key] of writers(sources, el).values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
   return out;
 }
 
 // Each name's last writer among `sources`: [source, key], in the order the
 // names first appear.
-function writers(sources) {
+function writers(sources, el) {
   /** @type {Map<string, [any, string]>} */
   const names = new Map();
   for (let src of sources) {
     src = Object(src);
-    for (const key of Object.keys(src)) names.set(writerName(key), [src, key]);
+    for (const key of Object.keys(src)) names.set(writerName(key, el), [src, key]);
   }
   return names;
 }
 
-// The name a key writes, as the element reads it: in lower case (an event's
-// `onClick` and `onclick` are one listener, `tabIndex` and `tabindex` one
-// attribute), with React's names for one property made one: `class` for
+// The name a key writes on `el`, as the element reads it. An event's is in
+// lower case (`onClick` and `onclick` are one listener), and so is an
+// attribute's on an HTML element, which folds their case (`tabIndex` and
+// `tabindex` are one); SVG's are not (`viewBox` and `viewbox` are two).
+// React's names for one property are made one on every element: `class` for
 // `className`, `for` for `htmlFor`, `innerhtml` for `dangerouslySetInnerHTML`,
 // `xlink:href` for `xlinkHref` and `xml:lang` for `xmlLang`.
-function writerName(key) {
+function writerName(key, el) {
   const name = key.toLowerCase();
-  return name === 'classname' ? 'class' : name === 'htmlfor' ? 'for' : name === 'dangerouslysetinnerhtml' ? 'innerhtml'
+  const alias = name === 'classname' ? 'class' : name === 'htmlfor' ? 'for' : name === 'dangerouslysetinnerhtml' ? 'innerhtml'
     : name.replace(/^(xlink(?!:)|xml(?![:n]))(?=.)/, '$1:');
+  return alias !== name || _isEventProp(key) || el.namespaceURI === NAMESPACES[0] ? alias : key;
 }
 
-function listen(el, key, handler) {
-  if (typeof handler === 'function') on(el, key.slice(2).toLowerCase(), handler);
+// `name`: an event prop's name in lower case (`onclick`).
+function listen(el, name, handler) {
+  if (typeof handler === 'function') on(el, name.slice(2), handler);
 }
 
 /** @type {((el: Element, key: string, value: any) => boolean) | null} */
 let xlink = null;
 
 /**
- * @internal Install the writer of SVG's XLink attributes (`xlinkHref`,
- * `xlink:href`), in their namespace as React writes them: compiled JSX calls
- * it at module scope where an SVG element has an XLink attribute or a spread,
- * so an app with neither carries none of it.
+ * @internal Install the writer of SVG's XLink and XML attributes
+ * (`xlinkHref`, `xlink:href`, `xmlLang`, `xml:lang`), in their namespace as
+ * React writes them: compiled JSX calls it at module scope where an SVG
+ * element has such an attribute or a spread, so an app with neither carries
+ * none of it.
  */
 export function _$xlink() {
   xlink = (el, key, value) => {
-    if (!key.startsWith('xlink')) return false;
-    const local = key.slice(key[5] === ':' ? 6 : 5).toLowerCase();
-    const ns = 'http://www.w3.org/1999/xlink';
-    if (value == null || value === false) el.removeAttributeNS(ns, local);
-    else el.setAttributeNS(ns, 'xlink:' + local, value);
+    const name = /^(xlink|xml(?!ns)):?(.+)/.exec(key);
+    if (name === null) return false;
+    const [, prefix, local] = name;
+    const ns = prefix === 'xml' ? 'http://www.w3.org/XML/1998/namespace' : 'http://www.w3.org/1999/xlink';
+    if (value == null || value === false) el.removeAttributeNS(ns, local.toLowerCase());
+    else el.setAttributeNS(ns, prefix + ':' + local.toLowerCase(), value);
     return true;
   };
 }
@@ -2297,8 +2319,9 @@ function setProp(el, key, value) {
     return;
   }
 
-  // `key` identifies a list row and is never an attribute (defense in depth).
-  if (key === 'key') return;
+  // `key` identifies a list row and is never an attribute (defense in depth),
+  // and an event is the compiler's (delegation, addEventListener).
+  if (key === 'key' || _isEventProp(key)) return;
 
   // A function classList, or an object with function entries, is reactive in
   // setClassList itself.
@@ -2309,13 +2332,11 @@ function setProp(el, key, value) {
 
   // Reactive accessor: function values on non-event props are treated as
   // reactive getters. Wrap in an effect so the prop auto-updates.
-  if (typeof value === 'function' && !_isEventProp(key)) {
+  if (typeof value === 'function') {
     if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
     effect(() => setProp(el, key, value()));
     return;
   }
-
-  if (_isEventProp(key)) return;
 
   // Sanitize URL attributes: reject dangerous protocols and srcdoc. A refused
   // value leaves no attribute, not even one an earlier write set.
@@ -2329,8 +2350,9 @@ function setProp(el, key, value) {
 
   const isSvg = _hasSVGElement && el instanceof SVGElement;
 
-  // An XLink attribute (`xlinkHref`, `xlink:href`) in its namespace, once a
-  // module whose JSX may write one installed the writer (_$xlink).
+  // An XLink or XML attribute (`xlinkHref`, `xlink:href`, `xmlLang`) in its
+  // namespace, once a module whose JSX may write one installed the writer
+  // (_$xlink).
   if (isSvg && xlink?.(el, key, value)) return;
 
   if (key === 'class' || key === 'className') {

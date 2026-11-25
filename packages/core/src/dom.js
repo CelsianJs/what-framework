@@ -864,7 +864,8 @@ function takenOnChange(path) {
 // A number field is compared as a number, and left alone while what it holds
 // is not one yet ("1." on the way to "1.5", which it reports as bad input).
 // A radio is checked or unchecked with the rest of its group: checking one
-// unchecked the one a prop keeps checked.
+// unchecked the one a prop keeps checked. Also called once an input's type or
+// a select's multiple changed what the field shows (render.js retype).
 function showControlled(el) {
   // A form after its reset: its fields a prop controls.
   if (el.localName === 'form') {
@@ -884,6 +885,7 @@ function showControlled(el) {
     if (field._$kept && field._$checked !== undefined && field.type === el.type && field.name === el.name && field.checked !== field._$checked) field.checked = field._$checked;
   }
 }
+export { showControlled as _showControlled };
 
 function _setSelectValue(el, value) {
   if (value == null && el._$value === undefined) return;
