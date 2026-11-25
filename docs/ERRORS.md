@@ -661,7 +661,7 @@ export default { plugins: [reactCompat()] };
 ## ERR_HYDRATION_MISMATCH
 
 **Severity:** error
-  ·  **Raised by:** `what-core`
+  ·  **Raised by:** `what-core`, `what-react`
   ·  **Detected:** reported
 
 > Hydration mismatch ({{kind}}) in <{{component}}> at {{path}}: the server rendered {{found}} where the client renders {{expected}}. Recovery: {{recovery}}.
