@@ -2453,8 +2453,11 @@ export function _$own(el) {
 
 // --- addEventListener helper for non-delegated events ---
 // The listener goes with the current owner, and the returned function removes
-// it sooner.
+// it sooner. A listener for a field's input or change marks its element, as a
+// delegated handler is seen on it (`$$input`): a controlled field is put back
+// after the event its handlers listen for (dom.js takenOnChange).
 export function on(el, event, handler, options) {
+  if (event === 'input' || event === 'change') el['_$' + event] = true;
   el.addEventListener(event, handler, options);
   const off = () => el.removeEventListener(event, handler, options);
   onCleanup(off);

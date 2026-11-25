@@ -195,8 +195,16 @@ export function getServerContext() {
  * two answers diverge under every DOM shim (jsdom, happy-dom, a Workers
  * polyfill) and in any test that renders both ways in one process.
  */
+// With a document, it reads the store as getServerContext() does, but does
+// not make it: a page that no server render ever touched has none, and is
+// not rendering. So a browser bundle whose hooks ask (useEffect, onMount)
+// does not carry the store and the owner lookup it installs (store(),
+// renderOwner); a copy of the engine that a render reaches later still finds
+// its root through the store's `adopt` (reactive.js ownerNow).
 export function isServerRender() {
-  return typeof document === 'undefined' || getServerContext() != null;
+  if (typeof document === 'undefined') return true;
+  const state = shared ?? /** @type {any} */ (globalThis)[STORE];
+  return state != null && (state.current != null || (state.storage != null && state.storage.getStore() != null));
 }
 
 /**

@@ -315,7 +315,13 @@ are the differences from 0.14.
   edit the handler did not write back to the state is undone, a radio group
   goes back as a whole, and such a field with no handler cannot be changed by
   the user, as in React. 0.14 left the edit in the field, which then
-  disagreed with the state. A field that already shows the value is not
+  disagreed with the state. The check comes once every event of the user's
+  action is handled: after the `change` of a click on a checkbox or radio or
+  a pick in a select (which fire `input` first), so an `onChange` handler
+  reads the new state. A field whose handlers listen for `change` and none
+  for `input` (`onChange` on a text field) is the user's while they type,
+  and is put back after the commit's `change` (blur, Enter) if the handlers
+  did not take it. A field that already shows the value is not
   written, so the caret stays; nothing is written while an input method
   composes; a field with `defaultValue` or `defaultChecked` and no `value` is
   the user's. A value that reads no state is still only where the field

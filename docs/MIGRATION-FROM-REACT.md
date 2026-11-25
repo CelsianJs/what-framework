@@ -121,6 +121,11 @@ undone, and such a field with no handler cannot be changed. Use `defaultValue`
 for a field the user owns. A value that reads no state (a constant, the
 forms kit's `{...register('name')}`) is only where the field starts
 ([GOTCHAS 23](GOTCHAS.md#23-a-field-whose-value-or-checked-is-bound-to-state-is-controlled)).
+One difference: `onChange` is the DOM's `change` event. On a checkbox, radio
+or select it fires on each click or pick, as in React. On a text field it
+fires when the user commits the edit (blur, Enter): the field is theirs while
+they type, and `name` takes the text then. Use `onInput` for the state to
+follow each key.
 
 ```jsx
 function Name() {

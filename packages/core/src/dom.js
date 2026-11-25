@@ -756,6 +756,20 @@ export function _setFieldProp(el, key, value) {
 // input method composes, the field holds text the prop never will: it is
 // left alone until the composition ends.
 //
+// A field is put back once every event of the user's action has been handled.
+// The browser runs microtasks after each listener of an event it dispatches,
+// so a check taken after `input` would run before a `change` of the same
+// action is dispatched, and its handlers would read the field as it was
+// (e.target.checked false on the click that checked it). Clicking or
+// pressing a checkbox or radio, and picking in a select, fire `input` and then
+// `change` in one task (the HTML standard's activation behaviour and select
+// update notifications): their field is checked after the `change`. A field
+// whose handlers listen for `change` and none for `input` (on the field or
+// above it, `onChange={(e) => setName(e.target.value)}` on a text field) takes
+// its edit when the user commits it, on blur or Enter: it is the user's while
+// they type, and put back after that `change` when the handlers did not take
+// it.
+//
 // Reached only from the bindings compiled JSX makes for a field's value and
 // checked (render.js setValue, setChecked, and a spread on a field,
 // _$controlled), so a program with no such binding does not carry it. A
@@ -783,10 +797,24 @@ export function _controlFields(el) {
 }
 
 function controlledChanged(e) {
-  const el = e.composedPath()[0];
+  const path = e.composedPath();
+  const el = path[0];
   if (e.isComposing || el == null || !el._$kept) return;
+  if (e.type !== 'change' && (el.localName === 'select' || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))) return;
   if (e.eventPhase === 1) setTimeout(showControlled, 0, el);
   else queueMicrotask(() => showControlled(el));
+}
+
+// Whether the handlers on the event's path listen for `change` and not for
+// `input`: a delegated handler (`$$change`), or a listener render.js on()
+// added (a spread's, an event with modifiers), which it marks (`_$change`).
+function takenOnChange(path) {
+  let change = false;
+  for (const node of path) {
+    if (node.$$input || node._$input) return false;
+    if (node.$$change || node._$change) change = true;
+  }
+  return change;
 }
 
 // Show what the props of `el` hold, where the field shows something else.

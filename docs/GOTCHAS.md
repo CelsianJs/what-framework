@@ -448,6 +448,8 @@ function NameFields() {
 ```
 
 - This covers `<input>`, `<textarea>`, checkboxes, radios (the whole group goes back when a click in it was refused) and `<select>`, `multiple` included.
+- The field is put back once every event of the user's action has been handled. A click or Space on a checkbox or radio, and a pick in a `<select>`, fire `input` and then `change`: the field is checked after the `change`, so `onChange={(e) => setOn(e.target.checked)}` reads the new state.
+- `onChange` is the DOM's `change` event, which a text field fires when the user commits the edit (blur, Enter), not on each key. A field whose handlers listen for `change` and none for `input` (on the field, through a spread in a wrapper, or on a `<form>` above it) is the user's while they type; after the `change`, it is put back if the handlers did not take the edit. For the state to follow each key, as React's `onChange` does, use `onInput`.
 - "Bound to state" means the binding read a signal, a computed, a store or a live prop when it wrote the value: `value={name()}`, `value={props.name}` in a component handed `name={name()}`, a signal given as it is (`value={name}`), or any of those reaching the field through a spread in a wrapper (`<input {...props} />`).
 - A value that read no state is only where the field starts, and the user's edit stands: a constant (`value="draft"`), and what a spread reads once from a plain object. The forms kit's `{...register('title')}` is such a spread, so a registered field is the user's.
 - A field that already shows the value is not written, so the caret stays where it is. Nothing is written while an input method (IME) is composing; the field is checked when the composition ends.

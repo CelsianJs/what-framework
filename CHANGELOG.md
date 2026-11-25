@@ -101,7 +101,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   something else: an edit the handler did not write to the state is undone, a
   radio group goes back as a whole, a `<select multiple>` selects what its
   array names, and such a field with no handler cannot be changed, as in
-  React. 0.14 left the edit in the field. A field that already shows the
+  React. 0.14 left the edit in the field. The field is put back once every
+  event of the user's action has been handled: a click or Space on a
+  checkbox or radio and a pick in a `<select>` fire `input` and then
+  `change`, and the field is checked after the `change`, so
+  `onChange={(e) => setOn(e.target.checked)}` reads the new state. A field
+  whose handlers listen for `change` and none for `input` (`onChange` on a
+  text field, on the field, through a spread or on a form above it) is the
+  user's while they type and is put back after the `change` of a commit
+  (blur, Enter) its handlers did not take. A field that already shows the
   value is not written (the caret stays), nothing is written while an input
   method composes, and a field with `defaultValue` or `defaultChecked` and no
   `value` is left to the user. A value that reads no state is still only
