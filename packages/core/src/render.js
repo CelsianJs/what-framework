@@ -2833,6 +2833,40 @@ function isBracket(node) {
 }
 
 /**
+ * @internal A hydration walk of the server's nodes between the markers `open`
+ * and `close` (exclusive, in one parent), as hydrate() walks a container:
+ * what `fn` builds claims them (compiled JSX, _$hcreateComponent, a vnode it
+ * returns), a node the client does not render is reported to `onError` and
+ * removed, and what waited for the walk (_afterWalk: an island inside) runs
+ * at its end. For what-react: a native component a React island renders
+ * hydrates in the bracket the server wrote for it, after what-core's own walk
+ * is done. Returns what `fn` returned.
+ */
+export function _hydrateRange(open, close, fn, onError) {
+  const parent = close.parentNode;
+  const saved = { cur, depth: outer.length, session, pendingKey };
+  const walk = (session = newSession(parent, onError || null, _hydrationRoot(parent)));
+  let value;
+  batch(() => {
+    cur = { p: parent, n: open.nextSibling, o: 0, x: false, e: close, h: true, t: null };
+    pendingKey = null;
+    try {
+      value = fn();
+      adopt(value);
+      finish(cur);
+    } finally {
+      cur = saved.cur;
+      outer.length = saved.depth;
+      session = saved.session;
+      pendingKey = saved.pendingKey;
+      if (saved.depth === 0) releaseCursors();
+    }
+    walkDone(walk);
+  });
+  return value;
+}
+
+/**
  * @internal The onHydrationError hook of the hydrate() walking now, or null:
  * what a hydration it defers (an island's) reports to.
  */

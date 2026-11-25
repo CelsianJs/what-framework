@@ -428,13 +428,12 @@ whose fix what-core's error catalogue has); development shows them whole.
     warns), and renders the root again for the rest.
   - A textarea keeps text typed before hydration where React puts back its
     default.
-  - What native What renders inside an island (a native component a React
-    tree renders, React children a native component places, an island
-    inside those, a What accessor or boundary in React elements) is built
-    again in place of the server's nodes. Adopting it needs a hydration walk
-    over a range of nodes from what-core (`_hydrateRange`), which this
-    release does not have; what-react's side is written for a native
-    component that is handed no React elements.
+  - A native component a React tree renders hydrates in place, an island
+    inside it included (what-core's `_hydrateRange` walks its bracket). Still
+    built again in place of the server's nodes: React elements a native
+    component places (its `children`, a slot prop), and a What accessor or
+    boundary placed in React elements. Focus and typed text inside those are
+    lost.
   - Separators between texts are two comments (`<!--$--><!--/$-->`) where
     React writes one, and React's `<!--$-->` markers around a `<Suspense>`
     are `<!--[]-->…<!--/[]-->` (its fallback, `<!--$-->` around another

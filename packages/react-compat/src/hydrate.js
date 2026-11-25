@@ -45,7 +45,7 @@
 
 import { reportDiagnostic, _currentOwnerPath, isVNode, __DEV__ } from 'what-core/internal';
 import * as coreRender from 'what-core/render';
-import { _$createComponent, _$hcreateComponent } from 'what-core/render';
+import { _$createComponent, _$hcreateComponent, _hydrateRange } from 'what-core/render';
 import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
 import { idsOf, islandId, styleText, RENAMED } from './server.js';
@@ -60,12 +60,9 @@ import {
 // what-core's declarations.
 const hydrationErrorHook = /** @type {{ _hydrationErrorHook: () => ((info: object) => void) | null }} */ (/** @type {unknown} */ (coreRender))._hydrationErrorHook;
 // A hydration walk over a range of the server's nodes (render.js
-// _hydrateRange): with it, a native component inside an island hydrates in
-// its bracket; without, it is built again there. This what-core has none, so
-// it is null here; the what-core change that adds it (core-hydrate-range)
-// comes with the one-line import that sets it.
+// _hydrateRange): a native component inside an island hydrates in its bracket.
 /** @type {((open: Comment, close: Comment, fn: () => unknown, onError?: any) => unknown) | null} */
-const hydrateRange = null;
+const hydrateRange = _hydrateRange;
 
 /** @internal Whether a native component inside an island hydrates in its bracket (tests). */
 export const adoptsNative = hydrateRange !== null;

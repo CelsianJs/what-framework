@@ -240,3 +240,7 @@ export function _$merge(...sources: unknown[]): Record<string, unknown>;
 export function _$omit(props: unknown, keys: readonly string[]): Record<string, unknown>;
 /** @internal A compiled read of `props[key]` where its value is placed: a lazy prop is built there. `inPlace` 1: where the server writes it with no markers of its own (an element's hole, a fragment's or an array's members). */
 export function _$place(props: object, key: string, inPlace?: 1): unknown;
+/** @internal The onHydrationError hook of the hydrate() walking now, or null (what-react's islands report to it after the walk). */
+export function _hydrationErrorHook(): ((info: object) => void) | null;
+/** @internal A hydration walk of the server's nodes between `open` and `close` (exclusive): what `fn` builds claims them (what-react: a native component inside a React island). */
+export function _hydrateRange<T>(open: Comment, close: Comment, fn: () => T, onError?: ((info: object) => void) | null): T;

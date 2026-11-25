@@ -248,17 +248,14 @@ React's rules, where they can be seen (react-dom 19.3.1, measured in
   again on the client first, its server HTML goes and it renders as any
   boundary does. Both are React's behaviour.
 
-What is not adopted yet is what native What renders inside an island: a
-native component a React tree renders, React elements a native component
-places (its `children`, a slot prop), a React island inside that native
-component, a What accessor or boundary placed in React elements. The server
-brackets each (`<!--[]-->…<!--/[]-->`), and the browser builds it again in
-place of the bracketed nodes. React elements around it are adopted. A
-hydration walk over a range of nodes in what-core (render.js
-`_hydrateRange`, proposed, not in this release) would let a native
-component that is handed no React elements hydrate in its bracket, an
-island inside it included; what-react's side of it is written (hydrate.js
-claimNative) and waits for that walk.
+A native component a React tree renders hydrates in place too, an island
+inside it included: the server brackets it (`<!--[]-->…<!--/[]-->`), and
+what-core walks that bracket (render.js `_hydrateRange`, called from
+hydrate.js claimNative). What is not adopted yet: React elements a native
+component places (its `children`, a slot prop), and a What accessor or
+boundary placed in React elements. The browser builds those again in place
+of the bracketed nodes, so focus and typed text inside them are lost. React
+elements around them are adopted.
 
 The plugin installs adoption by adding a call to `_hydrateIslands()` (from
 `what-react/mixed`) to each JSX file what-compiler compiles for hydration
