@@ -26,7 +26,7 @@ import { _$createComponent, _installVNodeRuntime, _$childrenChanged } from 'what
 import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
-  _vnodeIsland, renderInstance, _flushPendingPassive, _mountMarked, _flushWithin, unmountIsland, _hostInstance, _commitPlaced, _canFlushSynchronously,
+  _vnodeIsland, renderInstance, _flushPendingPassive, _mountMarked, _flushWithin, unmountIsland, _hostInstance, _commitPlaced, _canFlushSynchronously, _whenCommitted,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
@@ -109,10 +109,11 @@ export function ReactIsland(props) {
 // container (an error boundary's fallback, a Suspense boundary's) renders
 // before the run returns; what waits elsewhere waits for its own flush. An
 // error no boundary catches unmounts the container and is reported, as React
-// unmounts a root. The container goes with the owner the hole was created
-// under, once a commit running then is done (a ref or effect that unmounted
-// the page returns its cleanup first). React moves nodes as this does, and
-// gives the focus back to the element that had it; so does the container.
+// unmounts a root, once the commit is done. The container goes with the
+// owner the hole was created under, at once: what-core takes that owner's
+// nodes out of the page as it goes, so a commit running then sets nothing
+// more up on them, and a ref or effect that stopped it has its cleanup run
+// as it returns. (React finishes such a commit on nodes in the page.)
 {
   const proto = Object.getPrototypeOf(element('i', null));
   if (proto._$r === _vnodeIsland) {
@@ -124,17 +125,6 @@ export function ReactIsland(props) {
 function hasElement(value) {
   if (Array.isArray(value)) return value.some(hasElement);
   return value != null && value._compat === true;
-}
-
-// Run `fn` now, or once the render, commit or effects running now are done,
-// with the commit's passive effects first: React defers an unmount a commit's
-// callback asks for until the commit is done, so a ref or effect returns its
-// cleanup first and the commit's passive effects run before it.
-function whenCommitted(fn) {
-  if (_canFlushSynchronously()) {
-    _flushPendingPassive();
-    fn();
-  } else queueMicrotask(() => whenCommitted(fn));
 }
 
 // The container of one hole. `update` renders `value` before `marker`;
@@ -160,12 +150,17 @@ function holeRows(svg, scope) {
     });
     _flushUnmounted();
   };
-  if (scope != null) runWithOwner(scope, () => onCleanup(() => whenCommitted(unmount)));
+  // The native owner went, and what-core took its nodes out of the page with
+  // it: in a commit (a row's cleanup stopped it), what the commit has not set
+  // up yet is never set up on nodes out of the page, and what it did is
+  // cleaned up now. Outside one, the last commit's passive effects run first.
+  if (scope != null) runWithOwner(scope, () => onCleanup(() => {
+    if (_canFlushSynchronously()) _flushPendingPassive();
+    unmount();
+  }));
   return {
     update(host, marker, next) {
       value = next;
-      const focused = /** @type {any} */ (document.activeElement);
-      const had = host.contains(focused) ? focused : null;
       untrack(() => {
         _flushPendingPassive();
         if (inst === null) {
@@ -173,15 +168,13 @@ function holeRows(svg, scope) {
           inst._errorHandler = (error) => {
             if (typeof reportError === 'function') reportError(error);
             else console.error(error);
-            whenCommitted(unmount);
+            _whenCommitted(unmount);
           };
         }
         const at = inst;
         _commitPlaced(at.end, () => renderInstance(at));
         _flushWithin(at);
       });
-      const now = document.activeElement;
-      if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
       // A select whose options these are writes its value again.
       _$childrenChanged(host);
     },

@@ -47,12 +47,11 @@ export function createRoot(container) {
         root = mountRoot(element, container);
       }
     },
+    // Asked for while a render, a commit or its effects run (a cleanup or
+    // a ref that unmounts its own root): once they are done, as React does.
     unmount() {
-      if (root) {
-        unmountRoot(root);
-        root = null;
-      }
-      container.textContent = '';
+      unmountRoot(root, container);
+      root = null;
     },
   };
 }

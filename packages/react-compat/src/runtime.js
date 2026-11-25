@@ -365,6 +365,9 @@ export function flushUpdates() {
     try {
       for (let i = 0; i < batch.length; i++) {
         const inst = batch[i];
+        // What the renders before it removed goes first: a component they
+        // removed is not rendered.
+        runAll(mutations);
         if (dirtyQueue.has(inst) && !inst.unmounted) {
           const insertionFrom = insertionQueue.length;
           const layoutFrom = layoutQueue.length;
@@ -442,7 +445,19 @@ export function runInCommit(fn) {
   }
 }
 
+/**
+ * A commit's mutations of what was there before, run once its render is
+ * done: a child that leaves a list unmounts (its cleanups, its refs, its
+ * nodes out of the page) and an element's old ref detaches. React renders
+ * first, takes every class's snapshot (getSnapshotBeforeUpdate) of the page
+ * as it stands, then removes. In the order queued: a list's leavers before
+ * what its kept children do, as React's mutation phase goes.
+ * @type {Array<() => void>}
+ */
+const mutations = [];
+
 function exitCommit() {
+  if (commitDepth === 1) runAll(mutations);
   if (--commitDepth !== 0) return;
   // React's commit order: insertion effects (a CSS-in-JS library writes
   // its rules before anything reads layout), then the layout phase (the DOM
@@ -455,6 +470,22 @@ function exitCommit() {
   if ((passiveQueue.length > 0 || unmountedPassive.length > 0) && !passiveScheduled) {
     passiveScheduled = true;
     queueMicrotask(_flushPassive);
+  }
+}
+
+/**
+ * Run `fn` now, or, asked for while a render, a commit or its effects run (a
+ * cleanup or a ref that unmounts its own root), as the last of the commit's
+ * passive effects: React defers such an unmount until the commit is done, so
+ * the commit finishes on nodes in the page, its passive effects run, every
+ * callback has returned its cleanup, and then the unmount runs them.
+ */
+export function _whenCommitted(fn) {
+  if (currentInstance === null && commitDepth === 0 && effectDepth === 0) fn();
+  else {
+    // An entry of no component's (flushEffectQueue runs its fn). The commit
+    // or the passive phase running now schedules or runs it.
+    passiveQueue.push({ inst: {}, slot: {}, fn });
   }
 }
 
@@ -499,11 +530,16 @@ function flushPassiveEffects() {
 }
 
 function flushUnmountedPassive() {
-  if (unmountedPassive.length === 0) return;
+  runAll(unmountedPassive);
+}
+
+// Run the cleanups queued in `queue` (and those they queue), each one's
+// error reported, as effects: a flushSync or an unmount one asks for waits.
+function runAll(queue) {
   effectDepth++;
   try {
-    while (unmountedPassive.length > 0) {
-      const batch = unmountedPassive.splice(0);
+    while (queue.length > 0) {
+      const batch = queue.splice(0);
       for (let i = 0; i < batch.length; i++) {
         try { batch[i](); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
       }
@@ -742,20 +778,12 @@ function listName(list, i) {
 }
 
 function keyOfChild(child) {
-  if (typeof child === 'object' && child !== null && child.key != null && isVNode(child)) {
-    const key = child.key;
-    return typeof key === 'string' ? key : '' + key;
-  }
-  return null;
+  return typeof child === 'object' && child !== null && child.key != null && isVNode(child) ? '' + child.key : null;
 }
 
 // The id of a child of kind `kind` at index `i` of its list.
 function idOf(v, kind, i) {
-  if (kind >= KIND_ELEMENT && typeof v === 'object' && v.key != null && (kind !== KIND_OPAQUE || isVNode(v))) {
-    const key = v.key;
-    return typeof key === 'string' ? key : '' + key;
-  }
-  return i;
+  return kind >= KIND_ELEMENT && typeof v === 'object' && v.key != null && (kind !== KIND_OPAQUE || isVNode(v)) ? '' + v.key : i;
 }
 
 /**
@@ -909,9 +937,9 @@ export function patchChildren(parentDom, old, value, anchor, svg, owner, into) {
  * - A child matches the old node in its place (its `id` in its `list`) when
  *   the type is the same; otherwise the old node unmounts and a new one
  *   mounts, like React's replace.
- * - Children render left to right (render and effect order match React's),
- *   and every child of the list has rendered before a removed one is cleaned
- *   up and taken out.
+ * - Children render left to right (render and effect order match React's).
+ *   A removed one is cleaned up and taken out with the commit's mutations,
+ *   once the render is done (exitCommit).
  * - A list that kept its places is patched where it stands: nothing is
  *   looked up, no DOM node is read or moved. So is everything before and
  *   after the part of a list that changed.
@@ -937,14 +965,23 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
   const newLen = kids.length;
   const result = new Array(newLen);
   if (oldLen === 0) return mountChildren(parentDom, kids, ids, lists, 0, newLen, result, anchor, svg, owner, into);
+  // What leaves is queued to go before what the children that stay queue as
+  // they are patched (an old ref's detach, what leaves their own lists): React
+  // removes it first.
+  const mark = mutations.length;
 
-  // --- The start of the list that kept its places: patched where it stands,
-  // once what leaves is gone (React's commit removes it first) ---
+  // --- The start of the list that kept its places: patched where it stands ---
   let start = 0;
   const min = oldLen < newLen ? oldLen : newLen;
-  while (start < min && stays(old[start], kids[start], kindOf(kids[start]), ids, lists, start)) start++;
+  while (start < min) {
+    const v = kids[start];
+    const kind = kindOf(v);
+    const rn = old[start];
+    if (!stays(rn, v, kind, ids, lists, start)) break;
+    result[start] = patchRNode(rn, v, kind, svg, owner);
+    start++;
+  }
   if (start === oldLen) {
-    patchHead(old, kids, start, result, svg, owner);
     if (start === newLen) return result;
     // Everything stayed, and children were added after it.
     if (inst !== null) {
@@ -968,78 +1005,44 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
     newEnd--;
   }
 
+  // This reconcile's mark on the old children it keeps (a number of its own,
+  // so a mark an earlier one left never keeps a child that leaves now).
+  const kept = ++reconciles;
   if (newEnd === start) {
     // Children left, and nothing else changed.
-    for (let i = start; i < oldEnd; i++) unmountRNode(old[i], true);
-    patchHead(old, kids, start, result, svg, owner);
     patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
+    leave(old, start, oldEnd, mark, kept);
     return result;
   }
 
-  if (oldEnd === start) {
-    // Children came, before the end that stayed: they go in front of its
-    // first node in the list's element (a hole or a portal has none, and a
-    // library may have taken one elsewhere: the next one's).
-    const ref = firstDomNodeFrom(old, oldEnd, parentDom);
-    const at = ref !== null ? ref.parentNode : null;
-    if (at !== null && (inst !== null || at === parentDom)) {
-      patchHead(old, kids, start, result, svg, owner);
-      mountChildren(at, kids, ids, lists, start, newEnd, result, ref, svg, owner, into);
-      patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
-      return result;
-    }
-  }
-
-  // --- The middle: children came, left or moved ---
+  // --- The middle: children came, left or moved (only came included:
+  // nothing in it is moved then) ---
   /** @type {Map<number | string, any>} */
   const byPlace = new Map();
   for (let i = start; i < oldEnd; i++) {
     const rn = old[i];
     rn._i = i;
-    rn._kept = false;
     // A duplicate key keeps the first; the others mount again.
     const place = slotOf(rn.list, rn.id);
     if (!byPlace.has(place)) byPlace.set(place, rn);
   }
-  // Which old child each new one keeps, first: what leaves is removed before
-  // what stays is updated, as React's commit removes it first.
-  // (held in `result` until each is patched)
-  for (let i = start; i < newEnd; i++) {
-    const v = kids[i];
-    const match = byPlace.get(slotOf(lists !== null ? lists[i] : null, ids !== null ? ids[i] : idOf(v, kindOf(v), i)));
-    if (match !== undefined && match._kept !== true && canPatch(match, v, kindOf(v))) {
-      match._kept = true;
-      result[i] = match;
-    }
-  }
-
-  // Where the list goes, read while the nodes that leave are still there.
-  let ref = anchor;
-  if (inst !== null) {
-    placeOf(inst, old, oldLen);
-    parentDom = placeParent;
-    ref = placeAnchor;
-  }
-
-  for (let i = start; i < oldEnd; i++) {
-    if (old[i]._kept !== true) unmountRNode(old[i], true);
-  }
-  patchHead(old, kids, start, result, svg, owner);
-
   let lastPlaced = -1; // the highest old index among the kept nodes so far
   for (let i = start; i < newEnd; i++) {
     const v = kids[i];
     const kind = kindOf(v);
-    const match = result[i];
-    if (match !== undefined) {
+    const id = ids !== null ? ids[i] : idOf(v, kind, i);
+    const list = lists !== null ? lists[i] : null;
+    const match = byPlace.get(slotOf(list, id));
+    if (match !== undefined && match._kept !== kept && canPatch(match, v, kind)) {
+      match._kept = kept;
       if (match._i < lastPlaced) match._move = true;
       else lastPlaced = match._i;
       result[i] = patchRNode(match, v, kind, svg, owner);
     } else {
       // Built whole, outside the document; placed below.
       const rn = mountRNode(v, kind, null, null, svg, owner, into);
-      rn.id = ids !== null ? ids[i] : idOf(v, kind, i);
-      rn.list = lists !== null ? lists[i] : null;
+      rn.id = id;
+      rn.list = list;
       rn._i = -1;
       result[i] = rn;
     }
@@ -1048,15 +1051,25 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
 
   // Where the middle ends: at the first node of the end that stayed, or
   // where the list ends.
+  let ref = anchor;
+  if (inst !== null) {
+    placeOf(inst, old, oldLen);
+    parentDom = placeParent;
+    ref = placeAnchor;
+  }
   if (newEnd < newLen) {
     const first = firstDomNodeFrom(result, newEnd, parentDom);
     if (first !== null) ref = first;
   }
 
-  if (parentDom === null) return result; // not in a document (its own nodes were taken out)
-  // A cleanup may have taken out a node this list does not own.
-  if (ref !== null && ref.parentNode !== parentDom) ref = anchor !== null && anchor.parentNode === parentDom ? anchor : null;
+  leave(old, start, oldEnd, mark, kept);
 
+  if (parentDom === null) return result; // not in a document (its own nodes were taken out)
+
+  // Moving a kept node takes the focus from the element in it: it gets it
+  // back once the list is in place, as React gives it back after its
+  // mutations (restoreSelection), before an autoFocus or a layout effect.
+  const had = /** @type {HTMLElement | null} */ (document.activeElement);
   for (let i = newEnd - 1; i >= start; i--) {
     const rn = result[i];
     let first = firstDomNode(rn);
@@ -1067,30 +1080,27 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
     }
     if (first !== null) ref = first;
   }
+  if (had !== document.activeElement) had?.focus({ preventScroll: true });
   return result;
+}
+
+let reconciles = 0;
+
+// The children of `old[from..to)` that leave (those not marked `kept`):
+// unmounted with the commit's mutations, once the render is done
+// (exitCommit), queued at `mark`.
+function leave(old, from, to, mark, kept) {
+  mutations.splice(mark, 0, () => {
+    for (let i = from; i < to; i++) if (old[i]._kept !== kept) unmountRNode(old[i], true);
+  });
 }
 
 // Whether the rendered node `rn` is the child `v` at index `i` of the list:
 // in the same place, and of a type it can be patched to.
-// The start of a list that kept its places, patched where it stands.
-function patchHead(old, kids, start, result, svg, owner) {
-  for (let i = 0; i < start; i++) result[i] = patchRNode(old[i], kids[i], kindOf(kids[i]), svg, owner);
-}
-
 function stays(rn, v, kind, ids, lists, i) {
   if (ids !== null) {
     if (rn.id !== ids[i] || rn.list !== /** @type {any[]} */ (lists)[i]) return false;
-  } else {
-    if (rn.list !== null) return false;
-    const key = kind >= KIND_ELEMENT && typeof v === 'object' ? v.key : null;
-    if (key == null) {
-      if (rn.id !== i) return false;
-    } else if (rn.key !== key && rn.id !== idOf(v, kind, i)) {
-      // (The key it was mounted with, as it was given, is compared first:
-      // a row that stayed is found without making a string of its key.)
-      return false;
-    }
-  }
+  } else if (rn.list !== null || rn.id !== idOf(v, kind, i)) return false;
   return canPatch(rn, v, kind);
 }
 
@@ -1794,8 +1804,8 @@ function patchElement(rn, v, svg, owner) {
     // Refs
     const newRef = newProps.ref || null;
     if (rn.ref !== newRef) {
-      // The old one now, the new one in the layout phase (React's mutation and layout phases).
-      if (rn.ref) detachRef(rn, rn.ref);
+      // The old one with the commit's mutations, the new one in the layout phase.
+      if (rn.ref) mutations.push(() => detachRef(rn));
       if (newRef) layoutQueue.push({ rn, ref: newRef, el, inst: owner });
       rn.ref = newRef;
     }
@@ -1941,7 +1951,7 @@ function teardown(rn) {
   switch (rn.kind) {
     case KIND_ELEMENT: {
       if (rn.ref) {
-        try { detachRef(rn, rn.ref); } catch (e) { console.error('[what-react] ref cleanup error:', e); }
+        try { detachRef(rn); } catch (e) { console.error('[what-react] ref cleanup error:', e); }
         rn.ref = null; // invalidates any queued mount-time ref entry
       }
       const children = rn.children;
@@ -2320,12 +2330,18 @@ export function patchRoot(root, element) {
   return root;
 }
 
-export function unmountRoot(root) {
-  runInCommit(() => {
-    for (const rn of root.rns) unmountRNode(rn, true);
-    root.rns = NO_RNODES;
+/** Unmount `root` (null: none rendered) and empty its container, once a commit running now is done (_whenCommitted). */
+export function unmountRoot(root, container) {
+  _whenCommitted(() => {
+    if (root !== null) {
+      runInCommit(() => {
+        for (const rn of root.rns) unmountRNode(rn, true);
+        root.rns = NO_RNODES;
+      });
+      _flushUnmounted();
+    }
+    container.textContent = '';
   });
-  _flushUnmounted();
 }
 
 // =====================================================================
@@ -2399,6 +2415,7 @@ export function _commitPlaced(node, render) {
   try {
     render();
   } finally {
+    runAll(mutations);
     commitDepth--;
   }
   flushInsertionQueue();
@@ -2629,28 +2646,31 @@ export function getBridge(renderFn) {
 // A callback ref may return a cleanup function (React 19): it is called when
 // the ref detaches, in place of the call with null.
 function attachRef(rn, ref, el) {
-  rn._refAttached = true;
   // In a mirrored portal the element the library knows is its own document's.
   if (el != null && el._compatMirror !== undefined) el = el._compatMirror;
   if (typeof ref === 'function') {
     const cleanup = ref(el);
-    // Detached while it ran (it unmounted the tree it stands in): cleaned up at once.
-    if (rn._refAttached !== true) {
-      if (typeof cleanup === 'function') cleanup();
-    } else rn._refCleanup = typeof cleanup === 'function' ? cleanup : null;
+    rn._refCleanup = typeof cleanup === 'function' ? cleanup : null;
   } else if (ref && typeof ref === 'object') ref.current = el;
+  else return;
+  // The ref attached, which is the one that detaches.
+  rn._refAttached = ref;
+  // Unmounted while it ran (it stopped the native code the tree stands in):
+  // detached now, never called with null before it returned.
+  if (rn.ref !== ref) detachRef(rn);
 }
 
-function detachRef(rn, ref) {
+function detachRef(rn) {
+  const ref = rn._refAttached;
   // Never attached: unmounted in the commit that mounted it.
-  if (rn._refAttached !== true) return;
-  rn._refAttached = false;
+  if (ref == null) return;
+  rn._refAttached = null;
   if (typeof ref === 'function') {
     const cleanup = rn._refCleanup;
     rn._refCleanup = null;
     if (cleanup) cleanup();
     else ref(null);
-  } else if (ref && typeof ref === 'object') ref.current = null;
+  } else ref.current = null;
 }
 
 // preact's unitless-CSS-property test
@@ -3438,9 +3458,8 @@ function setValueProp(el, value, oldValue) {
   }
 }
 
+// (Never called with children, key or ref: its callers leave them out.)
 export function setProperty(el, name, value, oldValue, svg) {
-  if (name === 'children' || name === 'key' || name === 'ref') return;
-
   if (name === 'class' || name === 'className') {
     if (svg) el.setAttribute('class', value || '');
     else el.className = value || '';
@@ -3544,6 +3563,6 @@ export function setProperty(el, name, value, oldValue, svg) {
       return;
     } catch { /* read-only property — fall through to attribute */ }
   }
-  if (value == null || value === false) el.removeAttribute(name);
+  if (value === false) el.removeAttribute(name);
   else el.setAttribute(name, value === true ? '' : value);
 }

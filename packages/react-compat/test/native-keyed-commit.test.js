@@ -8,7 +8,11 @@
 //   commit is done);
 // - a hole's commit renders nothing that waits in another root;
 // - a signal a React callback reads is not the hole's;
-// - a row that leaves is removed before the rows that stay are updated;
+// - a row that leaves is removed before the rows that stay are updated, and
+//   a class's getSnapshotBeforeUpdate still sees it;
+// - a removed row's cleanup that stops the native owner (which takes the
+//   hole's nodes out of the page) ends the commit: nothing more is set up
+//   on nodes out of the page, and what was set up is cleaned up;
 // - an error no boundary catches unmounts the container and is reported;
 // - a hole's first rows run their refs and layout effects on nodes in the
 //   page;
@@ -43,7 +47,7 @@ for (const [pkg, dir] of Object.entries(FRAMEWORK)) {
 
 const files = {
   'package.json': JSON.stringify({ name: 'app', type: 'module' }),
-  'src/rows.jsx': `import { useState, useEffect, useLayoutEffect, startTransition } from 'react';
+  'src/rows.jsx': `import { Component, useState, useEffect, useLayoutEffect, startTransition } from 'react';
 import { createRoot } from 'react-dom/client';
 const note = (...x) => window.events.push(x.join(' '));
 const connected = (id) => !!document.getElementById(id)?.isConnected;
@@ -90,10 +94,26 @@ function Crash({ id }) {
   useLayoutEffect(() => { throw new Error('layout crash ' + id); }, []);
   return <b>{id}</b>;
 }
+// A row whose layout cleanup notes itself, and stops the page when \`quit\`.
+function Delete({ quit }) {
+  useLayoutEffect(() => () => { note('delete cleanup'); if (quit) window.stopPage(); }, []);
+  return <i id="deleted">delete</i>;
+}
+class Snapshot extends Component {
+  getSnapshotBeforeUpdate() { return !!document.querySelector('#deleted'); }
+  componentDidUpdate(_p, _s, snapshot) { note('snapshot', snapshot); }
+  render() { return <i>{this.props.n}</i>; }
+}
+function Retained({ n }) {
+  useLayoutEffect(() => { note('retained setup', n); return () => note('retained cleanup', n); }, [n]);
+  return <i id="retained">{n}</i>;
+}
 export function rows(scene, n) {
   if (scene === 'kill') return n ? [<Kill key="kill" phase={window.killPhase} />, <Label key="peer" id="peer" />] : [<Label key="old" id="old" />];
   if (scene === 'tracked') { note('factory', n); return [<Read key={n} id={'r' + n} />]; }
   if (scene === 'crash') return n ? [<Crash key="bad" id="bad" />, <Label key="good" id="good" />] : [<Label key="good" id="good" />];
+  if (scene === 'snapshot') return n ? [<Snapshot key="kept" n={n} />, <Label key="new" id="new" />] : [<Snapshot key="kept" n={n} />, <Delete key="delete" />];
+  if (scene === 'removestop') return n ? [<Retained key="kept" n={n} />, <Label key="new" id="new" />] : [<Retained key="kept" n={n} />, <Delete key="delete" quit />];
   if (scene === 'replace') return (n ? ['b', 'c'] : ['a', 'b']).map((id) => <Label key={id} id={id + (id === 'b' ? n : '')} />);
   return (n ? ['x', 'y'] : ['x']).map((id) => <Label key={id} id={id} />);
 }
@@ -191,8 +211,12 @@ for (const phase of ['ref', 'layout', 'passive']) {
     const events = take();
     assert.equal(events.filter((e) => e === `${phase} cleanup`).length, 1, events.join(' | '));
     assert.ok(!events.some((e) => e.includes('retained')), events.join(' | '));
-    // The peer that mounted with it was unmounted too.
-    assert.ok(events.includes('layout- peer false') || events.includes('layout- peer true'), events.join(' | '));
+    // what-core took the page's nodes out as it stopped: the peer that
+    // mounted with it is set up only if it was before then, on nodes in the
+    // page, and what was set up is cleaned up.
+    assert.ok(!events.some((e) => /^(ref|layout)\+ peer false/.test(e)), events.join(' | '));
+    assert.equal(events.filter((e) => e.startsWith('layout+ peer')).length, events.filter((e) => e.startsWith('layout- peer')).length, events.join(' | '));
+    assert.equal(events.filter((e) => e.startsWith('passive+ peer')).length, events.filter((e) => e.startsWith('passive- peer')).length, events.join(' | '));
     assert.equal(document.getElementById('page').textContent, '');
   });
 }
@@ -237,6 +261,30 @@ test('a row that leaves is removed before the rows that stay are updated (React 
   assert.deepEqual(events.filter((e) => !e.startsWith('passive')), ['layout- a true', 'ref- a', 'ref- b0', 'ref+ b1 true', 'ref+ c true', 'layout+ c true']);
   window.stopPage();
   await settle();
+});
+
+test('a class\'s getSnapshotBeforeUpdate sees the row the commit removes (React 19.3.1: delete cleanup, snapshot true, then the layout phase)', async () => {
+  window.start('snapshot', false);
+  await settle();
+  take();
+  window.put(1);
+  assert.deepEqual(take().filter((e) => !e.startsWith('passive')), ['delete cleanup', 'snapshot true', 'ref+ new true', 'layout+ new true']);
+  window.stopPage();
+  await settle();
+});
+
+test('a removed row\'s cleanup that stops the native owner ends the commit: nothing is set up on nodes out of the page, and what was is cleaned up', async () => {
+  window.start('removestop', false);
+  await settle();
+  take();
+  window.put(1);
+  await settle();
+  window.dispatchEvent(new window.Event('probe'));
+  // The retained row's old layout effect is cleaned up; its new one, and the
+  // incoming row's ref and effects, never run (React finishes the commit on
+  // nodes still in the page, then unmounts: what-core has taken them out).
+  assert.deepEqual(take(), ['delete cleanup', 'retained cleanup 0']);
+  assert.equal(document.getElementById('page').textContent, '');
 });
 
 test('an error no boundary catches unmounts the hole\'s rows and is reported, as React unmounts a root', async () => {

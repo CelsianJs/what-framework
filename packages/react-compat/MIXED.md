@@ -388,8 +388,10 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   what-react. Each array of the hole is a list of its own, a row is kept by
   its key (unkeyed, its place) and its type and renders its new props, a
   key that moves to another array mounts again, and what leaves is removed
-  before what stays is updated. A top-level unkeyed fragment stands for its
-  children, rows in an `<svg>` are SVG, a controlled `<select>` takes its
+  once the rows have rendered, before what stays detaches a ref or runs a
+  layout effect (a what-react commit, below). A top-level unkeyed fragment
+  stands for its children, rows in an `<svg>` are SVG, a controlled
+  `<select>` takes its
   value when the option for it arrives, and a row that moves gets the focus
   back if the move took it. Each run of the hole is a commit, run untracked;
   a fallback an error boundary or Suspense queued inside the hole renders
@@ -397,8 +399,16 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   rows and is reported, as React unmounts a root. The hole's first rows run
   their refs and layout effects once native code has placed the page (on
   the microtask after its build). The rows go with the native owner of the
-  hole once a commit running then is done (a ref or effect that unmounted
-  the page returns its cleanup first). Passive effects run on the microtask
+  hole, at once: what-core takes the owner's nodes out of the page as it
+  stops, so when a callback of the hole's own commit stops it (a removed
+  row's cleanup, a ref, an effect), the commit sets nothing more up on
+  nodes out of the page, every cleanup of what it set up runs, and the
+  callback's own cleanup runs as it returns. React finishes such a commit
+  on nodes still in the page (the incoming rows' refs and effects run) and
+  then unmounts; what-react cannot keep what-core's nodes in the page, so
+  it ends the commit there (`test/native-keyed-commit.test.js`). An unmount
+  the hole asks for itself (an error no boundary caught) runs with the
+  commit's passive effects. Passive effects run on the microtask
   after a commit (React runs them before a `flushSync` returns), and
   insertion effects at the commit's end, not between the DOM changes of
   each component.
@@ -412,6 +422,30 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   moved row its focus back, and build an unkeyed list of such elements again
   whenever it changes. Rendering the list in a React component keeps it by
   React's rules in every build.
+- A what-react commit (in a root, an island or a hole) renders each
+  component and updates its nodes as it goes, and removes what leaves
+  (cleanups, ref detaches, nodes out of the page) once the whole render is
+  done; React renders everything first, then removes, then updates. So a
+  class's `getSnapshotBeforeUpdate` sees the rows the commit removes, as in
+  React, but also the new props and text of elements patched before it in
+  the same commit, where React's sees none of the commit's changes. A
+  removed row's layout and ref cleanups still run before any row that stays
+  detaches a ref or runs a layout effect, as in React, but after the rows
+  that stay got their new props and text and new rows were placed (React
+  runs them before those changes). Components that are queued on their own
+  in one flush (each its own state update) render one after another, and
+  what one removed is removed before the next renders, so a component its
+  parent removed is never rendered again. A keyed move that took the focus
+  from an element gives it back, with its selection, before the layout
+  phase, as React does (an autoFocus or a layout effect that moves it still
+  wins) (`test/commit-order.test.js`).
+- A root unmounted by a callback of its own commit (`root.unmount()` from a
+  removed row's cleanup, a ref, an effect) is unmounted once the commit is
+  done, as React does: the commit finishes on nodes in the page, its
+  passive effects run, every callback has returned its cleanup, and then
+  every cleanup runs. With `flushSync` all of it happens before it returns,
+  as in React; without it, with the commit's passive effects on the next
+  microtask (React unmounts at the end of the commit either way).
 - React hooks run only in React files. Calling one in a native component
   throws `ERR_HOOK_OUTSIDE_RENDER`.
 - A native component inside a React tree is rebuilt (losing its state, with
