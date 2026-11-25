@@ -158,9 +158,12 @@ mount(
 <span class="function">navigate</span>(<span class="string">'/settings'</span>, { replace: <span class="keyword">true</span> });   <span class="comment">// Replace history entry</span>
 <span class="function">navigate</span>(<span class="string">'/profile'</span>, { state: { from: <span class="string">'nav'</span> } }); <span class="comment">// Pass state</span>
 <span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span>
-<span class="function">navigate</span>(<span class="string">'/page'</span>, { flushSync: <span class="keyword">true</span> });      <span class="comment">// Commit at once</span></code></pre>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { flushSync: <span class="keyword">true</span> });      <span class="comment">// Commit at once</span>
+<span class="function">navigate</span>(<span class="string">'/settings#teams'</span>);                  <span class="comment">// On /settings: a fragment navigation</span></code></pre>
 
           <p>A navigation is a transition. <code>navigate()</code> and <code>&lt;Link&gt;</code> run the <code>beforeNavigate</code> guards, then prepare the destination while the old page stays on screen: they load a <code>lazy()</code> route's chunk and run its <code>preload</code>, and wait for both. Then the URL commits inside <code>startTransition</code>, so the page and everything else the new URL reaches (a layout's data keyed on the params) commit in one flush. <code>navigate()</code> resolves once the new page is on screen and the data it reads first has landed, and a newer navigation supersedes one still preparing. <code>route.isNavigating</code> is true meanwhile, and <code>useTransition</code>'s <code>isPending</code> around a <code>navigate()</code> call is true until the commit.</p>
+
+          <p>A navigation that changes only the hash (<code>navigate('#teams')</code>, or <code>navigate('/settings#teams')</code> while on <code>/settings</code>, a <code>&lt;Link&gt;</code> to either, the browser moving the hash with back/forward or <code>location.hash</code>) is a fragment navigation, as in the browser: the page stays mounted with its state, the URL and <code>route.hash</code> move, and the element with that id scrolls into view. No guard, middleware or <code>preload</code> runs, and <code>beforeNavigate</code> and <code>afterNavigate</code> are not called. A <code>'#hash'</code> target replaces the history entry; a path with a hash adds one unless <code>replace: true</code>.</p>
 
           <h2 id="preload">Route Data: preload</h2>
           <p>A route's <code>preload({ params, query, url })</code> starts the data the page needs. The navigation waits for what it returns (a <code>query()</code>, an async value, a promise, or an array or object of them), and the page receives it as its <code>data</code> prop:</p>
@@ -191,7 +194,7 @@ mount(
 <span class="comment">// All properties are reactive getters</span>
 route.path     <span class="comment">// "/users/42"</span>
 route.params   <span class="comment">// { id: "42" }</span>
-route.query    <span class="comment">// { tab: "posts" }</span>
+route.query    <span class="comment">// { tab: "posts" }; ?tag=a&amp;tag=b gives { tag: ["a", "b"] }</span>
 route.hash     <span class="comment">// "#section"</span>
 route.isNavigating  <span class="comment">// true from navigate() until the new page's first data has landed</span></code></pre>
 
@@ -200,7 +203,7 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
             <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive: JSX, an effect or a thunk that reads one updates when the route changes, with no re-render involved.</p>
           </div>
 
-          <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>.</p>
+          <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>. Its TypeScript type is <code>RouteQuery</code>, <code>Record&lt;string, string | string[]&gt;</code> (exported by <code>what-framework/router</code>), so narrow a value before using it as a string.</p>
 
           <h2 id="dynamic-params">Dynamic Params</h2>
           <p>Use <code>:param</code> syntax in route paths to capture dynamic segments. The matched values are passed to your component as <code>params</code>:</p>
@@ -250,7 +253,7 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
 ];</code></pre>
 
           <h2 id="middleware">Route Guards &amp; Middleware</h2>
-          <p>Route middleware runs synchronously with <code>{ path, params, query, route }</code>. Returning nothing also allows the route. Promises are not awaited: use <code>asyncGuard()</code> for asynchronous checks. Middleware runs before the route's <code>preload</code>, which never runs for a route it declines. It runs once for a navigation, whose verdict the page renders by, and again only when a signal it read changes. On the server, a middleware redirect redirects the render's response. The TypeScript middleware declaration now reflects this runtime contract; older declarations incorrectly accepted <code>Promise&lt;boolean&gt;</code>.</p>
+          <p>Route middleware runs synchronously with <code>{ path, url, params, query, route }</code>, where <code>url</code> is the whole destination (path, search and hash) and <code>route</code> is the destination's route config. Returning nothing also allows the route. Promises are not awaited: use <code>asyncGuard()</code> for asynchronous checks. Middleware runs before the route's <code>preload</code>, which never runs for a route it declines. It runs once for a navigation, whose verdict the page renders by, and again only when a signal it read changes. On the server, a middleware redirect redirects the render's response. The TypeScript middleware declaration now reflects this runtime contract; older declarations incorrectly accepted <code>Promise&lt;boolean&gt;</code>.</p>
           <p>Protect routes with middleware functions that run before the route renders. Middleware can allow, reject, or redirect:</p>
 
 <pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;

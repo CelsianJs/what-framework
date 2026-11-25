@@ -51,7 +51,7 @@ app, and an app that never reads one pays nothing for it.
 | | |
 |---|---|
 | `key` | A string, an array, or a function of signals that returns one. `null`, `false` or `undefined` means no key, and the value is `undefined`. Array keys are joined into one normalized string (`['todos', 1]` is `"todos:1"`), so `query('todos')`, `useSWR('todos')` and `useQuery({ queryKey: ['todos'] })` share one entry. |
-| `fetcher(key, { signal })` | Gets the key as written, and the AbortSignal of the request. |
+| `fetcher(key, { signal })` | Gets the key as this reader wrote it, and the AbortSignal of the request. Readers that spell one key differently (`'todos:1'`, `['todos', 1]`) share the entry, and a fetch a reader starts gets that reader's spelling; a fetch the cache starts itself gets the spelling of the reader that came last. |
 | `options` | `staleTime` (ms a landed value stays fresh, default 0), `gcTime` (ms an entry nothing reads is kept, default 5 minutes), `retry` (total attempts, default 1), `retryDelay`, `initialData`. |
 
 It returns an async value (`AsyncComputed`), so everything in
@@ -93,7 +93,7 @@ expects. Their accessors are functions: `q.data()`, `q.isLoading()`.
 
 | Hook | Shape |
 |---|---|
-| `useQuery({ queryKey, queryFn, ... })` | TanStack Query: `data`, `error`, `status` (`'idle'`, `'loading'`, `'success'`, `'error'`), `fetchStatus`, `isLoading`, `isFetching`, `isError`, `isSuccess`, `isIdle`, `isPlaceholderData`, `isEnabled`, `dataUpdatedAt`, `refetch()`. Options: `enabled` (a boolean, signal or thunk), `staleTime`, `gcTime`/`cacheTime`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` (total attempts, default 3), `retryDelay`, `select`, `placeholderData` (a value, or a function of the previous key's data), `keepPreviousData`, `initialData`, `structuralSharing` (default `true`), `onSuccess`/`onError`/`onSettled`. `queryFn` gets `{ queryKey, signal }`. |
+| `useQuery({ queryKey, queryFn, ... })` | TanStack Query: `data`, `error`, `status` (`'idle'`, `'loading'`, `'success'`, `'error'`), `fetchStatus`, `isLoading`, `isFetching`, `isError`, `isSuccess`, `isIdle`, `isPlaceholderData`, `isEnabled`, `dataUpdatedAt`, `refetch()`. Options: `enabled` (a boolean, signal or thunk), `staleTime`, `gcTime`/`cacheTime`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` (total attempts, default 3), `retryDelay`, `select`, `placeholderData` (a value, or a function of the previous key's data), `keepPreviousData`, `initialData`, `structuralSharing` (default `true`), `onSuccess`/`onError`/`onSettled`. `queryFn` gets `{ queryKey, signal }`, with `queryKey` this query's own key as an array, as in TanStack Query. |
 | `useSWR(key, fetcher, options?)` | SWR: `data` (the value, `fallbackData`, or `null`), `error`, `isLoading` (no data yet, and fetching), `isValidating`, `mutate(data?, revalidate = true)`, `revalidate()`. Options: `dedupingInterval` (2000), `revalidateOnFocus`, `revalidateOnReconnect`, `refreshInterval`, `fallbackData`, `keepPreviousData`, `structuralSharing` (default `true`), `onSuccess`, `onError`. A `null`, `false` or throwing key pauses it. |
 | `useInfiniteQuery(options)` | TanStack Query: `data()` is `{ pages, pageParams }`; `fetchNextPage`, `fetchPreviousPage`, `hasNextPage`, `hasPreviousPage`, `isFetchingNextPage`, `isFetchingPreviousPage`, `refetch` (page one, replacing the list). |
 | `useFetch(url, options?)` | One URL's JSON: `data`, `error`, `isLoading`, `refetch`, `mutate`. `url` may be a function. |

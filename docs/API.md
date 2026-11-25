@@ -142,6 +142,13 @@ getters on an object with no prototype, which What reads as live props:
 `{row.name}` placed in JSX is a reactive child and `<EditableName row={row} />`
 hands the view on. A replaced item updates the cell's bindings in place.
 
+Without a view, a render callback is handed the raw item, as in React
+(`{renderCell(item)}` gets the very object in the list), and the JSX it returns
+is built again when a refetch replaces the item. A view is not `===` to the
+item and is not an array, so a callback that compares items or calls array
+methods on one gets the raw item, and a component (`<Cell item={item} />`)
+keeps its nodes the same way a view does.
+
 A keyed row is built again for a replaced item only when its building code (a
 component body, a statement in the row callback) read something of the item
 that the new item holds another value in. A read of one field, `row.name` in
@@ -668,7 +675,7 @@ async value in the graph, shared by `query()` and every hook
 | Export | Notes |
 |---|---|
 | `query(key, fetcher, options?)` | `AsyncComputed<T>`: the cached value of the key (a key, or a function of signals returning one). Suspends and holds like any async value, dedupes readers, keeps the last value with `pending()` while a new key or a refetch loads, aborts a key nothing reads, `refresh(q)` refetches; server-rendered values are adopted on hydrate under their key. Options: `staleTime`, `gcTime`, `retry`, `retryDelay`, `initialData` |
-| `useQuery(options)` | TanStack Query's shape; never suspends. `queryKey` may be a function; `enabled`, `staleTime`, `gcTime`, `select`, `placeholderData`, `keepPreviousData`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` |
+| `useQuery(options)` | TanStack Query's shape; never suspends. `queryFn` gets `{ queryKey, signal }`, with this query's own key. `queryKey` may be a function; `enabled`, `staleTime`, `gcTime`, `select`, `placeholderData`, `keepPreviousData`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchInterval`, `retry` |
 | `useSWR(key, fetcher, options?)` | SWR's shape: `data` (or `fallbackData`, or null), `error`, `isLoading`, `isValidating`, `mutate`, `revalidate`; a null, false or throwing key pauses it |
 | `useInfiniteQuery(options)` | Pages as one entry: `data()` is `{ pages, pageParams }`, `fetchNextPage`, `fetchPreviousPage` |
 | `useFetch(url, options?)` | One URL's JSON from the cache; `url` may be a function |

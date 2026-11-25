@@ -492,6 +492,30 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   has route state of its own.
 - **`isSafeUrl` refuses an absolute URL the URL parser rejects**, so
   `<Link href="http://[">` renders `href="about:blank"`.
+- **A navigation that changes only the hash keeps the page.**
+  `navigate('#teams')`, `navigate('/settings#teams')` on `/settings`, a
+  `<Link>` to either, and the browser moving the hash (back/forward,
+  `location.hash`) are fragment navigations, as in the browser: the page
+  stays mounted with its state, the URL and `route.hash` move, and the
+  element with that id scrolls into view. No guard, middleware, `preload` or
+  View Transition runs, and `beforeNavigate` and `afterNavigate` are not
+  called. A `'#hash'` target replaces the history entry; a path with a hash
+  adds one unless `replace: true`. Before, a path with a hash rebuilt the
+  page, losing its local state (found dogfooding Vura: `ERR_REBUILT_COMPONENT`
+  fired for its Settings and Deployment Detail pages).
+  *Migration:* code that ran in `afterNavigate` or a middleware for a hash
+  change reads `route.hash` in an effect instead.
+- **Parsed queries are typed `RouteQuery`**
+  (`Record<string, string | string[]>`, exported by what-router and
+  `what-framework/router`): `route.query`, `useSearch()`, `useRoute().query`,
+  `parseQuery()`, and the `query` a route component, a layout, `preload` and
+  middleware receive, what-server's `RouteMatchContext` and what-isr's
+  `cacheKey()` and `RouteMatch`. A key the URL repeats was already an array at
+  runtime (`?tag=a&tag=b` is `{ tag: ['a', 'b'] }`). Middleware is typed
+  `(context: RouteMiddlewareContext)`, `{ path, url, params, query, route }`.
+  *Migration:* code that typed a query as `Record<string, string>` may now
+  see `string | string[]`: narrow the value (`Array.isArray(v) ? v[0] : v`),
+  or name the shape you expect (`useSearch<{ page?: string }>()`).
 - **A server never navigates.** During a server render, route state is the
   request's own, and a `<Router url>` keeps route state of its own, which
   readers outside it do not see. `navigate()`, a middleware redirect,
@@ -586,6 +610,46 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   prototype; `_$createComponent` takes one as the component's own, and h()
   keeps the getters of one. Code that relied on a prop staying at its first
   value reads it once in the body instead (`const first = props.value`).
+- **Props forwarded the React way stay live.** Each shape has a test
+  (packages/core/test/forwarded-props-react-habits.test.js), and five new
+  rest-prop shapes are compared with React
+  (packages/compiler/test/rest-props-react-parity.test.js).
+  - An attribute written after a spread wins over it, as source order says:
+    `<a {...rest} href="/override" />` keeps `/override` when `rest.href`
+    changes. The compiler passes the names written after each spread
+    (`_$spread(el, rest, ["href"])`); `class` and `className` count as one
+    name.
+  - A handler that comes through a spread follows the parent's current one;
+    the old listener is removed. A handler written directly
+    (`onClick={props.onClick}`) is still bound once.
+  - `children` written as an attribute is live, so children forwarded
+    through several rests, and into a React island, update.
+  - `const merged = { ...rest, className: 'x' }` spread onto JSX, or only
+    read by key, stays live (`_$merge`). Handed elsewhere, written to or
+    given a method, it is a plain object as before.
+  - A function handed to a component (`read={() => props.project}`) is a
+    callback: calling it returns the prop, not an internal forwarding
+    function.
+  - Components written with `h()` (named, `memo(function …)`, an anonymous
+    default export, one a factory returns, a `use*` hook handed props) and a
+    class `render()` that destructures `this.props` read props live.
+
+  A render callback in a keyed row (`{renderCell(item)}`) is handed the raw
+  item, as in React, so identity, arrays, `Map`, `Date` and private fields
+  behave as React code expects; to keep a cell's nodes across a refetch,
+  hand it `live(() => item)` or render a component (`<Cell item={item} />`).
+  *Migration:* code that relied on a spread overwriting an attribute written
+  after it writes the attribute before the spread; tests that match compiled
+  output of spreads change.
+- **A key that reads the index keys the list, as React keys it.** `key={i}`
+  and `` key={`${t.term}-${i}`} `` compile to a keyed list keyed by item and
+  position, with no warning; the key function receives the index, on the
+  server (`ssrList`) too. A row stays while its key does, so a refetch that
+  hands the same places new objects keeps the rows and their state, and a
+  list keyed by the index hydrates the server's rows in place. Before, such a
+  key fell back to an unkeyed list built again on every update (with a
+  warning, except for a bare `key={i}`). A key built from a name the map
+  callback declares still falls back, with the warning.
 - **`<Row item={item} />` in a keyed `.map()` follows an item replaced under
   its key.** An attribute named like the row's variable was taken as a read
   of it, so the row kept the item it was built with.
@@ -653,8 +717,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   a destructured prop the compiler reads once, when the component runs (one
   assigned again, a computed key, one destructured twice, a default that
   reads another prop or calls something, a nested rest or array pattern, a
-  `var` pattern): it names the prop, the component, `file:line:column` and the
-  fix, so a prop never keeps its first value in silence.
+  `var` pattern), a component that picks what it returns from a prop
+  (`return on ? <A /> : <B />`, `if (!open) return null`), and one that hands
+  its props to a JSX helper as a value (`return mk({ value })`): it names the
+  prop, the component, `file:line:column` and the fix, so a prop never keeps
+  its first value in silence.
 
 - **`live(source)`**, a read-only live view of the object an accessor returns:
   `view.name` reads the current value's `name`, through getters What reads as
@@ -695,6 +762,21 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **A forwarded live prop reaches the child as its value**
   (`<Leaf counts={props.data} />` with `data` a live prop): the child read the
   slot's read function, and now reads the value, live, wherever it reads it.
+- **Route middleware gets `url`**, the destination's whole URL (path, search
+  and hash: `/private?a=1#top`), on the client and the server, so a login
+  redirect can carry it (`` `/login?next=${encodeURIComponent(url)}` ``).
+  During a navigation `route` still reads the page being left. Found
+  dogfooding Vura.
+- **An element's event handlers type `e.currentTarget` as that element**
+  (`HTMLInputElement` for an `<input>`, `HTMLFormElement` for a `<form>`, the
+  SVG element types), as React's types do, so `e.currentTarget.value` needs
+  no cast. `e.target` stays `Element`. Found dogfooding Vura.
+- **`what-react/class`** installs class components for a program whose
+  classes do not extend `Component` (a class marked `isReactComponent` by
+  hand, as React accepts, or by a library). `reactCompat()` imports it into
+  every module that has `isReactComponent` in it; a build without the plugin
+  imports it once. `ERR_CLASS_COMPONENT_NOT_INSTALLED` names the fix when
+  neither did.
 - **what-devtools-mcp/vite looks for `what-devtools` where Vite resolves the
   bootstrap's import** (a node_modules at or above the root), not through
   `NODE_PATH`: under pnpm, whose bin shims set `NODE_PATH` to the hidden store,
@@ -857,7 +939,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 74 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 76 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
@@ -1008,6 +1090,31 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   renderer.** The plugin leaves `server.js` out of a client production
   build; a client-only mixed app is 1.5 KB gzip smaller.
 
+- **what-react: a class marked `isReactComponent` without extending
+  `Component` renders in production.** It rendered nothing (`Class
+  constructor … cannot be invoked without 'new'`): the class wrapper came
+  with `Component`'s definition, which the bundler drops when nothing
+  references `Component`. `Component` still installs it, so an app without
+  classes carries none of it; `what-react/class` installs it on its own, and
+  `reactCompat()` imports it into any module whose code contains
+  `isReactComponent` (`node_modules` included, the framework's own files
+  excepted). A build without the plugin that reaches such a class throws
+  `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering nothing. Tested in
+  esbuild and Vite production builds (`packages/react-compat/test/bundle.test.js`).
+- **what-react: a keyed list of React elements placed by native What code
+  keeps its rows.** A row was built again when an item was inserted ahead of
+  it, losing its node, its React state, the text typed in it and the focus.
+  Each keyed island is kept under the hole's owner and handed back by key and
+  type on the next run, rendered with the new element; a row whose key goes
+  unmounts on the following microtask (MIXED.md, Limits;
+  `packages/react-compat/test/native-keyed-list.test.js`).
+- **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
+  as in TanStack Query, not the spelling that created the cache entry they
+  share (`'q:alpha'`). `useSWR`, `query()`, `useInfiniteQuery` and
+  `prefetchQuery` hand their fetchers the key the same way, and `onSuccess`
+  and `onError` receive it; a fetch the cache starts itself uses the key of
+  the reader that came last. Found dogfooding
+  Vura.
 - **A tag held in a binding is created in the namespace it stands in.**
   `as="circle"` in an `<svg>` and `as="mi"` were created as unknown HTML
   elements and did not draw: a name only SVG or MathML has is created in that
@@ -1477,14 +1584,16 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 - **what-react carries only what an app uses.** Measured by `npm run
   check:size` (Node 22.13.1) against 90c91c40: a React counter on what-react
-  22,160 B to 16,037 B gzip (React 19.3.1 ships 67,599 B for it); a native
+  22,160 B to 16,175 B gzip (React 19.3.1 ships 67,599 B for it); a native
   What page that draws a recharts chart, the chunk that holds what-core and
-  what-react, 29,074 B to 23,222 B (React and ReactDOM: 67,383 B); a
-  hydrating page with one island 44,964 B to 42,331 B; the krausest app on
+  what-react, 29,074 B to 23,672 B (React and ReactDOM: 67,383 B); a
+  hydrating page with one island 44,964 B to 42,788 B; the krausest app on
   what-react 23,109 B to 16,953 B. what-react's elements are made by
   what-core's unbuilt component call instead of `h()`, which installed
   what-core's vnode renderer in every React app; the class lifecycle comes
-  with `Component`; `Suspense`, `StrictMode`, `Profiler` and `Activity` are
+  with `Component`, or with `what-react/class`, which the Vite plugin imports
+  into a module that has `isReactComponent` (without either, such a class
+  throws `ERR_CLASS_COMPONENT_NOT_INSTALLED`); `Suspense`, `StrictMode`, `Profiler` and `Activity` are
   dropped when unused; how an island claims the server's region is installed
   by the hydrating entry (`what-react/claim-islands`, which
   `what-react/hydrate-islands` includes, imported by every module
@@ -1505,7 +1614,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   scenarios. REACT-COMPAT.md, "What an app carries".
   *Migration:* a build without what-react's Vite plugin that hydrates React
   islands imports `what-react/claim-islands` (or `what-react/hydrate-islands`,
-  which adopts the server's HTML) before `hydrate()`. In an app with no
+  which adopts the server's HTML) before `hydrate()`. A build without the
+  plugin whose classes are marked `isReactComponent` without extending
+  `Component` imports `what-react/class` once. In an app with no
   native What code, a React element that reaches what-core (a function child
   that returns one) renders as an island, by React's rules.
 

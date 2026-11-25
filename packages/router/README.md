@@ -370,12 +370,12 @@ enableScrollRestoration(); // call once at app entry
 | `route` | Route state: `url`, `path`, `params`, `query`, `hash`, `isNavigating` and `error` are getters that subscribe when read in a binding, effect or computed |
 | `useRoute()` | `{ path, params, query, hash, isNavigating }` as computeds (call them: `path()`), plus `navigate` and `prefetch` |
 | `useParams()` | The current params, read when called (call it inside a binding or effect to track changes) |
-| `useSearch()` | Parsed query string of the last matched route, read when called (stale on a 404, like `route.query`) |
+| `useSearch()` | Parsed query string of the last matched route, read when called (stale on a 404, like `route.query`); typed `RouteQuery`, `Record<string, string \| string[]>` |
 | `useNavigate()` | Returns `navigate` |
 | `redirect(to, opts?)` | Abort route matching and navigate, **from route middleware or a component body** (throws, never returns) |
 | `prefetchRoute(href)` | Prefetch a route's assets |
-| `beforeNavigate(fn)` | Guard run before each route navigation (not hash links); return `false` to cancel |
-| `afterNavigate(fn)` | Callback run after each committed navigation |
+| `beforeNavigate(fn)` | Guard run before each route navigation (not a fragment navigation); return `false` to cancel |
+| `afterNavigate(fn)` | Callback run after each committed route navigation (not a fragment navigation) |
 | `defineRoutes(config)` | Create routes from flat object |
 | `nestedRoutes(base, children, opts?)` | Nested route helper |
 | `routeGroup(name, routes, opts?)` | Group routes without affecting URL |

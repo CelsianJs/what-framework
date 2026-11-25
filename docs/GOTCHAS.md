@@ -211,9 +211,16 @@ function Parent() {
 }
 ```
 
-A prop is live when its value reads a signal (a call, `props.x`, a store's member). A name (`count={count}`), a literal and a function are passed as they are. Forwarding keeps live props live: `<Inner {...props} />`, a rest element `({ class: cls, ...rest }) => <button {...rest} />` (section 26), and a prop handed on (`<Inner href={props.href} />`). What stays read once is a value you compute in the component body outside JSX: `const doubled = props.n * 2` is the value at the first run, so write `{props.n * 2}` or `const doubled = computed(() => props.n * 2)`.
+A prop is live when its value reads a signal (a call, `props.x`, a store's member). A name (`count={count}`), a literal and a function are passed as they are. Forwarding keeps live props live: `<Inner {...props} />`, a rest element `({ class: cls, ...rest }) => <button {...rest} />` (section 26), and a prop handed on (`<Inner href={props.href} />`). `children` written as an attribute (`children={label()}`) is a live prop like any other. A function handed to a component (`read={() => props.project}`) is a callback: the child's `props.read()` returns the prop's current value. An object literal that spreads the props, `const merged = { ...rest, className: 'x' }`, stays live while it is only spread onto JSX (`<a {...merged} />`) or read by key (`merged.title`); handed to a function, written to, or given a method, it is a plain copy of the values at the first run. What stays read once is a value you compute in the component body outside JSX: `const doubled = props.n * 2` is the value at the first run, so write `{props.n * 2}` or `const doubled = computed(() => props.n * 2)`.
 
 A destructured prop is read where you use it, nested names (`{ style: { color } }`) and defaults included: a plain literal (`size = 'md'`) or a value that reads nothing of the component and calls nothing (`items = []`, `onPick = () => {}`, `size = SIZES.md`), which is made once when the component runs and stands in wherever the prop is undefined. A few shapes are still read once, when the component runs, and a development build reports each at compile time as `ERR_PROP_READ_ONCE`, with the file, the line and the fix: a prop that is assigned again (`size = size ?? 'md'`), one with a computed key (and a rest element beside it), one destructured twice, one whose default reads another prop or calls something (`label = size + '!'`, `id = makeId()`), a nested pattern that holds a rest element or an array, and a pattern declared with `var`. A component held in a prop and used as a tag (`as: Tag`) is read once too, by design (section 26). Read `props.size ?? 'md'` where you use it, or give the result a name of its own.
+
+Two more shapes read a prop once, whether it is destructured or not, and are reported the same way:
+
+- A component that picks what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) picks once. Branch where it renders: `<>{() => (on ? <A /> : <B />)}</>`, or `<Show when={on}>`.
+- A component that hands its props to a JSX helper as a value (`return mk({ value })`) hands it the values they had. Hand the props on, `mk(props)`, or render the helper as a component, `<Mk value={value} />`.
+
+Components written with `h()` read destructured props live too: a named one, one wrapped in `memo()`, one a factory returns, and a `use*` hook handed props. So does a class `render()` that does `const { value } = this.props`.
 
 What breaks reactivity is pulling the read out of the JSX into a plain variable: `const val = count(); return <p>{val}</p>;` reads once, at component setup, with nothing watching it, and so does passing `count={count()}` from the parent.
 
@@ -504,14 +511,34 @@ const Box = ({ as: Tag = 'div', size = 'md', children, ...rest }) => (
 
 A rest element holds the props' live values, wherever it goes: spread onto an element (`<a {...rest} />`), onto a tag held in a binding (`<Tag {...rest} />`, an SVG or MathML one included, section 13), onto another component (`<Inner {...rest} />`), handed on as one prop (`<Inner attrs={rest} />`, read there as `props.attrs.href`), destructured again (`const { href, ...more } = rest`), read by key (`rest.href`), and used in a nested function or a `.map()` row. It works the same in a pattern in the parameter list, in the body (`const { as: Tag, ...rest } = props`), in a function declaration and in a `forwardRef`-style render function `({ ...rest }, ref) => …`. Spreading the props whole, `(props) => <a {...props} />`, keeps them live too.
 
+An attribute written after a spread wins over it, as in React: `<a {...rest} href="/x" />` keeps `/x` when `rest.href` changes, and `class` and `className` count as one name. An attribute written before the spread is overwritten by it. A handler that comes through a spread or a rest (`<button {...rest} />`) follows the parent's current handler, and the old listener is removed.
+
 A spread's `children` are the element's children, never an attribute: `<a {...props} />` renders `props.children` in the link, as React does, unless the element has children of its own written in JSX. With several spreads the last that holds children wins. The children of a spread of anything but a name or a member chain (`<a {...getProps()} />`) are not rendered.
 
 A destructured `.map()` row follows its item like any other row: `items().map(({ id, label, ...rest }) => <li key={id} {...rest}>{label}</li>)` shows the new item when one is replaced under the same key (an immutable update), where it used to keep the first.
 
+A render callback in a keyed row (`{renderCell(item)}`, a table column's `render(row)`) is handed the raw item, as in React: the same object, so identity, arrays, `Map`, `Date` and private fields behave as React code expects. The JSX it returns is built again, with new nodes, when a refetch replaces the item. To keep the cell's nodes and state, pass a live view or render a component:
+
+```jsx
+import { live } from 'what-framework';
+
+const Cell = ({ item }) => <span>{item.name}</span>;
+const renderCell = (item) => <span>{item.name}</span>;
+
+function Rows({ rows }) {
+  return <>
+    {rows().map((item) => <div key={item.id}>{renderCell(live(() => item))}</div>)}
+    {rows().map((item) => <div key={item.id}><Cell item={item} /></div>)}
+  </>;
+}
+```
+
+Inside the callback a view is not `===` to the item and is not an array, so use it for field reads only (docs/API.md, live views).
+
 Read once, as in any What component:
 
 - The tag itself: `as` is read when the component runs, so `<Box as={isLink() ? 'a' : 'button'} />` keeps its first tag. To switch elements with state, branch where you render: `{() => (isLink() ? <a {...rest} /> : <button {...rest} />)}`.
-- An event handler, through a spread or written directly (`onClick={open() ? close : show}`): it is bound once. Read the state when it runs: `onClick={() => (open() ? close() : show())}`.
+- An event handler written directly (`onClick={props.onClick}`, `onClick={open() ? close : show}`): it is bound once. Read the state when it runs: `onClick={(e) => props.onClick?.(e)}`, `onClick={() => (open() ? close() : show())}`.
 
 A spreading component costs one props object for the rest (`_$omit`, a copy that keeps the getters), and one binding per live prop it spreads (re-run when that prop's value changes, as a reactive attribute is). A component that does not spread pays nothing for any of this.
 

@@ -1253,13 +1253,18 @@ await ensurePretext();
 
 > Prop `{{name}}` is read once, when <{{component}}> runs: {{reason}}.
 
-what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`: the compiler reports it at build time (development builds). Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.
+what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Two more shapes read a prop once: a component that decides what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) decides once, so branch where it renders (`<>{() => (on ? <A /> : <B />)}</>` or `<Show when={…}>`; with h(), `() => (on ? h(A) : null)`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`<Mk value={value} />`). The compiler reports each at build time (development builds). Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.
 
 ```jsx
 // Bad - size is assigned again, so it is read once:
 function Button({ size, ...rest }) {
   size = size ?? 'md';
   return <button class={'btn-' + size} {...rest} />;
+}
+
+// Bad - which element it returns is decided once:
+function Status({ online }) {
+  return online ? <b>online</b> : <i>offline</i>;
 }
 
 // Good - the default applies where size is read, and size follows the parent:
@@ -1270,6 +1275,11 @@ function Button({ size = 'md', ...rest }) {
 // Good - a computed default, read where it is used:
 function IconButton(props) {
   return <button class={'btn-' + (props.size ?? defaultSize())} />;
+}
+
+// Good - the branch is a reactive child, decided where it renders:
+function Status({ online }) {
+  return <>{() => (online ? <b>online</b> : <i>offline</i>)}</>;
 }
 ```
 

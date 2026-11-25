@@ -162,6 +162,8 @@
   required
 /&gt;</code></pre>
 
+          <p>The rest keeps the props live, as React's re-render would: a prop that reads a signal updates the input where it renders, and a handler handed through the rest (<code>onInput</code>) follows the parent's current one. An attribute written after the spread wins over it, as in React: <code>&lt;input {...rest} type="email" /&gt;</code> keeps <code>email</code> whatever <code>rest.type</code> is.</p>
+
           <h2 id="children">Children</h2>
           <p>Content between component tags is passed as <code>children</code>:</p>
 

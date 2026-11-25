@@ -423,6 +423,8 @@ and navigations that are transitions. Each change below has its migration.
   function of signals, and the query follows it to the new key's entry; a
   static array is still read once. A signal read inside `queryFn`/`fetcher`
   still refetches, under the same key: move it into a function key.
+  `queryFn` gets the reader's own key as it wrote it (`['todos', 1]`), even
+  when another spelling (`'todos:1'`) created the entry they share.
 - **`invalidateQueries` returns a promise** that resolves once the refetches
   it started have landed. Ignoring it is unchanged.
 - **Callbacks fire once per landing**, for the reader that started the fetch
@@ -526,6 +528,23 @@ and navigations that are transitions. Each change below has its migration.
 - **`isSafeUrl` refuses an absolute URL the URL parser rejects**, where 0.14
   accepted any URL with a safe scheme, so `<Link href="http://[">` renders
   `href="about:blank"`.
+- **A navigation that changes only the hash keeps the page**, as the browser
+  does: `navigate('#teams')`, `navigate('/settings#teams')` on `/settings`,
+  a `<Link>` to either, and the browser moving the hash. The URL and
+  `route.hash` move and the element with that id scrolls into view; no
+  guard, middleware or `preload` runs, and `beforeNavigate` and
+  `afterNavigate` are not called. 0.14 rebuilt the page for a path with a
+  hash. This affects code that ran in `afterNavigate` or a middleware for a
+  hash change: read `route.hash` in an effect instead.
+- **Parsed queries are typed `RouteQuery`**,
+  `Record<string, string | string[]>`: `route.query`, `useSearch()`,
+  `parseQuery()`, and the `query` routes, layouts, `preload` and middleware
+  receive. A repeated key (`?tag=a&tag=b`) was already an array at runtime.
+  Middleware is typed `(context: RouteMiddlewareContext)` and gets `url`, the
+  destination's path, search and hash. This affects TypeScript code that
+  typed a query as `Record<string, string>`: narrow the value
+  (`Array.isArray(v) ? v[0] : v`), or name the shape
+  (`useSearch<{ page?: string }>()`).
 - **A `<Router>` inside another has route state of its own**, on the server
   and in the browser: what it renders reads the params and query it matched,
   and its parent's subtree keeps reading the parent's. In the browser the
@@ -576,6 +595,13 @@ and navigations that are transitions. Each change below has its migration.
   destructures its item (`({ id, label, ...rest }) => <li key={id}>…`)
   follows it too: what-compiler reads `label` as the item's field where it is
   used, and builds the rest element where the row is built, on both targets.
+- **A key that reads the index keys the list, as React keys it.** `key={i}`
+  and `` key={`${t.term}-${i}`} `` are keyed by item and position, with no
+  warning: a row stays while its key does, so a refetch that hands the same
+  places new objects keeps the rows and their state. 0.14 fell back to an
+  unkeyed list for such a key, built again on every update (with a warning,
+  except for a bare `key={i}`). A key built from a name the map callback declares still falls
+  back, with a warning.
 
 ### Hydration
 
@@ -814,6 +840,13 @@ options.
   code that relied on a rest element or a spread keeping its first values,
   and tests that match compiled output of rest elements, spreads or
   destructured defaults.
+- **An attribute written after a spread wins over it**, as in React:
+  `<a {...rest} href="/x" />` keeps `/x` when `rest.href` changes. A handler
+  that comes through a spread follows the parent's current one, `children`
+  written as an attribute is live, and `const merged = { ...rest, className:
+  'x' }` spread onto JSX stays live. This affects code that relied on a
+  spread overwriting an attribute written after it: write the attribute
+  before the spread.
 - **The Vite plugin compiles the app's files, never a dependency's.**
   Nothing under `node_modules` is compiled, whatever `include` and `exclude`
   say: 0.14 compiled it when a custom `exclude` left `node_modules` out of its
@@ -1076,6 +1109,10 @@ Beyond that:
   throws does so while its component renders, where an error boundary
   catches it, not from the `dispatch` call. Cleanups of a removed subtree
   run parents first, the passive ones after the commit's layout effects.
+  A class marked `isReactComponent` that does not extend `Component` needs
+  `what-react/class`, which `reactCompat()` imports for you; a build without
+  the plugin imports it once, in its entry, or the class throws
+  `ERR_CLASS_COMPONENT_NOT_INSTALLED`.
 
 ## MCP tools
 

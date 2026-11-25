@@ -50,6 +50,13 @@ what-react in the page and in a server render:
   (Vite's `ssr.noExternal`); the rules are in MIXED.md, "What a server
   render bundles". Only mixed mode renders on the server.
 
+It also adds `import 'what-react/class'` to every module whose code has
+`isReactComponent` in it, so a class marked that way without extending
+`Component` renders. A build without the plugin (esbuild, another bundler)
+that has such a class imports `what-react/class` once, in its entry; without
+it the class throws `ERR_CLASS_COMPONENT_NOT_INSTALLED` ("What an app
+carries", below).
+
 ## How it works
 
 `what-react` has its own renderer (`packages/react-compat/src/runtime.js`)
@@ -380,9 +387,9 @@ Production builds through Vite, gzip, as `npm run check:size` measures them
 
 | Scenario | what-react now | at `90c91c40` | React 19.3.1 |
 |---|---|---|---|
-| `react-counter`: a counter, `reactCompat()` alone | 16,037 B | 22,160 B | 67,599 B |
-| `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 23,222 B | 29,074 B | 67,383 B (React and ReactDOM) |
-| `mixed-hydrate`: a native page with one React island, hydrating | 42,331 B | 44,964 B | (none) |
+| `react-counter`: a counter, `reactCompat()` alone | 16,175 B | 22,160 B | 67,599 B |
+| `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 23,672 B | 29,074 B | 67,383 B (React and ReactDOM) |
+| `mixed-hydrate`: a native page with one React island, hydrating | 42,788 B | 44,964 B | (none) |
 
 `node benchmark/size/why.mjs <scenario>` lists what is in a scenario's
 bundle, declaration by declaration, with what keeps each one there.
@@ -400,11 +407,15 @@ What an app does not use, it does not carry:
   of its own, by React's rules; what-core used to render a host element there
   with What's prop rules.
 - **Class components.** `Component`'s definition installs the class
-  lifecycle, so a program without `Component` (and so without a class
-  component: React renders as a class only what has `Component`'s
-  `isReactComponent`) does not carry it. With `Component` in the program, a
-  class that has a `render()` method and no `Component` base still renders as
-  a class.
+  lifecycle, so a program without `Component` does not carry it. A class
+  marked `isReactComponent` that does not extend `Component` (by hand, as
+  React accepts, or by a library) gets it from `what-react/class`, which
+  what-react's Vite plugin imports into every module that has
+  `isReactComponent` in it (the framework's own files excepted); a build
+  without the plugin imports it once. Without either, such a class is
+  refused with `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering
+  nothing. With the lifecycle installed, a class that has a `render()` method
+  and no `Component` base still renders as a class.
 - **`Suspense`, `StrictMode`, `Profiler`, `Activity`** carry their statics
   from where they are made, so an app that renders none drops them.
 - **Island hydration.** How an island claims the server's region is installed

@@ -354,8 +354,8 @@ Reported by the COMPILER at build time in dev, not by the runtime: whether a
 list has keys is settled by the source. A `.map()` that returns JSX with no
 `key` prop bails out of keyed reconciliation and prints
 `[what-compiler] ERR_MISSING_KEY: ... at src/List.jsx:5:24`. It stays silent for
-a keyed list, and for a bare index key (`key={i}`), which is read as deliberate
-positional reconciliation.
+a keyed list, an index key included: `key={i}` and `` key={`${t.term}-${i}`} ``
+key each row by item and position, as React keys them.
 
 ### ERR_ORPHAN_EFFECT
 NOT DETECTED, and deliberately so: the only available signal is owner presence

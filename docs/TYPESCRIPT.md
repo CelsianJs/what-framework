@@ -151,6 +151,55 @@ where it renders. A prop can also be typed and passed as an accessor
 (`variant={variant}`), which the component calls where it renders
 (`props.variant()`).
 
+### Typed Events
+
+A handler on an element types `e.currentTarget` as that element, as React's
+types do, so reading the field needs no cast:
+
+```tsx
+import { useSignal } from 'what-framework';
+
+function Search() {
+  const term = useSignal('');
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); e.currentTarget.reset(); }}>
+      <input value={term()} onInput={(e) => term.set(e.currentTarget.value)} />
+    </form>
+  );
+}
+```
+
+`e.currentTarget` is `HTMLInputElement` on an `<input>`, `HTMLFormElement` on
+a `<form>`, and the SVG element's own type inside `<svg>`. `e.target` stays
+`Element`, because the event may have started at a descendant: narrow it
+(`e.target instanceof HTMLButtonElement`) before reading its fields.
+
+### Typed Routes
+
+A parsed query is a `RouteQuery`, `Record<string, string | string[]>`: a key
+the URL repeats (`?tag=a&tag=b`) holds every value. Narrow a value before you
+use it as a string:
+
+```tsx
+import { route, type RouteMiddleware, type RouteQuery } from 'what-framework/router';
+
+const first = (query: RouteQuery, key: string): string | undefined => {
+  const value = query[key];
+  return Array.isArray(value) ? value[0] : value;
+};
+
+function Page() {
+  return <p>Page {() => first(route.query, 'page') ?? '1'}</p>;
+}
+
+const isLoggedIn = () => document.cookie.includes('session=');
+
+// Middleware gets { path, url, params, query, route }; `url` is the whole
+// destination, path + search + hash.
+const requireLogin: RouteMiddleware = ({ url }) =>
+  isLoggedIn() || `/login?next=${encodeURIComponent(url)}`;
+```
+
 ### Typed Context
 
 ```tsx
