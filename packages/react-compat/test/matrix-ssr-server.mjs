@@ -41,12 +41,19 @@ const page = fs.readFileSync(path.join(clientDir, pageFile), 'utf8');
 // What the browser does to the server's HTML: which of its elements are still
 // in the page afterwards, how many nodes were added and removed, the fewest
 // elements any animation frame saw (fewer than the server wrote: the content
-// was gone for a frame), and the layout shift Chromium measured.
+// was gone for a frame), and the layout shift Chromium measured. Also the
+// element and text nodes in the page that the server did not write
+// (created), and how many of the server's are still there (keptNodes).
 const PROBE = `(() => {
   const main = document.getElementById('main');
   const nodes = [...main.querySelectorAll('*')];
   const count = () => main.querySelectorAll('*').length;
-  const p = window.__hyd = { serverElements: nodes.length, minElements: nodes.length, frames: 0, added: 0, removed: 0, shift: 0, kept: () => nodes.filter((n) => n.isConnected).length, now: count };
+  const all = () => { const out = []; const w = document.createTreeWalker(main, 5); for (let n = w.nextNode(); n !== null; n = w.nextNode()) out.push(n); return out; };
+  const server = all();
+  const p = window.__hyd = { serverElements: nodes.length, serverNodes: server.length, minElements: nodes.length, frames: 0, added: 0, removed: 0, shift: 0, kept: () => nodes.filter((n) => n.isConnected).length, now: count,
+    keptNodes: () => server.filter((n) => n.isConnected && main.contains(n)).length,
+    created: () => { const seen = new Set(server); return all().filter((n) => !seen.has(n)).length; },
+    createdSample: () => { const seen = new Set(server); return all().filter((n) => !seen.has(n)).slice(0, 6).map((n) => (n.nodeType === 3 ? '#text ' + JSON.stringify(n.data.slice(0, 20)) : '<' + n.localName + (n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : '') + '>') + ' in <' + (n.parentNode ? n.parentNode.localName : '?') + '>'); } };
   const elements = (list) => { let n = 0; for (const node of list) if (node.nodeType === 1) n += 1 + node.querySelectorAll('*').length; return n; };
   new MutationObserver((list) => { for (const m of list) { p.added += elements(m.addedNodes); p.removed += elements(m.removedNodes); } }).observe(main, { childList: true, subtree: true });
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) p.shift += e.value; }).observe({ type: 'layout-shift', buffered: true }); } catch {}

@@ -281,10 +281,14 @@ function isNoExternal(noExternal, name) {
  *   Off, every JSX file is React code.
  * @param {string | RegExp | ((file: string) => boolean) | Array<string | RegExp | ((file: string) => boolean)>} [options.react]
  *   Mixed mode: files (paths relative to the root) that are React files whatever they import.
+ * @param {boolean} [options.hydrateIslands=true] - Mixed mode: a page the server rendered
+ *   hydrates its React islands by adopting the server's HTML (MIXED.md, Server rendering).
+ *   The plugin installs it in the modules what-compiler compiles for hydration; off, an
+ *   island renders in the browser and replaces the server's HTML.
  * @returns {import('vite').Plugin[]}
  */
 export function reactCompat(options = {}) {
-  const { exclude = [], autoDetect = true, mixed = 'auto' } = options;
+  const { exclude = [], autoDetect = true, mixed = 'auto', hydrateIslands = true } = options;
   let mixedOn = false;
   const mixedPlugin = mixedJsx({ react: options.react });
   const mixedTransform = mixedPlugin.transform;
@@ -461,7 +465,31 @@ export function reactCompat(options = {}) {
         this.warn(`[what-react] This server build imports ${[...react].map((id) => JSON.stringify(id)).join(', ')} from node_modules, which is React itself, not what-react: components that reach it cannot render in a React island. Take it out of ssr.external.`);
       }
     },
-  }, mixedPlugin];
+  }, mixedPlugin, {
+    // A native module that what-compiler compiled for hydration (its JSX
+    // claims the server's nodes) also installs island hydration: the islands
+    // of the page it hydrates adopt the server's HTML (src/hydrate.js). A
+    // client build that does not hydrate never calls it, and its bundle does
+    // not carry that code. An import call, not a bare import: what-react is
+    // free of side effects (package.json), so a bare import would be dropped.
+    name: 'what-react-hydrate-islands',
+    enforce: 'post',
+    transform(code, id, opts) {
+      if (!mixedOn || !hydrateIslands || (opts && opts.ssr)) return null;
+      // A JSX file, as what-compiler compiles them (its `include`).
+      const file = id.split('?')[0];
+      if (!/\.[jt]sx$/.test(file) || file.includes('/node_modules/') || file.startsWith('\0')) return null;
+      if (!HYDRATABLE_OUTPUT.test(code) || code.includes(HYDRATE_ISLANDS)) return null;
+      // Appended: the module's own lines and their source map stay as they are.
+      return { code: `${code}\nimport { _hydrateIslands as ${HYDRATE_ISLANDS} } from 'what-react/mixed';\n${HYDRATE_ISLANDS}();\n`, map: null };
+    },
+  }];
 }
+
+// What only what-compiler's hydratable output imports, in the import it
+// writes on a line of its own: a template that claims the server's node, and
+// the JSX handed to hydrate().
+const HYDRATABLE_OUTPUT = /^import\s*\{[^}]*\b_\$(?:claim|claimControl|componentVNode)\b[^}]*\}\s*from\s*['"]what-(?:framework|core)\/render['"]/m;
+const HYDRATE_ISLANDS = '__whatReactHydrateIslands';
 
 export default reactCompat;

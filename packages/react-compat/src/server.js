@@ -7,16 +7,76 @@
  * vnodes (host elements and text, and native What components as vnodes), which
  * what-server renders and escapes as it renders any other tree, native
  * components inside included.
+ *
+ * A hydratable render (what-server's renderToHydratableString, the stream)
+ * also writes what the browser needs to take that HTML for its own
+ * (hydrate.js), and nothing more:
+ *
+ *   <!--$--><!--/$-->     between two texts, which the HTML parser would
+ *                         otherwise read as one text node (React writes
+ *                         <!-- --> there)
+ *   <!--[]-->…<!--/[]-->  around what native What renders inside the island
+ *                         (a native component, a What vnode) and around a
+ *                         <Suspense>'s content
+ *   <!--$-->…<!--/$-->    around a <Suspense>'s fallback: the browser renders
+ *                         that boundary afresh, as React does
+ *
+ * A plain renderToString writes none of them.
  */
 
 import { h } from 'what-core';
-import { isVNode, _provide } from 'what-core/internal';
+import { isVNode, _provide, _currentOwnerPath } from 'what-core/internal';
 import { Suspense } from './index.js';
+import { _islandIds } from './hooks.js';
 import { HOST, SVG_ATTR_MAP, IS_NON_DIMENSIONAL, _serverInstance, _renderOnServer } from './runtime.js';
 
-/** The vnodes what-server renders for `element` (what-react elements), under the compat instance `parent`. */
+/**
+ * The vnodes what-server renders for an island's elements `element` (what-react
+ * elements), under the compat instance `parent`: a flat list, each text
+ * separated from the next.
+ */
 export function serverTree(element, parent) {
-  return expand(element, parent, false);
+  if (!namesIds) {
+    namesIds = true;
+    _islandIds(islandId);
+  }
+  // The island's own instance names its components' ids (islandId), from
+  // its owner path, which a hydratable render gives it.
+  const root = _serverInstance(serverTree, null, parent);
+  const path = _currentOwnerPath();
+  if (path !== undefined) root._ids = idsOf(path);
+  return childList(expand(element, root, false));
+}
+
+let namesIds = false;
+
+// ---- useId ----
+// React's ids name a component by its place in the tree, so the server's and
+// the browser's are the same. An island the server rendered numbers the ids
+// of its components in render order, which is the same on the server and in
+// the render that hydrates it (the client render matches the server's or
+// hydration reports it), behind the island's own place among the native
+// components of the page (its owner path, which what-core gives it the same
+// on both sides).
+
+/**
+ * The ids of an island at the owner path `path`. A hydrate() root that
+ * what-core cannot place in the server's render (no hydration data beside
+ * it) numbers its components in the same order under a prefix no server path
+ * has (`~`): without it the path is the server's, as long as the two sides
+ * render the same components.
+ */
+export function idsOf(path) {
+  return { prefix: '_R_' + path.replace(/~/g, '') + '_', n: 0 };
+}
+
+/** The id the next useId of `inst` gets, when it renders in an island that names its own; else ''. */
+export function islandId(inst) {
+  for (let p = inst; p != null; p = p.parent) {
+    const ids = p._ids;
+    if (ids !== undefined) return ids.prefix + (ids.n++).toString(36) + '_';
+  }
+  return '';
 }
 
 /**
@@ -43,7 +103,8 @@ function expand(v, parent, svg) {
   if (typeof tag !== 'function') return null;
   const compatTag = /** @type {CompatTag} */ (tag);
   const renderFn = compatTag._compatType;
-  if (renderFn === undefined && !/** @type {{ _compat?: boolean }} */ (v)._compat) return v; // a native vnode: what-server renders it
+  // A native vnode: what-server renders it, bracketed.
+  if (renderFn === undefined && !/** @type {{ _compat?: boolean }} */ (v)._compat) return h(Native, { children: v });
   const component = renderFn || compatTag;
   if (component._whatNative !== undefined) return nativeComponent(component, v.props || {}, parent, svg);
   return reactComponent(component, v.props || {}, parent, svg);
@@ -52,13 +113,17 @@ function expand(v, parent, svg) {
 function reactComponent(type, props, parent, svg) {
   const inst = _serverInstance(type, props, parent);
   if (type === Suspense) {
-    // React's server rules: a <Suspense> whose children suspend shows its fallback.
+    // React's server rules: a <Suspense> whose children suspend shows its
+    // fallback. Each is marked, so the browser knows which it hydrates.
+    let content;
     try {
-      return expand(props.children, inst, svg);
+      content = childList(expand(props.children, inst, svg));
     } catch (error) {
       if (error === null || typeof error !== 'object' || typeof error.then !== 'function') throw error;
-      return expand(props.fallback ?? null, inst, svg);
+      const fallback = childList(expand(props.fallback ?? null, inst, svg));
+      return () => fallback;
     }
+    return h(Native, { children: content });
   }
   return expand(_renderOnServer(inst), inst, svg);
 }
@@ -79,10 +144,24 @@ function nativeComponent(type, props, parent, svg) {
   return h(NativeHost, { host: inst, Comp, props: plain, children });
 }
 
+// Its output is an array: what-server brackets it, and the browser finds
+// where the native component's nodes end.
 function NativeHost(props) {
   _provide(HOST, props.host);
-  return h(props.Comp, props.props, ...props.children);
+  return [h(props.Comp, props.props, ...props.children)];
 }
+
+// What native What renders inside an island (a native vnode, a <Suspense>'s
+// content), as an array: bracketed.
+function Native(props) {
+  const content = props.children;
+  return Array.isArray(content) ? content : [content];
+}
+
+// Neither takes a step in the owner paths of the native components below
+// (what-core hydration-data.js): they are this file's, not the app's.
+/** @type {any} */ (NativeHost)._lowered = true;
+/** @type {any} */ (Native)._lowered = true;
 
 function isElementLike(value) {
   if (value == null || typeof value !== 'object') return false;
@@ -90,10 +169,36 @@ function isElementLike(value) {
   return isVNode(value);
 }
 
+// Text that ends a hydratable render's text node: two texts in a row would
+// be one in the browser's DOM. A plain render writes nothing for it.
+const SEPARATOR = () => '';
+
+// The elements whose content is raw text, in which no marker can stand.
+const RAW_TEXT = new Set(['script', 'style', 'title', 'textarea', 'noscript', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
+
+// `kids` (expanded children, arrays nested as components returned them) as
+// one flat list without holes, a separator between two texts unless
+// `joined` (raw text). An empty text writes nothing, so it is left out.
+function childList(kids, joined = false) {
+  const out = [];
+  pushChild(kids, out, joined);
+  return out;
+}
+
+function pushChild(kid, out, joined) {
+  if (kid == null || kid === '') return;
+  if (Array.isArray(kid)) {
+    for (let i = 0; i < kid.length; i++) pushChild(kid[i], out, joined);
+    return;
+  }
+  if (!joined && typeof kid === 'string' && out.length > 0 && typeof out[out.length - 1] === 'string') out.push(SEPARATOR);
+  out.push(kid);
+}
+
 // --- Host elements: React's props as HTML attributes ---
 
 const DROPPED = new Set(['children', 'key', 'ref', 'suppressHydrationWarning', 'suppressContentEditableWarning', 'defaultValue', 'defaultChecked']);
-const RENAMED = { acceptCharset: 'accept-charset', httpEquiv: 'http-equiv' };
+export const RENAMED = { acceptCharset: 'accept-charset', httpEquiv: 'http-equiv' };
 
 function element(v, parent, svg) {
   const tag = v.tag;
@@ -124,11 +229,11 @@ function element(v, parent, svg) {
     delete attrs.value;
     kids = text != null ? [String(text)] : kids;
   }
-  const list = kids == null ? [] : Array.isArray(kids) ? kids : [kids];
-  return h(tag, attrs, ...list.map((child) => expand(child, parent, inSvg)));
+  return h(tag, attrs, ...childList(expand(kids, parent, inSvg), RAW_TEXT.has(tag)));
 }
 
-function styleText(style) {
+/** A style object as the text of a `style` attribute: what the server writes and hydration compares. */
+export function styleText(style) {
   let css = '';
   for (const key in style) {
     const value = style[key];

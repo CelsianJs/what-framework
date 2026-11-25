@@ -657,6 +657,33 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`create-what`'s React option scaffolds a native app with a React file in
   it** (`what()` and `reactCompat()`, a native `main.jsx`, zustand in
   `BearCounter.jsx`), instead of an app whose JSX all ran through what-react.
+- **React islands hydrate by adopting the server's HTML** (what-react,
+  `packages/react-compat/MIXED.md`, "Server rendering"). An island's elements
+  and text nodes are the server's after hydration: nothing is created, moved
+  or removed where the browser renders what the server did, so focus, text
+  typed before the page hydrated, scroll positions, a playing video and a
+  loaded image stay, as with React. Measured on the package matrix's 31
+  server-rendered fixtures: every server node kept and no more nodes created
+  than React's hydration creates (before: every island element built again),
+  and in the 11 with a text field the focus kept in all 11 and the text in
+  the 5 where React keeps it (before: lost in all 11); the matrix's `ssr` run
+  now checks both against React. React's rules are followed where they can
+  be seen: attributes the server wrote are kept as they are, `useId` gives
+  the server's ids, `useSyncExternalStore` reads the server snapshot while
+  hydrating, `suppressHydrationWarning` keeps the server's text, a form
+  field keeps what the user did before hydration, a portal renders in the
+  browser, a `<Suspense>` that suspends while hydrating keeps the server's
+  HTML until it can hydrate. A mismatch is mended where it is (React renders
+  the root again) and reported as `ERR_HYDRATION_MISMATCH`, kind `attribute`
+  for an attribute. The server writes a separator between two texts in a row
+  and brackets a `<Suspense>` and native What content inside an island. The
+  Vite plugin installs it in the JSX files what-compiler compiles for
+  hydration (`_hydrateIslands()` from `what-react/mixed`; off with
+  `reactCompat({ hydrateIslands: false })`): a client-only build does not
+  carry it (`react-counter` grows 40 B for the hooks the runtime keeps for
+  it, and an empty string child that renders no node). Not adopted yet: what native What
+  renders inside an island, which is built again in place of its server
+  nodes.
 - **A browser matrix of 47 popular React packages** (`npm run
   test:browser:matrix`, `REACT-COMPAT.md`): Radix, MUI with Emotion, Ant
   Design, react-aria-components, Headless UI, react-router, Redux Toolkit,
@@ -883,6 +910,21 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   mixed mode a hook called on a namespace import (`rhf.useForm()`) makes its
   file a React file, and a native component is handed several React children
   as an array it can count and index.
+- **what-react: a keyed child is no longer handed the state of a nested
+  list's child** whose place reads like its key: after
+  `[[<Row />], <Row key="0:0" />]` became `[<Row key="0:0" />, <b key="tail" />]`,
+  the keyed row kept the nested row's state and its own instance was dropped,
+  silently (a regression of the reconciler rewrite; React 19.3.1 keeps the
+  keyed row). A randomised differential run against React (30,015 states)
+  found 19 DOM or identity differences before and none after.
+- **what-react: `flushSync()` inside a render, a commit or an effect renders
+  with the flush already under way**, as React defers it, instead of starting
+  a flush of its own: a layout effect that called it to set state each time
+  ended in "Maximum call stack size exceeded" at about 1,193 levels, past the
+  update-loop guard; it now stops at the guard. From an event handler it
+  still renders before it returns.
+- **what-react: an empty string child renders no node**, as in React (it was
+  an empty text node among its siblings).
 - **what-react matches React in the five places a third review found it did
   not** (real React 19.3 against the rewritten reconciler; `REACT-COMPAT.md`,
   "What the third review found"). An element that goes from text to

@@ -40,3 +40,12 @@ export function native<P>(component: (props: P) => any): FunctionComponent<P>;
 
 /** `native()` for an import, read when the element renders. */
 export function nativeRef<P>(get: () => (props: P) => any, name?: string): FunctionComponent<P>;
+
+/**
+ * Hydrate React islands by adopting the server's HTML from now on: an island
+ * takes the elements and text the server rendered for it instead of building
+ * them again. what-react's Vite plugin calls it in the modules what-compiler
+ * compiles for hydration; call it yourself, before hydrate(), in a build
+ * without the plugin.
+ */
+export function _hydrateIslands(): void;

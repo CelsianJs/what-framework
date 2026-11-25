@@ -23,6 +23,7 @@ import {
   _pushLayout,
   _pushPassive,
   _setFormActionRunner,
+  claim,
   EFFECT_INSERTION,
   EFFECT_LAYOUT,
   EFFECT_PASSIVE,
@@ -309,8 +310,10 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
     slot.subscribe = undefined;
     slot._pending = null;
   }
-  // On the server, React reads getServerSnapshot when there is one.
-  const value = inst._server && typeof _getServerSnapshot === 'function' ? _getServerSnapshot() : getSnapshot();
+  // On the server, and in the render that hydrates the server's HTML, React
+  // reads getServerSnapshot when there is one; the subscription below then
+  // renders again with the client's snapshot when it differs.
+  const value = (inst._server || claim !== null) && typeof _getServerSnapshot === 'function' ? _getServerSnapshot() : getSnapshot();
   slot.value = value;
   slot.getSnapshot = getSnapshot;
 
@@ -589,12 +592,29 @@ export function useFormStatus() {
 
 let idCounter = 0;
 
+/** @type {(inst: any) => string} */
+let newId = () => ':w' + (++idCounter).toString(36) + ':';
+
+/**
+ * @internal An island the server rendered names its components' ids itself,
+ * the same on the server and in the render that hydrates it (server.js
+ * islandId); any other component gets a client id.
+ */
+export function _islandIds(islandId) {
+  if (namesIslandIds) return;
+  namesIslandIds = true;
+  const client = newId;
+  newId = (inst) => islandId(inst) || client(inst);
+}
+
+let namesIslandIds = false;
+
 export function useId() {
   const inst = _requireInstance('useId');
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot.value = ':w' + (++idCounter).toString(36) + ':';
+    slot.value = newId(inst);
   }
   return slot.value;
 }

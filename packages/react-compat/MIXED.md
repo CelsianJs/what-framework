@@ -171,25 +171,101 @@ them. what-server writes each island between `<!--[]-->` markers (its
 hydratable renderers, the stream and `renderToStringAsync`).
 
 Hydration adopts the server's native nodes as always and hands each island
-its markers. Once the walk is done, the island replaces the server's HTML
-between them with its client render, in one step before the page paints
-again. Effects run then, once, in the browser. What that looks like, measured
-on the 38 package fixtures (`matrix-browser.mjs --serve=ssr --probe`,
-Chromium; 30 of them render on the server):
+its markers. Once the walk is done, the island renders as it would in the
+browser, but every element and text node it mounts is the server's node at
+that place (src/hydrate.js): nothing is created, moved or removed where the
+browser renders what the server did. Event handlers and refs attach to the
+server's nodes, layout effects see them, and effects run once, in the
+browser. Whatever the page held in those nodes stays: focus, a selection,
+text typed before the page hydrated, a scroll position, a playing video, an
+image that has loaded, a CSS transition. What-react's Vite plugin installs
+this in a build what-compiler compiles for hydration (below); without it, an
+island renders in the browser and replaces the server's HTML.
 
-- No frame shows less than React's own hydration of the same fixture shows
-  (the fewest elements any animation frame saw are the same in both), and
-  the layout shift Chromium reports is 0 to 0.004 (React's hydration: 0 to
-  0.59, the largest for Ant Design).
-- Every element of an island is built again: none of the server's island
-  elements is in the page afterwards (React keeps all of them, or all but a
-  few the library itself replaces). The native elements around the islands
-  are kept. The island renders once in the browser, not twice.
-- Focus and typed text are lost: a field of an island that the user focused
-  and typed into before the page hydrated is a new element afterwards,
-  unfocused, with its initial value (11 fixtures have such a field; all 11).
-  React keeps the focus in all 11, and the text in 5: where the field is
-  controlled, React puts the state's value back too.
+What that looks like, measured on the 39 package fixtures
+(`matrix-browser.mjs --serve=ssr`, Chromium; 31 of them render on the
+server with real React, each as a React file and, for 19, as a native file
+too):
+
+- Every element and text node the server wrote for an island is in the page
+  afterwards, as with React, and hydration creates no more nodes than
+  React's does: none in 20 fixtures (React: none in 19); in the other 11 a
+  library builds nodes in an effect once it has mounted (Recharts draws its
+  chart, the virtualized lists their rows, TipTap its editor), and the count
+  is React's. The matrix checks both against the real React run of each
+  fixture.
+- A field of an island that the user focused and typed into before the page
+  hydrated keeps the focus in all 11 fixtures that have one, and the text
+  in the 5 where React keeps it (Ant Design, cmdk, input-otp, react-hook-form,
+  TanStack Table). In the other 6 React itself puts the field's value back
+  (a controlled field that renders again), and so does what-react. The
+  matrix checks it against the React run: what React keeps, what-react has
+  to keep.
+- No frame shows less than React's hydration shows, and the layout shift
+  Chromium reports is React's (0 to 0.59, the largest for Ant Design).
+
+Before this, an island's server HTML was replaced: every island element was
+built again, and focus and typed text were lost in all 11.
+
+React's rules, where they can be seen (react-dom 19.3.1, measured in
+`test/island-adopt.test.js`):
+
+- The server writes `<!--$--><!--/$-->` between two texts in a row, where
+  React writes `<!-- -->`, so the browser keeps them as two text nodes to
+  adopt. An empty string renders nothing, on the server and in the browser,
+  as in React.
+- An attribute the server wrote stays as it is when it is the client's: no
+  attribute is written again. One that differs, or that the client does not
+  render, takes the client's value and is reported (React keeps the
+  server's and warns in development).
+- A text that differs takes the client's text in the server's node and is
+  reported; an element of another tag, a missing node and one the client
+  does not render are rendered by the client in place of the server's, and
+  reported. React renders the whole root again in each case. Each report is
+  one `ERR_HYDRATION_MISMATCH` per element, with what-core's record (kind
+  `text`, `tag`, `missing`, `extra-nodes`, `marker` or `attribute`), as a
+  development diagnostic and to hydrate()'s `onHydrationError` in every
+  build. A form and a button keep nodes the client does not render,
+  unreported, as React keeps them (a password manager's).
+- `suppressHydrationWarning` keeps an element's own attributes and text as
+  the server wrote them, unreported (React's rule).
+- A form field keeps what the user did to it before hydration: its value is
+  not written, onChange fires at the next edit with the whole text, and a
+  controlled field shows its value again when it renders again, as in React.
+  A textarea keeps typed text too, where React puts back a default that is
+  not empty.
+- `useId` gives the ids the server wrote (an island numbers its ids behind
+  its own owner path), and `useSyncExternalStore` reads the server snapshot
+  while the island hydrates, then renders again with the client's when it
+  differs.
+- A portal renders nothing on the server and its children are created in
+  the browser, as in React.
+- A `<Suspense>` the server rendered is adopted; one whose fallback the
+  server wrote (its children suspended there) renders afresh in the browser,
+  as React renders such a boundary. When something inside a boundary
+  suspends while it hydrates, the boundary keeps the server's HTML as it is,
+  shows no fallback, and hydrates once the promise settles; if it renders
+  again on the client first, its server HTML goes and it renders as any
+  boundary does. Both are React's behaviour.
+
+What is not adopted yet is what native What renders inside an island: a
+native component a React tree renders, React elements a native component
+places (its `children`, a slot prop), a React island inside that native
+component, a What accessor or boundary placed in React elements. The server
+brackets each (`<!--[]-->…<!--/[]-->`), and the browser builds it again in
+place of the bracketed nodes. React elements around it are adopted. A
+hydration walk over a range of nodes in what-core (render.js
+`_hydrateRange`, proposed, not in this release) would let a native
+component that is handed no React elements hydrate in its bracket, an
+island inside it included; what-react's side of it is written (hydrate.js
+claimNative) and waits for that walk.
+
+The plugin installs adoption by adding a call to `_hydrateIslands()` (from
+`what-react/mixed`) to each JSX file what-compiler compiles for hydration
+(the entry that calls `hydrate()` is one), so a client build that only
+mounts does not carry the code. A build without what-react's plugin calls
+`_hydrateIslands()` itself before `hydrate()`. `reactCompat({ hydrateIslands:
+false })` turns it off.
 
 A component that throws on the server leaves its island empty there and the
 browser renders it; the server prints a warning that names the error, in
@@ -293,10 +369,11 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   `null`, `false` and a portal leave no node, except at an island's top
   (outside every element it renders), where each is one comment so the
   island keeps a node (REACT-COMPAT.md, Known limitations).
-- Hydration replaces an island's server HTML instead of adopting it node by
-  node: focus and text typed into a React field before the page hydrates are
-  lost, and a node a script took from the server's HTML is no longer in the
-  page (see Server rendering for what was measured).
+- Hydration adopts what React renders in an island, not what native What
+  renders inside it (a native component in a React tree, React children a
+  native component places, an island inside those): that part is built
+  again in place of the server's nodes, and focus or typed text in it is
+  lost (Server rendering).
 - In the dev server, a React package that ships CommonJS only stays external
   in a server render; an island that uses it renders in the browser. A
   production server build bundles it.
@@ -320,6 +397,9 @@ React files and compiles native files as usual. Tests:
 `test/mixed-plugin.test.js` (which files and tags are React),
 `test/mixed.test.js` (state, props, context and cleanup across the boundary),
 `test/mixed-ssr.test.js` (server render, the stream, hydration, keyed rows),
+`test/island-adopt.test.js` and `test/island-adopt-compiled.test.js` (an
+island adopting the server's HTML, React's rules beside each, every kind of
+mismatch),
 `test/island-hydration.test.js` (islands that native code swaps or removes
 after hydration), `test/vite-plugin.test.js` (the dev server, a dev-server
 render and a production server build of an installed app: one what-react in

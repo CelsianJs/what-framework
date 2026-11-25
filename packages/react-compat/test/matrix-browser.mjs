@@ -34,7 +34,7 @@
 //     --json=out.json             write the full results
 //     --md                        print REACT-COMPAT.md table rows
 //     --retries=1                 rerun a failed spec before calling it failed; reruns are listed
-//     --probe                     ssr: also type into the server's HTML before it hydrates (focus and text kept?)
+//     --probe                     ssr: kept for old scripts; the typing step always runs with --serve=ssr
 //     --keep                      keep the dist folders
 //     --timeout=15000             per-wait timeout, ms (the machine may be slow)
 //     --base=<dir>                what-core and what-compiler from another checkout
@@ -372,16 +372,31 @@ function toolbox(page, variant, checks, quarantined = {}) {
 
 const SERVER_ISLAND_EMPTY = 'A React island could not render on the server';
 
-// What the browser did to the server's HTML (matrix-ssr-server.mjs's probe).
-const readHydration = (page) => page.evaluate(() => {
-  const p = window.__hyd;
-  if (!p) return null;
-  return { serverElements: p.serverElements, kept: p.kept(), added: p.added, removed: p.removed, minElements: p.minElements, frames: p.frames, elements: p.now(), shift: Math.round(p.shift * 1000) / 1000 };
-});
+// What the browser did to the server's HTML (matrix-ssr-server.mjs's probe),
+// once the page has settled: the count of nodes the server did not write has
+// stayed the same for a while (React hydrates in tasks of its own, and a
+// library may build nodes in an effect), or 3 s have passed.
+const readHydration = async (page) => {
+  const read = () => page.evaluate(() => {
+    const p = window.__hyd;
+    if (!p) return null;
+    return { serverElements: p.serverElements, kept: p.kept(), added: p.added, removed: p.removed, minElements: p.minElements, frames: p.frames, elements: p.now(), shift: Math.round(p.shift * 1000) / 1000, serverNodes: p.serverNodes, keptNodes: p.keptNodes(), created: p.created(), createdSample: p.createdSample() };
+  });
+  let last = await read();
+  for (let quiet = 0, waited = 0; last !== null && quiet < 3 && waited < 3000; waited += 100) {
+    await page.waitForTimeout(100);
+    const now = await read();
+    quiet = now.created === last.created && now.keptNodes === last.keptNodes ? quiet + 1 : 0;
+    last = now;
+  }
+  return last;
+};
 
-// --serve=ssr --probe: a user types into the first text field of the
-// server's HTML before the client entry runs. After hydration: is the field
-// still the same element, still focused, and does it still hold the text?
+// --serve=ssr: a user types into the first text field of the server's HTML
+// before the client entry runs. After hydration: is the field still the same
+// element, still focused, and does it still hold the text? Real React is the
+// control: what it keeps, what-react has to keep (the step below).
+
 async function probeTyping(browser, baseUrl, name, variant) {
   const context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
   const page = await context.newPage();
@@ -420,6 +435,29 @@ async function probeTyping(browser, baseUrl, name, variant) {
   } finally {
     await context.close();
   }
+}
+
+// What hydration has to keep where real React keeps it, for one fixture's
+// run beside the control's: the focus and the text a user typed into the
+// server's HTML before the page hydrated, and the server's nodes (no more
+// nodes created than React's hydration creates, which counts what a library
+// builds in its effects). Where React does not keep them, the run records it.
+function hydrationChecks(run, control) {
+  const checks = [];
+  const ours = run.typing;
+  const theirs = control.typing;
+  if (ours && theirs && ours.field && theirs.field) {
+    for (const what of ['focus', 'text']) {
+      if (theirs[what] !== 'kept') continue;
+      checks.push({ name: `typed before hydration: the ${what} stays (as in real React)`, ok: ours[what] === 'kept', error: ours[what] === 'kept' ? null : `real React keeps the ${what}; here it is ${ours.error ? `not known: ${ours.error}` : ours[what]}` });
+    }
+  }
+  const h = run.server && run.server.hydration;
+  const ch = control.server && control.server.hydration;
+  if (h && ch && run.server.island === 'rendered' && control.server.island === 'rendered' && typeof h.created === 'number' && typeof ch.created === 'number') {
+    checks.push({ name: 'hydration creates no more nodes than real React\'s', ok: h.created <= ch.created, error: h.created <= ch.created ? null : `${h.created} element and text nodes created (real React: ${ch.created}; here: ${(h.createdSample || []).join(', ')}); ${h.keptNodes} of the server's ${h.serverNodes} kept (real React: ${ch.keptNodes} of ${ch.serverNodes})` });
+  }
+  return checks;
 }
 
 async function runSpec(browser, baseUrl, name, variant, column) {
@@ -535,11 +573,17 @@ try {
               run = again;
             }
           }
-          if (serveKind === 'ssr' && arg('probe', false) && run.server && run.server.rendered) run.typing = await probeTyping(browser, server.url, name, variant);
+          if (serveKind === 'ssr' && run.server && run.server.rendered) run.typing = await probeTyping(browser, server.url, name, variant);
           // The server-build run is about the server's HTML: an island left
           // empty where real React rendered the fixture is a failure, also
           // when the browser then rendered it and every step passed.
           const control = results[name].runs.react;
+          if (serveKind === 'ssr' && column !== 'react' && control) {
+            for (const check of hydrationChecks(run, control)) {
+              run.checks.push(check);
+              if (!check.ok) { run.failed.push(check); run.ok = false; }
+            }
+          }
           if (serveKind === 'ssr' && column !== 'react' && run.server && run.server.island !== 'rendered' && control && control.server && control.server.island === 'rendered') {
             const check = { name: 'the server renders what real React renders', ok: false, error: `the server left the island ${run.server.island === 'threw' ? 'out (the render threw)' : 'empty'}: ${run.server.reason}` };
             run.checks.push(check);
@@ -585,7 +629,7 @@ for (const [mode, t] of Object.entries(timings)) console.log(`${mode}: ${t.total
 
 if (serveKind === 'ssr') {
   // What each way rendered on the server, and what hydration did with it.
-  console.log('\nserver render and hydration (elements the server wrote / still in the page after hydration / fewest any frame saw)');
+  console.log('\nserver render and hydration (elements the server wrote / still in the page after hydration / fewest any frame saw; element and text nodes of the server kept, and created)');
   for (const name of names) {
     const parts = [];
     for (const column of columns) {
@@ -593,7 +637,7 @@ if (serveKind === 'ssr') {
       if (!run || !run.server) continue;
       const h = run.server.hydration;
       const typing = run.typing && run.typing.field ? ` typed-before-hydration: focus ${run.typing.focus ?? '?'}, text ${run.typing.text ?? '?'}` : '';
-      parts.push(`${column}: ${run.server.island}${h ? ` ${h.serverElements}/${h.kept}/${h.minElements}${h.shift ? ` shift ${h.shift}` : ''}` : ''}${typing}`);
+      parts.push(`${column}: ${run.server.island}${h ? ` ${h.serverElements}/${h.kept}/${h.minElements}${h.shift ? ` shift ${h.shift}` : ''} nodes ${h.keptNodes}/${h.serverNodes} kept, ${h.created} created` : ''}${typing}`);
     }
     console.log(`${name.padEnd(24)} ${parts.join(' | ')}`);
   }

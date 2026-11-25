@@ -25,11 +25,26 @@ import { isVNode, _provide, __DEV__, getServerContext } from 'what-core/internal
 import { _$createComponent } from 'what-core/render';
 import { createElement, Fragment } from './index.js';
 import {
-  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted,
+  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
 } from './runtime.js';
 import { serverTree } from './server.js';
+import { installIslandHydration } from './hydrate.js';
 
 export { createElement, Fragment };
+
+/**
+ * Hydrating islands by adopting the server's HTML: an island takes the
+ * elements and text the server rendered for it instead of building them
+ * again (hydrate.js), so focus, typed text and whatever else hangs on those
+ * nodes survive. The entry that hydrates a server-rendered page calls it
+ * once, before hydrate(); what-react's Vite plugin adds the call to the
+ * modules what-compiler compiles for hydration. A page that never hydrates
+ * does not carry the code. Without it, an island renders in the browser and
+ * replaces the server's HTML.
+ */
+export function _hydrateIslands() {
+  installIslandHydration();
+}
 
 // =====================================================================
 // React inside native
@@ -46,14 +61,14 @@ export function ReactIsland(props) {
 }
 
 // On the server: the island's HTML, rendered once with React's rules
-// (server.js), as an array. What-server's hydratable renderers bracket an
+// (server.js), as a flat array. What-server's hydratable renderers bracket an
 // array a component returns (<!--[]-->…<!--/[]-->), also when it is empty,
 // and hydration hands that bracket to the island whole (runtime.js
 // adoptIsland), a keyed row's included.
 function serverIsland(view) {
   const parent = _hostInstance();
   try {
-    return [serverTree(view(), parent)];
+    return serverTree(view(), parent);
   } catch (error) {
     // A hook that found no component rendering was not called by this
     // runtime's render: the server loaded two copies of what-react (a bundle
@@ -275,7 +290,7 @@ function createLeaf(inst, Comp, first) {
     // The native subtree's compat host: React trees placed in it find their
     // context through this instance.
     _provide(HOST, inst);
-    return _$createComponent(Comp, live, null);
+    return _nativeBuilder !== null ? _nativeBuilder(Comp, live) : _$createComponent(Comp, live, null);
   }))));
 
   return {

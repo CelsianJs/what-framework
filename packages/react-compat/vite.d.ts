@@ -28,6 +28,14 @@ export interface ReactCompatOptions {
   mixed?: boolean | 'auto';
   /** Mixed mode: files that are React files whatever they import. */
   react?: FileMatcher | FileMatcher[];
+  /**
+   * Mixed mode: a page the server rendered hydrates its React islands by
+   * adopting the server's HTML (elements and text are kept, so focus and typed
+   * text survive). Installed in the modules what-compiler compiles for
+   * hydration. Defaults to true; with false, an island renders in the browser
+   * and replaces the server's HTML.
+   */
+  hydrateIslands?: boolean;
 }
 
 // Structural Vite plugin shape — assignable to Vite's `PluginOption` without

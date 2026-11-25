@@ -78,8 +78,8 @@ next to What's run-once renderer. what-core is not modified.
   list that kept its order is patched without reading or moving a node, an
   element whose only child is text holds it as its text content (an empty
   text leaves no node), and a component adds no node of its own. `null`,
-  `false`, `undefined` and a portal leave no node where they stand, nor does
-  a component that renders one of them (the one exception is the top of a
+  `false`, `undefined`, an empty string and a portal leave no node where
+  they stand, nor does a component that renders one of them (the one exception is the top of a
   React island, under Known limitations). What a component that has no node
   in the document renders next (it rendered nothing or a portal, or a
   library removed what it rendered) goes before the first node of what
@@ -151,8 +151,13 @@ with real React either (jotai, redux, zustand, react-i18next and the React
 surface fixture read `window` or `localStorage` as they load; the two
 react-router fixtures and react-select read `document` while rendering): that
 is recorded from the control, the page mounts in the browser, and the steps
-run. The other 31 render on the server in every column. What hydration does
-to an island's HTML is in MIXED.md, "Server rendering".
+run. The other 31 render on the server in every column, and the `ssr` run
+checks each what-react column against the control's hydration of the same
+fixture: no more element and text nodes created than React's hydration
+creates, and, for the 11 fixtures with a text field, the focus and the text
+a user typed into the server's HTML before the page hydrated (the client
+bundle held back) kept wherever React keeps them. What hydration does to an
+island's HTML is in MIXED.md, "Server rendering".
 
 Results of 2026-11-24, on the 0.15 working tree: 39 fixtures, covering 50
 packages besides React itself. The table below is the `build` run; the `dev`
@@ -411,11 +416,34 @@ whose fix what-core's error catalogue has); development shows them whole.
   tree's state; here it unmounts.
 - **Server rendering.** Full compat has none: `renderToString` of a compat
   element is unsupported and `hydrateRoot` replaces the server's HTML with a
-  client render. In mixed mode React islands render on the server and their
-  HTML is replaced on load instead of adopted (MIXED.md): no frame shows less
-  than the server wrote, but every island element is built again, and focus
-  and text typed into a React field before the page hydrates are lost. The
-  matrix's `ssr` run exercises it for every fixture.
+  client render. In mixed mode React islands render on the server and
+  hydrate by adopting the server's elements and text (MIXED.md, Server
+  rendering): focus, typed text and anything else attached to those nodes
+  stay, as with React. Where they differ from React:
+  - A mismatch is mended where it is, not by rendering the whole root
+    again: a text or an attribute that differs takes the client's value in
+    the server's node, an element of another tag or one missing or left
+    over is replaced, added or removed alone, and each is reported as
+    `ERR_HYDRATION_MISMATCH`. React keeps an attribute that differs (and
+    warns), and renders the root again for the rest.
+  - A textarea keeps text typed before hydration where React puts back its
+    default.
+  - What native What renders inside an island (a native component a React
+    tree renders, React children a native component places, an island
+    inside those, a What accessor or boundary in React elements) is built
+    again in place of the server's nodes. Adopting it needs a hydration walk
+    over a range of nodes from what-core (`_hydrateRange`), which this
+    release does not have; what-react's side is written for a native
+    component that is handed no React elements.
+  - Separators between texts are two comments (`<!--$--><!--/$-->`) where
+    React writes one, and React's `<!--$-->` markers around a `<Suspense>`
+    are `<!--[]-->…<!--/[]-->` (its fallback, `<!--$-->` around another
+    pair). They stay in the page after hydration, as React's do.
+  - `useId` matches the server's when both sides render the same
+    components in the same order (an island numbers its ids in render
+    order behind its owner path); React's ids name a component's place in
+    the tree.
+  The matrix's `ssr` run exercises it for every fixture.
 - **Class components.** Legacy context (`contextTypes`, `childContextTypes`)
   and string refs are not supported. `componentDidCatch`'s `componentStack`
   names components only: no host elements, no source locations.
@@ -527,7 +555,7 @@ npm run test:browser:matrix -- --serve=ssr  # a production server build, hydrate
 #   --only=mui,cmdk             which fixtures
 #   --md                        print table rows   --json=out.json   full results
 #   --retries=1                 rerun a failed fixture once before calling it failed; reruns are listed
-#   --probe                     ssr: type into the server's HTML before it hydrates (focus and text kept?)
+#   --probe                     ssr: no longer needed (typing into the server's HTML before it hydrates always runs)
 #   --timeout=15000             per-wait timeout in ms, for a slow machine
 
 # Mixed mode end to end: production build, dev server, server render and hydration

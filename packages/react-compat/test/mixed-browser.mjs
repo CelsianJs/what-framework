@@ -61,7 +61,10 @@ async function startSsr() {
     if (req.url === '/' || req.url === '/index.html') {
       try {
         const { render } = await vite.ssrLoadModule('/src/entry-server.jsx');
-        const shell = '<!doctype html><html><head></head><body><div id="main">' + render() + '</div><script type="module" src="/src/entry-client.jsx"></script></body></html>';
+        // The server's elements, noted before the client entry runs: hydration
+        // adopts them (hydrate.js).
+        const note = '<script>window.__server = { ob: document.getElementById("ob"), kid: document.getElementById("kid"), counter: document.getElementById("counter"), main: document.getElementById("main").querySelectorAll("*").length };</script>';
+        const shell = '<!doctype html><html><head></head><body><div id="main">' + render() + '</div>' + note + '<script type="module" src="/src/entry-client.jsx"></script></body></html>';
         res.setHeader('content-type', 'text/html');
         res.end(await vite.transformIndexHtml(req.url, shell));
       } catch (e) {
@@ -91,8 +94,12 @@ try {
 
   if (ssr) {
     server = await startSsr();
-    const html = await (await fetch(server.url)).text();
+    const served = await (await fetch(server.url)).text();
+    // Two texts in a row are separated, as React separates them with <!-- -->,
+    // so the browser keeps them as two nodes to adopt (hydrate.js).
+    const html = served.replace(/<!--\$--><!--\/\$-->/g, '');
     check('the server renders the React islands', () => {
+      assert.match(served, /<button id="ob">n<!--\$--><!--\/\$-->1<!--\$--><!--\/\$--> c<!--\$--><!--\/\$-->0<\/button>/, 'texts in a row are separated');
       assert.match(html, /<button id="ob">n1 c0<\/button>/, 'a React file\'s component');
       assert.match(html, /<i id="kid">hi 1<\/i>/, 'native-file children of a React component');
       assert.match(html, /<span[^>]* id="counter">badge 0 n1:(<!--\$-->)?0(<!--\/\$-->)?<\/span>/, 'a native component a React file renders');
@@ -154,6 +161,16 @@ try {
     assert.equal(s.inner, 'theme:light c0');
     assert.equal(s.rhf, 'ada');
   });
+
+  if (ssr) {
+    const adopted = await page.evaluate(() => ({ ob: window.__server.ob === document.getElementById('ob'), kid: window.__server.kid === document.getElementById('kid'), counter: window.__server.counter === document.getElementById('counter') }));
+    check('hydration adopts the React islands\' elements', () => {
+      assert.equal(adopted.ob, true, 'the server\'s <button> of a React file\'s component');
+      assert.equal(adopted.kid, true, 'the server\'s native-file children of a React component');
+    });
+    // Adopted only with a what-core that walks a range of nodes (hydrate.js claimNative).
+    console.log(`info a native component a React file renders (#counter): ${adopted.counter ? 'adopted' : 'built again'}`);
+  }
 
   await page.click('#ob'); await page.click('#ob');
   await page.click('#counter');

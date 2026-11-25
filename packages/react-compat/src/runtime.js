@@ -28,8 +28,9 @@
  * What differs from React is listed under "Known limitations" in
  * REACT-COMPAT.md: rendering is synchronous and render and commit are one
  * pass, a server render exists only for React islands in mixed mode
- * (server.js), and a React island's top-level output holds its place with a
- * comment when it renders no node.
+ * (server.js, and hydrate.js, which adopts that HTML in the browser), and a
+ * React island's top-level output holds its place with a comment when it
+ * renders no node.
  */
 
 import { h, untrack, effect, runWithOwner, getOwner, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
@@ -52,12 +53,12 @@ export function _hostInstance() {
 }
 
 // ---- VNode kinds ----
-const KIND_HOLE = 0;      // null / undefined / boolean: keeps its slot, no DOM node (see mountHole)
-const KIND_TEXT = 1;      // string / number
-const KIND_ELEMENT = 2;   // vnode with string tag
-const KIND_COMPONENT = 3; // vnode created by what-react createElement (function type)
-const KIND_OPAQUE = 4;    // What-native vnode / reactive function / raw DOM node → core renderer
-const KIND_PORTAL = 5;    // '__portal' vnode (ReactDOM.createPortal)
+export const KIND_HOLE = 0;      // null / undefined / boolean / '': keeps its slot, no DOM node (see mountHole)
+export const KIND_TEXT = 1;      // string / number
+export const KIND_ELEMENT = 2;   // vnode with string tag
+export const KIND_COMPONENT = 3; // vnode created by what-react createElement (function type)
+export const KIND_OPAQUE = 4;    // What-native vnode / reactive function / raw DOM node → core renderer
+export const KIND_PORTAL = 5;    // '__portal' vnode (ReactDOM.createPortal)
 
 const EMPTY_OBJ = {};
 
@@ -366,7 +367,7 @@ export const EFFECT_PASSIVE = 3;
 let commitDepth = 0;
 /** Effect queues being flushed: an effect is running. */
 let effectDepth = 0;
-const refQueue = [];
+export const refQueue = [];
 const insertionQueue = [];
 const layoutQueue = [];
 const passiveQueue = [];
@@ -628,7 +629,8 @@ export function _drainAll() {
 // =====================================================================
 
 function kindOf(v) {
-  if (v == null || typeof v === 'boolean') return KIND_HOLE;
+  // An empty string is no child to React (it makes no text node for one).
+  if (v == null || typeof v === 'boolean' || v === '') return KIND_HOLE;
   const t = typeof v;
   if (t === 'string' || t === 'number' || t === 'bigint') return KIND_TEXT;
   if (t === 'function') return KIND_OPAQUE; // reactive accessor (What interop)
@@ -667,12 +669,12 @@ function kindOf(v) {
  * The lists the children flatten() returned are in, or null when all are at the top level. Read at once.
  * @type {Array<string | null> | null}
  */
-let flatLists = null;
+export let flatLists = null;
 /**
  * Their ids, or null: the top-level children as they were given, each one's id its key or its index.
  * @type {Array<number | string> | null}
  */
-let flatIds = null;
+export let flatIds = null;
 
 /** @type {string[]} */
 const LIST_NAMES = [];
@@ -707,7 +709,7 @@ function idOf(v, kind, i) {
  * is every list of rows and nearly every element's children, and nothing is
  * copied for them.
  */
-function flatten(value) {
+export function flatten(value) {
   flatIds = null;
   flatLists = null;
   if (!Array.isArray(value)) return [value];
@@ -828,9 +830,9 @@ function canPatch(rn, v, kind) {
 // =====================================================================
 
 /** @type {any[]} What an element with no child rnodes holds. Never written to. */
-const NO_RNODES = [];
+export const NO_RNODES = [];
 /** @type {any[]} What a textarea holds: its children were its default value (mountTextarea). Never written to. */
-const TEXTAREA_KIDS = [];
+export const TEXTAREA_KIDS = [];
 /** The output of a component that returned an empty list: one hole (see renderOutput). */
 const HOLE_KIDS = [null];
 
@@ -1033,7 +1035,7 @@ function patchTail(old, oldFrom, kids, newFrom, result, svg, owner) {
 
 // Mount kids[from..to) into `parentDom` before `before`, each in its place
 // as it is made (`parentDom` null: outside the document, to be placed).
-function mountChildren(parentDom, kids, ids, lists, from, to, result, before, svg, owner, into) {
+export function mountChildren(parentDom, kids, ids, lists, from, to, result, before, svg, owner, into) {
   let i = from;
   try {
     for (; i < to; i++) {
@@ -1274,7 +1276,29 @@ function placeRNode(rn, parentDom, ref) {
 // end). With `parentDom` null it is made outside the document and placed by
 // the list it belongs to (placeRNode), once the list knows where.
 
-function mountRNode(v, kind, parentDom, before, svg, owner, into) {
+/**
+ * While an island renders over the server's HTML (hydrate.js): what mounts
+ * a node instead, taking the server's node at its place; it returns null for
+ * a node it leaves to the mount below. Called with kind -1 when a component
+ * under a <Suspense> suspends (handleRenderError). Null at any other time.
+ * @type {((v: any, kind: number, parentDom: any, before?: any, svg?: any, owner?: any, into?: any) => any) | null}
+ */
+export let claim = null;
+
+/**
+ * @internal hydrate.js: start (a function) or end (null) an island's
+ * claiming render. While it runs, useSyncExternalStore reads the server
+ * snapshot (hooks.js).
+ */
+export function _setClaim(fn) {
+  claim = fn;
+}
+
+export function mountRNode(v, kind, parentDom, before, svg, owner, into) {
+  if (claim !== null) {
+    const claimed = claim(v, kind, parentDom, before, svg, owner, into);
+    if (claimed !== null) return claimed;
+  }
   switch (kind) {
     case KIND_TEXT: {
       const text = typeof v === 'string' ? v : String(v);
@@ -1313,7 +1337,7 @@ function topComment(into, text, parentDom, before) {
   return dom;
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
+export const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // A portal target may live inside an <svg> (recharts 3.x z-index layers are
 // SVG <g> portal targets). Children portaled into an SVG container must be
@@ -1337,7 +1361,7 @@ for (const name of ('strokeWidth strokeDasharray strokeDashoffset strokeLinecap 
 // The text of an element whose children are one string or number, or null.
 // Such an element holds its text as its content and no rendered node for it,
 // as React does: one DOM call writes it.
-function onlyText(kids) {
+export function onlyText(kids) {
   let only = kids;
   if (Array.isArray(kids)) {
     if (kids.length !== 1) return null;
@@ -1350,7 +1374,7 @@ function onlyText(kids) {
 // Change an element's text content: the text node it has is kept when it is
 // all the element holds and the text is not empty (React's setTextContent;
 // an empty text leaves no node).
-function setText(el, text) {
+export function setText(el, text) {
   const first = el.firstChild;
   if (text !== '' && first !== null && first.nodeType === 3 && first.nextSibling === null) first.data = text;
   else el.textContent = text;
@@ -1439,7 +1463,7 @@ function patchTextarea(el, props) {
 // component stands, and its place is found from those nodes, or from what
 // follows it when it has none (placeOf). It always renders at least one
 // rendered node (an empty output is a hole), so it has an entry in its list.
-function mountComponent(v, parentDom, before, svg, owner, into) {
+export function mountComponent(v, parentDom, before, svg, owner, into) {
   const tag = v.tag;
   const renderFn = (typeof tag === 'function' && tag._compatType) ? tag._compatType : tag;
   const inst = newInstance(renderFn, v.props || EMPTY_OBJ, v.key ?? null, owner, null, null, svg);
@@ -2117,6 +2141,9 @@ function handleRenderError(inst, err, fromChildren) {
     let boundary = fromChildren ? inst : inst.parent;
     while (boundary && !boundary._isSuspense) boundary = boundary.parent;
     if (boundary) {
+      // A boundary an island is hydrating keeps the server's HTML while it
+      // waits, as React's does (hydrate.js).
+      if (claim !== null && claim(err, -1, boundary) !== null) return;
       // The component that threw renders again when the boundary wakes.
       if (!fromChildren) (boundary._suspended || (boundary._suspended = new Set())).add(inst);
       boundary._suspendCount = (boundary._suspendCount || 0) + 1;
@@ -2250,15 +2277,43 @@ export function mountIsland(view, container, parent, nativeOwner, svg, deferred)
 }
 
 /**
+ * How an island takes the server's HTML for its own, once a hydrating entry
+ * installed it (hydrate.js, `_hydrateIslands()` in mixed.js): called during
+ * the walk, it returns what renders the island over that HTML once the walk
+ * is done. Null in a page that does not hydrate islands.
+ * @type {((inst: any, start: Comment, end: Comment) => () => void) | null}
+ */
+let adopter = null;
+
+/** @internal hydrate.js */
+export function _setAdopter(fn) {
+  adopter = fn;
+}
+
+/**
+ * How a native component a React tree renders is built (mixed.js
+ * createLeaf), once hydrate.js installed it: in a hydration walk of the
+ * server's nodes for it, while an island adopts them. Null: what-core builds it.
+ * @type {((Comp: any, props: any) => any) | null}
+ */
+export let _nativeBuilder = null;
+
+/** @internal hydrate.js */
+export function _setNativeBuilder(fn) {
+  _nativeBuilder = fn;
+}
+
+/**
  * Hydrating a page whose server rendered the island (server.js): the
- * server's region markers become the island's own, and once the walk is
- * done the server's HTML between them is replaced by the client's render of
- * the same elements, in one step, before the page paints again.
+ * server's region markers become the island's own. Once the walk is done the
+ * island renders over the server's HTML between them, taking its nodes
+ * (hydrate.js); without that installed, the client's render replaces the
+ * server's HTML, in one step, before the page paints again.
  */
 export function adoptIsland(view, start, end, parent, nativeOwner, svg) {
   const inst = newInstance(view, EMPTY_OBJ, null, parent, start, end, !!svg);
   inst._nativeOwner = nativeOwner;
-  const mount = () => {
+  const mount = adopter !== null ? adopter(inst, start, end) : () => {
     if (inst.unmounted || end.parentNode === null) return;
     removeRangeContents(start, end);
     runInCommit(() => renderInstance(inst));
@@ -2512,7 +2567,7 @@ function accessorFor(el, field) {
 let resetsListened = false;
 
 // Called once for an input or a textarea, when it has mounted with its props.
-function trackField(el) {
+export function trackField(el) {
   const field = isCheckable(el) ? 'checked' : 'value';
   // Shadowed already (by a library, or by React in a page that has both).
   if (Object.prototype.hasOwnProperty.call(el, field)) return;
@@ -3000,7 +3055,7 @@ function fieldEvent(e) {
   });
 }
 
-function controlField(el) {
+export function controlField(el) {
   if (el._compatControlled === true || typeof el.addEventListener !== 'function') return;
   el._compatControlled = true;
   // The events React's onChange listens to for this field. A checkbox fires
