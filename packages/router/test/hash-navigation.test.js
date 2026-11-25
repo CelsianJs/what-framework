@@ -175,4 +175,19 @@ describe('hash-only navigation', () => {
     assert.equal(route.url, '/settings?tab=1#teams');
     assert.equal(mounts, 1);
   });
+
+  it('keeps the entry\'s history.state when it replaces it, unless the caller passes state', async () => {
+    history.replaceState({ draft: 'retain' }, '');
+    await navigate(location.pathname + location.search + location.hash);
+    assert.deepEqual(history.state, { draft: 'retain' }, 'the exact current URL leaves the state alone');
+    await navigate('#teams', { transition: false });
+    assert.deepEqual(history.state, { draft: 'retain' }, "a '#hash' target replaces the entry, state kept");
+    await navigate('/settings#tokens', { replace: true, transition: false });
+    assert.deepEqual(history.state, { draft: 'retain' }, 'replace: true keeps it too');
+    await navigate('/settings#tokens', { state: { tab: 'tokens' } });
+    assert.deepEqual(history.state, { tab: 'tokens' }, 'state the caller passes wins');
+    await navigate('/settings#teams', { transition: false });
+    assert.equal(history.state, null, 'a new entry starts with no state, as in the browser');
+    assert.equal(mounts, 0);
+  });
 });

@@ -243,7 +243,9 @@ export function useInfiniteQuery<T = any>(options: {
  * is a PREFIX unless `exact` is set: invalidateQueries(['todos']) also
  * invalidates ['todos', 1]. A predicate receives each normalized key. `hard`
  * empties the entries first (a request already in flight still refills
- * them). Resolves once the refetches have landed; never rejects.
+ * them). An entry refetches as the active reader that attached last (its
+ * fetcher, key and callbacks), as TanStack Query uses its last observer's
+ * options. Resolves once the refetches have landed; never rejects.
  */
 export function invalidateQueries(
   keyOrPredicate: QueryKey | ((key: string) => boolean),
@@ -262,7 +264,7 @@ export function invalidatePath(path: string): Promise<void>;
 /** Call `callback` whenever invalidatePath(path) runs. Returns the unsubscribe. */
 export function onRevalidate(path: string, callback: () => void): () => void;
 
-/** Fetch `key` into the cache unless it holds a value fresher than `staleTime`, and resolve with it. Rejects with a failed fetch's error. */
+/** Fetch `key` into the cache unless it holds a value fresher than `staleTime`, and resolve with it. The fetch calls `fetcher` with `key` as written, even while other readers of the entry are attached. Rejects with a failed fetch's error. */
 export function prefetchQuery<T = any, K extends QueryKey = QueryKey>(
   key: K,
   fetcher: (key: K, ctx: { signal: AbortSignal }) => Promise<T> | T,

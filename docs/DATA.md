@@ -51,7 +51,7 @@ app, and an app that never reads one pays nothing for it.
 | | |
 |---|---|
 | `key` | A string, an array, or a function of signals that returns one. `null`, `false` or `undefined` means no key, and the value is `undefined`. Array keys are joined into one normalized string (`['todos', 1]` is `"todos:1"`), so `query('todos')`, `useSWR('todos')` and `useQuery({ queryKey: ['todos'] })` share one entry. |
-| `fetcher(key, { signal })` | Gets the key as this reader wrote it, and the AbortSignal of the request. Readers that spell one key differently (`'todos:1'`, `['todos', 1]`) share the entry, and a fetch a reader starts gets that reader's spelling; a fetch the cache starts itself gets the spelling of the reader that came last. |
+| `fetcher(key, { signal })` | Gets the key as this reader wrote it, and the AbortSignal of the request. Readers that spell one key differently (`'todos:1'`, `['todos', 1]`) share the entry, and a fetch a reader starts gets that reader's spelling; a fetch the cache starts itself (an invalidation) goes through the active reader that attached last: its fetcher, its spelling and its callbacks, as TanStack Query uses its last observer's options. `prefetchQuery` always fetches with its own fetcher and key. |
 | `options` | `staleTime` (ms a landed value stays fresh, default 0), `gcTime` (ms an entry nothing reads is kept, default 5 minutes), `retry` (total attempts, default 1), `retryDelay`, `initialData`. |
 
 It returns an async value (`AsyncComputed`), so everything in
@@ -637,7 +637,7 @@ every entry). It returns the keys it matched and `since`, and
 - **`invalidateQueries` returns a promise** of the refetches. Code that ignored
   its return value is unchanged.
 - **Callbacks fire once per landing**, for the reader that started the fetch.
-  An invalidation's fetch belongs to the entry's first reader. Two readers of
+  An invalidation's fetch belongs to the active reader that attached last. Two readers of
   one key no longer both run `onSuccess` for one response.
 - **A reader that unmounts while its key's only fetch is in flight cancels
   it**, and a remount fetches again. Before, a late response could land after

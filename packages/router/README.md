@@ -111,7 +111,8 @@ navigation, as in the browser: the page stays mounted with its state, the URL
 and `route.hash` move, and the element with that id scrolls into view. No
 guard, middleware or `preload` runs, and `afterNavigate` is not called. A
 `'#hash'` target replaces the history entry; a path with a hash adds one
-unless `replace: true`.
+unless `replace: true`. A replaced entry keeps its `history.state` unless you
+pass `state`, so `navigate()` to the URL on screen changes nothing.
 
 ## Route data: `preload`
 

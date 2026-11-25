@@ -38,7 +38,11 @@ export const route: RouteState;
 export interface NavigateOptions {
   /** Replace current history entry */
   replace?: boolean;
-  /** History state object */
+  /**
+   * History state object. A fragment navigation that replaces the entry
+   * (a '#hash' target, `replace`, the URL on screen) keeps the entry's state
+   * unless this is given.
+   */
   state?: any;
   /** Use the View Transitions API when the browser has it. Default true. */
   transition?: boolean;

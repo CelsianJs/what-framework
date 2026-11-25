@@ -121,7 +121,8 @@ export function createResponse(): RenderResponse;
 
 export interface RenderRequestContext {
   params?: Record<string, string>;
-  query?: Record<string, string>;
+  /** The parsed query: a key the URL repeats (`?tag=a&tag=b`) holds its values in order, as what-router's `parseQuery` gives them. */
+  query?: Record<string, string | string[]>;
   request?: any;
   /** Aborts when the client goes away. The deploy adapters pass the request's signal. */
   signal?: AbortSignal;

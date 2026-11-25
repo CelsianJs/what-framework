@@ -489,7 +489,7 @@ export async function navigate(to, opts = {}) {
   // '#hash' target replaces the history entry, as it always has here, and so
   // does the URL on screen, as in the browser.
   if (typeof window !== 'undefined' && target !== null && pageOf(target) === pageOf(readUrl())) {
-    fragmentNavigation(href, replace || to.startsWith('#') || href === readUrl(), state, _fromPopstate);
+    fragmentNavigation(href, replace || to.startsWith('#') || href === readUrl(), opts.state, _fromPopstate);
     return;
   }
 
@@ -650,6 +650,8 @@ function supersede() {
 // A navigation to `href` on the page on screen. It supersedes a navigation to
 // another page still preparing, as a browser's does. For a popstate the
 // browser has already moved the URL, and scrolled.
+// An entry it replaces keeps its history.state unless the caller passed
+// `state`; a new entry starts with the caller's state, else none.
 function fragmentNavigation(href, replace, state, fromPopstate) {
   if (_preparing.peek()) {
     supersede();
@@ -657,7 +659,7 @@ function fragmentNavigation(href, replace, state, fromPopstate) {
   }
   if (!fromPopstate) {
     scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
-    history[replace ? 'replaceState' : 'pushState'](state, '', href);
+    history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', href);
   }
   _url.set(location.pathname + location.search + location.hash);
   if (!fromPopstate && location.hash) queryFragment(location.hash)?.scrollIntoView({ behavior: 'smooth' });

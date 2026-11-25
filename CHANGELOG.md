@@ -1110,11 +1110,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `packages/react-compat/test/native-keyed-list.test.js`).
 - **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
   as in TanStack Query, not the spelling that created the cache entry they
-  share (`'q:alpha'`). `useSWR`, `query()`, `useInfiniteQuery` and
+  share (`'q:alpha'`), and a reactive key that changes only its spelling
+  hands over the new one. `useSWR`, `query()`, `useInfiniteQuery` and
   `prefetchQuery` hand their fetchers the key the same way, and `onSuccess`
-  and `onError` receive it; a fetch the cache starts itself uses the key of
-  the reader that came last. Found dogfooding
-  Vura.
+  and `onError` receive it. A fetch the cache starts itself (an
+  invalidation) fetches as the active reader that attached last, with its
+  fetcher, key and callbacks, as TanStack Query uses its last observer's
+  options (it used the first reader); `prefetchQuery` fetches with its own
+  fetcher and key even while readers are attached (it used a reader's).
+  Found dogfooding Vura.
 - **A tag held in a binding is created in the namespace it stands in.**
   `as="circle"` in an `<svg>` and `as="mi"` were created as unknown HTML
   elements and did not draw: a name only SVG or MathML has is created in that

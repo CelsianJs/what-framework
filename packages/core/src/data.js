@@ -154,6 +154,7 @@ function newEntry(kind, hash, key, cache, observer) {
     gcTime: DEFAULT_GC_TIME,
     /** @type {any} */ timer: null,
     /** @type {any} */ conf: observer !== null ? observer.conf : null,
+    /** @type {any} */ src: null,
     /** @type {any} */ by: null,
     /** @type {any} */ op: null,
     /** @type {Set<string> | null} */ paths: null,
@@ -275,16 +276,14 @@ function startFlight(e) {
   const ac = new AbortController();
   const op = e.op;
   e.op = null;
+  const from = sourceOf(e);
   const f = {
     ac,
     dead: false,
     superseded: false,
     by: e.by,
-    // The observer that asked fetches with its own fetcher and its own key, as
-    // it wrote it (['q', 'a'] and 'q:a' name one entry); the cache's own
-    // fetches use the last observer's.
-    conf: (e.by !== null && e.by.conf) || e.conf,
-    key: e.by !== null && e.by.conf && untrack(e.by.hash) === e.hash ? e.by.key : e.key,
+    conf: from.conf,
+    key: from.key,
     op,
     /** @type {any} */ promise: null,
     failed: false,
@@ -318,6 +317,19 @@ function startFlight(e) {
   f.promise = retrying(f.at, first);
   watch(f.at, f.promise);
   return f;
+}
+
+// What a fetch of `e` calls, and with which key: the fetcher of whatever asked
+// (an observer, or a prefetchQuery), with its key as it wrote it now (['q',
+// 'a'] and 'q:a' name one entry); for a fetch the cache starts itself, the
+// reader that attached last, as TanStack Query uses its last observer's
+// options. An observer whose key has moved to another entry asks with the
+// entry's own: the last attach's fetcher and key.
+function sourceOf(e) {
+  for (const o of [e.by, e.src]) {
+    if (o != null && o.alive !== false && (o.hash === undefined || untrack(o.hash) === e.hash)) return o;
+  }
+  return e;
 }
 
 // A flight's landing, and its observer's callbacks after it. Its own scope,
@@ -470,7 +482,7 @@ function droppedReason() {
 
 // The callbacks of the observer that asked for a flight, once its result is in
 // the cache. A flight the cache started itself (an invalidation) belongs to
-// the entry's first observer.
+// the active observer that attached last.
 function deliver(e, f) {
   if (f.dead) return;
   const o = f.by;
@@ -624,7 +636,9 @@ function acquire(e, o) {
   // An entry is kept unread for the longest gcTime among its readers.
   e.gcTime = e.observers.size === 0 ? o.gcTime : Math.max(e.gcTime, o.gcTime);
   e.observers.add(o);
-  // The fetcher the cache's own fetches call, with its observer's key.
+  // The reader the cache's own fetches go through (sourceOf), and its fetcher
+  // and key for when it has moved on.
+  e.src = o;
   e.conf = o.conf;
   e.key = o.key;
   const path = o.path ?? (typeof location !== 'undefined' ? location.pathname : null);
@@ -632,7 +646,11 @@ function acquire(e, o) {
 }
 
 function release(e, o) {
-  if (!e.observers.delete(o) || e.observers.size > 0) return;
+  if (!e.observers.delete(o)) return;
+  // A reader that let go holds nothing through the entry (its last fetcher
+  // and key stay, as e.conf and e.key).
+  if (e.src === o) e.src = null;
+  if (e.observers.size > 0) return;
   // Nothing shows this entry now: what is in flight is cancelled (its readers
   // keep the last value), and the entry is dropped once it has stayed unread
   // for its gcTime.
@@ -723,23 +741,22 @@ function observe(kind, key, conf, opts) {
     path: pathTag,
     active: () => o.alive && (o.gate === null || o.gate.peek()),
     /** @type {() => any} */ current: noop,
-    // The key as this observer wrote it, for the entry it reads now.
+    // The key as this observer wrote it last: a new spelling of the same
+    // entry ('q:a', then ['q', 'a']) moves it without moving the entry.
     /** @type {any} */ key: null,
     /** @type {() => string | null} */ hash: () => null,
   };
   const keyFn = typeof key === 'function' ? key : () => key;
-  let raw;
   const hash = computed(() => {
     const k = readKey(keyFn, opts.lenient);
-    raw = k;
+    o.key = k;
     return k == null || k === false ? null : normalizeQueryKey(k);
   });
   o.hash = hash;
   let last = null;
   o.current = computed(() => {
     const h = hash();
-    const e = h === null ? null : entryFor(kind, h, raw, o);
-    o.key = raw;
+    const e = h === null ? null : entryFor(kind, h, o.key, o);
     // The entry the key named before: what keepPreviousData shows.
     if (e !== last) {
       if (last !== null) o.previous = last;
@@ -1309,9 +1326,11 @@ function matching(target, exact) {
   return out;
 }
 
-function firstActive(e) {
-  for (const o of e.observers) if (o.active()) return o;
-  return null;
+// The active reader that attached last: an invalidation fetches as it.
+function lastActive(e) {
+  let last = null;
+  for (const o of e.observers) if (o.active()) last = o;
+  return last;
 }
 
 // Mark an entry stale and fetch it now if something shows it; a `hard`
@@ -1330,7 +1349,7 @@ function invalidateEntry(e, hard) {
       e.next = 0;
     }
   }
-  const by = firstActive(e);
+  const by = lastActive(e);
   if (by === null) return e.flight !== null ? outcome(e, e.flight).then(noop, noop) : Promise.resolve();
   if (hard && e.flight !== null) return outcome(e, e.flight).then(noop, noop);
   return refetchOf(e, by).then(noop, noop);
@@ -1390,15 +1409,18 @@ export function invalidatePath(path) {
  */
 export function prefetchQuery(key, fetcher, options = {}) {
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
+  // Its fetch calls its own fetcher with its own key, whoever else reads the
+  // entry; with no reader, the cache's own fetches use them too.
+  const own = { conf: { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay }, key };
   if (e.observers.size === 0) {
-    e.conf = { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay };
+    e.conf = own.conf;
     e.key = key;
   }
   const v = valueOf(e);
   let done;
   if (e.flight !== null) done = outcome(e, e.flight);
   else if (v !== undefined && e.error === undefined && Date.now() - e.updatedAt <= (options.staleTime ?? 0)) done = Promise.resolve(v);
-  else done = refetchOf(e, null);
+  else done = refetchOf(e, own);
   armGc(e);
   return done;
 }

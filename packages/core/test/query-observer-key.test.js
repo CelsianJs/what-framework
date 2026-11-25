@@ -116,4 +116,57 @@ describe('a fetcher gets its own observer\'s key', () => {
     await prefetchQuery(['p', 1], (key) => { seen.push(key); return 'new'; });
     assert.deepEqual(seen, [['p', 1]]);
   });
+
+  it('a reactive key that changes spelling but not entry hands the fetcher the new spelling', async () => {
+    const seen = [];
+    const key = signal('q:alpha');
+    let result;
+    createRoot((d) => {
+      dispose = d;
+      result = useQuery({ queryKey: key, queryFn: ({ queryKey }) => { seen.push(queryKey); return 'v'; }, refetchOnWindowFocus: false });
+    });
+    await tick();
+    assert.deepEqual(seen, [['q:alpha']]);
+    key(['q', 'alpha']);
+    flushSync();
+    await result.refetch();
+    await invalidateQueries(['q', 'alpha']);
+    assert.deepEqual(seen, [['q:alpha'], ['q', 'alpha'], ['q', 'alpha']]);
+  });
+
+  it('a stale prefetchQuery fetches with its own fetcher and key while an observer is attached', async () => {
+    const observed = [];
+    const prefetched = [];
+    createRoot((d) => {
+      dispose = d;
+      useQuery({ queryKey: 'pf:1', queryFn: ({ queryKey }) => { observed.push(queryKey); return 'observer'; }, refetchOnWindowFocus: false });
+    });
+    await tick();
+    observed.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const value = await prefetchQuery(['pf', 1], (key) => { prefetched.push(key); return 'prefetch'; });
+    assert.equal(value, 'prefetch');
+    assert.deepEqual(prefetched, [['pf', 1]]);
+    assert.deepEqual(observed, []);
+  });
+
+  it('an invalidation fetches as the reader that attached last (TanStack Query: the last observer\'s options)', async () => {
+    const calls = [];
+    const heard = [];
+    createRoot((d) => {
+      dispose = d;
+      useQuery({ queryKey: 'inv:1', queryFn: ({ queryKey }) => { calls.push(['first', queryKey]); return 1; }, onSuccess: () => heard.push('first'), refetchOnWindowFocus: false });
+    });
+    await tick();
+    const disposeFirst = dispose;
+    createRoot((d) => {
+      dispose = () => { d(); disposeFirst(); };
+      useSWR(['inv', 1], (key) => { calls.push(['last', key]); return 1; }, { onSuccess: () => heard.push('last'), revalidateOnFocus: false, dedupingInterval: 0 });
+    });
+    await tick();
+    calls.length = heard.length = 0;
+    await invalidateQueries(['inv', 1]);
+    assert.deepEqual(calls, [['last', ['inv', 1]]]);
+    assert.deepEqual(heard, ['last']);
+  });
 });
