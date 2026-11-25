@@ -50,7 +50,7 @@ import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
 import { idsOf, islandId, boundaryIds, apart, idsMark, idsBack, styleText, attrOf, attrName } from './markup.js';
 import {
-  KIND_TEXT, KIND_ELEMENT, KIND_COMPONENT, KIND_OPAQUE, KIND_PORTAL, NO_RNODES, TEXTAREA_KIDS, SVG_NS,
+  KIND_TEXT, KIND_ELEMENT, KIND_COMPONENT, KIND_OPAQUE, KIND_PORTAL, NO_RNODES, TEXTAREA_KIDS, SVG_NS, MATH_NS, MATH, _inert,
   claim, _setClaim, _setAdopter, _setNativeBuilder, mountRNode, mountComponent, mountPortal, mountChildren, flatten, flatIds, flatLists,
   onlyText, setText, setProperty, trackField, controlField, insertionQueue, layoutQueue, passiveQueue, formActionRunner,
   runInCommit, renderInstance, unmountRNode,
@@ -505,10 +505,13 @@ function placeText(c, v, text) {
 
 // ---- Elements ----
 
-// Whether the server node `n` is the client's element `tag`.
-function isElement(n, tag, svg) {
-  if (n === null || n.nodeType !== 1 || (n.namespaceURI === SVG_NS) !== svg) return false;
-  return n.localName === tag || (!svg && n.localName === tag.toLowerCase());
+const HTML_NS = 'http://www.w3.org/1999/xhtml';
+
+// Whether the server node `n` is the client's element `tag`, in the
+// namespace `ns` (the HTML parser put it in the one it is in).
+function isElement(n, tag, ns) {
+  if (n === null || n.nodeType !== 1 || n.namespaceURI !== ns) return false;
+  return n.localName === tag || (ns === HTML_NS && n.localName === tag.toLowerCase());
 }
 
 const NOT_ATTRIBUTES = new Set(['children', 'key', 'ref', 'suppressHydrationWarning', 'suppressContentEditableWarning', 'dangerouslySetInnerHTML', 'autoFocus']);
@@ -517,12 +520,15 @@ const FIELD_STATE = new Set(['value', 'checked', 'defaultValue', 'defaultChecked
 
 function claimElement(c, v, svg, owner) {
   const tag = v.tag;
-  const isSvg = svg === true || tag === 'svg';
+  // Its namespace, as the client creates it (runtime.js mountElement).
+  const isSvg = svg === true || (svg !== MATH && tag === 'svg');
+  const isMath = !isSvg && (svg === MATH || tag === 'math');
+  const ns = isSvg ? SVG_NS : isMath ? MATH_NS : HTML_NS;
   const el = at(c);
-  if (!isElement(el, tag, isSvg)) {
+  if (!isElement(el, tag, ns)) {
     // Another node (another tag, a text, a marker; before the element:
     // extra-nodes), or none.
-    const kind = el === null ? 'missing' : isElement(past(el.nextSibling, c), tag, isSvg) ? 'extra-nodes' : el.nodeType === 8 ? 'marker' : el.nodeType === 3 ? 'text' : 'tag';
+    const kind = el === null ? 'missing' : isElement(past(el.nextSibling, c), tag, ns) ? 'extra-nodes' : el.nodeType === 8 ? 'marker' : el.nodeType === 3 ? 'text' : 'tag';
     differs(c, kind, kind === 'extra-nodes' ? 'nothing' : `<${v.tag}>`, describe(el), el || c.p, owner);
     return built(() => mountRNode(v, KIND_ELEMENT, null, null, svg, owner, null));
   }
@@ -530,8 +536,8 @@ function claimElement(c, v, svg, owner) {
 
   const props = v.props || NO_PROPS;
   const suppress = props.suppressHydrationWarning === true;
-  const childSvg = isSvg && tag !== 'foreignObject';
-  const field = !isSvg && (tag === 'input' || tag === 'textarea' || tag === 'select');
+  const childSvg = isSvg ? tag !== 'foreignObject' : isMath ? MATH : false;
+  const field = ns === HTML_NS && (tag === 'input' || tag === 'textarea' || tag === 'select');
   claimAttributes(c, el, tag, props, isSvg, field, suppress, owner);
 
   const rn = {
@@ -542,6 +548,13 @@ function claimElement(c, v, svg, owner) {
   };
 
   const raw = v.children !== undefined ? v.children : props.children;
+  // The HTML parser puts what a <template> holds in its content fragment,
+  // which a client render leaves empty: its children are the element's own
+  // (runtime.js mountElement, as React DOM appends them). The server's
+  // content goes, and the children are rendered as a client render renders
+  // them; React renders the root again there. Raw HTML is the content's in
+  // both (an innerHTML write fills it), and stays.
+  if (tag === 'template' && ns === HTML_NS && props.dangerouslySetInnerHTML == null && el.content != null) el.content.textContent = '';
   if (props.dangerouslySetInnerHTML != null) {
     // The server's content stands: raw HTML is the server's. In development
     // one that differs is reported, as React warns (it compares the HTML as
@@ -603,7 +616,7 @@ const NO_PROPS = {};
 
 // `html` as the browser reads it in an element like `el`.
 function readAs(el, html) {
-  const probe = el.namespaceURI === SVG_NS ? document.createElementNS(SVG_NS, el.localName) : document.createElement(el.localName);
+  const probe = el.namespaceURI !== HTML_NS ? document.createElementNS(el.namespaceURI, el.localName) : document.createElement(el.localName);
   probe.innerHTML = html;
   return probe.innerHTML;
 }
@@ -827,7 +840,7 @@ function claimSuspense(c, v, svg, owner, into) {
     rn = mountComponent(v, c.p, close, svg, owner, into);
     // It names its ids as the server's did, whatever its content did (server.js useId).
     boundaryIds(rn.inst);
-    if (boundary.dead) dehydrate(boundary, rn.inst);
+    if (boundary.dead) dehydrate(boundary, rn.inst, marks);
     else {
       const inner = /** @type {NonNullable<typeof cur>} */ (cur);
       finish(inner, '', owner);
@@ -856,10 +869,20 @@ function suspended(thenable, inst) {
   return r;
 }
 
-function dehydrate(boundary, inst) {
+// What the content rendered before it suspended was not committed, as in
+// React: none of its refs, effects or focus (queued after `marks`) runs, and
+// the server's elements it claimed keep no React handler, controlled field
+// or form action (runtime.js _inert) until the boundary hydrates.
+function dehydrate(boundary, inst, marks) {
   boundary.inst = inst;
+  drop(marks);
   const rendered = inst.rendered;
   for (let i = 0; i < rendered.length; i++) unmountRNode(rendered[i], false);
+  for (let x = boundary.open.nextSibling; x !== null && x !== boundary.close; x = x.nextSibling) {
+    if (x.nodeType !== 1) continue;
+    _inert(x);
+    for (const el of x.querySelectorAll('*')) _inert(el);
+  }
   // The server's nodes, as one opaque node: placed and removed as the
   // boundary's own, and replaced by what it renders next on the client.
   inst.rendered = [{ kind: KIND_OPAQUE, vnode: null, key: null, start: boundary.open, end: boundary.close, id: 0, list: null, dispose: null }];
@@ -894,7 +917,7 @@ function rehydrate(boundary) {
     const top = /** @type {NonNullable<typeof cur>} */ (cur);
     try {
       renderInstance(inst);
-      if (boundary.dead) dehydrate(boundary, inst);
+      if (boundary.dead) dehydrate(boundary, inst, marks);
       else {
         finish(top, '', inst);
         differed = top.d;

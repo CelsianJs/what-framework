@@ -910,6 +910,40 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Fixed
 
+- **what-react: island hydration, as a verification in real browsers found
+  it.** Each item has a test that fails at 90c91c40, with React 19.3.1's
+  result beside it.
+  - An entry that defines its page and calls `hydrate()` at its top level, in
+    the same module, now hydrates its islands by adopting the server's HTML.
+    The plugin's install was a call it added at the end of the module, which
+    ran after that `hydrate()`: the island was replaced, and a focused input
+    the user had typed in lost its node, its text and its focus (React keeps
+    all three). The plugin adds `import 'what-react/hydrate-islands'` instead,
+    which runs before the module's code, in development, in a build and in
+    the client build of a server-rendered app
+    (`test/island-install.test.js`, production builds; the matrix's server
+    mode checks the shape against React).
+  - A `<Suspense>` whose content suspends while it hydrates is not live until
+    it hydrates, as React's is not: the claim had already attached the
+    handlers of the elements before the one that suspended (a click counted)
+    and the putting back of a controlled field (what the user typed was
+    replaced).
+  - A `<template>` hydrates with its children as its own and an empty
+    content fragment, as a client render makes it; the server's content
+    stayed beside them, still showing the server's values.
+  - Elements inside `<math>` are MathML elements, in a client render and
+    where hydration renders part of an island again; they were made in the
+    HTML namespace. Mounting, patching and claiming carry the namespace (HTML,
+    SVG or MathML), not an SVG flag.
+  - The matrix: the typing probe compares the field with what it held right
+    after typing (react-markdown's editor puts the caret inside the text, and
+    real React puts the controlled value back there), and each run builds in
+    a folder of its own, so a run no longer deletes another's builds.
+  The rest of what the verification listed is as React at 90c91c40 already:
+  raw HTML the HTML parser repaired (`<p>` holding a `<div>`) shows, `useId`
+  keeps the server's ids across a Suspense retry, a `<noscript>` runs no
+  effects, and a mismatch is reported per element.
+
 - **what-react: one React island that throws while it hydrates no longer
   takes the page down.** Before, `hydrate()` threw, every island's server
   HTML was removed and the native page stopped updating. Now what that

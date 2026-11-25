@@ -57,6 +57,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
 const fixture = path.join(here, 'fixtures/matrix');
 const libsDir = path.join(fixture, 'src/libs');
+// This run's builds and caches, apart from another run's (a run removes its
+// own when it ends, and only its own).
+const runId = `${process.pid}-${Date.now().toString(36)}`;
+const runDir = path.join(fixture, 'dist', `run-${runId}`);
 const require = createRequire(path.join(repo, 'package.json'));
 
 const arg = (name, fallback) => {
@@ -203,7 +207,7 @@ function pluginsFor(mode) {
       : [frameworkSource(), matrixPlugin(mode), compiler(), reactCompat()];
 }
 
-function configFor(mode, outDir = path.join(fixture, 'dist', mode)) {
+function configFor(mode, outDir = path.join(runDir, mode)) {
   return {
     configFile: false, root: fixture, base: '/', logLevel: 'error',
     plugins: pluginsFor(mode),
@@ -228,7 +232,7 @@ function api(url, res) {
 // static imports, so the packages are pre-bundled once when the server
 // starts. The cache starts empty: a fresh checkout, a fresh `vite`.
 async function startDev(mode) {
-  const cacheDir = path.join(fixture, 'node_modules', `.vite-matrix-${mode}`);
+  const cacheDir = path.join(fixture, 'node_modules', `.vite-matrix-${mode}-${runId}`);
   fs.rmSync(cacheDir, { recursive: true, force: true });
   const vite = await createServer({
     configFile: false, root: fixture, base: '/', logLevel: 'error', appType: 'spa', cacheDir,
@@ -258,7 +262,7 @@ async function startDev(mode) {
 // production server build of the entry that renders a fixture to HTML, and
 // matrix-ssr-server.mjs serving both.
 async function startSsr(mode) {
-  const dist = path.join(fixture, 'dist', `ssr-${mode}`);
+  const dist = path.join(runDir, `ssr-${mode}`);
   const ssrPlugin = {
     name: 'matrix-ssr-entries',
     enforce: 'pre',
@@ -416,10 +420,13 @@ async function probeTyping(browser, baseUrl, name, variant) {
     if (field === null) return { field: false };
     await page.click('[data-probe="1"]');
     await page.keyboard.type('zq');
+    // What the field holds now: where the caret put the typed text (not
+    // always at the end: react-markdown's editor holds `**bold**`).
+    const typed = await page.evaluate(() => window.__field.value);
     await page.evaluate(() => { window.__start(); });
     await page.waitForFunction(() => window.ready === true || window.loadError, null, { timeout: TIMEOUT * 2 });
     await page.waitForTimeout(300);
-    return await page.evaluate((before) => {
+    return await page.evaluate((typed) => {
       const el = window.__field;
       const active = document.activeElement;
       const focused = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
@@ -427,9 +434,9 @@ async function probeTyping(browser, baseUrl, name, variant) {
         field: true,
         sameElement: el.isConnected,
         focus: active === el ? 'kept' : focused ? 'on another field' : 'lost',
-        text: (el.isConnected ? el.value : focused ? active.value : '') === before + 'zq' ? 'kept' : 'lost',
+        text: (el.isConnected ? el.value : focused ? active.value : '') === typed ? 'kept' : 'lost',
       };
-    }, field);
+    }, typed);
   } catch (e) {
     return { field: true, error: String(e && e.message || e).split('\n')[0].slice(0, 200) };
   } finally {
@@ -557,6 +564,61 @@ async function runSpec(browser, baseUrl, name, variant, column) {
   return run;
 }
 
+// --serve=ssr: a native entry that defines its page and hydrates it at its
+// top level, in the same module. The fixtures above all hydrate from
+// main-mixed.jsx, which loads a fixture's module (and so its island
+// hydration install) before it calls hydrate(): none has this shape. The
+// user types into the server's input before the entry runs; real React
+// (hydrateRoot) keeps the node, the text and the focus, and the island has to.
+// An install of island hydration that ran after the module's own code had
+// let hydrate() replace the island.
+const ENTRY_SHAPE = {
+  'Field.jsx': "import { useState } from 'react';\nexport function Field() {\n  const [text] = useState('initial');\n  return <input defaultValue={text} />;\n}\n",
+  'main.jsx': "import { hydrate } from 'what-framework';\nimport { Field } from './Field.jsx';\nfunction Page() {\n  return <main><Field /></main>;\n}\nhydrate(<Page />, document.getElementById('app'));\nwindow.__hydrated = true;\n",
+  'server.jsx': "import { h } from 'what-framework';\nimport { renderToHydratableString } from 'what-framework/server';\nimport { Field } from './Field.jsx';\nfunction Page() {\n  return <main><Field /></main>;\n}\nexport const html = renderToHydratableString(h(Page));\n",
+  'main-react.jsx': "import { hydrateRoot } from 'react-dom/client';\nimport { Field } from './Field.jsx';\nfunction Page() {\n  return <main><Field /></main>;\n}\nhydrateRoot(document.getElementById('app'), <Page />);\nwindow.__hydrated = true;\n",
+  'server-react.jsx': "import { renderToString } from 'react-dom/server';\nimport { Field } from './Field.jsx';\nfunction Page() {\n  return <main><Field /></main>;\n}\nexport const html = renderToString(<Page />);\n",
+};
+
+async function probeEntryShape(browser, mode) {
+  const dir = path.join(runDir, `entry-shape-${mode}`);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [file, text] of Object.entries(ENTRY_SHAPE)) fs.writeFileSync(path.join(dir, file), text);
+  const react = mode === 'react';
+  const base = { configFile: false, root: dir, logLevel: 'error', plugins: pluginsFor(mode) };
+  try {
+    const serverOut = path.join(dir, 'server');
+    await build({
+      ...base, ...(react ? { ssr: { noExternal: true } } : {}),
+      build: { ssr: true, outDir: serverOut, emptyOutDir: true, minify: false, rollupOptions: { input: path.join(dir, react ? 'server-react.jsx' : 'server.jsx') } },
+    });
+    const { html } = await import(pathToFileURL(path.join(serverOut, fs.readdirSync(serverOut).find((f) => /\.m?js$/.test(f)))).href);
+    const out = await build({
+      ...base,
+      build: { write: false, minify: false, modulePreload: false, rollupOptions: { input: path.join(dir, react ? 'main-react.jsx' : 'main.jsx'), output: { codeSplitting: false } } },
+    });
+    const code = (Array.isArray(out) ? out : [out]).flatMap((o) => o.output).find((c) => c.type === 'chunk' && c.isEntry).code;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await page.setContent(`<!DOCTYPE html><html><body><div id="app">${html}</div></body></html>`);
+      await page.evaluate(() => { const f = /** @type {any} */ (window).__f = document.querySelector('input'); f.focus(); f.value = 'typed'; });
+      await page.addScriptTag({ type: 'module', content: code });
+      await page.waitForFunction(() => /** @type {any} */ (window).__hydrated === true, null, { timeout: TIMEOUT });
+      await page.waitForTimeout(100);
+      return await page.evaluate(() => {
+        const now = document.querySelector('input');
+        return { same: now === /** @type {any} */ (window).__f, value: now.value, focused: document.activeElement === /** @type {any} */ (window).__f };
+      });
+    } finally {
+      await context.close();
+    }
+  } catch (e) {
+    return { error: String(e && e.message || e).split('\n')[0].slice(0, 300) };
+  }
+}
+const shapeKept = (r) => !r.error && r.same === true && r.value === 'typed' && r.focused === true;
+
 // ---- run ----
 const results = {};
 for (const name of names) {
@@ -565,6 +627,7 @@ for (const name of names) {
 const buildErrors = {};
 const reruns = [];
 const timings = {};
+const entryShape = {};
 const browser = await chromium.launch({ headless: !arg('headed', false) });
 try {
   for (const mode of runModes) {
@@ -644,9 +707,16 @@ try {
       timings[mode] = { startup, total: (Date.now() - t0) / 1000 };
     }
   }
+  if (serveKind === 'ssr') {
+    for (const mode of runModes) if (mode === 'react' || mode === 'mixed') entryShape[mode] = await probeEntryShape(browser, mode);
+  }
 } finally {
   await browser.close();
-  if (!arg('keep', false)) fs.rmSync(path.join(fixture, 'dist'), { recursive: true, force: true });
+  if (!arg('keep', false)) {
+    fs.rmSync(runDir, { recursive: true, force: true });
+    // The dist folder too, once no other run has its builds in it.
+    try { fs.rmdirSync(path.join(fixture, 'dist')); } catch { /* another run's, or none */ }
+  }
 }
 
 // ---- report ----
@@ -706,10 +776,19 @@ if (arg('md', false)) {
     console.log(`| ${pk.join(', ')} | ${pk.map((p) => r.packages[p]).join(', ')} | ${['react', 'compat', 'mixed', 'native'].map((c) => cell(name, c)).join(' | ')} | ${r.exercised} |`);
   }
 }
-if (arg('json', null)) fs.writeFileSync(path.resolve(String(arg('json'))), JSON.stringify({ date: new Date().toISOString(), serve: serveKind, modes: runModes, buildErrors, timings, reruns, quarantined: quarantinedFailures, results }, null, 2));
+if (Object.keys(entryShape).length > 0) {
+  console.log('\nan entry that hydrates its own page at its top level, typed into first (the same input, the typed text, the focus):');
+  for (const [mode, r] of Object.entries(entryShape)) console.log(`  ${mode.padEnd(7)} ${r.error ? `failed: ${r.error}` : `${r.same}, ${JSON.stringify(r.value)}, ${r.focused}`}${shapeKept(r) ? '' : '  FAIL (real React keeps all three)'}`);
+}
+if (arg('json', null)) fs.writeFileSync(path.resolve(String(arg('json'))), JSON.stringify({ date: new Date().toISOString(), serve: serveKind, modes: runModes, buildErrors, timings, reruns, quarantined: quarantinedFailures, entryShape, results }, null, 2));
 
 let bad = Object.keys(buildErrors).length;
 const unexpected = [];
+for (const [mode, r] of Object.entries(entryShape)) {
+  if (shapeKept(r)) continue;
+  bad++;
+  unexpected.push(`${mode} entry that hydrates its own page: ${r.error || `same input ${r.same}, text ${JSON.stringify(r.value)}, focus ${r.focused}`}`);
+}
 for (const name of names) {
   for (const [column, run] of Object.entries(results[name].runs)) {
     const reason = known(name, column);

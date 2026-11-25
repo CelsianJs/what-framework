@@ -490,9 +490,12 @@ export function reactCompat(options = {}) {
     // A native module that what-compiler compiled for hydration (its JSX
     // claims the server's nodes) also installs island hydration: the islands
     // of the page it hydrates adopt the server's HTML (src/hydrate.js). A
-    // client build that does not hydrate never calls it, and its bundle does
-    // not carry that code. An import call, not a bare import: what-react is
-    // free of side effects (package.json), so a bare import would be dropped.
+    // client build that does not hydrate never imports it, and its bundle
+    // does not carry that code. An import, not a call: an import is evaluated
+    // before the module's own code, so the install comes first also when the
+    // module calls hydrate() at its top level (a call added after that code
+    // ran after hydrate() had replaced the islands). The module it imports is
+    // the one file of what-react with a side effect (package.json).
     name: 'what-react-hydrate-islands',
     enforce: 'post',
     transform(code, id, opts) {
@@ -501,8 +504,9 @@ export function reactCompat(options = {}) {
       const file = id.split('?')[0];
       if (!/\.[jt]sx$/.test(file) || file.includes('/node_modules/') || file.startsWith('\0')) return null;
       if (!HYDRATABLE_OUTPUT.test(code) || code.includes(HYDRATE_ISLANDS)) return null;
-      // Appended: the module's own lines and their source map stay as they are.
-      return { code: `${code}\nimport { _hydrateIslands as ${HYDRATE_ISLANDS} } from 'what-react/mixed';\n${HYDRATE_ISLANDS}();\n`, map: null };
+      // Appended (an import is hoisted wherever it stands): the module's own
+      // lines and their source map stay as they are.
+      return { code: `${code}\nimport ${JSON.stringify(HYDRATE_ISLANDS)};\n`, map: null };
     },
   }];
 }
@@ -540,6 +544,6 @@ function isWhatReactMixed(importer) {
 // writes on a line of its own: a template that claims the server's node, and
 // the JSX handed to hydrate().
 const HYDRATABLE_OUTPUT = /^import\s*\{[^}]*\b_\$(?:claim|claimControl|componentVNode)\b[^}]*\}\s*from\s*['"]what-(?:framework|core)\/render['"]/m;
-const HYDRATE_ISLANDS = '__whatReactHydrateIslands';
+const HYDRATE_ISLANDS = 'what-react/hydrate-islands';
 
 export default reactCompat;

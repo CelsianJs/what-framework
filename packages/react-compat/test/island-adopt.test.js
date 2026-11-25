@@ -488,3 +488,79 @@ test('effects run once, after hydration, and a removed island takes its adopted 
   assert.equal(r.app.querySelector('i'), null);
   assert.equal(r.app.querySelector('p').textContent, 'after');
 });
+
+// ---- An island hydration verification (2026-11-24, real browsers and jsdom) ----
+
+test('a <Suspense> whose content suspends while it hydrates is not live until it hydrates', async () => {
+  // react-dom 19.3.1, the same markup through hydrateRoot: while the content
+  // waits, a click calls no handler and what the user types in a controlled
+  // field stays; once the promise settles the boundary hydrates on the
+  // server's nodes, the field keeps what was typed, and a click calls the
+  // handler once. Here the claim had attached the button's handler and the
+  // field's restore before the content suspended: the click counted (1, then
+  // 2) and the typed text was put back.
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  let calls = 0;
+  function Pending() {
+    return side === 'server' ? e('b', null, 'ok') : e('b', null, React.use(promise));
+  }
+  function Comp() {
+    const [v] = useState('server');
+    return e(Suspense, { fallback: e('i', null, 'wait') },
+      e('button', { onClick: () => { calls++; } }, 'first'),
+      e('input', { value: v, onChange: () => {} }),
+      e(Pending));
+  }
+  const r = await adopt(() => e(Comp));
+  const button = r.app.querySelector('button');
+  const input = r.app.querySelector('input');
+  button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'typed');
+  input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await settle();
+  assert.equal(calls, 0, 'no handler hears a click before the boundary hydrates');
+  assert.equal(input.value, 'typed', 'the field keeps what was typed');
+  resolve('ok');
+  await settle();
+  await settle();
+  assert.equal(r.app.querySelector('button'), button, 'the server\'s button is the hydrated one');
+  assert.equal(r.app.querySelector('input').value, 'typed');
+  button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(calls, 1);
+  r.dispose();
+});
+
+test('a <template> hydrates with its children as its own and an empty content fragment, as a client render makes it', async () => {
+  // react-dom 19.3.1 renders the root again (one recoverable error): the
+  // element holds one ordinary child, which takes updates, and its content
+  // fragment is empty. Here the server's content stayed beside the client's
+  // child: two trees, the content's still showing 0.
+  let set = null;
+  let ref = null;
+  function Holder() {
+    const [n, setN] = useState(0);
+    set = setN;
+    return e('template', null, e('b', { ref: (el) => { ref = el; } }, n));
+  }
+  const r = await adopt(() => e(Holder));
+  const template = r.app.querySelector('template');
+  set(1);
+  await settle();
+  assert.deepEqual([template.childNodes.length, template.content.childNodes.length, template.textContent, ref === template.firstChild], [1, 0, '1', true]);
+  r.dispose();
+});
+
+test('an element the client adds inside <math> while it hydrates is MathML, as React creates it', async () => {
+  // react-dom 19.3.1 renders the root again: <mi> and <mn> in the MathML
+  // namespace. Here the children are rendered again too (a difference in
+  // structure), and the claim carried an SVG flag, not a namespace: they were
+  // made in the HTML namespace.
+  const MATHML = 'http://www.w3.org/1998/Math/MathML';
+  const r = await adopt(() => e('math', null, e('mi', null, 'x'), side === 'client' && e('mn', null, 1)));
+  assert.deepEqual([...r.app.querySelectorAll('math, mi, mn')].map((n) => `${n.localName} ${n.namespaceURI}`), [`math ${MATHML}`, `mi ${MATHML}`, `mn ${MATHML}`]);
+  assert.ok(r.known.has(r.app.querySelector('math')), 'the server\'s <math> is kept');
+  assert.equal(r.records.length, 1, 'one report: the missing <mn>');
+  r.dispose();
+});

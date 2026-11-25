@@ -2063,3 +2063,18 @@ test('flushSync in an event handler renders before it returns', () => {
   fire(container.firstChild, 'click');
   assert.equal(read, 'n1');
 });
+
+test('<math> and what it holds are MathML elements, through a mount and an update, as React creates them', () => {
+  // react-dom 19.3.1: math, mi and mn in the MathML namespace (getChildNamespace).
+  const MATHML = 'http://www.w3.org/1998/Math/MathML';
+  let setMore;
+  function Formula() {
+    const [more, set] = useState(false);
+    setMore = set;
+    return h('math', null, h('mi', null, 'x'), more && h('mn', null, 1));
+  }
+  const { container } = mount(h('div', null, h(Formula)));
+  act(() => setMore(true));
+  assert.deepEqual([...container.querySelectorAll('math, mi, mn')].map((n) => `${n.localName} ${n.namespaceURI}`), [`math ${MATHML}`, `mi ${MATHML}`, `mn ${MATHML}`]);
+  assert.equal(container.querySelector('div').namespaceURI, 'http://www.w3.org/1999/xhtml', 'the HTML around it stays HTML');
+});

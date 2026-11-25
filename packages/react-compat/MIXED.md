@@ -311,11 +311,14 @@ boundary placed in React elements. The browser builds those again in place
 of the bracketed nodes, so focus and typed text inside them are lost. React
 elements around them are adopted.
 
-The plugin installs adoption by adding a call to `_hydrateIslands()` (from
-`what-react/mixed`) to each JSX file what-compiler compiles for hydration
-(the entry that calls `hydrate()` is one), so a client build that only
-mounts does not carry the code. A build without what-react's plugin calls
-`_hydrateIslands()` itself before `hydrate()`. `reactCompat({ hydrateIslands:
+The plugin installs adoption by adding `import 'what-react/hydrate-islands'`
+to each JSX file what-compiler compiles for hydration (the entry that calls
+`hydrate()` is one), so a client build that only mounts does not carry the
+code. An import runs before the code of the module that has it, so adoption
+is installed before a `hydrate()` that the same module calls at its top level
+(`test/island-install.test.js`). A build without what-react's plugin imports
+`what-react/hydrate-islands`, or calls `_hydrateIslands()` from
+`what-react/mixed`, before `hydrate()`. `reactCompat({ hydrateIslands:
 false })` turns it off.
 
 A component that throws on the server leaves its island empty there and the

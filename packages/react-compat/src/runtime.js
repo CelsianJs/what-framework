@@ -1336,12 +1336,29 @@ function topComment(into, text, parentDom, before) {
 }
 
 export const SVG_NS = 'http://www.w3.org/2000/svg';
+export const MATH_NS = 'http://www.w3.org/1998/Math/MathML';
+
+// The host mode an element's children are created in (the `svg` argument
+// that mounting and patching carry): false (HTML), true (SVG), MATH (inside
+// a <math>: MathML), or the mirror of a portal into a document that is not
+// the DOM's (mountElement). As React decides it (getChildNamespace): <svg>
+// starts SVG and <math> MathML from HTML, an SVG <foreignObject>'s children
+// are HTML again, and the rest keeps the mode it is in.
+export const MATH = 'math';
+
+// The namespace the element `tag` is created in, in host mode `mode` (not
+// a mirror): SVG_NS, MATH_NS, or null for HTML.
+function nsIn(mode, tag) {
+  return mode === true || (mode !== MATH && tag === 'svg') ? SVG_NS : mode === MATH || tag === 'math' ? MATH_NS : null;
+}
 
 // A portal target may live inside an <svg> (recharts 3.x z-index layers are
-// SVG <g> portal targets). Children portaled into an SVG container must be
-// created in the SVG namespace, not HTML.
-function targetSvg(target) {
-  return !!target && target.namespaceURI === SVG_NS && target.tagName !== 'foreignObject';
+// SVG <g> portal targets) or a <math>: what is portaled into it is created in
+// its namespace, not HTML's.
+function targetMode(target) {
+  if (!target) return false;
+  const ns = target.namespaceURI;
+  return ns === SVG_NS ? target.tagName !== 'foreignObject' : ns === MATH_NS && MATH;
 }
 
 // camelCase React SVG prop → correct kebab/colon SVG attribute name.
@@ -1380,12 +1397,13 @@ export function setText(el, text) {
 
 function mountElement(v, parentDom, before, svg, owner) {
   const tag = v.tag;
-  // `svg` is the host mode: false (HTML), true (inside an <svg>), or the
-  // mirror of a portal into a document that is not the DOM's (below).
+  // `svg` is the host mode (MATH above): false, true, MATH, or the mirror of
+  // a portal into a document that is not the DOM's (below).
   const mirror = typeof svg === 'object' && svg !== null ? svg : null;
-  const childSvg = mirror !== null ? mirror : (svg || tag === 'svg') && tag !== 'foreignObject';
-  const isSvgEl = mirror === null && (svg || tag === 'svg');
-  const el = isSvgEl ? document.createElementNS(SVG_NS, tag) : document.createElement(tag);
+  const ns = mirror !== null ? null : nsIn(svg, tag);
+  const isSvgEl = ns === SVG_NS;
+  const childSvg = mirror !== null ? mirror : isSvgEl ? tag !== 'foreignObject' : ns !== null && MATH;
+  const el = ns !== null ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (mirror !== null) el._compatMirror = mirror.doc.createElement(tag);
   const props = v.props || EMPTY_OBJ;
 
@@ -1422,7 +1440,7 @@ function mountElement(v, parentDom, before, svg, owner) {
   // Controlled props after children (e.g. <select> options must exist)
   if (hasValue) setProperty(el, 'value', value, undefined, isSvgEl);
   if (hasChecked) setProperty(el, 'checked', checked, undefined, isSvgEl);
-  if (!isSvgEl) {
+  if (ns === null) {
     if (tag === 'input') trackField(el);
     else if (tag === 'textarea') {
       mountTextarea(rn, el, value);
@@ -1529,7 +1547,7 @@ export function mountPortal(v, parentDom, before, owner, into) {
     return rn;
   }
   registerPortal(rn);
-  rn.children = patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner, rn);
+  rn.children = patchChildren(target, NO_RNODES, v.children, null, targetMode(target), owner, rn);
   return rn;
 }
 
@@ -1672,8 +1690,9 @@ function patchElement(rn, v, svg, owner) {
   const oldProps = (rn.vnode && rn.vnode.props) || EMPTY_OBJ;
   const newProps = v.props || EMPTY_OBJ;
   const mirror = typeof svg === 'object' && svg !== null ? svg : null;
-  const isSvgEl = mirror === null && (svg || v.tag === 'svg');
-  const childSvg = mirror !== null ? mirror : (svg || v.tag === 'svg') && v.tag !== 'foreignObject';
+  const ns = mirror !== null ? null : nsIn(svg, v.tag);
+  const isSvgEl = ns === SVG_NS;
+  const childSvg = mirror !== null ? mirror : isSvgEl ? v.tag !== 'foreignObject' : ns !== null && MATH;
 
   if (oldProps !== newProps) {
     // Removed props
@@ -1786,7 +1805,7 @@ function patchPortal(rn, v, owner) {
     rn.children = patchChildren(rn.mirror.shadow, rn.children, v.children, null, rn.mirror, owner, rn);
   } else if (target === rn.container) {
     if (target) {
-      rn.children = patchChildren(target, rn.children, v.children, null, targetSvg(target), owner, rn);
+      rn.children = patchChildren(target, rn.children, v.children, null, targetMode(target), owner, rn);
     }
   } else {
     teardown(rn); // its children leave the old container
@@ -1799,7 +1818,7 @@ function patchPortal(rn, v, owner) {
     }
     if (target) registerPortal(rn);
     rn.children = target
-      ? patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner, rn)
+      ? patchChildren(target, NO_RNODES, v.children, null, targetMode(target), owner, rn)
       : NO_RNODES;
   }
   rn.vnode = v;
@@ -3064,6 +3083,38 @@ export function controlField(el) {
   // from the handler on `change`.
   if (changeEventFor(el) === 'input') watchField(el, 'input');
   watchField(el, 'change');
+}
+
+/**
+ * @internal hydrate.js: what a claim gave a server element that stays in the
+ * page without being committed (a <Suspense> whose content suspended while it
+ * hydrated keeps the server's nodes as they are until it hydrates, as React's
+ * does): its React handlers, the putting back of a controlled field, the
+ * tracking of a field's value and a form's action. Until the boundary
+ * hydrates, the element does what the server's HTML does.
+ */
+export function _inert(el) {
+  const own = el._compatListeners;
+  if (own !== undefined) {
+    for (const event in own) el.removeEventListener(event, eventProxy, false);
+    el._compatListeners = undefined;
+  }
+  const capture = el._compatListenersCapture;
+  if (capture !== undefined) {
+    for (const event in capture) el.removeEventListener(event, eventProxyCapture, true);
+    el._compatListenersCapture = undefined;
+  }
+  if (el._compatControlled === true) {
+    el.removeEventListener('input', fieldEvent, true);
+    el.removeEventListener('change', fieldEvent, true);
+    el._compatControlled = false;
+  }
+  const track = el._compatTrack;
+  if (track !== undefined) {
+    delete el[track.field];
+    el._compatTrack = undefined;
+  }
+  if (typeof el._compatAction === 'function') el._compatAction = null;
 }
 
 function watchField(el, type) {
