@@ -875,6 +875,32 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   mixed mode a hook called on a namespace import (`rhf.useForm()`) makes its
   file a React file, and a native component is handed several React children
   as an array it can count and index.
+- **what-react matches React in the five places a third review found it did
+  not** (real React 19.3 against the rewritten reconciler; `REACT-COMPAT.md`,
+  "What the third review found"). An element that goes from text to
+  `dangerouslySetInnerHTML` shows the HTML (it was empty for one commit), and
+  HTML is written only when its string changed (it replaced its nodes on
+  every render). `null`, `false`, `undefined` and a portal leave no comment
+  in the document, nor a text that became empty an empty text node, except at
+  the top of a React island, where one comment keeps the island's place
+  (code that walks `childNodes`, such as an editor's node views, saw them;
+  three stood inside a TipTap editor's DOM). What a component with no node in
+  the document renders next goes before the first node of what follows it,
+  as React places it (it went to the end of its parent when a library had
+  removed its comment), and a row inserted before a row a library moved
+  elsewhere goes before the next row still in the list. A `<textarea>`'s
+  children are its initial value only; later children no longer overwrite
+  what the user typed. A component that sets its state every time it
+  renders throws React's "Too many re-renders" to its error boundary instead
+  of committing a partial state. *Behaviour change:* a component that
+  renders nothing has no `<!--w:h-->` comment, and a portal no
+  `<!--w:portal-->`, outside an island's top. In a production build the
+  `ERR_HOOK_OUTSIDE_RENDER` error and the update-loop guard's two messages
+  keep only their first sentence (development shows the explanation), which
+  with an SVG attribute map built from its names keeps the `react-counter`
+  bundle at 22,170 B gzip (22,251 before). The package matrix gains a TipTap
+  fixture (typing, bold, undo and redo, React node views inside ProseMirror's
+  DOM).
 - **what-react works in `vite`, in a production server build and in a
   dev-server render of an installed app**, where the package matrix (production
   client builds from the workspace) could not see it fail. `vite dev` failed

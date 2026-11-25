@@ -196,7 +196,11 @@ test('inserting a row in the middle places one row, in front of the rows that st
   assert.deepEqual(rowIds(container), api.data.map((r) => r.id));
 });
 
-test('a component that renders nothing holds its place with one comment, and gives it up when it renders', () => {
+// Until the third React review this component held its place with a
+// comment (one createComment, one node more than React). React 19.3.0
+// leaves no node for null: the component's output is placed before the
+// first node of what follows it.
+test('a component that renders nothing leaves no node, and what it renders later goes in its place', () => {
   let show;
   function Maybe() {
     const [on, set] = useState(false);
@@ -207,13 +211,17 @@ test('a component that renders nothing holds its place with one comment, and giv
   document.body.appendChild(container);
   const root = ReactDOM.createRoot(container);
   roots.push(root);
-  act(() => root.render(h('p', null, h('i', null, 'before'), h(Maybe), h('i', null, 'after'))));
+  const mounted = counted(() => root.render(h('p', null, h('i', null, 'before'), h(Maybe), h('i', null, 'after'))));
   const p = container.firstChild;
-  assert.equal(p.childNodes.length, 3);
-  assert.equal(p.childNodes[1].nodeType, 8);
-  act(() => show(true));
+  assert.equal(p.childNodes.length, 2);
+  assert.equal(mounted.createComment, 0);
+  const shown = counted(() => show(true));
   assert.equal(p.innerHTML, '<i>before</i><b>shown</b><i>after</i>');
-  act(() => show(false));
-  assert.equal(p.textContent, 'beforeafter');
-  assert.equal(p.childNodes.length, 3);
+  assert.equal(shown.insert, 1);
+  assert.equal(shown.createElement, 1);
+  assert.equal(shown.createComment + shown.remove, 0);
+  const hidden = counted(() => show(false));
+  assert.equal(p.innerHTML, '<i>before</i><i>after</i>');
+  assert.equal(hidden.remove, 1);
+  assert.equal(hidden.createComment + hidden.insert, 0);
 });

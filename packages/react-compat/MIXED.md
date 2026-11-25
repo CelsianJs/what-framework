@@ -289,7 +289,10 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
 - Inside a React tag the cost is React's; outside, What's.
 - An island stands between the two comment markers what-core gives a
   component that returns several nodes; a native component inside React
-  adds two comment markers of its own. React components add none.
+  adds two comment markers of its own. React components add none, and
+  `null`, `false` and a portal leave no node, except at an island's top
+  (outside every element it renders), where each is one comment so the
+  island keeps a node (REACT-COMPAT.md, Known limitations).
 - Hydration replaces an island's server HTML instead of adopting it node by
   node: focus and text typed into a React field before the page hydrates are
   lost, and a node a script took from the server's HTML is no longer in the
@@ -322,7 +325,7 @@ after hydration), `test/vite-plugin.test.js` (the dev server, a dev-server
 render and a production server build of an installed app: one what-react in
 each), `test/mixed-browser.mjs` (a Vite build, the dev server, and a server
 render the browser hydrates, in Chromium, with Recharts, react-hook-form and
-React context) and `test/matrix-browser.mjs` (38 package fixtures driven in
+React context) and `test/matrix-browser.mjs` (39 package fixtures driven in
 Chromium as React files inside a native app, 19 of them also written as
 native files: Radix, MUI, Ant Design, Headless UI, Recharts, react-select,
 framer-motion and others; as a production build, in the dev server, and

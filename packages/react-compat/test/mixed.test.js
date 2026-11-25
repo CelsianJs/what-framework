@@ -288,3 +288,66 @@ test('a single React child is still the child itself, and a list that keeps its 
   assert.equal(listRuns, runs, 'React patched the children in place: the native regions did not run again');
   act(() => root.unmount());
 });
+
+// The third React review: React leaves no node for null, false or a portal.
+// Inside React's own elements what-react leaves none either; at the top of an
+// island (nothing of React's around it to find its place by) a hole or a
+// portal is one comment.
+const shapeOf = (el) => [...el.childNodes].map((n) => (n.nodeType === 3 ? `T(${n.data})` : n.nodeType === 8 ? `C(${n.data})` : `<${n.tagName.toLowerCase()}>`)).join('|');
+
+test('an island that renders nothing holds its place with one comment and renders there later; inside its elements nothing leaves no node', async () => {
+  let show;
+  function Late() {
+    const [on, set] = useState(false);
+    show = set;
+    return on ? rce('p', null, null, rce('b', null, 'X'), false) : null;
+  }
+  const el = container();
+  mount(h('div', null, h('span', null, 'L'), h(ReactIsland, { view: () => rce(Late) }), h('span', null, 'R')), el);
+  await settle();
+  const div = el.firstChild;
+  assert.equal([...div.childNodes].filter((n) => n.nodeType === 8 && n.data === 'w:h').length, 1, 'one comment for the island');
+  act(() => show(true));
+  await settle();
+  assert.equal(div.textContent, 'LXR');
+  assert.equal(shapeOf(div.querySelector('p')), '<b>', 'no node for the holes inside <p>');
+  assert.equal([...div.childNodes].filter((n) => n.nodeType === 8 && n.data === 'w:h').length, 0);
+});
+
+test('a component at an island\'s top whose comment a library removed renders before what follows it', async () => {
+  let show;
+  function Maybe() {
+    const [on, set] = useState(false);
+    show = set;
+    return on ? rce('b', null, 'NOW') : null;
+  }
+  const el = container();
+  mount(h('div', null, h(ReactIsland, { view: () => [rce('i', { key: 'l' }, 'L'), rce(Maybe, { key: 'm' }), rce('i', { key: 'r' }, 'R')] })), el);
+  await settle();
+  const div = el.firstChild;
+  for (const n of [...div.childNodes]) if (n.nodeType === 8 && n.data === 'w:h') n.remove();
+  act(() => show(true));
+  await settle();
+  // 39441d2d rendered nothing: its place was its comment.
+  assert.equal(div.textContent, 'LNOWR');
+});
+
+test('React children a native component places: one that renders nothing leaves no node and renders in its place', async () => {
+  let show;
+  function Maybe() {
+    const [on, set] = useState(false);
+    show = set;
+    return on ? rce('b', null, 'M') : null;
+  }
+  function Box(props) { return h('section', null, props.children); }
+  const el = container();
+  const root = createRoot(el);
+  act(() => root.render(rce(native(Box), null, rce('i', null, 'A'), rce(Maybe), rce('i', null, 'B'))));
+  await settle();
+  const section = el.querySelector('section');
+  assert.equal([...section.childNodes].filter((n) => n.nodeType === 8 && n.data === 'w:h').length, 0);
+  act(() => show(true));
+  await settle();
+  assert.equal(section.textContent, 'AMB');
+  act(() => root.unmount());
+});

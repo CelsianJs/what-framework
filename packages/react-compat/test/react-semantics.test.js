@@ -1618,3 +1618,342 @@ test('a store that changes while the guard holds a component is rendered once th
     console.error = realError;
   }
 });
+
+// ===============================================================
+// The third review (2026-11-24): differences a reviewer found between React
+// 19.3.0 and what-react at a6888c51, running the same components on both in
+// jsdom. Each test fails on 39441d2d and states the value React 19.3.0 gave.
+// ===============================================================
+
+const shapeOf = (el) => [...el.childNodes].map((n) => (n.nodeType === 3 ? `T(${n.data})` : n.nodeType === 8 ? `C(${n.data})` : `<${n.tagName.toLowerCase()}>`)).join('|');
+function silenced(fn) {
+  const realError = console.error;
+  const realWarn = console.warn;
+  console.error = () => {};
+  console.warn = () => {};
+  try { return fn(); } finally { console.error = realError; console.warn = realWarn; }
+}
+
+// ---------------------------------------------------------------
+// dangerouslySetInnerHTML (N1)
+// ---------------------------------------------------------------
+
+test('an element goes from text to dangerouslySetInnerHTML, to children, to nothing and back, showing each', () => {
+  const html = (s) => h('div', { dangerouslySetInnerHTML: { __html: s } });
+  const { container, root } = mount(html('<b>hi</b>'));
+  const div = container.firstChild;
+  const seen = [div.innerHTML];
+  const steps = [
+    h('div', null, 'plain'), html('<i>yo</i>'), html('<i>yo2</i>'),
+    h('div', null, h('u', null, 'k1'), h('u', null, 'k2')), html('<s>z</s>'),
+    h('div', null), html('<em>e</em>'), html(''), h('div', null, 'again'),
+    html('<b>last</b>'), h('div', null, null),
+  ];
+  for (const next of steps) {
+    act(() => root.render(next));
+    seen.push(div.innerHTML);
+  }
+  // React 19.3.0. 39441d2d showed '' for text to HTML: the HTML was written,
+  // then the text's removal cleared it.
+  assert.deepEqual(seen, ['<b>hi</b>', 'plain', '<i>yo</i>', '<i>yo2</i>', '<u>k1</u><u>k2</u>', '<s>z</s>', '', '<em>e</em>', '', 'again', '<b>last</b>', '']);
+  assert.equal(container.firstChild, div, 'one element throughout');
+});
+
+test('dangerouslySetInnerHTML with the same string keeps its nodes; a new string replaces them', () => {
+  // A new { __html } object every render, as components write it.
+  const { container, root } = mount(h('div', { dangerouslySetInnerHTML: { __html: '<b>hi</b>' } }));
+  const b = container.querySelector('b');
+  act(() => root.render(h('div', { dangerouslySetInnerHTML: { __html: '<b>hi</b>' } })));
+  // React 19.3.0: the same node (39441d2d wrote the HTML again every render).
+  assert.equal(container.querySelector('b'), b);
+  act(() => root.render(h('div', { dangerouslySetInnerHTML: { __html: '<b>bye</b>' } })));
+  assert.notEqual(container.querySelector('b'), b);
+  assert.equal(container.textContent, 'bye');
+});
+
+// ---------------------------------------------------------------
+// <textarea> children (N4)
+// ---------------------------------------------------------------
+
+test('a textarea\'s children are its initial value only: later children change neither what it shows nor what was typed', () => {
+  const { container, root } = mount(h('form', null, h('textarea', null, 'first')));
+  const ta = container.querySelector('textarea');
+  const seen = [`${ta.value}/${ta.textContent}`];
+  silenced(() => act(() => root.render(h('form', null, h('textarea', null, 'second')))));
+  seen.push(`${ta.value}/${ta.textContent}`);
+  typed(ta, 'typed');
+  silenced(() => act(() => root.render(h('form', null, h('textarea', null, 'third')))));
+  seen.push(`${ta.value}/${ta.textContent}`);
+  container.querySelector('form').reset();
+  seen.push(ta.value);
+  // React 19.3.0: an update gives an uncontrolled textarea the default value
+  // '' and leaves its value. 39441d2d showed 'second', then wrote 'third'
+  // over the typed text's default.
+  assert.deepEqual(seen, ['first/first', 'first/', 'typed/', '']);
+
+  const late = mount(h('textarea', null));
+  silenced(() => act(() => late.root.render(h('textarea', null, 'late'))));
+  assert.equal(late.container.firstChild.value, '', 'children that come later are not shown (React 19.3.0)');
+});
+
+test('a controlled textarea still shows its value on every render', () => {
+  let set;
+  function Field() {
+    const [v, s] = useState('a');
+    set = s;
+    return h('textarea', { value: v, onChange: (e) => s(e.target.value) });
+  }
+  const { container } = mount(h(Field));
+  const ta = container.firstChild;
+  assert.equal(ta.value, 'a');
+  act(() => set('b'));
+  assert.equal(ta.value, 'b');
+  typed(ta, 'bc');
+  assert.equal(ta.value, 'bc');
+});
+
+// ---------------------------------------------------------------
+// A render-phase update loop (N5)
+// ---------------------------------------------------------------
+
+test('a component that sets its state every time it renders throws React\'s error, and its error boundary shows it', () => {
+  let renders = 0;
+  class Boundary extends Component {
+    constructor(props) { super(props); this.state = { error: null }; }
+    static getDerivedStateFromError(e) { return { error: e.message }; }
+    render() { return this.state.error ? h('b', null, this.state.error) : this.props.children; }
+  }
+  function Bad() {
+    renders++;
+    const [n, setN] = useState(0);
+    if (n < 10000) setN(n + 1);
+    return h('i', null, 'n=' + n);
+  }
+  const { container } = silenced(() => mount(h('div', null, h(Boundary, null, h(Bad)), h('span', null, 'sib'))));
+  // React 19.3.0: the boundary's fallback, nothing of Bad's (39441d2d
+  // committed n=25 and logged). React renders it 53 times (it tries the
+  // render again once after an error); here 26: the first render and 25
+  // more, then the error, as React's limit has it.
+  assert.equal(container.textContent, 'Too many re-renders. React limits the number of renders to prevent an infinite loop.sib');
+  assert.equal(renders, 26);
+
+  // No boundary: the render throws, as React's root does.
+  const bare = document.createElement('div');
+  document.body.appendChild(bare);
+  const root = createRoot(bare);
+  assert.throws(() => silenced(() => act(() => root.render(h(Bad)))), /Too many re-renders/);
+});
+
+test('a render-phase update that settles in a few renders is kept (React\'s state from the previous render)', () => {
+  let renders = 0;
+  function Steps({ target }) {
+    renders++;
+    const [v, setV] = useState(0);
+    if (v < target) setV(v + 1);
+    return h('i', null, 'v=' + v);
+  }
+  const { container, root } = mount(h(Steps, { target: 5 }));
+  act(() => root.render(h(Steps, { target: 20 })));
+  // React 19.3.0: renders=22, v=20.
+  assert.equal(container.textContent, 'v=20');
+  assert.equal(renders, 22);
+});
+
+// ---------------------------------------------------------------
+// Nothing rendered leaves nothing in the document (N3), and is found
+// again by what follows it (N2)
+// ---------------------------------------------------------------
+
+test('null, false, undefined and a portal leave no node where they stand, nor does a component that renders one', () => {
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  function Nothing() { return null; }
+  function Ported() { return createPortal(h('em', null, 'away'), target); }
+  const { container } = mount(h('div', null, null, h('span', null, 'a'), false, undefined, h(Nothing), createPortal(h('em', null, 'p'), target), h(Ported), h('span', null, 'b')));
+  const div = container.firstChild;
+  // React 19.3.0: childNodes 2 (39441d2d: a comment for each hole and portal).
+  assert.equal(shapeOf(div), '<span>|<span>');
+  assert.equal(target.textContent, 'paway');
+  assert.equal(div.innerHTML, '<span>a</span><span>b</span>');
+});
+
+test('a text child that becomes empty, then null, leaves no node', () => {
+  const { container, root } = mount(h('div', null, 'a'));
+  const div = container.firstChild;
+  const seen = [shapeOf(div)];
+  for (const v of ['', null, 0, ['x', 'y'], 'end', '']) {
+    act(() => root.render(h('div', null, v)));
+    seen.push(shapeOf(div));
+  }
+  // React 19.3.0 (39441d2d: an empty text node, then a comment next to it).
+  assert.deepEqual(seen, ['T(a)', '', '', 'T(0)', 'T(x)|T(y)', 'T(end)', '']);
+});
+
+test('a component switching between nothing, an element, a list and a portal keeps its place between its siblings', () => {
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  let setMode;
+  function Shifter() {
+    const [m, s] = useState(0);
+    setMode = s;
+    if (m === 0) return null;
+    if (m === 1) return h('b', null, 'ONE');
+    if (m === 2) return [h('b', { key: '1' }, 'A'), h('b', { key: '2' }, 'B')];
+    return createPortal(h('b', null, 'PORT'), target);
+  }
+  const { container } = mount(h('div', null, [h('i', { key: 'l' }, 'L'), h(Shifter, { key: 's' }), h('i', { key: 'r' }, 'R')]));
+  const div = container.firstChild;
+  const seen = [`${shapeOf(div)} ${div.textContent}`];
+  for (const m of [1, 2, 3, 0, 1]) {
+    act(() => setMode(m));
+    seen.push(`${shapeOf(div)} ${div.textContent} ${target.textContent}`);
+  }
+  // React 19.3.0 (the third review's M1).
+  assert.deepEqual(seen, ['<i>|<i> LR', '<i>|<b>|<i> LONER ', '<i>|<b>|<b>|<i> LABR ', '<i>|<i> LR PORT', '<i>|<i> LR ', '<i>|<b>|<i> LONER ']);
+});
+
+test('a component that rendered nothing renders before what follows it: through components that render nothing, at a list\'s end, at a root\'s top', () => {
+  let showMaybe, showLast, showTop, showPortal;
+  function Maybe() { const [on, s] = useState(false); showMaybe = s; return on ? h('b', null, 'NOW') : null; }
+  function Nothing() { return null; }
+  function Group() { return [h(Maybe, { key: 'm' }), h(Nothing, { key: 'n' })]; }
+  function Last() { const [on, s] = useState(false); showLast = s; return on ? h('u', null, 'END') : null; }
+  const { container } = mount(h('div', null, h('i', { key: 'l' }, 'L'), h(Group, { key: 'g' }), h('i', { key: 'r' }, 'R'), h(Last, { key: 'z' })));
+  const div = container.firstChild;
+  // A library took out every comment and empty text it found (the third
+  // review's M8): 39441d2d put NOW after R, its hole comment gone.
+  for (const n of [...div.childNodes]) if (n.nodeType === 8) n.remove();
+  act(() => showMaybe(true));
+  act(() => showLast(true));
+  // React 19.3.0: <i>|<b>|<i>|<u>.
+  assert.equal(shapeOf(div), '<i>|<b>|<i>|<u>');
+  assert.equal(div.textContent, 'LNOWREND');
+
+  function Top() { const [on, s] = useState(false); showTop = s; return on ? h('b', null, 'B') : null; }
+  function Ported() { const [on, s] = useState(false); showPortal = s; return on ? createPortal(h('p', null, 'P'), document.body) : null; }
+  const top = mount([h(Ported, { key: 1 }), h(Top, { key: 2 }), h('i', { key: 3 }, 'R')]);
+  act(() => showPortal(true));
+  act(() => showTop(true));
+  // React 19.3.0: <b>|<i> in the container, the portal's <p> in <body>.
+  assert.equal(shapeOf(top.container), '<b>|<i>');
+  assert.equal(document.body.lastChild.textContent, 'P');
+});
+
+test('an event in a portal that stands among components with no node still reaches its React parents', () => {
+  const calls = [];
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  function Nothing() { return null; }
+  function Inner() { return [h(Nothing, { key: 'n' }), createPortal(h('button', { id: 'deep', onClick: () => calls.push('button') }), target)]; }
+  function Outer() { return h(Inner); }
+  const outer = document.createElement('div');
+  document.body.appendChild(outer);
+  const nested = document.createElement('div');
+  document.body.appendChild(nested);
+  function App() {
+    return h('section', { onClick: () => calls.push('section') },
+      h('div', { onClick: () => calls.push('div') }, h(Outer)),
+      // A portal inside a portal: the outer one's React parent counts.
+      createPortal(h('aside', { onClick: () => calls.push('aside') }, h(Nothing), createPortal(h('a', { id: 'two', onClick: () => calls.push('a') }), nested)), outer));
+  }
+  mount(h(App));
+  fire(target.querySelector('#deep'), 'click');
+  assert.deepEqual(calls, ['button', 'div', 'section']);
+  calls.length = 0;
+  fire(nested.querySelector('#two'), 'click');
+  assert.deepEqual(calls, ['a', 'aside', 'section']);
+});
+
+test('components that render nothing, a portal, an element or two stay in order through random reorders and toggles', () => {
+  // A seeded sequence of steps, checked against a model of what React shows.
+  let seed = 20261124;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const setters = new Map();
+  const modes = new Map();
+  function Item({ id }) {
+    const [mode, setMode] = useState(id % 4);
+    setters.set(id, setMode);
+    if (mode === 0) return null;
+    if (mode === 1) return createPortal(h('i', null, 'p' + id), target);
+    if (mode === 2) return h('b', null, 'e' + id);
+    return [h('u', { key: 'a' }, id + 'a'), h('u', { key: 'b' }, id + 'b')];
+  }
+  // Every other item through a component of its own: a place found two levels up.
+  function Wrap({ id }) { return h(Item, { id }); }
+  let setOrder, setFlag;
+  function List() {
+    const [order, s] = useState([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const [flag, f] = useState(false);
+    setOrder = s;
+    setFlag = f;
+    return h('div', null, h('span', null, '<'), order.map((id) => h(id % 2 ? Wrap : Item, { key: id, id })), flag ? h('s', null, '!') : null, h('span', null, '>'));
+  }
+  let order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  for (const id of order) modes.set(id, id % 4);
+  let flag = false;
+  let nextId = 10;
+  const { container } = mount(h(List));
+  const div = container.firstChild;
+  const shown = (id) => ['', '', 'e' + id, id + 'a' + id + 'b'][modes.get(id)];
+  for (let step = 0; step < 400; step++) {
+    const op = rand(6);
+    if (op === 0) {
+      const next = order.slice();
+      for (let i = next.length - 1; i > 0; i--) { const j = rand(i + 1); [next[i], next[j]] = [next[j], next[i]]; }
+      order = next;
+      act(() => setOrder(next));
+    } else if (op === 1 || op === 2) {
+      const id = order[rand(order.length)];
+      const mode = rand(4);
+      modes.set(id, mode);
+      act(() => setters.get(id)(mode));
+    } else if (op === 3) {
+      // Several in one commit, with a reorder.
+      const next = order.slice().reverse();
+      order = next;
+      act(() => {
+        for (let k = 0; k < 3; k++) { const id = next[rand(next.length)]; const mode = rand(4); modes.set(id, mode); setters.get(id)(mode); }
+        setOrder(next);
+      });
+    } else if (op === 4) {
+      if (order.length > 3 && rand(2) === 0) {
+        order = order.filter((_, i) => i !== rand(order.length));
+      } else {
+        const id = nextId++;
+        modes.set(id, id % 4);
+        const at = rand(order.length + 1);
+        order = [...order.slice(0, at), id, ...order.slice(at)];
+      }
+      const next = order;
+      act(() => setOrder(next));
+    } else {
+      flag = !flag;
+      act(() => setFlag(flag));
+    }
+    const expected = '<' + order.map(shown).join('') + (flag ? '!' : '') + '>';
+    assert.equal(div.textContent, expected, `step ${step}`);
+    assert.equal(div.childNodes.length, div.children.length, `step ${step}: no node but elements`);
+    const ported = order.filter((id) => modes.get(id) === 1).map((id) => 'p' + id).sort().join(',');
+    assert.equal([...target.childNodes].map((n) => n.textContent).sort().join(','), ported, `step ${step}: the portals' children`);
+  }
+});
+
+test('a row inserted before a row a library moved elsewhere goes before the next row still in the list', () => {
+  let setList;
+  function App() {
+    const [items, set] = useState(['a', 'b', 'c']);
+    setList = set;
+    return h('div', { id: 'home' }, items.map((id) => h('span', { key: id, 'data-id': id }, id)));
+  }
+  const { container } = mount(h(App));
+  const away = document.createElement('div');
+  document.body.appendChild(away);
+  away.appendChild(container.querySelector('[data-id="b"]'));
+  act(() => setList(['a', 'x', 'b', 'c']));
+  // React 19.3.0 throws NotFoundError here (it inserts x before b, which is
+  // not in the list's element). 39441d2d put x after c.
+  assert.equal(container.querySelector('#home').textContent, 'axc');
+  assert.equal(away.textContent, 'b', 'b stays where the library put it');
+});

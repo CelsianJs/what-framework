@@ -25,16 +25,15 @@
  *   a What component wrapper that mounts this runtime and cleans up via
  *   onCleanup.
  *
- * Known limitations (see REACT-COMPAT.md):
- * - SSR of compat components is not supported (browser/jsdom only).
- * - Suspense is minimal: fallback swap on thrown thenables (lazy(), use()).
- *   Suspended subtrees are unmounted while the fallback shows (state is lost),
- *   unlike React 18's Offscreen-preserving behavior.
- * - Errors thrown inside effects are logged, not routed to error boundaries.
+ * What differs from React is listed under "Known limitations" in
+ * REACT-COMPAT.md: rendering is synchronous and render and commit are one
+ * pass, a server render exists only for React islands in mixed mode
+ * (server.js), and a React island's top-level output holds its place with a
+ * comment when it renders no node.
  */
 
 import { h, untrack, effect, runWithOwner, getOwner, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
-import { isVNode, _contextOf, isHydrating, _claimRegion, _afterWalk, _devHoldsState } from 'what-core/internal';
+import { isVNode, _contextOf, isHydrating, _claimRegion, _afterWalk, _devHoldsState, __DEV__ } from 'what-core/internal';
 import { _$outside } from 'what-core/render';
 
 /**
@@ -53,7 +52,7 @@ export function _hostInstance() {
 }
 
 // ---- VNode kinds ----
-const KIND_HOLE = 0;      // null / undefined / boolean — placeholder comment (slot stability)
+const KIND_HOLE = 0;      // null / undefined / boolean: keeps its slot, no DOM node (see mountHole)
 const KIND_TEXT = 1;      // string / number
 const KIND_ELEMENT = 2;   // vnode with string tag
 const KIND_COMPONENT = 3; // vnode created by what-react createElement (function type)
@@ -76,16 +75,18 @@ export function _getCurrentInstance() {
 /** @returns {WhatCompatInstance} */
 export function _requireInstance(hookName) {
   if (!currentInstance) {
-    // ERROR_CODES.HOOK_OUTSIDE_RENDER
+    // ERROR_CODES.HOOK_OUTSIDE_RENDER. The explanation is development's; a
+    // production build says the first sentence (what-core's catalogue has
+    // the fix under the code).
     throw Object.assign(
       new Error(
-        `[what-react] ${hookName}() called outside of a component render. ` +
+        `[what-react] ${hookName}() called outside of a component render.` + (__DEV__ ? ' ' +
         `Hooks can only be called while a what-react component is rendering. ` +
         `In an app that mixes native What and React files, a React hook runs only in a React file: ` +
         `a file is one when it imports react, calls a hook it imports from a React package, ` +
         `starts with /** @jsxImportSource react */, or matches reactCompat({ react }) (MIXED.md). ` +
         `If this happens inside a React library, make sure ALL react imports are ` +
-        `aliased to what-react (one module instance) — see the reactCompat() vite plugin.`
+        `aliased to what-react (one module instance) — see the reactCompat() vite plugin.` : '')
       ),
       { code: 'ERR_HOOK_OUTSIDE_RENDER' },
     );
@@ -209,7 +210,8 @@ function stopLoop() {
   }
   const name = unreported();
   if (name !== '') {
-    console.error(`[what-react] Too many re-renders for <${name}>: it sets state every time it renders (an effect with no dependencies?). Possible infinite loop. Its updates are refused until the page gets a turn.`);
+    // (The explanation is development's, as for the hook error above.)
+    console.error(`[what-react] Too many re-renders for <${name}>` + (__DEV__ ? ': it sets state every time it renders (an effect with no dependencies?). Possible infinite loop. Its updates are refused until the page gets a turn.' : '.'));
   }
   if (!releaseScheduled) {
     releaseScheduled = true;
@@ -248,7 +250,7 @@ function scheduledFlush() {
     if (chained > CHAIN_LIMIT) {
       const name = unreported();
       if (name !== '') {
-        console.error(`[what-react] <${name}> has rendered ${CHAIN_LIMIT} times in a row without the page getting a turn (state set from a promise, in an effect that runs every time?). Possible infinite loop. Rendering goes on once the page had its turn; no update is lost.`);
+        console.error(`[what-react] <${name}> has rendered ${CHAIN_LIMIT} times in a row` + (__DEV__ ? ' without the page getting a turn (state set from a promise, in an effect that runs every time?). Possible infinite loop. Rendering goes on once the page had its turn; no update is lost.' : '.'));
       }
       yielding = true;
       flushScheduled = true;
@@ -816,17 +818,21 @@ function canPatch(rn, v, kind) {
 
 /** @type {any[]} What an element with no child rnodes holds. Never written to. */
 const NO_RNODES = [];
+/** @type {any[]} What a textarea holds: its children were its default value (mountTextarea). Never written to. */
+const TEXTAREA_KIDS = [];
 /** The output of a component that returned an empty list: one hole (see renderOutput). */
 const HOLE_KIDS = [null];
 
 /**
  * Reconcile the rendered nodes `old` with the child list `value` inside
  * `parentDom`, new nodes going before `anchor` (null: at the end). Returns
- * the new list of rendered nodes.
+ * the new list of rendered nodes. `into` is what holds the list (see
+ * placeFromSiblings): a root (`{ container, rns }`), a slot
+ * (`{ end, rns }`, mixed.js), or a portal's or an element's rendered node.
  */
-export function patchChildren(parentDom, old, value, anchor, svg, owner) {
+export function patchChildren(parentDom, old, value, anchor, svg, owner, into) {
   const kids = flatten(value);
-  return reconcile(parentDom, old, kids, flatIds, flatLists, anchor, svg, owner, null);
+  return reconcile(parentDom, old, kids, flatIds, flatLists, anchor, svg, owner, null, into);
 }
 
 /**
@@ -852,14 +858,17 @@ export function patchChildren(parentDom, old, value, anchor, svg, owner) {
  *   focused element inside it and restarts its animations.
  *
  * `inst`: the component whose output this is, when its place is not given
- * (a component has no markers: its place is where its own nodes are); then
- * `parentDom` and `anchor` are found from `old` if a node has to be placed.
+ * (a component has no markers: its place is where its own nodes are, or
+ * where what follows it is); then `parentDom` and `anchor` are found from
+ * `old` if a node has to be placed. `into`: what holds the list (the
+ * component, an element's or a portal's rendered node, a root, a slot), which
+ * every component mounted here keeps to find its place by (placeOf).
  */
-function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
+function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, into) {
   const oldLen = old.length;
   const newLen = kids.length;
   const result = new Array(newLen);
-  if (oldLen === 0) return mountChildren(parentDom, kids, ids, lists, 0, newLen, result, anchor, svg, owner);
+  if (oldLen === 0) return mountChildren(parentDom, kids, ids, lists, 0, newLen, result, anchor, svg, owner, into);
 
   // --- The start of the list that kept its places: patched where it stands ---
   let start = 0;
@@ -880,7 +889,7 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
       parentDom = placeParent;
       anchor = placeAnchor;
     }
-    return mountChildren(parentDom, kids, ids, lists, start, newLen, result, anchor, svg, owner);
+    return mountChildren(parentDom, kids, ids, lists, start, newLen, result, anchor, svg, owner, into);
   }
 
   // --- The end of the list that kept its places (found now, patched in turn) ---
@@ -904,11 +913,13 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
   }
 
   if (oldEnd === start) {
-    // Children came, before the end that stayed: they go in front of its first node.
-    const ref = firstDomNode(old[oldEnd]);
-    const into = ref !== null ? ref.parentNode : null;
-    if (into !== null && (inst !== null || into === parentDom)) {
-      mountChildren(into, kids, ids, lists, start, newEnd, result, ref, svg, owner);
+    // Children came, before the end that stayed: they go in front of its
+    // first node in the list's element (a hole or a portal has none, and a
+    // library may have taken one elsewhere: the next one's).
+    const ref = firstDomNodeFrom(old, oldEnd, parentDom);
+    const at = ref !== null ? ref.parentNode : null;
+    if (at !== null && (inst !== null || at === parentDom)) {
+      mountChildren(at, kids, ids, lists, start, newEnd, result, ref, svg, owner, into);
       patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
       return result;
     }
@@ -939,7 +950,7 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
       result[i] = patchRNode(match, v, kind, svg, owner);
     } else {
       // Built whole, outside the document; placed below.
-      const rn = mountRNode(v, kind, null, null, svg, owner);
+      const rn = mountRNode(v, kind, null, null, svg, owner, into);
       rn.id = id;
       rn.list = list;
       rn._i = -1;
@@ -957,8 +968,8 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst) {
     ref = placeAnchor;
   }
   if (newEnd < newLen) {
-    const first = firstDomNode(result[newEnd]);
-    if (first !== null && (parentDom === null || first.parentNode === parentDom)) ref = first;
+    const first = firstDomNodeFrom(result, newEnd, parentDom);
+    if (first !== null) ref = first;
   }
 
   for (let i = start; i < oldEnd; i++) {
@@ -1011,13 +1022,13 @@ function patchTail(old, oldFrom, kids, newFrom, result, svg, owner) {
 
 // Mount kids[from..to) into `parentDom` before `before`, each in its place
 // as it is made (`parentDom` null: outside the document, to be placed).
-function mountChildren(parentDom, kids, ids, lists, from, to, result, before, svg, owner) {
+function mountChildren(parentDom, kids, ids, lists, from, to, result, before, svg, owner, into) {
   let i = from;
   try {
     for (; i < to; i++) {
       const v = kids[i];
       const kind = kindOf(v);
-      const rn = mountRNode(v, kind, parentDom, before, svg, owner);
+      const rn = mountRNode(v, kind, parentDom, before, svg, owner, into);
       rn.id = ids !== null ? ids[i] : idOf(v, kind, i);
       if (lists !== null) rn.list = lists[i];
       result[i] = rn;
@@ -1041,9 +1052,11 @@ let placeAnchor = null;
 
 // The place of a component without markers, from the nodes it owns: the
 // parent of its last node, and the node after it. `rns[0..count)` are its
-// rendered nodes, all still in the document. A node a library took
-// elsewhere does not decide: the element the component was mounted in does,
-// when that is known.
+// rendered nodes. A node a library took elsewhere or out of the document
+// does not decide (the element the component was mounted in does, when that
+// is known). With no node of its own in place (it renders nothing, a portal,
+// or a library removed what it rendered), its place is found from what
+// follows it, as React finds it.
 function placeOf(inst, rns, count) {
   const host = inst._host;
   for (let i = count - 1; i >= 0; i--) {
@@ -1056,8 +1069,69 @@ function placeOf(inst, rns, count) {
       return;
     }
   }
-  placeParent = host;
-  placeAnchor = null;
+  placeFromSiblings(inst);
+}
+
+// What `child` (a component instance, or a portal's rendered node) stands
+// in: up through what holds each list (`_in`) to the first that is not a
+// component without markers. That one is the place: an element's rendered
+// node (its element), a portal's (its container; with `through`, where the
+// portal itself stands, for an event's React path), a root (its container),
+// a slot (mixed.js) or an island with markers (its end marker). An island
+// without markers is where its nodes are. Sets placeParent (null when no
+// place is known: a React island whose every node a library removed) and
+// placeAnchor (the end marker, else null).
+function hostOf(child, through) {
+  /** @type {any} */
+  let into = child._in;
+  while (into != null && (into.end === null || (through && into.kind === KIND_PORTAL && into.dom === null))) {
+    child = into;
+    into = into._in;
+  }
+  if (into == null) {
+    placeParent = _hostParent(child);
+    placeAnchor = null;
+    return;
+  }
+  const end = into.end != null ? into.end : null;
+  placeAnchor = end;
+  placeParent = into.kind === KIND_ELEMENT ? into.dom
+    : into.kind === KIND_PORTAL ? (through ? into.dom.parentNode : into.mirror !== undefined ? into.mirror.shadow : into.container)
+    : end !== null ? end.parentNode : into.container;
+}
+
+// React's getHostSibling: a component with no node in place goes before the
+// first node of what follows it in the tree, inside the element that holds
+// it: from the innermost list out to that element (or range), the first
+// node after the component's entry that stands in it; else the element's
+// (or the range's) end.
+function placeFromSiblings(inst) {
+  hostOf(inst, false);
+  const parent = placeParent;
+  /** @type {any} */
+  let child = inst;
+  /** @type {any} */
+  let into = inst._in;
+  for (; parent != null && into != null; child = into, into = into._in) {
+    const list = into.kind !== undefined ? into.children : into.rns || into.rendered;
+    let j = 0;
+    while (j < list.length && list[j].inst !== child) j++;
+    while (++j < list.length) {
+      const node = firstDomNode(list[j]);
+      if (node !== null && node.parentNode === parent) { placeAnchor = node; return; }
+    }
+    if (into.end !== null) return;
+  }
+}
+
+// The first DOM node of rns[from..] that stands in `parent` (any parent
+// when null), skipping what has none (a hole, a portal).
+function firstDomNodeFrom(rns, from, parent) {
+  for (let i = from; i < rns.length; i++) {
+    const node = firstDomNode(rns[i]);
+    if (node !== null && (parent === null || node.parentNode === parent)) return node;
+  }
+  return null;
 }
 
 // The top-level DOM nodes `rn` owns, in tree order. A component's are what
@@ -1112,7 +1186,12 @@ export function _hostParent(inst) {
   const rendered = inst.rendered;
   for (let i = 0; i < rendered.length; i++) {
     const node = firstDomNode(rendered[i]);
-    if (node !== null) return node.parentNode;
+    if (node !== null && node.parentNode !== null) return node.parentNode;
+  }
+  // No node of its own in the document: where it stands in its parent's.
+  if (inst._in != null) {
+    hostOf(inst, false);
+    return placeParent;
   }
   return inst._host;
 }
@@ -1184,7 +1263,7 @@ function placeRNode(rn, parentDom, ref) {
 // end). With `parentDom` null it is made outside the document and placed by
 // the list it belongs to (placeRNode), once the list knows where.
 
-function mountRNode(v, kind, parentDom, before, svg, owner) {
+function mountRNode(v, kind, parentDom, before, svg, owner, into) {
   switch (kind) {
     case KIND_TEXT: {
       const text = typeof v === 'string' ? v : String(v);
@@ -1195,20 +1274,32 @@ function mountRNode(v, kind, parentDom, before, svg, owner) {
     case KIND_ELEMENT:
       return mountElement(v, parentDom, before, svg, owner);
     case KIND_COMPONENT:
-      return mountComponent(v, parentDom, before, svg, owner);
+      return mountComponent(v, parentDom, before, svg, owner, into);
     case KIND_PORTAL:
-      return mountPortal(v, parentDom, before, owner);
+      return mountPortal(v, parentDom, before, owner, into);
     case KIND_OPAQUE:
       return mountOpaque(v, parentDom, before);
   }
-  return mountHole(v, parentDom, before);
+  return mountHole(v, parentDom, before, into);
 }
 
-// A hole (null, undefined, a boolean): a comment that holds its place.
-function mountHole(v, parentDom, before) {
-  const dom = document.createComment('w:h');
+// A hole (null, undefined, a boolean) keeps its slot in the list and, as in
+// React, puts no node in the document: what is placed in it later finds its
+// place from what follows it (placeFromSiblings). One exception: at the top
+// of a React island without markers (`into._top`: the island, or a component
+// that is all or part of its output), where nothing follows inside React and
+// the native code around the island holds no place for it, a hole is a
+// comment, so the island always has a node to be found by.
+function mountHole(v, parentDom, before, into) {
+  return { kind: KIND_HOLE, vnode: v, key: null, dom: topComment(into, 'w:h', parentDom, before), id: 0, list: null };
+}
+
+// The comment a hole or a portal is at the top of an island, else null.
+function topComment(into, text, parentDom, before) {
+  if (into == null || into._top !== true) return null;
+  const dom = document.createComment(text);
   if (parentDom !== null) parentDom.insertBefore(dom, before);
-  return { kind: KIND_HOLE, vnode: v, key: null, dom, id: 0, list: null };
+  return dom;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1221,32 +1312,16 @@ function targetSvg(target) {
 }
 
 // camelCase React SVG prop → correct kebab/colon SVG attribute name.
-// Covers the presentation/text/clip attributes charting libs (recharts) emit.
-export const SVG_ATTR_MAP = {
-  strokeWidth: 'stroke-width', strokeDasharray: 'stroke-dasharray',
-  strokeDashoffset: 'stroke-dashoffset', strokeLinecap: 'stroke-linecap',
-  strokeLinejoin: 'stroke-linejoin', strokeMiterlimit: 'stroke-miterlimit',
-  strokeOpacity: 'stroke-opacity', fillOpacity: 'fill-opacity',
-  fillRule: 'fill-rule', clipPath: 'clip-path', clipRule: 'clip-rule',
-  stopColor: 'stop-color', stopOpacity: 'stop-opacity',
-  textAnchor: 'text-anchor', dominantBaseline: 'dominant-baseline',
-  alignmentBaseline: 'alignment-baseline', baselineShift: 'baseline-shift',
-  colorInterpolation: 'color-interpolation',
-  colorInterpolationFilters: 'color-interpolation-filters',
-  floodColor: 'flood-color', floodOpacity: 'flood-opacity',
-  letterSpacing: 'letter-spacing', wordSpacing: 'word-spacing',
-  pointerEvents: 'pointer-events', shapeRendering: 'shape-rendering',
-  vectorEffect: 'vector-effect', paintOrder: 'paint-order',
-  markerStart: 'marker-start', markerMid: 'marker-mid', markerEnd: 'marker-end',
-  // Font + rendering attrs recharts emits on <text>/axis/tick/legend elements.
-  fontSize: 'font-size', fontFamily: 'font-family', fontWeight: 'font-weight',
-  fontStyle: 'font-style', fontVariant: 'font-variant', fontStretch: 'font-stretch',
-  textRendering: 'text-rendering', imageRendering: 'image-rendering',
-  writingMode: 'writing-mode', lightingColor: 'lighting-color',
-  // SVG keeps an attribute's case, and only lowercase `tabindex` makes an SVG
-  // element focusable (recharts' surface takes tabIndex).
-  tabIndex: 'tabindex',
-};
+// Covers the presentation/text/clip attributes charting libs (recharts) emit,
+// and the font and rendering attributes recharts puts on <text>, axes, ticks
+// and legends: each is its camelCase name in kebab case. SVG keeps an
+// attribute's case, and only lowercase `tabindex` makes an SVG element
+// focusable (recharts' surface takes tabIndex).
+/** @type {Record<string, string>} */
+export const SVG_ATTR_MAP = { tabIndex: 'tabindex' };
+for (const name of ('strokeWidth strokeDasharray strokeDashoffset strokeLinecap strokeLinejoin strokeMiterlimit strokeOpacity fillOpacity fillRule clipPath clipRule stopColor stopOpacity textAnchor dominantBaseline alignmentBaseline baselineShift colorInterpolation colorInterpolationFilters floodColor floodOpacity letterSpacing wordSpacing pointerEvents shapeRendering vectorEffect paintOrder markerStart markerMid markerEnd fontSize fontFamily fontWeight fontStyle fontVariant fontStretch textRendering imageRendering writingMode lightingColor').split(' ')) {
+  SVG_ATTR_MAP[name] = name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+}
 
 // The text of an element whose children are one string or number, or null.
 // Such an element holds its text as its content and no rendered node for it,
@@ -1262,10 +1337,11 @@ function onlyText(kids) {
 }
 
 // Change an element's text content: the text node it has is kept when it is
-// all the element holds (React's setTextContent).
+// all the element holds and the text is not empty (React's setTextContent;
+// an empty text leaves no node).
 function setText(el, text) {
   const first = el.firstChild;
-  if (first !== null && first.nodeType === 3 && first.nextSibling === null) first.data = text;
+  if (text !== '' && first !== null && first.nodeType === 3 && first.nextSibling === null) first.data = text;
   else el.textContent = text;
 }
 
@@ -1306,15 +1382,18 @@ function mountElement(v, parentDom, before, svg, owner) {
     if (text !== '') el.textContent = text;
   } else {
     const kids = flatten(raw);
-    if (kids.length > 0) rn.children = mountChildren(el, kids, flatIds, flatLists, 0, kids.length, new Array(kids.length), null, childSvg, owner);
+    if (kids.length > 0) rn.children = mountChildren(el, kids, flatIds, flatLists, 0, kids.length, new Array(kids.length), null, childSvg, owner, rn);
   }
 
   // Controlled props after children (e.g. <select> options must exist)
   if (hasValue) setProperty(el, 'value', value, undefined, isSvgEl);
   if (hasChecked) setProperty(el, 'checked', checked, undefined, isSvgEl);
   if (!isSvgEl) {
-    if (tag === 'input' || tag === 'textarea') trackField(el);
-    else if (tag === 'select' && value == null) resetSelect(el, props.defaultValue);
+    if (tag === 'input') trackField(el);
+    else if (tag === 'textarea') {
+      mountTextarea(rn, el, value);
+      trackField(el);
+    } else if (tag === 'select' && value == null) resetSelect(el, props.defaultValue);
   }
 
   // Refs attach at commit exit — AFTER the element is inserted into the live
@@ -1327,16 +1406,37 @@ function mountElement(v, parentDom, before, svg, owner) {
   return rn;
 }
 
+// React reads a textarea's children once, as its default value, and writes
+// its value, so the user's text is the field's own from then on: children
+// that change later are not rendered (patchTextarea).
+function mountTextarea(rn, el, value) {
+  if (rn.children !== NO_RNODES) return; // element children: not React's textarea
+  rn.text = null;
+  rn.children = TEXTAREA_KIDS;
+  if (value == null && el.textContent !== '') el.value = el.textContent;
+}
+
+// A textarea that renders again: React's updateTextarea. Its children are
+// left alone, and an uncontrolled one without `defaultValue` gets the
+// default value '' (what form.reset() goes back to), as in React 19; what it
+// shows does not change.
+function patchTextarea(el, props) {
+  if (props.value == null && props.defaultValue == null && el.defaultValue !== '') el.defaultValue = '';
+}
+
 // A component has no nodes of its own: what it renders stands where the
-// component stands, and its place is found from those nodes (placeOf). It
-// always renders at least one (an empty output is a hole), so it has a place.
-function mountComponent(v, parentDom, before, svg, owner) {
+// component stands, and its place is found from those nodes, or from what
+// follows it when it has none (placeOf). It always renders at least one
+// rendered node (an empty output is a hole), so it has an entry in its list.
+function mountComponent(v, parentDom, before, svg, owner, into) {
   const tag = v.tag;
   const renderFn = (typeof tag === 'function' && tag._compatType) ? tag._compatType : tag;
   const inst = newInstance(renderFn, v.props || EMPTY_OBJ, v.key ?? null, owner, null, null, svg);
   // The element it stands in, when it is mounted into one (a fragment is
-  // only where it is built).
+  // only where it is built), and what holds its entry.
   if (parentDom !== null && parentDom.nodeType === 1) inst._host = parentDom;
+  inst._in = into;
+  inst._top = into != null && into._top === true;
   const rn = { kind: KIND_COMPONENT, vnode: v, key: inst.key, bridge: tag, inst, id: 0, list: null };
   renderOutput(inst, parentDom, before, true);
   return rn;
@@ -1357,6 +1457,10 @@ function newInstance(type, props, key, parent, start, end, svg) {
     start, end, svg,
     /** @type {any} The element its output stands in, when known (placeOf). */
     _host: null,
+    /** @type {any} What holds its entry: a component, an element's or a portal's rendered node, a root, a slot (placeFromSiblings). */
+    _in: null,
+    /** Its output is all or part of the top of a React island without markers (mountHole). */
+    _top: false,
     rendered: NO_RNODES,
     unmounted: false,
     _renderPhaseUpdate: false,
@@ -1376,22 +1480,22 @@ function newInstance(type, props, key, parent, start, end, svg) {
   };
 }
 
-function mountPortal(v, parentDom, before, owner) {
-  const dom = document.createComment('w:portal');
-  if (parentDom !== null) parentDom.insertBefore(dom, before);
+// A portal puts no node where it stands (a comment only at the top of an
+// island, as a hole does): its children are in its container.
+function mountPortal(v, parentDom, before, owner, into) {
   const target = v.props && v.props.container;
-  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom, id: 0, list: null, container: target || null, children: NO_RNODES };
+  const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom: topComment(into, 'w:portal', parentDom, before), id: 0, list: null, container: target || null, children: NO_RNODES, _in: into };
   if (!target) {
     console.warn('[what-react] createPortal: target container not found');
     return rn;
   }
   if (isForeignHost(target)) {
     rn.mirror = createMirror(target);
-    rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner);
+    rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner, rn);
     return rn;
   }
   registerPortal(rn);
-  rn.children = patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner);
+  rn.children = patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner, rn);
   return rn;
 }
 
@@ -1586,8 +1690,9 @@ function patchElementChildren(rn, v, props, childSvg, owner) {
   const text = onlyText(raw);
   if (text !== null) {
     if (rn.text === null) {
-      // It held rendered nodes: they leave, the text is its content.
       const children = rn.children;
+      if (children === TEXTAREA_KIDS) { patchTextarea(el, props); return; }
+      // It held rendered nodes: they leave, the text is its content.
       if (children.length > 0) {
         for (let i = 0; i < children.length; i++) unmountRNode(children[i], true);
         rn.children = NO_RNODES;
@@ -1601,12 +1706,16 @@ function patchElementChildren(rn, v, props, childSvg, owner) {
     return;
   }
   if (rn.text !== null) {
-    if (rn.text !== '') el.textContent = '';
+    // The text leaves; HTML that took its place (setProperty) stays.
+    if (rn.text !== '' && props.dangerouslySetInnerHTML == null) el.textContent = '';
     rn.text = null;
   }
   const kids = flatten(raw);
-  if (kids.length === 0 && rn.children.length === 0) return;
-  rn.children = reconcile(el, rn.children, kids, flatIds, flatLists, null, childSvg, owner, null);
+  if (kids.length === 0 && rn.children.length === 0) {
+    if (rn.children === TEXTAREA_KIDS) patchTextarea(el, props);
+    return;
+  }
+  rn.children = reconcile(el, rn.children, kids, flatIds, flatLists, null, childSvg, owner, null, rn);
 }
 
 function patchComponent(rn, v) {
@@ -1638,23 +1747,23 @@ function patchComponent(rn, v) {
 function patchPortal(rn, v, owner) {
   const target = v.props && v.props.container;
   if (target === rn.container && rn.mirror !== undefined) {
-    rn.children = patchChildren(rn.mirror.shadow, rn.children, v.children, null, rn.mirror, owner);
+    rn.children = patchChildren(rn.mirror.shadow, rn.children, v.children, null, rn.mirror, owner, rn);
   } else if (target === rn.container) {
     if (target) {
-      rn.children = patchChildren(target, rn.children, v.children, null, targetSvg(target), owner);
+      rn.children = patchChildren(target, rn.children, v.children, null, targetSvg(target), owner, rn);
     }
   } else {
     teardown(rn); // its children leave the old container
     rn.container = target || null;
     if (target && isForeignHost(target)) {
       rn.mirror = createMirror(target);
-      rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner);
+      rn.children = patchChildren(rn.mirror.shadow, NO_RNODES, v.children, null, rn.mirror, owner, rn);
       rn.vnode = v;
       return rn;
     }
     if (target) registerPortal(rn);
     rn.children = target
-      ? patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner)
+      ? patchChildren(target, NO_RNODES, v.children, null, targetSvg(target), owner, rn)
       : NO_RNODES;
   }
   rn.vnode = v;
@@ -1672,6 +1781,9 @@ function patchPortal(rn, v, owner) {
 export function unmountRNode(rn, removeDom) {
   switch (rn.kind) {
     case KIND_HOLE:
+      // A hole has a node only at the top of an island (mountHole).
+      if (removeDom && rn.dom !== null) rn.dom.remove();
+      return;
     case KIND_TEXT:
       if (removeDom) rn.dom.remove();
       return;
@@ -1688,7 +1800,7 @@ export function unmountRNode(rn, removeDom) {
     }
     case KIND_PORTAL:
       teardown(rn);
-      if (removeDom) rn.dom.remove();
+      if (removeDom && rn.dom !== null) rn.dom.remove();
       return;
     case KIND_OPAQUE:
       teardown(rn);
@@ -1809,6 +1921,14 @@ function removeRange(start, end) {
 // Render — execute a component function with hook dispatcher + reconcile
 // =====================================================================
 
+// React renders a component again at most 25 times for the state it sets
+// while it renders, then throws this; an error boundary catches it.
+const RE_RENDER_LIMIT = 25;
+
+function tooManyReRenders() {
+  return new Error('Too many re-renders. React limits the number of renders to prevent an infinite loop.');
+}
+
 /** Render a mounted component again and reconcile its output where it stands. */
 export function renderInstance(inst) {
   renderOutput(inst, null, null, false);
@@ -1822,27 +1942,27 @@ function renderOutput(inst, parentDom, before, mounting) {
   if (!mounting && dirtyQueue.size > 0) dirtyQueue.delete(inst);
 
   let out;
-  let renderPhaseLoops = 0;
+  // Renders again while it sets its own state as it renders (React's render
+  // phase updates), as many times as React does before it gives up.
+  let reRenders = 0;
   do {
     inst._renderPhaseUpdate = false;
     inst.hookIndex = 0;
     const prev = currentInstance;
     currentInstance = inst;
     try {
+      if (reRenders > RE_RENDER_LIMIT) throw tooManyReRenders();
       out = renderTracked(inst);
     } catch (err) {
       currentInstance = prev;
       dropPending(inst);
-      // A component that never rendered still needs a node to stand at.
-      if (mounting && inst.end === null) inst.rendered = [mountHole(null, parentDom, before)];
+      // A component that never rendered still needs an entry to stand at.
+      if (mounting && inst.end === null) inst.rendered = [mountHole(null, parentDom, before, inst)];
       handleRenderError(inst, err, false);
       return;
     }
     currentInstance = prev;
-    if (++renderPhaseLoops > 25) {
-      console.error('[what-react] Too many render-phase updates (setState during render). Possible loop.');
-      break;
-    }
+    reRenders++;
   } while (inst._renderPhaseUpdate);
 
   try {
@@ -1852,13 +1972,13 @@ function renderOutput(inst, parentDom, before, mounting) {
     const end = inst.end;
     if (end !== null) {
       // An island with markers: between them.
-      inst.rendered = reconcile(end.parentNode, inst.rendered, kids, ids, lists, end, inst.svg, inst, null);
+      inst.rendered = reconcile(end.parentNode, inst.rendered, kids, ids, lists, end, inst.svg, inst, null, inst);
     } else {
-      // A component that renders nothing renders a hole: it has a place.
+      // A component that renders nothing renders a hole: it keeps an entry.
       if (kids.length === 0) { kids = HOLE_KIDS; ids = null; lists = null; }
       inst.rendered = mounting
-        ? mountChildren(parentDom, kids, ids, lists, 0, kids.length, new Array(kids.length), before, inst.svg, inst)
-        : reconcile(null, inst.rendered, kids, ids, lists, null, inst.svg, inst, inst);
+        ? mountChildren(parentDom, kids, ids, lists, 0, kids.length, new Array(kids.length), before, inst.svg, inst, inst)
+        : reconcile(null, inst.rendered, kids, ids, lists, null, inst.svg, inst, inst, inst);
     }
   } catch (err) {
     // Subtree commit failed (a descendant threw). Reset this instance's output
@@ -1889,7 +2009,7 @@ function renderOutput(inst, parentDom, before, mounting) {
 }
 
 // What `inst` rendered goes, and a hole stands where it stood, so the
-// component keeps its place for the render that follows (a boundary's
+// component keeps its entry for the render that follows (a boundary's
 // fallback, the content once it has loaded).
 function resetOutput(inst, parentDom, before, mounting) {
   if (inst.end !== null) {
@@ -1899,14 +2019,16 @@ function resetOutput(inst, parentDom, before, mounting) {
   }
   if (mounting) {
     // What the failed mount had placed went with it (mountChildren).
-    inst.rendered = [mountHole(null, parentDom, before)];
+    inst.rendered = [mountHole(null, parentDom, before, inst)];
     return;
   }
   const nodes = _domNodes(inst);
-  const hole = mountHole(null, null, null);
-  for (let i = 0; i < nodes.length; i++) {
-    const parent = nodes[i].parentNode;
-    if (parent !== null) { parent.insertBefore(hole.dom, nodes[i]); break; }
+  const hole = mountHole(null, null, null, inst);
+  if (hole.dom !== null) {
+    for (let i = 0; i < nodes.length; i++) {
+      const parent = nodes[i].parentNode;
+      if (parent !== null) { parent.insertBefore(hole.dom, nodes[i]); break; }
+    }
   }
   removeNodes(nodes);
   inst.rendered = [hole];
@@ -2056,14 +2178,16 @@ export function _setRangeHidden(inst, hidden) {
 
 export function mountRoot(element, container) {
   const isSvg = typeof SVGElement !== 'undefined' && container instanceof SVGElement;
-  const rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, isSvg, null));
-  return { container, rns };
+  // The root holds its list: a component at its top finds its place in it.
+  const root = { container, rns: NO_RNODES };
+  root.rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, isSvg, null, root));
+  return root;
 }
 
 export function patchRoot(root, element) {
   _flushPendingPassive();
   const isSvg = typeof SVGElement !== 'undefined' && root.container instanceof SVGElement;
-  root.rns = runInCommit(() => patchChildren(root.container, root.rns, element, null, isSvg, null));
+  root.rns = runInCommit(() => patchChildren(root.container, root.rns, element, null, isSvg, null, root));
   return root;
 }
 
@@ -2090,13 +2214,15 @@ export function unmountRoot(root) {
  * components below it are created under that owner).
  *
  * Like a component, the island has no markers: its place is where its nodes
- * are, and it always has one. A deferred island has none yet, so it holds
- * its place with two markers of its own.
+ * are, and it always has one (at its top a hole or a portal is a comment,
+ * mountHole). A deferred island has none yet, so it holds its place with two
+ * markers of its own.
  */
 export function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
   if (!deferred) {
     const inst = newInstance(view, EMPTY_OBJ, null, parent, null, null, !!svg);
     inst._nativeOwner = nativeOwner;
+    inst._top = true;
     runInCommit(() => renderOutput(inst, container, null, true));
     return inst;
   }
@@ -2186,11 +2312,12 @@ export function _serverInstance(type, props, parent) {
   return inst;
 }
 
-/** Render `inst` once on the server (a setState during render renders again, as React does). */
+/** Render `inst` once on the server (a setState during render renders again, as React does, and too many times throws). */
 export function _renderOnServer(inst) {
   let out;
-  let loops = 0;
+  let reRenders = 0;
   do {
+    if (reRenders++ > RE_RENDER_LIMIT) throw tooManyReRenders();
     inst._renderPhaseUpdate = false;
     inst.hookIndex = 0;
     const prev = currentInstance;
@@ -2200,7 +2327,7 @@ export function _renderOnServer(inst) {
     } finally {
       currentInstance = prev;
     }
-  } while (inst._renderPhaseUpdate && ++loops < 25);
+  } while (inst._renderPhaseUpdate);
   return out;
 }
 
@@ -2728,7 +2855,13 @@ function reactPathOutside(target) {
     const portal = portalOwning(parent, node);
     if (portal !== null) {
       if (path === null) path = [];
-      node = portal.dom; // the portal's place in its React parent
+      // On from where the portal stands in its React parent.
+      if (portal.dom !== null) node = portal.dom;
+      else {
+        hostOf(portal, true);
+        node = placeParent;
+        if (node != null && node.nodeType === 1 && !node.contains(target)) path.push(node);
+      }
       continue;
     }
     if (path !== null && parent.nodeType === 1 && !parent.contains(target)) path.push(parent);
@@ -3049,7 +3182,9 @@ export function setProperty(el, name, value, oldValue, svg) {
     }
   }
   if (name === 'dangerouslySetInnerHTML') {
-    el.innerHTML = (value && value.__html) || '';
+    // Written when its string changed: React compares them.
+    const html = (value && value.__html) || '';
+    if (oldValue == null || html !== (oldValue.__html || '')) el.innerHTML = html;
     return;
   }
   if (name === 'value') {

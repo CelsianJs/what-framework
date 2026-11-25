@@ -328,8 +328,10 @@ function CompatSlot(props) {
   // The elements' parent instance: the one that handed them over, seen from
   // where they are placed (native components below are created there).
   const parent = { parent: slot.inst, depth: slot.inst.depth + 1, _nativeOwner: getOwner() };
+  // The slot holds its list between its markers: a component in it that
+  // renders no node finds its place there (runtime.js placeFromSiblings).
   const m = { start, end, parent, rns: [] };
-  m.rns = untrack(() => runInCommit(() => patchChildren(frag, [], normalizeChildren(slot.value), end, false, parent)));
+  m.rns = untrack(() => runInCommit(() => patchChildren(frag, [], normalizeChildren(slot.value), end, false, parent, m)));
   slot.mounts.add(m);
   onCleanup(() => {
     slot.mounts.delete(m);
@@ -345,5 +347,5 @@ function CompatSlot(props) {
 function patchSlot(slot, m) {
   const parentDom = m.end.parentNode;
   if (parentDom === null) return;
-  m.rns = patchChildren(parentDom, m.rns, normalizeChildren(slot.value), m.end, false, m.parent);
+  m.rns = patchChildren(parentDom, m.rns, normalizeChildren(slot.value), m.end, false, m.parent, m);
 }

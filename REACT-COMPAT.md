@@ -60,19 +60,37 @@ next to What's run-once renderer. what-core is not modified.
   state and child component state survive, as in React.
 - **State updates are queued** and applied when the component renders: a
   reducer or an updater that throws reaches the error boundary, and an
-  updater queued behind another sees its result.
+  updater queued behind another sees its result. A component that sets its
+  own state while it renders renders again before its commit (React's state
+  from the previous render), at most 25 times; then it throws React's "Too
+  many re-renders" error, which its error boundary catches.
 - **Children are matched as React matches them**: by key, or by index inside
   their own list, where a nested array (a `.map()`) is a list of its own, and
   a lone child by its key too (`return <Form key={user} />` mounts a new
   `Form` when the key changes). A kept node is moved only when its list's own
   order changed; nodes a library inserted or moved itself are left where
-  they are.
+  they are, until the list's own order changes around them: the part of the
+  list that changed is then put in order in the list's element, a node a
+  library had moved elsewhere included. React does the same for the nodes
+  its reorder moves (a reversed list takes back such a node), and throws
+  when it has to insert before one a library took away.
 - **The DOM work is React's**: an element is built whole and inserted once, a
   list that kept its order is patched without reading or moving a node, an
-  element whose only child is text holds it as its text content, and a
-  component adds no node of its own (one that renders nothing holds its place
-  with a comment). `packages/react-compat/test/perf-counts.test.js` pins the
-  counts.
+  element whose only child is text holds it as its text content (an empty
+  text leaves no node), and a component adds no node of its own. `null`,
+  `false`, `undefined` and a portal leave no node where they stand, nor does
+  a component that renders one of them (the one exception is the top of a
+  React island, under Known limitations). What a component that has no node
+  in the document renders next (it rendered nothing or a portal, or a
+  library removed what it rendered) goes before the first node of what
+  follows it in the tree, inside the element that holds it, as React places
+  it. `packages/react-compat/test/perf-counts.test.js` pins the counts.
+- **Element content** follows React's rules: changing between text,
+  children and `dangerouslySetInnerHTML` clears what was there, and the HTML
+  is written again only when its string changed. A `<textarea>`'s children
+  are its default value when it mounts; later children are not rendered, and
+  an uncontrolled textarea without `defaultValue` gets the default value ''
+  when it renders again, as in React 19.
 - **A commit runs its effects in React's phases**: insertion effects, then
   refs (the DOM is in place), then layout effects, all before the commit
   returns, children before parents; passive effects after it and always
@@ -111,7 +129,7 @@ fixture runs four ways with the same assertions:
 
 | Column | What runs |
 |---|---|
-| Real React | React 19.3.1 and react-dom. The control: a fixture that fails here is a fixture bug. All 38 pass. |
+| Real React | React 19.3.1 and react-dom. The control: a fixture that fails here is a fixture bug. All 39 pass. |
 | Full compat | `reactCompat()` alone, the whole fixture on what-react. |
 | Mixed, React file | `what()` + `reactCompat()`: a native What app mounts the fixture (a React file) as a React island. |
 | Mixed, native file | `what()` + `reactCompat()`: the same screen written as a native What file, with signals for state and the package's tags as plain JSX. "not written" means no native variant exists for that fixture (see the note under the table). |
@@ -121,9 +139,9 @@ the others cannot see:
 
 | Served as | What it is | Real React | Full compat | Mixed, React file | Mixed, native file |
 |---|---|---|---|---|---|
-| `build` | A production client build, static files | 38 of 38 | 38 of 38 | 38 of 38 | 19 of 19 |
-| `dev` | Vite's dev server: dependencies pre-bundled, modules served one by one | 38 of 38 | 38 of 38 | 38 of 38 | 19 of 19 |
-| `ssr` | A production server build renders the fixture in Node; the production client build hydrates it, then the same steps run | 38 of 38 | not run | 38 of 38 | 19 of 19 |
+| `build` | A production client build, static files | 39 of 39 | 39 of 39 | 39 of 39 | 19 of 19 |
+| `dev` | Vite's dev server: dependencies pre-bundled, modules served one by one | 39 of 39 | 39 of 39 | 39 of 39 | 19 of 19 |
+| `ssr` | A production server build renders the fixture in Node; the production client build hydrates it, then the same steps run | 39 of 39 | not run | 39 of 39 | 19 of 19 |
 
 Full compat has no server renderer (Known limitations), so it has no `ssr`
 run. In the `ssr` run a what-react column fails when real React rendered the
@@ -133,10 +151,10 @@ with real React either (jotai, redux, zustand, react-i18next and the React
 surface fixture read `window` or `localStorage` as they load; the two
 react-router fixtures and react-select read `document` while rendering): that
 is recorded from the control, the page mounts in the browser, and the steps
-run. The other 30 render on the server in every column. What hydration does
+run. The other 31 render on the server in every column. What hydration does
 to an island's HTML is in MIXED.md, "Server rendering".
 
-Results of 2026-11-24, on the 0.15 working tree: 38 fixtures, covering 47
+Results of 2026-11-24, on the 0.15 working tree: 39 fixtures, covering 50
 packages besides React itself. The table below is the `build` run; the `dev`
 and `ssr` runs have the same result in every cell they have.
 `pass` = every step of the fixture passed.
@@ -174,6 +192,7 @@ and `ssr` runs have the same result in every cell they have.
 | recharts | 3.11.1 | pass | pass | pass | BarChart with grid, axes, legend, a hover Tooltip and a click on a bar, new data in the same SVG, a LineChart in `ResponsiveContainer`, a PieChart |
 | styled-components | 6.6.0 | pass | pass | not written | Styles from props and `ThemeProvider`, a prop and a theme change in place, `styled(Component)`, `css`, `as`, `.attrs`, transient props, `createGlobalStyle` mounted and unmounted, `keyframes`, a ref to a styled element, `useTheme` in an effect, a keyed list of styled items reordered |
 | react-markdown, remark-gfm | 10.1.0, 4.0.1 | pass | pass | pass | CommonMark and GFM to elements, custom `components` (one with an effect and a ref, one with state, a link with a click handler), raw HTML kept as text, a block inserted before a list whose items keep their state, new source |
+| @tiptap/react, @tiptap/starter-kit, @tiptap/pm | 3.35.0, 3.35.0, 3.35.0 | pass | pass | not written | A ProseMirror editor: typing, bold from a toolbar button and from Mod-b, undo and redo from a button and the keyboard, a toolbar that follows the selection (`useEditorState`), and two React node views drawn inside ProseMirror's DOM: an inline chip that marks itself when selected, a block whose hint shows while its editable content is empty |
 | lucide-react | 1.79.0 | pass | pass | pass | Icons as `forwardRef` SVG components: size, color, stroke and class as real SVG attributes, a ref, swapping icons |
 | react-i18next, i18next | 18.0.3, 27.2.7 | pass | pass | not written | `useTranslation` with interpolation, plurals and a namespace, `<Trans>` with an element, `changeLanguage` from inside and outside React |
 | react-hot-toast | 2.6.1 | pass | pass | pass | Success and error toasts, an id that is not duplicated, a toast that removes itself, `toast.promise`, a JSX toast, dismiss all |
@@ -184,7 +203,7 @@ and `ssr` runs have the same result in every cell they have.
 
 **"not written" in the native-file column.** A package whose API is hooks
 (zustand, jotai, Redux, TanStack Query, Table and Virtual, SWR,
-react-hook-form, formik, Floating UI, dnd-kit, react-i18next) has no
+react-hook-form, formik, Floating UI, dnd-kit, react-i18next, TipTap) has no
 native-file form: the file that calls its hook is a React file, which is the
 "Mixed, React file" column. For react-router, styled-components,
 react-transition-group, react-error-boundary and react-aria-components a
@@ -207,7 +226,7 @@ for it.
 ### Not run: no claim either way
 
 Chakra UI, Mantine, Base UI, Apollo Client, MobX, valtio, react-dnd,
-@hello-pangea/dnd, TipTap, Lexical, Slate, React Flow (@xyflow/react),
+@hello-pangea/dnd, Lexical, Slate, React Flow (@xyflow/react),
 react-spring, Embla, Swiper, react-dropzone, react-pdf (the viewer),
 react-toastify, react-helmet-async, next-themes, react-intl, Stripe's React
 bindings, and everything else not in the table.
@@ -294,12 +313,50 @@ that was already right.
 The second-review probes that already matched React still do: capture and
 bubble order, `stopPropagation` among React handlers, focus and blur
 bubbling, events through nested portals, `onScroll` not bubbling,
-select/radio/file `onChange`, textarea children, class lifecycles and
-`setState` callbacks, errors from render and effects reaching boundaries,
-Suspense keeping shown state, render-phase updates, `useOptimistic`,
-`useActionState`, form actions with `useFormStatus`, `use()`, keyed and
-nested-array reconciliation, `cloneElement`, `startTransition` and
-`unstable_batchedUpdates`.
+select/radio/file `onChange`, a textarea's children when it mounts (an
+update matched React only from the third review on, below), class
+lifecycles and `setState` callbacks, errors from render and effects reaching
+boundaries, Suspense keeping shown state, render-phase updates that settle,
+`useOptimistic`, `useActionState`, form actions with `useFormStatus`,
+`use()`, keyed and nested-array reconciliation, `cloneElement`,
+`startTransition` and `unstable_batchedUpdates`.
+
+## What the third review found
+
+A reviewer ran the same components on real React 19.3.0 and on what-react at
+commit `a6888c51` (the reconciler rewrite), in jsdom. Identity, state, move
+sets, commit order and the detached-build mount path matched React; these
+five did not, and each is fixed with a test in
+`packages/react-compat/test/react-semantics.test.js` under "The third
+review" (`mixed.test.js` for islands and native components,
+`perf-counts.test.js` for the count that changed). Each test states the
+value React gave and fails on `39441d2d`.
+
+| Difference at `a6888c51` | Now |
+|---|---|
+| An element that went from text children to `dangerouslySetInnerHTML` rendered empty for one commit: the HTML was written, then the text's removal cleared it. The HTML was also written again on every render with a new `{ __html }` object, replacing its nodes | The element shows the HTML. Text, children, HTML and nothing replace each other in any order, as in React, and HTML is written only when its string changed |
+| A component whose placeholder comment a library removed rendered its next output at the end of its parent | It renders before the first node of what follows it in the tree, as React places it (React's `getHostSibling`). Outside an island's top it no longer has a placeholder to lose (next row) |
+| A hole (`null`, `false`, `undefined`) and a portal left a comment where they stood, and a text child that became `''` an empty text node: `childNodes` had nodes React's has not, which code that walks them (an editor, a text-splitting helper, an `innerHTML` snapshot) sees | They leave no node, except at the top of a React island (Known limitations). Measured on the matrix's TipTap fixture: at `a6888c51` three comments stood inside ProseMirror's DOM (in its React node views); now none, as with React. Every step of the fixture passed both ways |
+| A `<textarea>`'s children wrote its value on every render, over what the user typed | Its children are its default value when it mounts. Later children are not rendered; an uncontrolled textarea without `defaultValue` gets the default value '' when it renders again, as React 19 does, and what it shows does not change |
+| A component that set its state every time it rendered was rendered 26 times, then its partial state (`n=25`) was committed and an error logged | It throws React's error, "Too many re-renders. React limits the number of renders to prevent an infinite loop.", after the first render and 25 more; its error boundary shows it, and without one the root's render throws. React renders it 53 times (it tries the render again after an error); the outcome is the same |
+
+Found while checking the documentation: a row inserted before a row a
+library had moved out of the list's element went to the end of the list.
+It goes before the next row still in the element now (React throws
+`NotFoundError` there).
+
+Speed did not change: `perf-counts.test.js` passes with one count changed (a
+component that renders nothing creates no comment: 0, was 1), and the
+krausest app on what-react, script thread time in 6 interleaved rounds
+against hand-written JS, is 3.11 times (3.13 before; React 5.13; an
+earlier 8-round run gave 3.22 and 3.21), every operation within 4% of
+before; a native list with one React component per row is 1.26 times an
+all-native row (1.27 before). The
+`react-counter` bundle is 22,170 B gzip (22,251 before): the attribute map
+for SVG is built from its names, and a production build leaves out the
+explanation of three messages (`ERR_HOOK_OUTSIDE_RENDER` and the two of the
+update-loop guard): each keeps its first sentence (and the error its code,
+whose fix what-core's error catalogue has); development shows them whole.
 
 ## Known limitations
 
@@ -393,9 +450,24 @@ nested-array reconciliation, `cloneElement`, `startTransition` and
     event does not bubble, a refused edit is put back a microtask (in a
     browser, at worst a task) after the dispatch instead of at its end.
   - The `value` attribute is not kept in step with a controlled input's
-    value (React writes it, except for a focused number field).
+    value (React writes it, except for a focused number field), nor a
+    controlled textarea's text content (its default value) with its value.
   - `defaultValue` on a `<select>` whose options arrive in a later render is
     not applied: the first option is shown, as in React.
+- **Nodes React does not make.** `null`, `false`, `undefined` and a portal
+  leave no node, except at the top of a React island that has no markers
+  (a React tag in a native file, or a React component that native code
+  renders, mounted in the browser): there, outside every element the
+  island renders, a hole is one `<!--w:h-->` comment and a portal one
+  `<!--w:portal-->` comment, also when the hole is all a component at that
+  top renders (`function Modal({ open }) { return open ? … : null }` as an
+  island's whole output). Native code holds no place for an island, and
+  nothing of React's follows it to find one from, so the island keeps a
+  node. Inside any element the island renders, and in a root, a portal's
+  container or a native component's children, none is left. An island a
+  server rendered stands between its markers and keeps none either. A
+  library that removes every node of an island (that comment included)
+  leaves what it renders next nowhere to go: it is not shown.
 - **Elements.**
   - A host element given both `class` and `className` keeps `className`.
   - `React.version` is `18.3.1` and elements carry React 18's brand
@@ -422,9 +494,10 @@ nested-array reconciliation, `cloneElement`, `startTransition` and
 - **A list that was reordered moves the nodes React moves** (a row that moved
   up stays, the rows it passed move), not the fewest possible: swapping two
   rows of 1,000 moves 997, as in React.
-- **An update loop is stopped, not thrown.** A component that sets state
-  every time it renders (an effect with no dependencies) is stopped after 100
-  render cycles in one flush, with an error in the console: what is queued
+- **An update loop through effects is stopped, not thrown.** (One inside a
+  render throws React's error, as in React: How it works.) A component that
+  sets state every time it commits (an effect with no dependencies) is
+  stopped after 100 render cycles in one flush, with an error in the console: what is queued
   renders, and its state updates are then refused until the event loop has
   turned, so the screen shows the state as it stands. React throws "Maximum
   update depth exceeded" after 50 nested updates. A loop that goes through a
