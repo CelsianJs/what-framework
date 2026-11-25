@@ -506,7 +506,9 @@ async function smokeReactCompat(workDir, tarballs, browser) {
     cwd: appDir,
     env: { ...process.env, NODE_ENV: 'production' },
   });
-  assert(/class="zustand-count"[^>]*>0 bears</.test(html), `server build: the zustand island is in the server's HTML${/zustand-count/.test(html) ? '' : ` (got: ${html.slice(0, 300)})`}`);
+  // `{count} bears` is two text children: the server writes a comment pair
+  // between them so hydration can adopt each one.
+  assert(/class="zustand-count"[^>]*>0(?:<!--[^>]*-->)* bears</.test(html), `server build: the zustand island is in the server's HTML${/zustand-count/.test(html) ? '' : ` (got: ${html.slice(0, 300)})`}`);
   assert(html.includes('<p id="rr-out">home page</p>'), 'server build: the react-router island is in the server\'s HTML');
   assert(/<h3>card: <\/h3>/.test(html.replace(/<!--.*?-->/g, '')), 'server build: the TypeScript React component is in the server\'s HTML');
 }
