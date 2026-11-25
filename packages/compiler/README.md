@@ -35,6 +35,7 @@ export default defineConfig({
 what({
   include: /\.[jt]sx$/,       // File extensions to process (default: .jsx/.tsx)
   exclude: /node_modules/,    // Files to exclude (default: node_modules)
+  compileDependencies: null,  // A dependency's files to compile as the app's (default: none)
   sourceMaps: true,           // Enable source maps (default: true)
   production: false,          // Enable production optimizations (default: auto)
   pages: 'src/pages',         // Pages directory for file-based routing
@@ -43,6 +44,22 @@ what({
   ssrGuard: true,             // false: compile every server transform for the DOM, whatever ssr says (default: true)
   hydratable: 'auto',         // Client output that hydrate() adopts server markup with (default: 'auto')
 })
+```
+
+### Dependencies
+
+The plugin compiles the app's own files, never a dependency's: nothing under
+`node_modules` (whatever `include` and `exclude` say), and no script file of
+one of What's own packages (`what-core`, `what-react`, `what-router`,
+`what-server` and the rest), wherever it sits. A workspace link resolves to the
+package's own directory, outside `node_modules`, and the package is told from
+the nearest `package.json` with a name. A JSX file What publishes
+(`what-devtools/panel`) is compiled for its JSX. `compileDependencies` takes
+patterns as `include` does and compiles what they match as the app's own: a
+package that publishes What JSX as source.
+
+```js
+what({ compileDependencies: [/node_modules\/my-ui-kit\//] })
 ```
 
 ### Hydration

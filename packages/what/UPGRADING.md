@@ -814,6 +814,29 @@ options.
   code that relied on a rest element or a spread keeping its first values,
   and tests that match compiled output of rest elements, spreads or
   destructured defaults.
+- **The Vite plugin compiles the app's files, never a dependency's.**
+  Nothing under `node_modules` is compiled, whatever `include` and `exclude`
+  say: 0.14 compiled it when a custom `exclude` left `node_modules` out of its
+  pattern. No script file of one of What's own packages is compiled either,
+  wherever it sits: a workspace link (npm, pnpm or Yarn workspaces, `file:`,
+  `npm link`) resolves outside `node_modules`, and the dev server compiled
+  what-react's, what-router's and what-core's source there as the app's (it
+  broke Headless UI's `<Dialog>` in a mixed app, in development only). A JSX
+  file What publishes (`what-devtools/panel`) is still compiled. To compile a
+  dependency that publishes What JSX as source, name it in
+  `compileDependencies` (`what({ compileDependencies: /my-ui-kit/ })`). This
+  affects a config whose `exclude` was meant to let a package under
+  `node_modules` in, and development names: What's own signals and effects no
+  longer show a `name@node_modules/...` location in devtools.
+- **Only components have their props read where they are used.** A function
+  is one when it renders JSX, or, with no JSX, when it is named as a
+  component and calls What's `h()` or returns a prop as it is
+  (`(props) => props.children`). 0.15's first builds rewrote every function
+  with one parameter: a helper that destructured its argument
+  (`function Point({ x, y, ...rest })`), a reducer, a class's method or a
+  hand-written `forwardRef()` got `_$omit` and `_$place` in place of its
+  destructuring and its returned field. This affects tests that match
+  compiled output of plain functions.
 - **Server transforms compile for the server.** The Vite plugin's `ssr`
   option, on by default, compiles a module Vite transforms for the server with
   the server target, which every what-server renderer accepts. 0.14 refused

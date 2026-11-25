@@ -120,7 +120,7 @@ const page = <>
 </>;
 ```
 
-The rest element keeps the props live wherever it goes (spread, handed on, destructured again, read by key), a spread's `children` render as the element's children, and a tag held in a binding (`<Tag />` with `Tag` a string) is created in the namespace it stands in and hydrates in place. Two things are read once, as everything outside JSX is in a component that runs once: the tag (`as={isLink() ? 'a' : 'button'}` keeps its first element; branch in JSX to switch) and an event handler (read the state inside it). Shapes the compiler cannot read where you use them, such as a destructured prop you assign again, are reported at build time as `ERR_PROP_READ_ONCE`. See [GOTCHAS.md](./GOTCHAS.md#26-rest-props-and-polymorphic-components-stay-live).
+The rest element keeps the props live wherever it goes (spread, handed on, destructured again, read by key), a spread's `children` render as the element's children, and a tag held in a binding (`<Tag />` with `Tag` a string) is created in the namespace it stands in and hydrates in place. Two things are read once, as everything outside JSX is in a component that runs once: the tag (`as={isLink() ? 'a' : 'button'}` keeps its first element; branch in JSX to switch) and an event handler (read the state inside it). Shapes the compiler cannot read where you use them, such as a destructured prop you assign again, are reported at build time as `ERR_PROP_READ_ONCE`. A plain function that only destructures its argument, such as a reducer or a factory, is not taken for a component and keeps its destructuring as written. See [GOTCHAS.md](./GOTCHAS.md#26-rest-props-and-polymorphic-components-stay-live).
 
 ### Event Handling
 

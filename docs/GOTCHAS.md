@@ -514,3 +514,5 @@ Read once, as in any What component:
 - An event handler, through a spread or written directly (`onClick={open() ? close : show}`): it is bound once. Read the state when it runs: `onClick={() => (open() ? close() : show())}`.
 
 A spreading component costs one props object for the rest (`_$omit`, a copy that keeps the getters), and one binding per live prop it spreads (re-run when that prop's value changes, as a reactive attribute is). A component that does not spread pays nothing for any of this.
+
+Only a component's props are read this way. A function is one when it renders JSX, or, with no JSX, when it is named as a component and calls What's `h()` or returns a prop as it is (`(props) => props.children`). A helper that destructures its argument (`function Point({ x, y, ...rest })`), a reducer, a class's method or a `forwardRef()` you write yourself keeps its plain destructuring (docs/ARCHITECTURE.md, "Which functions are components").

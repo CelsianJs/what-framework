@@ -6,6 +6,15 @@ export interface WhatVitePluginOptions {
   include?: RegExp | RegExp[];
   /** Files to skip. Defaults to /node_modules/. */
   exclude?: RegExp | RegExp[];
+  /**
+   * A dependency's files to compile as the app's own. Nothing under
+   * node_modules is compiled, whatever `include` and `exclude` say, and no
+   * script file of one of What's own packages (what-core, what-react,
+   * what-router and the rest) is, a workspace link included: they are the
+   * framework, not the app. A file this matches is compiled as the app's
+   * files are: a package that publishes What JSX as source. Defaults to none.
+   */
+  compileDependencies?: RegExp | ((id: string) => boolean) | Array<RegExp | ((id: string) => boolean)>;
   /** Emit source maps. Defaults to true. */
   sourceMaps?: boolean;
   /** Apply production optimizations. Defaults to NODE_ENV === 'production'. */

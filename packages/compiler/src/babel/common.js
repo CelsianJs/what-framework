@@ -513,6 +513,7 @@ export function deferPlacedProps(fnPath, state) {
   if (params.length === 0 || params.length > 2 || (params.length === 2 && !t.isIdentifier(params[1])) || isRowFunction(fnPath, state)) return;
   const param = params[0];
   const rendersJsx = containsJsx(fnPath.node);
+  if (!rendersJsx && !isComponentWithoutJsx(fnPath, state)) return;
   if (t.isObjectPattern(param)) {
     const found = placedProps(fnPath, param, fnPath.scope, state, rendersJsx);
     if (found === null || !movesIntoBody(fnPath, found.others)) return;
@@ -688,6 +689,96 @@ function propAlias(ref, fnPath) {
 function firstKey(node) {
   while (t.isMemberExpression(node.object) || t.isOptionalMemberExpression(node.object)) node = node.object;
   return propertyName(node.property, node.computed);
+}
+
+// --- Which functions are components ---
+// Reading props where they are used changes what a function's parameter
+// reads (`_$place`, `_$omit`, `props.<key>` for a destructured name), so it
+// applies to a component only:
+// - a function that renders JSX (JSX anywhere in its body, nested callbacks
+//   included), whatever its name: a component, a memo() or forwardRef()
+//   render function, a render helper;
+// - a function with no JSX that is named as a component (`function Card`,
+//   `const Card = …`, `memo(…)` or `forwardRef(…)` assigned to `Card`,
+//   `Tabs.Panel = …`, a default export) and renders as one: it calls What's
+//   h() (imported from what-framework or what-core), so
+//   `function Box({ as, ...rest }) { return h(as, rest) }` keeps `rest` live,
+//   or it returns a prop as it is (`return props.children`,
+//   `({ children }) => children`), which is placed where it renders.
+// Nothing else is: a helper that destructures its argument, capitalised or
+// not (`function Point({ x, y, ...rest })` returning an object), a
+// forwardRef() implementation that calls the render function it was given
+// (what-react's `ForwardRefComponent`), a higher-order component that calls
+// the component it wraps, a reducer, a class's method. In What's own packages
+// (framework-files.js) only a function that renders JSX is.
+function isComponentWithoutJsx(fnPath, state) {
+  if (state.frameworkFile || !namedAsComponent(fnPath)) return false;
+  return callsWhatH(fnPath) || returnsProp(fnPath);
+}
+
+function namedAsComponent(fnPath) {
+  if (/^[A-Z]/.test(componentName(fnPath))) return true;
+  let at = fnPath.parentPath;
+  while (at && at.isCallExpression()) at = at.parentPath;
+  if (!at) return false;
+  if (at.isExportDefaultDeclaration()) return true;
+  // `Tabs.Panel = (props) => …`, `{ Panel: (props) => … }`.
+  if (at.isAssignmentExpression() && t.isMemberExpression(at.node.left) && !at.node.left.computed) return /^[A-Z]/.test(at.node.left.property.name || '');
+  return at.isObjectProperty() && !at.node.computed && t.isIdentifier(at.node.key) && /^[A-Z]/.test(at.node.key.name);
+}
+
+// A call of What's h(): `h(…)` imported from a What module, or `ns.h(…)` of
+// a namespace import of one.
+function callsWhatH(fnPath) {
+  let found = false;
+  fnPath.traverse({
+    CallExpression(call) {
+      if (found) return call.stop();
+      const callee = call.node.callee;
+      if (t.isIdentifier(callee)) found = importedFrom(call.scope.getBinding(callee.name), t.isImportSpecifier, 'h');
+      else if (t.isMemberExpression(callee) && !callee.computed && t.isIdentifier(callee.property, { name: 'h' }) && t.isIdentifier(callee.object)) {
+        found = importedFrom(call.scope.getBinding(callee.object.name), t.isImportNamespaceSpecifier, null);
+      }
+      if (found) call.stop();
+    },
+  });
+  return found;
+}
+
+// Whether the function returns one of its props as it is: `props.<key>`, a
+// name destructured from its props (in the parameter list or from the props
+// in its body), in a branch of a conditional, a logical expression or an
+// array.
+function returnsProp(fnPath) {
+  const param = fnPath.node.params[0];
+  const isProp = (node) => {
+    while (t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node) || t.isTSNonNullExpression(node) || t.isParenthesizedExpression(node)) node = node.expression;
+    if (t.isConditionalExpression(node)) return isProp(node.consequent) || isProp(node.alternate);
+    if (t.isLogicalExpression(node)) return isProp(node.left) || isProp(node.right);
+    if (t.isArrayExpression(node)) return node.elements.some((e) => e !== null && isProp(e));
+    if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+      let root = node;
+      while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = root.object;
+      return t.isIdentifier(param) && t.isIdentifier(root, { name: param.name }) && fnPath.scope.getBinding(param.name)?.kind === 'param';
+    }
+    if (!t.isIdentifier(node)) return false;
+    const binding = fnPath.scope.getBinding(node.name);
+    if (!binding || binding.scope !== fnPath.scope) return false;
+    if (binding.kind === 'param') return t.isObjectPattern(param) && binding.path.parentPath?.node === fnPath.node;
+    const decl = binding.path;
+    return decl.isVariableDeclarator() && t.isObjectPattern(decl.node.id) && t.isIdentifier(param)
+      && t.isIdentifier(decl.node.init, { name: param.name });
+  };
+  const body = fnPath.node.body;
+  if (!t.isBlockStatement(body)) return isProp(body);
+  let found = false;
+  fnPath.traverse({
+    Function(inner) { inner.skip(); },
+    ReturnStatement(ret) {
+      if (!found && ret.node.argument && isProp(ret.node.argument)) found = true;
+    },
+  });
+  return found;
 }
 
 // Whether a function renders JSX: JSX anywhere in its body, nested callbacks

@@ -41,6 +41,10 @@
  *   projectRoot   string          root that source locations and action ids are relative to
  *   autoSelector  boolean         DOM back end: rewrite `sel() === row.key` (default true)
  *   onActionId    (meta) => void  called for every server action id
+ *   appSource     boolean         compile a file of one of What's own packages
+ *                                 (framework-files.js) as the app's source:
+ *                                 development names, server action ids and
+ *                                 components without JSX (default false)
  */
 
 import { t, setTypes } from './babel/types.js';
@@ -51,6 +55,7 @@ import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction }
 import { annotatePrimitive } from './babel/dev-metadata.js';
 import { resolveCallees } from './babel/reactivity.js';
 import { fileRuntimeMismatch } from './release.js';
+import { isFrameworkModule } from './framework-files.js';
 
 // The element a component-cased JSX tag names when its binding is a constant
 // holding an element's name (`const Tag = 'select'`), else null.
@@ -80,6 +85,12 @@ export default function whatBabelPlugin({ types }) {
           }
           state.ssr = generate === 'ssr';
           initFileState(state);
+          // A file one of What's own packages publishes is the framework, not
+          // the app (framework-files.js): only its JSX is compiled. No
+          // development names on its signal() and h() calls, no server action
+          // ids, and a function of it with no JSX is never a component
+          // (common.js "Which functions are components").
+          state.frameworkFile = state.opts?.appSource !== true && isFrameworkModule(state.file?.opts?.filename);
           if (state.ssr) initSsrState(state);
           else initDomState(state);
 
@@ -187,8 +198,10 @@ export default function whatBabelPlugin({ types }) {
               deferPlacedProps(fnPath, state);
             },
             CallExpression(callPath) {
-              transformServerAction(callPath, state);
-              annotatePrimitive(callPath, state);
+              if (!state.frameworkFile) {
+                transformServerAction(callPath, state);
+                annotatePrimitive(callPath, state);
+              }
               calls.push(callPath);
             },
             OptionalCallExpression(callPath) {

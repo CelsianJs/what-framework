@@ -17,11 +17,13 @@ import { generateRoutesModule } from './file-router.js';
 import { setupErrorOverlay } from './error-overlay.js';
 import { IMPORT_CHANGES } from './tables/import-changes.js';
 import { runtimeMismatch } from './release.js';
+import { isFrameworkFile } from './framework-files.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
 const SERVER_ACTION_MODULE_RE = /(?:from\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"]|import\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"])/;
 const SCRIPT_MODULE_RE = /\.[cm]?[jt]sx?$/;
+const JSX_MODULE_RE = /\.[jt]sx$/;
 // what-react's mixed JSX plugin ends a React file's output with this comment.
 const REACT_SOURCE_MARKER = '/* what-react: react source */';
 
@@ -114,6 +116,23 @@ const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b
 // server markup with JSX compiled without it reports an ERR_HYDRATION_MISMATCH
 // of kind not-hydratable and renders the page again on the client.
 
+// --- What it compiles ---
+//
+// The app's own files: a JSX file `include` matches (.jsx and .tsx), and a
+// script module that declares server actions or, in development, imports
+// what-framework or what-core (its signal() and h() calls are named), unless
+// `exclude` matches it. Never a dependency's:
+//   - nothing under node_modules, whatever `include` and `exclude` say: an
+//     npm or pnpm install of a package, React's or What's;
+//   - no script file of one of What's own packages wherever it is, a
+//     workspace link included (framework-files.js): what-react, what-router,
+//     what-core in development are served from their source, which is not
+//     the app's. A JSX file What publishes (what-devtools/panel) is compiled
+//     for its JSX only, as babel-plugin.js compiles any file of What's.
+// `compileDependencies` (patterns, as `include` takes) opts a dependency's
+// files in, compiled as the app's are: a package that publishes What JSX as
+// source.
+
 // --- Development locations ---
 //
 // Vite transforms .jsx/.tsx with esbuild (oxc on Vite 8) before this plugin
@@ -191,6 +210,9 @@ export default function whatVitePlugin(options = {}) {
     include = /\.[jt]sx$/,
     // Files to exclude
     exclude = /node_modules/,
+    // A dependency's files to compile as the app's: under node_modules, or of
+    // one of What's own packages. See "What it compiles".
+    compileDependencies = null,
     // Enable source maps
     sourceMaps = true,
     // Production optimizations
@@ -313,10 +335,15 @@ export default function whatVitePlugin(options = {}) {
     // Transform JSX files
     transform(code, id, transformOptions) {
       const cleanId = id.replace(/[?#].*$/, '');
+      // A dependency's file is not the app's (see "What it compiles").
+      const optedIn = compileDependencies !== null && patternMatches(compileDependencies, cleanId);
+      if (!optedIn && cleanId.includes('/node_modules/')) return null;
+      const frameworkFile = !optedIn && isFrameworkFile(cleanId, fs);
+      if (frameworkFile && !JSX_MODULE_RE.test(cleanId)) return null;
       const hasJsx = patternMatches(include, cleanId);
-      const isScriptModule = SCRIPT_MODULE_RE.test(cleanId);
+      const isScriptModule = !frameworkFile && SCRIPT_MODULE_RE.test(cleanId);
       const hasServerActions = isScriptModule && SERVER_ACTION_MODULE_RE.test(code);
-      if (exclude && patternMatches(exclude, cleanId)) return null;
+      if (!optedIn && exclude && patternMatches(exclude, cleanId)) return null;
       // A React file of a mixed app (what-react's plugin, MIXED.md): its JSX
       // is lowered to what-react already and follows React's rules.
       if (code.includes(REACT_SOURCE_MARKER)) return null;
@@ -393,6 +420,7 @@ export default function whatVitePlugin(options = {}) {
               autoSelector,
               projectRoot: rootDir || process.cwd(),
               onActionId: registerActionId,
+              appSource: optedIn,
             }]
           ],
           parserOpts: {

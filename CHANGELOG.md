@@ -540,6 +540,39 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   *Migration:* none for code written as React writes it; tests that match
   compiled output of rest elements, spreads or destructured defaults change.
 
+- **The Vite plugin compiles the app's files, never a dependency's.** No
+  script file of one of What's own packages is compiled, wherever it sits,
+  and nothing under `node_modules` is, whatever `include` and `exclude` say.
+  A workspace link (npm, pnpm or Yarn workspaces, `file:`, `npm link`)
+  resolves outside `node_modules`, so the dev server compiled what-react's,
+  what-router's and what-core's source there as the app's: what-react's
+  `forwardRef()` handed Headless UI's `<Dialog>` a rest object it could not
+  call `hasOwnProperty` on, in a mixed app, in development only. A package is
+  What's when the nearest `package.json` with a name says so and the file is
+  one it publishes (`packages/compiler/src/framework-files.js`); a JSX file
+  What publishes (`what-devtools/panel`) is still compiled for its JSX. The
+  Babel plugin applies the same rule: in What's own files it adds no
+  development names or server action ids. A test compiles all of
+  `packages/*/src` in every mode the plugin uses and finds it unchanged
+  (packages/compiler/test/framework-source-untouched.test.js).
+  *Migration:* name a dependency that publishes What JSX as source in the new
+  `compileDependencies` option; a custom `exclude` no longer lets
+  `node_modules` in.
+
+- **Only components have their props read where they are used.** A function
+  is a component when it renders JSX, or, with no JSX, when it is named as
+  one and calls What's `h()` or returns a prop as it is
+  (`(props) => props.children`): `function Box({ as, ...rest }) { return h(as,
+  rest) }` keeps `rest` live. A helper that destructures its argument
+  (`function Point({ x, y, ...rest })`), a reducer, a class's method, a
+  higher-order component that calls what it wraps and a hand-written
+  `forwardRef()` come out as written; the rest rewrite had reached every
+  function with one parameter, `_$place` every one that returned a field of
+  its parameter. Tested both ways in .jsx, .js and .ts files
+  (packages/compiler/test/component-rule.test.js).
+  *Migration:* none; tests that match compiled output of plain functions
+  change.
+
 - **Component props are live.** A prop whose value reads a signal is passed
   as a getter over the expression: `<Badge on={count() > 0} />` updates the
   child's `{props.on}`, and a destructured `({ on })`, where it renders, and

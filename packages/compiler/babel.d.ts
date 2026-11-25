@@ -60,6 +60,13 @@ export interface WhatBabelPluginOptions {
   hydratable?: boolean;
   /** Called with every server action id the plugin assigns or reads. Throwing fails the build. */
   onActionId?: (metadata: ServerActionIdMetadata) => void;
+  /**
+   * Compile a file one of What's own packages publishes as the app's source.
+   * Such a file is the framework: by default only its JSX is compiled, with no
+   * development names, no server action ids, and no function of it without
+   * JSX taken for a component. Defaults to false.
+   */
+  appSource?: boolean;
 }
 
 export interface BabelPluginPass {
