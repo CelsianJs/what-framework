@@ -373,6 +373,72 @@ explanation of three messages (`ERR_HOOK_OUTSIDE_RENDER` and the two of the
 update-loop guard): each keeps its first sentence (and the error its code,
 whose fix what-core's error catalogue has); development shows them whole.
 
+## What an app carries
+
+Production builds through Vite, gzip, as `npm run check:size` measures them
+(Node 22.13.1), beside what React 19.3.1 ships for the same app:
+
+| Scenario | what-react now | at `90c91c40` | React 19.3.1 |
+|---|---|---|---|
+| `react-counter`: a counter, `reactCompat()` alone | 16,037 B | 22,160 B | 67,599 B |
+| `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 23,222 B | 29,074 B | 67,383 B (React and ReactDOM) |
+| `mixed-hydrate`: a native page with one React island, hydrating | 42,331 B | 44,964 B | (none) |
+
+`node benchmark/size/why.mjs <scenario>` lists what is in a scenario's
+bundle, declaration by declaration, with what keeps each one there.
+
+What an app does not use, it does not carry:
+
+- **What-core's vnode renderer.** what-react's elements are what-core vnodes
+  as before, made by what-core's unbuilt component call (`_$componentVNode`)
+  instead of `h()`, which installs what-core's renderer: only native What code
+  needs it. A page that hydrates installs it (`_claimIslands`, which the
+  hydrating entry's import runs), as does an app
+  whose native code makes a vnode or renders a native component inside a
+  React tree. Without it, a React element that reaches what-core (a function
+  child that returns one, a portal placed by native code) renders as an island
+  of its own, by React's rules; what-core used to render a host element there
+  with What's prop rules.
+- **Class components.** `Component`'s definition installs the class
+  lifecycle, so a program without `Component` (and so without a class
+  component: React renders as a class only what has `Component`'s
+  `isReactComponent`) does not carry it. With `Component` in the program, a
+  class that has a `render()` method and no `Component` base still renders as
+  a class.
+- **`Suspense`, `StrictMode`, `Profiler`, `Activity`** carry their statics
+  from where they are made, so an app that renders none drops them.
+- **Island hydration.** How an island claims the server's region is installed
+  by the hydrating entry (`what-react/claim-islands`, which
+  `what-react/hydrate-islands` includes; the plugin adds the import to every
+  module what-compiler compiles for hydration, MIXED.md). A client build
+  carries neither that nor island
+  adoption (`hydrate.js`) nor the island server renderer (`server.js`, which a
+  stand-in replaces in every client build; an island's server branch lives in
+  it now).
+- **The island's component call.** The mixed plugin's island tag is an arrow
+  the native module defines, which what-compiler calls as a plain function.
+  An imported component could be a class component or a tag held in a
+  binding, and the general call that looks for those brought what-core's
+  element-from-tag code (a props spread, every field type) into every page
+  with an island: 3,270 B of the recharts page.
+
+check-size fails when one of these comes back: a native app built with
+`reactCompat()` as well must be the same bytes as without it, and a client
+build must carry no island adoption and no island server renderer.
+
+A library that reads React through its namespace object keeps every export of
+`react` in the bundle: recharts reads `React['useId'.toString()]`, so the
+recharts page carries the class lifecycle, `Children`, `Suspense` and the other
+hooks whether it uses them or not, as it would carry them with React.
+
+Speed did not change: `perf-counts.test.js` passes unchanged, and the
+krausest app on what-react (16,953 B gzip, 23,109 B before; React's 68,394 B)
+is 3.32 times hand-written JS in script thread time over 8 interleaved rounds
+(3.41 before, React 5.71; an earlier run of the size changes alone gave 3.19
+against 3.22), no operation slower beyond the run's noise. A native list with
+one React component per row is 1.29 times an all-native one (1.27 before;
+1.31 and 1.31 in the earlier run).
+
 ## Known limitations
 
 - **Rendering is synchronous.** There is no time slicing. A transition's

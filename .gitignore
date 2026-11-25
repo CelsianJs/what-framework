@@ -52,6 +52,9 @@ benchmark/results/
 # a package's new release would change what the matrix tests between two runs
 # of the same commit.
 !/packages/react-compat/test/fixtures/matrix/package-lock.json
+# The size workflow installs the mixed fixture with `npm ci` for the
+# mixed-recharts scenario, so its lockfile is tracked too.
+!/packages/react-compat/test/fixtures/mixed/package-lock.json
 
 .npmrc
 

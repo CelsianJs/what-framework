@@ -101,6 +101,12 @@ function build(opts) {
 const server = await import(path.join(pk, 'server/src/index.js'));
 const { h, flushSync, getDiagnostics } = await import(CORE);
 const { hydrate } = await import(RENDER);
+// Compiled without what-react's Vite plugin, which adds the call that installs
+// island hydration to each module compiled for hydration: installed here, as
+// a build without the plugin does (MIXED.md). Without adoption, the islands
+// claim the server's regions and render over them.
+const { _claimIslands } = await import(path.join(pk, 'react-compat/src/mixed.js'));
+_claimIslands();
 const ssr = await build({ generate: 'ssr' });
 const client = await build({ hydratable: true, devMetadata: true, projectRoot: tmp });
 const settle = async () => { flushSync(); await new Promise((r) => setTimeout(r, 0)); };

@@ -316,10 +316,14 @@ to each JSX file what-compiler compiles for hydration (the entry that calls
 `hydrate()` is one), so a client build that only mounts does not carry the
 code. An import runs before the code of the module that has it, so adoption
 is installed before a `hydrate()` that the same module calls at its top level
-(`test/island-install.test.js`). A build without what-react's plugin imports
-`what-react/hydrate-islands`, or calls `_hydrateIslands()` from
-`what-react/mixed`, before `hydrate()`. `reactCompat({ hydrateIslands:
-false })` turns it off.
+(`test/island-install.test.js`). `reactCompat({ hydrateIslands: false })`
+turns adoption off: the plugin adds `import 'what-react/claim-islands'`
+instead, and each island takes the server's region for its own and renders
+over it in the browser. One of the two is what lets an island hydrate at
+all, so a build without what-react's plugin imports one of them (or calls
+`_hydrateIslands()` or `_claimIslands()` from `what-react/mixed`) before
+`hydrate()`; without either, development warns that the island is built
+again instead of claiming the server's HTML.
 
 A component that throws on the server leaves its island empty there and the
 browser renders it; the server prints a warning that names the error, in
@@ -369,6 +373,16 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
 
 ## Limits
 
+- A React element that native code places in a hole itself (a value a React
+  file made and handed over, not a React tag and not `children` given to a
+  native component) renders as an island of its own, by React's rules. In a
+  client build whose native code makes no vnode (compiled JSX makes none) a
+  list of such elements is built again when the list changes, so React state
+  inside them is lost; write the React tags in the native file, or render
+  the list in a React component, to keep it. A page that hydrates, and an
+  app whose native code makes a vnode or renders a native component inside a
+  React tree, keep such a list by key (what-core's vnode renderer is
+  installed there).
 - React hooks run only in React files. Calling one in a native component
   throws `ERR_HOOK_OUTSIDE_RENDER`.
 - A native component inside a React tree is rebuilt (losing its state, with
@@ -469,8 +483,9 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
 
 `reactCompat()`'s mixed plugin runs before what-compiler. In a native file it
 replaces each React tag, with its subtree, by
-`<ReactIsland view={() => createElement(...)} />`, a native component from
-`what-react/mixed` that mounts a what-react root and renders `view` under a
+`<ReactIsland view={() => createElement(...)} />` (through an arrow the module
+defines, which what-compiler calls as a plain function), a native component
+from `what-react/mixed` that mounts a what-react root and renders `view` under a
 signal tracker. In a React file it lowers all JSX to what-react's
 `createElement` and wraps native tags with `nativeRef()`, which mounts the
 native component once with a props object of getters. what-compiler skips

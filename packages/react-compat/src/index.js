@@ -16,9 +16,9 @@
  * in native What trees render through a run-once bridge component.
  */
 
-import { h, Fragment as WhatFragment } from 'what-core';
+import { Fragment as WhatFragment } from 'what-core';
 import { isVNode } from 'what-core/internal';
-import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack, _isStuck } from './runtime.js';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack, _isStuck, _vnodeOf } from './runtime.js';
 import {
   useState,
   useReducer,
@@ -85,6 +85,14 @@ FragmentComponent._hidden = true;
 const fragmentBridge = getBridge(FragmentComponent);
 
 // ---- Class components ----
+
+// A class component extends Component or PureComponent (below), whose
+// definition installs the wrapper that renders one: a program that never
+// defines a class component (it does not have Component in it) does not
+// carry the class lifecycle. React itself renders as a class only what has
+// `isReactComponent` on its prototype, which is Component's.
+/** @type {((type: any) => any) | null} */
+let classWrapper = null;
 
 function isClassComponent(type) {
   return (
@@ -358,13 +366,12 @@ export function _element(type, props, key) {
   const only = props.children;
   const kids = only === undefined ? EMPTY_CHILDREN : Array.isArray(only) ? only : [only];
 
-  // Core's producer makes the vnode (taking `key` out of the props) and
-  // installs core's vnode renderer in any bundle that creates one. Its
-  // children are replaced with this module's list, which keeps the holes the
-  // runtime reconciles by position and h() would drop.
+  // A vnode as h() makes it (runtime.js _vnodeOf takes `key` out of the
+  // props), with this module's child list, which keeps the holes the runtime
+  // reconciles by position and h() would drop.
   // `ref` is a prop (React 19) and is on the element too, where React 18 and
   // the libraries written for it read it (`element.ref`).
-  const vnode = /** @type {any} */ (h(tag, props));
+  const vnode = /** @type {any} */ (_vnodeOf(tag, props));
   if (key !== undefined) vnode.key = key;
   vnode.$$typeof = REACT_ELEMENT_TYPE;
   vnode.type = type;
@@ -379,7 +386,7 @@ export function _element(type, props, key) {
 // for: a class that inherits the property from its parent class, or a
 // wrapper a library copied a component's statics onto, gets its own.
 function bridgeOf(type) {
-  const bridge = getBridge(isClassComponent(type) ? getClassWrapper(type) : type);
+  const bridge = getBridge(classWrapper !== null && isClassComponent(type) ? classWrapper(type) : type);
   bridge._compatFor = type;
   try {
     Object.defineProperty(type, '_compatBridge', { value: bridge, configurable: true, writable: true });
@@ -429,7 +436,7 @@ export function createRef() {
 // equal (default: shallow equality) and no self-update is pending.
 
 export function memo(Component, areEqual) {
-  const render = isClassComponent(Component) ? getClassWrapper(Component) : Component;
+  const render = classWrapper !== null && isClassComponent(Component) ? classWrapper(Component) : Component;
   function Memoized(props) {
     // The wrapped component's own defaultProps (the memo's are resolved
     // when the element is made).
@@ -477,18 +484,20 @@ export function lazy(loader) {
 // Content that suspends after it was shown stays mounted, hidden, with the
 // fallback after it, so its state and DOM are the same when it comes back
 // (the runtime decides which, in handleRenderError).
-export function Suspense(props) {
+//
+// The components below carry their statics from where they are made (a
+// marked-pure Object.assign), not from assignments at module scope, which a
+// bundler keeps whether or not the component is used.
+export const Suspense = /* @__PURE__ */ Object.assign(function Suspense(props) {
   const inst = _getCurrentInstance();
   if (inst) inst._isSuspense = true;
   const suspended = inst != null && (inst._suspendCount ?? 0) > 0;
   const fallback = props.fallback !== undefined ? props.fallback : null;
   if (suspended && inst._keepPrimary !== true) return [null, fallback];
   return [createElement(SuspenseContent, { hidden: suspended }, props.children), suspended ? fallback : null];
-}
-Suspense.displayName = 'Suspense';
-Suspense.$$typeof = REACT_SUSPENSE_TYPE;
+}, { displayName: 'Suspense', $$typeof: REACT_SUSPENSE_TYPE });
 
-function SuspenseContent(props) {
+const SuspenseContent = /* @__PURE__ */ Object.assign(function SuspenseContent(props) {
   const inst = /** @type {any} */ (_getCurrentInstance());
   const hidden = props.hidden === true;
   useLayoutEffect(() => {
@@ -499,9 +508,7 @@ function SuspenseContent(props) {
     if (inst.parent) inst.parent._primaryShown = false;
   }, []);
   return props.children;
-}
-SuspenseContent.displayName = 'SuspenseContent';
-SuspenseContent._hidden = true;
+}, { displayName: 'SuspenseContent', _hidden: true });
 
 // ---- Children utilities ----
 
@@ -666,23 +673,20 @@ export function isValidElement(object) {
 
 // ---- StrictMode / Profiler / Activity ----
 
-export function StrictMode(props) {
+export const StrictMode = /* @__PURE__ */ Object.assign(function StrictMode(props) {
   return props.children;
-}
-StrictMode.displayName = 'StrictMode';
+}, { displayName: 'StrictMode' });
 
 // Renders its children; nothing is measured (onRender is never called).
-export function Profiler(props) {
+export const Profiler = /* @__PURE__ */ Object.assign(function Profiler(props) {
   return props.children;
-}
-Profiler.displayName = 'Profiler';
+}, { displayName: 'Profiler' });
 
 // React 19.2. `hidden` renders nothing here: React keeps the hidden tree's
 // state and DOM, this unmounts it (see REACT-COMPAT.md, known limitations).
-export function Activity(props) {
+export const Activity = /* @__PURE__ */ Object.assign(function Activity(props) {
   return props.mode === 'hidden' ? null : props.children;
-}
-Activity.displayName = 'Activity';
+}, { displayName: 'Activity' });
 
 // ---- cache / captureOwnerStack ----
 
@@ -712,61 +716,78 @@ export function act(callback) {
 
 // ---- Component / PureComponent ----
 // Function constructors (not native classes) so transpiled code using
-// Component.call(this, props) works alongside native class extends.
+// Component.call(this, props) works alongside native class extends. Each is
+// made by a marked-pure call: a program that defines no class component
+// drops them, and with Component the class wrapper (getClassWrapper above),
+// which Component's definition installs.
 
 /**
- * @this {{ props: any, state: any, context: any, _mounted: boolean, _enqueue: (() => void) | null, [key: string]: any }}
- * @param {any} props
- * @param {any} [context]
+ * @typedef {{ props: any, state: any, context: any, _mounted: boolean, _enqueue: (() => void) | null, [key: string]: any }} ClassInstance
  */
-export function Component(props, context) {
-  this.props = props;
-  this.context = context;
-  this.state = {};
-  this._mounted = false;
-  this._enqueue = null;
-}
 
-Component.prototype.isReactComponent = {};
-
-Component.prototype.setState = function (update, callback) {
-  // Refused while the update-loop guard holds this component (runtime.js).
-  if (this._compatInst != null && _isStuck(this._compatInst)) return;
-  if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
-  if (this._enqueue) {
-    // Queued: this.state changes when the component renders, as in React.
-    (this._pendingState || (this._pendingState = [])).push(update);
-    this._enqueue();
-    return;
+export const Component = /* @__PURE__ */ (() => {
+  /**
+   * @this {ClassInstance}
+   * @param {any} props
+   * @param {any} [context]
+   */
+  function Component(props, context) {
+    this.props = props;
+    this.context = context;
+    this.state = {};
+    this._mounted = false;
+    this._enqueue = null;
   }
-  // Not rendered by the runtime (yet): the state is set directly.
-  const partial = typeof update === 'function' ? update.call(this, this.state, this.props) : update;
-  if (partial != null) this.state = { ...this.state, ...partial };
-};
 
-Component.prototype.forceUpdate = function (callback) {
-  // Skips shouldComponentUpdate, as in React.
-  this._forced = true;
-  if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
-  if (this._enqueue) this._enqueue();
-};
+  Component.prototype.isReactComponent = {};
 
-Component.prototype.render = function () {
-  return null;
-};
+  /** @this {ClassInstance} */
+  Component.prototype.setState = function (update, callback) {
+    // Refused while the update-loop guard holds this component (runtime.js).
+    if (this._compatInst != null && _isStuck(this._compatInst)) return;
+    if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
+    if (this._enqueue) {
+      // Queued: this.state changes when the component renders, as in React.
+      (this._pendingState || (this._pendingState = [])).push(update);
+      this._enqueue();
+      return;
+    }
+    // Not rendered by the runtime (yet): the state is set directly.
+    const partial = typeof update === 'function' ? update.call(this, this.state, this.props) : update;
+    if (partial != null) this.state = { ...this.state, ...partial };
+  };
 
-/**
- * @this {{ props: any, state: any, context: any, _mounted: boolean, _enqueue: (() => void) | null, [key: string]: any }}
- * @param {any} props
- * @param {any} [context]
- */
-export function PureComponent(props, context) {
-  Component.call(this, props, context);
-}
+  /** @this {ClassInstance} */
+  Component.prototype.forceUpdate = function (callback) {
+    // Skips shouldComponentUpdate, as in React.
+    this._forced = true;
+    if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
+    if (this._enqueue) this._enqueue();
+  };
 
-PureComponent.prototype = Object.create(Component.prototype);
-PureComponent.prototype.constructor = PureComponent;
-PureComponent.prototype.isPureReactComponent = true;
+  Component.prototype.render = function () {
+    return null;
+  };
+
+  classWrapper = getClassWrapper;
+  return Component;
+})();
+
+export const PureComponent = /* @__PURE__ */ (() => {
+  /**
+   * @this {ClassInstance}
+   * @param {any} props
+   * @param {any} [context]
+   */
+  function PureComponent(props, context) {
+    Component.call(this, props, context);
+  }
+
+  PureComponent.prototype = Object.create(Component.prototype);
+  PureComponent.prototype.constructor = PureComponent;
+  PureComponent.prototype.isPureReactComponent = true;
+  return PureComponent;
+})();
 
 // ---- Internal helpers ----
 

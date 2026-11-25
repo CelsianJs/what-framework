@@ -442,7 +442,17 @@ export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
     return t.identifier(n);
   };
   const ids = {};
-  const id = (name) => (ids[name] ??= name === 'ReactIsland' ? componentUid('WhatReactIsland') : uid(name));
+  const id = (name) => (ids[name] ??= uid(name));
+  // The island's tag: a function of the module's own, an arrow that renders
+  // what-react's ReactIsland, not the import itself. what-compiler calls a
+  // component the module defines as an arrow with its call for plain
+  // functions; an imported one could be a class component, and its general
+  // call also looks for one and for a tag held in a binding (render.js
+  // asComponent), which would bring what-core's element-from-tag code (props
+  // spread, every field type) into every page with an island.
+  /** @type {any} */
+  let islandTag = null;
+  const islandName = () => (islandTag ??= componentUid('WhatReactIsland')).name;
   const natives = new Map();
 
   const rootName = (n) => (t.isJSXMemberExpression(n) ? rootName(n.object) : t.isJSXIdentifier(n) ? n.name : null);
@@ -546,7 +556,7 @@ export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
         const attrs = [t.jsxAttribute(t.jsxIdentifier('view'), t.jsxExpressionContainer(t.arrowFunctionExpression([], call)))];
         if (keyAttr) attrs.unshift(t.jsxAttribute(t.jsxIdentifier('key'), t.cloneNode(keyAttr.value, true)));
         if (svg) attrs.push(t.jsxAttribute(t.jsxIdentifier('svg')));
-        const island = t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier(id('ReactIsland').name), attrs, true), null, [], true);
+        const island = t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier(islandName()), attrs, true), null, [], true);
         // Where the React tag was written: what-compiler's development
         // location for the island names it.
         island.loc = p.node.loc;
@@ -559,6 +569,11 @@ export function lowerJsx(babel, ast, { reactFile, reactTags, nativeTags }) {
   }
   if (!changed) return false;
 
+  if (islandTag !== null) {
+    // const WhatReactIsland = (props) => ReactIsland(props);
+    const props = uid('props');
+    nativeDecls.unshift(t.variableDeclaration('const', [t.variableDeclarator(islandTag, t.arrowFunctionExpression([props], t.callExpression(id('ReactIsland'), [props])))]));
+  }
   const specifiers = Object.entries(ids).map(([name, local]) => t.importSpecifier(local, t.identifier(name)));
   program.body.unshift(t.importDeclaration(specifiers, t.stringLiteral(MIXED_MODULE)));
   // After the imports: each alias reads its import only when it renders.

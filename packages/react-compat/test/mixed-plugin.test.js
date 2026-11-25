@@ -186,7 +186,11 @@ export function App() {
 }`, { reactTags: new Set(['BarChart', 'Bar']), nativeTags: new Set(['Panel']) });
   assert.equal(changed, true);
   const imported = code.match(/import \{([^}]*)\} from "what-react\/mixed";/)[1].split(',').map((x) => x.trim()).sort();
-  assert.deepEqual(imported, ['Fragment as _Fragment', 'ReactIsland as WhatReactIsland', 'createElement as _createElement', 'native as _native']);
+  assert.deepEqual(imported, ['Fragment as _Fragment', 'ReactIsland as _ReactIsland', 'createElement as _createElement', 'native as _native']);
+  // The island's tag is an arrow the module defines, which what-compiler
+  // calls as a plain function (no class component or tag held in a binding
+  // to look for).
+  assert.match(code, /const WhatReactIsland = _props => _ReactIsland\(_props\);/);
   // Native JSX around the island is untouched.
   assert.match(code, /<main class="m">\s*<h1>\{n\(\)\}<\/h1>/);
   assert.match(code, /<WhatReactIsland view=\{\(\) => _createElement\(BarChart, \{\s*"data": rows\(\),\s*"width": 300\s*\}/);

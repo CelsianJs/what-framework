@@ -49,3 +49,11 @@ export function nativeRef<P>(get: () => (props: P) => any, name?: string): Funct
  * without the plugin.
  */
 export function _hydrateIslands(): void;
+/**
+ * Hydrating islands without adopting the server's HTML: each island claims
+ * the server's region and renders over it in the browser. What
+ * `reactCompat({ hydrateIslands: false })` installs in the modules
+ * what-compiler compiles for hydration; _hydrateIslands() includes it. Call
+ * it yourself, before hydrate(), in a build without the plugin.
+ */
+export function _claimIslands(): void;

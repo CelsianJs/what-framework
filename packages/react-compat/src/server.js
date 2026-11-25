@@ -28,7 +28,7 @@ import { h } from 'what-core';
 import { isVNode, _provide, _currentOwnerPath, getServerContext } from 'what-core/internal';
 import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
-import { HOST, _serverInstance, _renderOnServer } from './runtime.js';
+import { HOST, _serverInstance, _renderOnServer, _hostInstance } from './runtime.js';
 import { idsOf, islandId, boundaryIds, apart, attrOf, styleText } from './markup.js';
 
 /**
@@ -50,6 +50,38 @@ export function serverTree(element, parent) {
 }
 
 let namesIds = false;
+
+/**
+ * An island's HTML when it renders on the server (mixed.js ReactIsland), as
+ * a flat array; undefined in the browser, where the island mounts. What-server's
+ * hydratable renderers bracket an array a component returns
+ * (<!--[]-->…<!--/[]-->), also when it is empty, and hydration hands that
+ * bracket to the island whole (runtime.js adoptIsland), a keyed row's
+ * included.
+ * @param {() => any} view
+ * @returns {any[] | undefined}
+ */
+export function serverIsland(view) {
+  if (typeof document !== 'undefined' && getServerContext() == null) return undefined;
+  const parent = _hostInstance();
+  try {
+    return serverTree(view(), parent);
+  } catch (error) {
+    // A hook that found no component rendering was not called by this
+    // runtime's render: the server loaded two copies of what-react (a bundle
+    // that inlines one and imports another), or native code called a React
+    // hook. Every island of the page would come out empty, so the render
+    // fails instead.
+    if (error && error.code === 'ERR_HOOK_OUTSIDE_RENDER') {
+      error.message = `[what-react] A React island cannot render on the server. If the server bundle holds two copies of what-react, keep what-react in Vite's ssr.noExternal (reactCompat() puts it there). ${error.message}`;
+      throw error;
+    }
+    // The island renders in the browser instead; the page still renders.
+    // Said in production too: the server's HTML is missing this island.
+    console.warn('[what-react] A React island could not render on the server, so it renders in the browser:', error && error.message ? error.message : error);
+    return [null];
+  }
+}
 
 /**
  * A vnode's tag as the compat runtime marks it: a compat component's bridge

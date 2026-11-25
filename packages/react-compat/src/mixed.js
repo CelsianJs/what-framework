@@ -21,13 +21,13 @@
  */
 
 import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
-import { isVNode, _provide, __DEV__, getServerContext } from 'what-core/internal';
+import { isVNode, _provide, __DEV__ } from 'what-core/internal';
 import { _$createComponent } from 'what-core/render';
 import { createElement, Fragment } from './index.js';
 import {
-  HOST, _island, _hostInstance, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
+  HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
 } from './runtime.js';
-import { serverTree } from './server.js';
+import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
 
 export { createElement, Fragment };
@@ -44,7 +44,25 @@ export { createElement, Fragment };
  */
 export function _hydrateIslands() {
   installIslandHydration();
+  _claimIslands();
 }
+
+/**
+ * Hydrating islands without adopting the server's HTML: each island claims
+ * the server's region for its own and renders over it in the browser. What
+ * `reactCompat({ hydrateIslands: false })` installs; _hydrateIslands()
+ * includes it. A page that only mounts does not carry the code.
+ */
+export function _claimIslands() {
+  _setIslandClaim(_claimIsland);
+}
+
+// A hydrating page has what-core's vnode renderer: its walk claims with it a
+// React element that native code placed in a hole (a value a React file
+// made), which what-react's own elements do not install (runtime.js
+// _vnodeOf). Holding what-core's vnode producer here keeps it in every page
+// that hydrates.
+/** @type {any} */ (_claimIslands)._vnode = h;
 
 // =====================================================================
 // React inside native
@@ -56,34 +74,11 @@ export function _hydrateIslands() {
  * `svg` says the island stands inside an <svg> element.
  */
 export function ReactIsland(props) {
-  if (typeof document === 'undefined' || getServerContext() != null) return serverIsland(props.view);
-  return _island(props.view, props.svg === true);
-}
-
-// On the server: the island's HTML, rendered once with React's rules
-// (server.js), as a flat array. What-server's hydratable renderers bracket an
-// array a component returns (<!--[]-->…<!--/[]-->), also when it is empty,
-// and hydration hands that bracket to the island whole (runtime.js
-// adoptIsland), a keyed row's included.
-function serverIsland(view) {
-  const parent = _hostInstance();
-  try {
-    return serverTree(view(), parent);
-  } catch (error) {
-    // A hook that found no component rendering was not called by this
-    // runtime's render: the server loaded two copies of what-react (a bundle
-    // that inlines one and imports another), or native code called a React
-    // hook. Every island of the page would come out empty, so the render
-    // fails instead.
-    if (error && error.code === 'ERR_HOOK_OUTSIDE_RENDER') {
-      error.message = `[what-react] A React island cannot render on the server. If the server bundle holds two copies of what-react, keep what-react in Vite's ssr.noExternal (reactCompat() puts it there). ${error.message}`;
-      throw error;
-    }
-    // The island renders in the browser instead; the page still renders.
-    // Said in production too: the server's HTML is missing this island.
-    console.warn('[what-react] A React island could not render on the server, so it renders in the browser:', error && error.message ? error.message : error);
-    return [null];
-  }
+  // On the server: the island's HTML (server.js). A client build does not
+  // carry the server renderer (what-react's Vite plugin puts a stand-in for
+  // server.js there, whose serverIsland renders nothing).
+  const html = serverIsland(props.view);
+  return html !== undefined ? html : _island(props.view, props.svg === true);
 }
 
 // =====================================================================

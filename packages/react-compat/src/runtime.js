@@ -33,9 +33,9 @@
  * renders no node.
  */
 
-import { h, untrack, effect, runWithOwner, getOwner, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
+import { untrack, effect, runWithOwner, getOwner, mount as whatMount, onCleanup as whatOnCleanup } from 'what-core';
 import { isVNode, _contextOf, isHydrating, _claimRegion, _afterWalk, _devHoldsState, __DEV__ } from 'what-core/internal';
-import { _$outside } from 'what-core/render';
+import { _$outside, _$componentVNode } from 'what-core/render';
 
 /**
  * The key a native What subtree finds its compat host under (what-core
@@ -61,6 +61,49 @@ export const KIND_OPAQUE = 4;    // What-native vnode / reactive function / raw 
 export const KIND_PORTAL = 5;    // '__portal' vnode (ReactDOM.createPortal)
 
 const EMPTY_OBJ = {};
+const NO_CHILDREN = [];
+
+// ---- Elements ----
+
+/**
+ * The vnode for an element of `tag` with `props`, as what-core's h(tag, props)
+ * makes it: the key, unless it is a function that is not a signal (a prop
+ * then, as <For key={fn}> has it), is the vnode's and not a prop. Made by
+ * what-core's unbuilt component call (_$componentVNode) instead of h(): h()
+ * installs what-core's vnode renderer, which only native What code needs, so
+ * a React app that has none does not carry it. The caller sets `children`.
+ */
+export function _vnodeOf(tag, props) {
+  const key = props.key;
+  if (key === undefined || (typeof key === 'function' && key._signal !== true)) return _$componentVNode(tag, props, NO_CHILDREN);
+  const { key: _key, ...rest } = props;
+  const vnode = /** @type {any} */ (_$componentVNode(tag, rest, NO_CHILDREN));
+  vnode.key = key;
+  return vnode;
+}
+
+// A React element can still reach what-core's renderer in an app without
+// native What code: a function child (a What accessor) is handed to
+// what-core (mountOpaque), and what it returns may be an element. With no
+// renderer of what-core's in the program, a vnode renders through the one it
+// carries (`_$r`, render.js valuesToNodes): here, as an island of its own,
+// under React's rules. Where native code installed what-core's renderer, that
+// one renders it, as a native What tree renders a React element (a component
+// through its bridge, getBridge below).
+{
+  const proto = Object.getPrototypeOf(_$componentVNode(null, EMPTY_OBJ, NO_CHILDREN));
+  if (proto._$r === undefined) proto._$r = (/** @type {any} */ vnode, /** @type {any} */ _parent, /** @type {any} */ isSvg) => _island(() => vnode, isSvg === true);
+}
+
+/**
+ * The `mount` a createPortal() vnode carries (dom.js): what-core's renderer
+ * calls it where the portal stands in a native What tree, and the portal
+ * renders as an island there.
+ * @param {any} vnode
+ */
+export function _portalMount(vnode) {
+  return _island(() => vnode, false);
+}
 
 // =====================================================================
 // Hook dispatcher state
@@ -2349,6 +2392,21 @@ export function unmountIsland(inst) {
 }
 
 /**
+ * How an island is placed while a page hydrates (_claimIsland below), once the
+ * hydrating entry installed it (mixed.js _claimIslands, which
+ * _hydrateIslands calls): what-react's Vite plugin adds the call to every
+ * module what-compiler compiles for hydration, so a client build that only
+ * mounts does not carry it.
+ * @type {((view: any, svg: boolean, parent: any, owner: any) => any) | null}
+ */
+let islandClaim = null;
+
+/** @internal mixed.js */
+export function _setIslandClaim(fn) {
+  islandClaim = fn;
+}
+
+/**
  * A native component body's half of an island: mount `view` here, under the
  * current What owner, and unmount it with that owner. Returns the fragment to
  * place.
@@ -2358,30 +2416,45 @@ export function _island(view, svg) {
   _devHoldsState();
   const parent = _hostInstance();
   const owner = getOwner();
-  const hydrating = isHydrating();
-  if (hydrating) {
-    // The server rendered the island (server.js) between brackets: they are
-    // the island's, whole, and the walk goes on after them.
-    const region = _claimRegion();
-    if (region !== null) {
-      const adopted = adoptIsland(view, region[0], region[1], parent, owner, svg);
-      whatOnCleanup(() => {
-        unmountIsland(adopted);
-        // What the native code around the island knows of it is the nodes
-        // the server wrote, recorded during the walk; the island's client
-        // render took their place after it. So the island takes its own
-        // nodes out, while its brackets are still in the page (the native
-        // code removes those).
-        if (region[1].parentNode !== null && region[1].parentNode === region[0].parentNode) removeRangeContents(region[0], region[1]);
-      });
-      return null;
-    }
+  if (islandClaim !== null) {
+    const claimed = islandClaim(view, svg, parent, owner);
+    if (claimed !== undefined) return claimed;
+  } else if (__DEV__ && isHydrating()) {
+    console.warn('[what-react] A React island is hydrating without its hydration installed, so it is built again instead of claiming the server\'s HTML. what-react\'s Vite plugin installs it; a build without the plugin imports what-react/hydrate-islands (or what-react/claim-islands, to hydrate without adopting the server\'s HTML) before hydrate().');
   }
   const frag = document.createDocumentFragment();
-  const inst = untrack(() => mountIsland(view, frag, parent, owner, svg, hydrating));
+  const inst = untrack(() => mountIsland(view, frag, parent, owner, svg, false));
   whatOnCleanup(() => unmountIsland(inst));
-  // Built on the client where the server rendered nothing: placed, not claimed.
-  return hydrating ? _$outside(() => frag) : frag;
+  return frag;
+}
+
+/**
+ * An island while a page hydrates, or undefined when none does. The server
+ * rendered it (server.js) between brackets: they are the island's, whole,
+ * and the walk goes on after them. Where the server rendered nothing, the
+ * island is built on the client and placed, not claimed.
+ * @internal mixed.js _claimIslands
+ */
+export function _claimIsland(view, svg, parent, owner) {
+  if (!isHydrating()) return undefined;
+  const region = _claimRegion();
+  if (region !== null) {
+    const adopted = adoptIsland(view, region[0], region[1], parent, owner, svg);
+    whatOnCleanup(() => {
+      unmountIsland(adopted);
+      // What the native code around the island knows of it is the nodes
+      // the server wrote, recorded during the walk; the island's client
+      // render took their place after it. So the island takes its own
+      // nodes out, while its brackets are still in the page (the native
+      // code removes those).
+      if (region[1].parentNode !== null && region[1].parentNode === region[0].parentNode) removeRangeContents(region[0], region[1]);
+    });
+    return null;
+  }
+  const frag = document.createDocumentFragment();
+  const inst = untrack(() => mountIsland(view, frag, parent, owner, svg, true));
+  whatOnCleanup(() => unmountIsland(inst));
+  return _$outside(() => frag);
 }
 
 // =====================================================================
@@ -2443,7 +2516,7 @@ export function getBridge(renderFn) {
     return _island(() => {
       const props = {};
       for (const key in coreProps) props[key] = coreProps[key];
-      return Object.assign(h(bridge, props), { type: renderFn, _compat: true });
+      return Object.assign(_vnodeOf(bridge, props), { type: renderFn, _compat: true });
     }, false);
   };
   bridge._compatType = renderFn;

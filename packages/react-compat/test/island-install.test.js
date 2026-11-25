@@ -58,11 +58,11 @@ async function quiet(fn) {
   try { return await fn(); } finally { console.log = log; console.warn = warn; }
 }
 
-async function clientBuild(entry) {
-  const outDir = path.join(root, `dist-${entry}`);
+async function clientBuild(entry, options = {}) {
+  const outDir = path.join(root, `dist-${entry}${options.hydrateIslands === false ? '-claim' : ''}`);
   await quiet(() => build({
     root, configFile: false, logLevel: 'silent',
-    plugins: [what({ hydratable: true, prodBundles: false }), reactCompat()],
+    plugins: [what({ hydratable: true, prodBundles: false }), reactCompat(options)],
     // From the packages' source (the copies here have no dist): the client
     // conditions without `production` and `module` (bundle.test.js).
     resolve: { conditions: ['browser'] },
@@ -80,7 +80,7 @@ await quiet(() => build({
 }));
 const { render } = await import(pathToFileURL(path.join(serverDir, fs.readdirSync(serverDir).find((f) => /^entry-server\.m?js$/.test(f)))).href);
 const html = render();
-const bundles = { main: await clientBuild('main'), boot: await clientBuild('boot') };
+const bundles = { main: await clientBuild('main'), boot: await clientBuild('boot'), claim: await clientBuild('main', { hydrateIslands: false }) };
 
 const { installDOM } = await import(path.join(REPO, 'test-utils/dom.js'));
 installDOM();
@@ -111,4 +111,13 @@ test('a native entry that calls hydrate() at its top level, in the module that d
 
 test('an entry that hydrates a page from another module adopts the island too (production build)', async () => {
   assert.deepEqual(await hydrateWithTyping(bundles.boot), { same: true, value: 'typed', focused: true });
+});
+
+test('with reactCompat({ hydrateIslands: false }) the island claims the server\'s region and renders over it, from an entry that hydrates its own page', async () => {
+  const code = fs.readFileSync(bundles.claim, 'utf8');
+  assert.ok(!code.includes('native What content'), 'no island adoption in the bundle');
+  const r = await hydrateWithTyping(bundles.claim);
+  // Rendered by the client in place of the server's input: one input, the client's.
+  assert.equal(document.querySelectorAll('#app input').length, 1);
+  assert.deepEqual(r, { same: false, value: 'initial', focused: false });
 });

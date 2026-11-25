@@ -6,15 +6,19 @@
 // against the ceilings in .size-budgets.json. It also fails if any production
 // bundle still contains development-only code (see DEV_SENTINELS below).
 //
-// Prerequisite: `node scripts/build.js` (dist/ must exist).
+// Prerequisite: `node scripts/build.js` (dist/ must exist), and the mixed
+//               browser fixture's install for the recharts scenario
+//               (`npm ci --prefix packages/react-compat/test/fixtures/mixed`).
 // Usage:        node scripts/check-size.mjs
+// Attribution:  node benchmark/size/why.mjs <scenario> (what is in a
+//               scenario's bundle, and what keeps each part there).
 //
 // Budgets are measured reality rounded up to the next 64 B. If a scenario
 // legitimately grows past its ceiling, raise the budget in .size-budgets.json
 // in the same PR — deliberately, with a reason in the diff.
 
 import { build } from 'esbuild';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
@@ -479,12 +483,32 @@ function App() {
 hydrate(<App />, document.getElementById('app'));
 `;
 
-async function mixedBundle(name, files) {
+// The mixed plugin tells a React file from a native one by reading the file
+// an import resolves to, so the app's files are written out, to
+// benchmark/size/.scenarios/<name> (which git ignores): a React file that
+// existed only in memory would be compiled as a native one, and its component
+// called as a native component instead of rendered as an island.
+// `dir`: where the app's files sit instead (relative to the repository), kept
+// in memory, so that the package they import resolves from that directory's
+// node_modules. `framework`: measure only the chunk that holds what-core and
+// what-react; the package's own code (everything from node_modules) goes in a
+// chunk of its own, which is not counted.
+function scenarioDir(name, dir) {
+  if (dir) return join(repoRoot, dir);
+  const out = join(repoRoot, 'benchmark/size/.scenarios', name);
+  mkdirSync(out, { recursive: true });
+  writeFileSync(join(repoRoot, 'benchmark/size/.scenarios/.gitignore'), '*\n');
+  return out;
+}
+
+async function mixedBundle(name, files, { hydratable = true, dir = '', framework = false } = {}) {
   const { build: viteBuild } = await import('vite');
   const { default: what } = await import('../packages/compiler/src/vite-plugin.js');
   const { reactCompat } = await import('../packages/react-compat/src/vite-plugin.js');
-  const sources = new Map(Object.entries(files).map(([file, text]) => [join(repoRoot, file), text]));
-  const entry = join(repoRoot, `${name}.jsx`);
+  const base = scenarioDir(name, dir);
+  const sources = new Map(Object.entries(files).map(([file, text]) => [join(base, file), text]));
+  if (!dir) for (const [file, text] of sources) writeFileSync(file, text);
+  const entry = join(base, `${name}.jsx`);
   const log = console.log;
   console.log = () => {};
   let output;
@@ -496,16 +520,69 @@ async function mixedBundle(name, files) {
       mode: 'production',
       plugins: [
         { name: 'size-entry', enforce: 'pre', resolveId: (id, importer) => { const file = id.startsWith('./') && importer ? join(dirname(importer), id) : id; return sources.has(file) ? file : null; }, load: (id) => sources.get(id) ?? null },
-        what({ hydratable: true }),
+        what({ hydratable }),
         reactCompat(),
       ],
-      build: { write: false, minify: true, target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
+      build: {
+        write: false, minify: true, target: 'es2022', modulePreload: false,
+        rollupOptions: {
+          input: entry,
+          ...(framework ? { output: { codeSplitting: { groups: [
+            { name: 'framework', test: /\/packages\/(core|react-compat)\/(src|dist)\//, priority: 2 },
+            { name: 'package', test: /\/node_modules\//, priority: 1 },
+          ] } } } : {}),
+        },
+      },
     });
   } finally {
     console.log = log;
   }
   const chunks = (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk');
+  if (framework) {
+    const own = chunks.filter((c) => c.name === 'framework');
+    if (own.length !== 1) throw new Error(`[check-size] ${name}: expected one framework chunk, got ${own.length}`);
+    return Buffer.from(own[0].code);
+  }
   return Buffer.concat(chunks.map((c) => Buffer.from(c.code)));
+}
+
+// Scenario (n): a client-only mixed app on a real React package (MIXED.md's
+// dashboard: a native What page that draws a recharts chart). What-react's
+// share is what recharts and the packages it stands on (react-redux,
+// use-sync-external-store) reach of it, which a counter does not: the chunk
+// that holds what-core and what-react is measured, recharts' own code is not.
+// recharts comes from the mixed browser fixture's install
+// (packages/react-compat/test/fixtures/mixed: `npm ci` there); without it
+// the scenario fails, it is never skipped.
+const MIXED_FIXTURE = 'packages/react-compat/test/fixtures/mixed';
+const mixedRechartsPage = `
+import { mount, signal } from 'what-framework';
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+
+const sales = signal([{ day: 'Mon', total: 3 }, { day: 'Tue', total: 5 }]);
+
+function Dashboard() {
+  return (
+    <main>
+      <h1>{sales().length} days</h1>
+      <button onClick={() => sales([...sales(), { day: 'Day ' + sales().length, total: 4 }])}>Add a day</button>
+      <BarChart width={300} height={150} data={sales()}>
+        <XAxis dataKey="day" />
+        <YAxis />
+        <Tooltip />
+        <Bar dataKey="total" fill="#36c" />
+      </BarChart>
+    </main>
+  );
+}
+
+mount(<Dashboard />, '#app');
+`;
+function mixedRechartsBundle() {
+  if (!existsSync(join(repoRoot, MIXED_FIXTURE, 'node_modules/recharts/package.json'))) {
+    throw new Error(`[check-size] mixed-recharts needs recharts: run \`npm ci --prefix ${MIXED_FIXTURE} --ignore-scripts\` first.`);
+  }
+  return mixedBundle('mixed-recharts', { 'mixed-recharts.jsx': mixedRechartsPage }, { hydratable: false, dir: `${MIXED_FIXTURE}/src`, framework: true });
 }
 
 const scenarios = {
@@ -524,6 +601,7 @@ const scenarios = {
   'compiled-hydrate': () => viteBundle('compiled-hydrate', { source: hydratingCounter, hydratable: true }),
   'react-counter': () => reactCompatBundle('react-counter', reactCounter),
   'mixed-hydrate': () => mixedBundle('mixed-hydrate', { 'mixed-hydrate.jsx': mixedHydratePage, 'mixed-hydrate-counter.jsx': mixedIsland }),
+  'mixed-recharts': () => mixedRechartsBundle(),
 };
 
 const kb = (n) => `${(n / 1024).toFixed(2)} KB`;
@@ -539,7 +617,14 @@ for (const [name, bundle] of Object.entries(scenarios)) {
     failed = true;
     continue;
   }
-  const bytes = await bundle();
+  let bytes;
+  try {
+    bytes = await bundle();
+  } catch (error) {
+    console.error(`  ✗ ${name}: ${error && error.message ? error.message.split('\n')[0] : error}`);
+    failed = true;
+    continue;
+  }
   productionBundles[name] = bytes;
   const minBytes = bytes.length;
   const gzipBytes = gzipSync(bytes, { level: 9 }).length;
@@ -645,6 +730,36 @@ for (const name of ['what-error', 'what-error (vite, source)', 'diagnostics-read
   const has = Buffer.from(productionBundles[name]).toString().includes(CATALOGUE);
   console.log(`  ${has ? '✗' : '✓'} ${name}: ${has ? 'carries' : 'does not carry'} the error catalogue`);
   if (has) failed = true;
+}
+
+// --- what-react only where it is used -------------------------------------
+// A native app built with what-react's plugin as well (mixed mode on) that
+// uses no React package is the same bytes as the app built without it. A
+// client build that does not hydrate carries no island adoption (hydrate.js,
+// whose "native What content" stands for it) and no island server renderer
+// (server.js, the plugin's stand-in takes its place in every client build);
+// the hydrating mixed app carries the adoption.
+console.log('\n[check-size] what-react only where it is used:\n');
+{
+  const nativeOnly = await mixedBundle('compiled-counter-mixed', { 'compiled-counter-mixed.jsx': scaffoldCounter }, { hydratable: false });
+  const same = Buffer.compare(Buffer.from(nativeOnly), Buffer.from(productionBundles['compiled-counter'])) === 0;
+  console.log(`  ${same ? '✓' : '✗'} compiled-counter with reactCompat() too: ${same ? 'the same bytes as without it' : `differs (${gzipSync(nativeOnly, { level: 9 }).length} B gzip against ${gzipSync(productionBundles['compiled-counter'], { level: 9 }).length} B)`}`);
+  if (!same) failed = true;
+  const ADOPTION = 'native What content';
+  const SERVER_RENDERER = 'A React island cannot render on the server';
+  for (const [name, adoption] of [['react-counter', false], ['mixed-recharts', false], ['mixed-hydrate', true]]) {
+    if (productionBundles[name] === undefined) {
+      console.error(`  ✗ ${name}: not built (above)`);
+      failed = true;
+      continue;
+    }
+    const code = Buffer.from(productionBundles[name]).toString();
+    const adopts = code.includes(ADOPTION);
+    const server = code.includes(SERVER_RENDERER);
+    const ok = adopts === adoption && !server;
+    console.log(`  ${ok ? '✓' : '✗'} ${name}: ${adopts ? 'carries' : 'does not carry'} island adoption, ${server ? 'carries' : 'does not carry'} the island server renderer`);
+    if (!ok) failed = true;
+  }
 }
 
 // --- A default esbuild build is the production build ----------------------

@@ -1475,6 +1475,40 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **what-react carries only what an app uses.** Measured by `npm run
+  check:size` (Node 22.13.1) against 90c91c40: a React counter on what-react
+  22,160 B to 16,037 B gzip (React 19.3.1 ships 67,599 B for it); a native
+  What page that draws a recharts chart, the chunk that holds what-core and
+  what-react, 29,074 B to 23,222 B (React and ReactDOM: 67,383 B); a
+  hydrating page with one island 44,964 B to 42,331 B; the krausest app on
+  what-react 23,109 B to 16,953 B. what-react's elements are made by
+  what-core's unbuilt component call instead of `h()`, which installed
+  what-core's vnode renderer in every React app; the class lifecycle comes
+  with `Component`; `Suspense`, `StrictMode`, `Profiler` and `Activity` are
+  dropped when unused; how an island claims the server's region is installed
+  by the hydrating entry (`what-react/claim-islands`, which
+  `what-react/hydrate-islands` includes, imported by every module
+  what-compiler compiles for hydration), and an island's server branch lives
+  in the server renderer, which a client
+  build replaces; a portal that reaches native code renders as an island; the
+  mixed plugin's island tag is an arrow the native module defines, which
+  what-compiler calls as a plain function. Speed is unchanged: the krausest
+  app on what-react is 3.32 times hand-written JS in script thread time (3.41
+  before, React 5.71; 8 interleaved rounds), and a native list with a React
+  component per row 1.29 times an all-native one (1.27 before).
+  `npm run check:size` measures the recharts page (`mixed-recharts`, recharts
+  from the mixed browser fixture's install), builds `mixed-hydrate` with a
+  real island (its React file was compiled as a native component before), and
+  fails when a native app built with `reactCompat()` too is not the same bytes
+  as without it, or a client build carries island adoption or the island
+  server renderer. `benchmark/size/why.mjs` attributes the what-react
+  scenarios. REACT-COMPAT.md, "What an app carries".
+  *Migration:* a build without what-react's Vite plugin that hydrates React
+  islands imports `what-react/claim-islands` (or `what-react/hydrate-islands`,
+  which adopts the server's HTML) before `hydrate()`. In an app with no
+  native What code, a React element that reaches what-core (a function child
+  that returns one) renders as an island, by React's rules.
+
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
   14,204 B to 14,079 B gzip, react-counter 22,203 to 22,153,

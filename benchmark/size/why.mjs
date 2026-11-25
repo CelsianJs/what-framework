@@ -7,8 +7,12 @@
 //   node benchmark/size/why.mjs compiled-counter --min 40   hide rows under 40 B
 //   node benchmark/size/why.mjs compiled-counter --text     also dump the readable bundle
 //
+//   node benchmark/size/why.mjs react-counter               a what-react scenario
+//   node benchmark/size/why.mjs mixed-recharts              the framework chunk only
+//
 // Two builds of the scenario from packages/*/src, both a production `vite build`
-// through what-compiler/vite exactly as check-size's "(vite, source)" builds:
+// with the plugins check-size uses for it (what-compiler/vite, what-react's
+// reactCompat(), or both), as check-size's "(vite, source)" builds do:
 //
 //   1. minified with a source map: every output byte is traced to a source
 //      position and charged to the top-level declaration that encloses it
@@ -26,8 +30,8 @@
 // Uses the repo root's vite and Babel, and benchmark/size's trace-mapping.
 
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const repo = resolve(import.meta.dirname, '../..');
@@ -49,37 +53,105 @@ const sourceOf = (constName) => {
   if (!m) throw new Error(`check-size.mjs has no template literal named ${constName}`);
   return m[1].replace(/\\`/g, '`').replace(/\\\$/g, '$').replace(/\\\\/g, '\\');
 };
-const scenarioSource = () => {
-  const m = new RegExp(`'${scenario}': \\(\\) => viteBundle\\('[^']+', \\{ source: (\\w+)(, hydratable: true)? \\}\\)`).exec(checkSize);
-  if (!m) throw new Error(`${scenario} is not a viteBundle scenario of check-size.mjs`);
-  return { source: sourceOf(m[1]), hydratable: !!m[2] };
+const constString = (name) => /'([^']*)'/.exec(new RegExp(`const ${name} = ('[^']*');`).exec(checkSize)?.[1] ?? '')?.[1];
+// Three kinds of scenario, built as check-size builds them:
+//   what   viteBundle: what-compiler/vite alone
+//   react  reactCompatBundle: what-react's plugin alone, every JSX file React code
+//   mixed  mixedBundle: what-compiler/vite and what-react's plugin (mixed mode);
+//          `framework: true` attributes the chunk that holds what-core and
+//          what-react, apart from the React package's own code.
+const scenarioSpec = () => {
+  let m = new RegExp(`'${scenario}': \\(\\) => viteBundle\\('[^']+', \\{ source: (\\w+)(, hydratable: true)? \\}\\)`).exec(checkSize);
+  if (m) return { kind: 'what', files: { [`${scenario}.jsx`]: sourceOf(m[1]) }, hydratable: !!m[2], dir: '' };
+  m = new RegExp(`'${scenario}': \\(\\) => reactCompatBundle\\('[^']+', (\\w+)\\)`).exec(checkSize);
+  if (m) return { kind: 'react', files: { [`${scenario}.jsx`]: sourceOf(m[1]) }, hydratable: false, dir: '' };
+  m = new RegExp(`mixedBundle\\('${scenario}', \\{ ([^}]*) \\}(?:, \\{ (.*) \\})?\\)[;,]?$`, 'm').exec(checkSize);
+  if (m) {
+    const files = {};
+    for (const [, file, constName] of m[1].matchAll(/'([^']+)': (\w+)/g)) files[file] = sourceOf(constName);
+    const opts = m[2] ?? '';
+    const dir = /dir: `\$\{(\w+)\}([^`]*)`/.exec(opts);
+    return {
+      kind: 'mixed', files,
+      hydratable: !/hydratable: false/.test(opts),
+      framework: /framework: true/.test(opts),
+      dir: dir ? constString(dir[1]) + dir[2] : '',
+    };
+  }
+  throw new Error(`${scenario} is not a viteBundle, reactCompatBundle or mixedBundle scenario of check-size.mjs`);
 };
 
-async function bundle({ source, hydratable }, { minify }) {
+// what-core and what-framework from packages/*/src, every export of each
+// package mapped to the file its `import` condition names.
+const sourceAliases = () => {
+  const alias = [];
+  for (const [pkg, dir] of [['what-core', 'packages/core'], ['what-framework', 'packages/what']]) {
+    const { exports } = JSON.parse(readFileSync(join(repo, dir, 'package.json'), 'utf8'));
+    for (const [key, target] of Object.entries(exports)) {
+      const file = typeof target === 'string' ? target : target.import ?? target.default;
+      if (typeof file !== 'string' || !file.endsWith('.js')) continue;
+      const specifier = pkg + key.slice(1);
+      alias.push({ find: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`), replacement: join(repo, dir, file) });
+    }
+  }
+  return alias;
+};
+
+async function bundle({ kind, files, hydratable, dir, framework }, { minify }) {
   const { build } = await import(require.resolve('vite').replace(/dist[\\/]node[\\/].*$/, 'dist/node/index.js'));
   const { default: what } = await import(join(repo, 'packages/compiler/src/vite-plugin.js'));
-  const entry = join(repo, `${scenario}.jsx`);
-  const coreSrc = join(repo, 'packages/core/src');
-  const output = await build({
-    configFile: false,
-    root: repo,
-    logLevel: 'silent',
-    mode: 'production',
-    plugins: [
-      { name: 'size-entry', enforce: 'pre', resolveId: (id) => (id === entry ? entry : null), load: (id) => (id === entry ? source : null) },
-      what({ prodBundles: false, hydratable }),
-    ],
-    resolve: { alias: [
-      { find: /^what-(?:framework|core)\/render$/, replacement: join(coreSrc, 'render.js') },
-      { find: /^what-(?:framework|core)\/(a11y|ui|motion|dom|form|data)$/, replacement: join(coreSrc, 'entries/$1.js') },
-      { find: /^what-(?:framework|core)$/, replacement: join(coreSrc, 'index.js') },
-    ] },
-    build: { write: false, minify, sourcemap: 'hidden', target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
-  });
+  const { reactCompat } = await import(join(repo, 'packages/react-compat/src/vite-plugin.js'));
+  // As check-size's mixedBundle: the files are written out (the mixed plugin
+  // reads an imported file to tell React files from native ones), unless they
+  // sit in `dir`.
+  const onDisk = kind === 'mixed' && !dir;
+  const base = dir ? join(repo, dir) : onDisk ? join(repo, 'benchmark/size/.scenarios', scenario) : repo;
+  if (onDisk) {
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(repo, 'benchmark/size/.scenarios/.gitignore'), '*\n');
+  }
+  const sources = new Map(Object.entries(files).map(([file, text]) => [join(base, file), text]));
+  if (onDisk) for (const [file, text] of sources) writeFileSync(file, text);
+  const entry = join(base, `${scenario}.jsx`);
+  const plugins = [
+    { name: 'size-entry', enforce: 'pre', resolveId: (id, importer) => { const file = id.startsWith('./') && importer ? join(dirname(importer), id) : id; return sources.has(file) ? file : null; }, load: (id) => sources.get(id) ?? null },
+    ...(kind !== 'react' ? [what({ prodBundles: false, hydratable })] : []),
+    ...(kind !== 'what' ? [reactCompat()] : []),
+  ];
+  const log = console.log;
+  console.log = () => {}; // what-react's plugin announces itself
+  let output;
+  try {
+    output = await build({
+      configFile: false,
+      root: repo,
+      logLevel: 'silent',
+      mode: 'production',
+      plugins,
+      // what-compiler/vite defines it in a production build; what-react's
+      // plugin alone leaves what-core's production dist to fold it.
+      define: { __WHAT_DEV__: 'false' },
+      resolve: { alias: sourceAliases() },
+      build: {
+        write: false, minify, sourcemap: 'hidden', target: 'es2022', modulePreload: false,
+        rollupOptions: {
+          input: entry,
+          ...(framework ? { output: { codeSplitting: { groups: [
+            { name: 'framework', test: /\/packages\/(core|what|react-compat)\/(src|dist)\//, priority: 2 },
+            { name: 'package', test: /\/node_modules\//, priority: 1 },
+          ] } } } : {}),
+        },
+      },
+    });
+  } finally {
+    console.log = log;
+  }
   const outs = (Array.isArray(output) ? output : [output]).flatMap((o) => o.output);
   const chunks = outs.filter((o) => o.type === 'chunk');
-  if (chunks.length !== 1) throw new Error(`expected one chunk, got ${chunks.length}`);
-  return { code: chunks[0].code, map: chunks[0].map };
+  const picked = framework ? chunks.filter((c) => c.name === 'framework') : chunks;
+  if (picked.length !== 1) throw new Error(`expected one ${framework ? 'framework ' : ''}chunk, got ${picked.length}`);
+  const others = framework ? chunks.filter((c) => c !== picked[0]).map((c) => ({ name: c.name, minBytes: Buffer.byteLength(c.code), gzipBytes: gzipSync(c.code, { level: 9 }).length })) : [];
+  return { code: picked[0].code, map: picked[0].map, others };
 }
 
 // --- top-level declarations of a source module ------------------------------
@@ -115,7 +187,7 @@ function ownerOf(file, line, column) {
 }
 
 // --- 1. bytes ---------------------------------------------------------------
-const spec = scenarioSource();
+const spec = scenarioSpec();
 const min = await bundle(spec, { minify: true });
 const minBytes = Buffer.byteLength(min.code);
 const gzipBytes = gzipSync(min.code, { level: 9 }).length;
@@ -123,6 +195,7 @@ const map = new TraceMap(min.map);
 const mappings = decodedMappings(map);
 const bytes = new Map(); // "file\0name" -> bytes
 let unmapped = 0;
+const lineBytes = new Map();
 for (const [lineNo, text] of min.code.split('\n').entries()) {
   const segments = mappings[lineNo] ?? [];
   let cursor = 0;
@@ -136,7 +209,9 @@ for (const [lineNo, text] of min.code.split('\n').entries()) {
     const file = resolve(repo, map.sources[seg[1]].replace(/^(\.\.\/)+/, ''));
     const src = map.resolvedSources?.[seg[1]] ?? map.sources[seg[1]];
     const abs = src.startsWith('/') ? src : file;
-    const key = `${relative(repo, abs)}\0${ownerOf(abs, seg[2] + 1, seg[3])}`;
+    const owner = ownerOf(abs, seg[2] + 1, seg[3]);
+    const key = `${relative(repo, abs)}\0${owner}`;
+    if (process.env.WHY_LINES && owner === '<module scope>') { const k = `${relative(repo, abs)}:${seg[2] + 1}`; lineBytes.set(k, (lineBytes.get(k) ?? 0) + size); }
     bytes.set(key, (bytes.get(key) ?? 0) + size);
   }
   if (!segments.length) unmapped += Buffer.byteLength(text);
@@ -192,13 +267,16 @@ const rows = [...bytes].map(([key, size]) => {
 const modules = new Map();
 for (const r of rows) modules.set(r.file, (modules.get(r.file) ?? 0) + r.min);
 
+if (process.env.WHY_LINES) for (const [k, v] of [...lineBytes].sort((a, b) => b[1] - a[1]).slice(0, 60)) console.log('module-scope line', k, v);
 const out = flag('--json');
 if (typeof out === 'string') {
   writeFileSync(out, JSON.stringify({ scenario, minBytes, gzipBytes, unmapped, modules: Object.fromEntries(modules), rows }, null, 2));
 }
 if (flag('--text')) writeFileSync(typeof flag('--text') === 'string' ? flag('--text') : `${scenario}.bundle.js`, readable.code);
 
-console.log(`${scenario} (vite, source): min ${minBytes} B, gzip ${gzipBytes} B, unmapped ${unmapped} B\n`);
+console.log(`${scenario} (vite, source${spec.framework ? ', framework chunk' : ''}): min ${minBytes} B, gzip ${gzipBytes} B, unmapped ${unmapped} B\n`);
+for (const o of min.others) console.log(`  not attributed: chunk ${o.name}, min ${o.minBytes} B, gzip ${o.gzipBytes} B`);
+if (min.others.length) console.log('');
 console.log('by module (min B, est. gzip B):');
 for (const [file, size] of [...modules].sort((a, b) => b[1] - a[1])) {
   console.log(`  ${String(size).padStart(6)} ${String(Math.round(size * ratio)).padStart(6)}  ${file}`);

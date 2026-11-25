@@ -489,31 +489,35 @@ export function reactCompat(options = {}) {
   }, mixedPlugin, {
     // A native module that what-compiler compiled for hydration (its JSX
     // claims the server's nodes) also installs island hydration: the islands
-    // of the page it hydrates adopt the server's HTML (src/hydrate.js). A
-    // client build that does not hydrate never imports it, and its bundle
-    // does not carry that code. An import, not a call: an import is evaluated
-    // before the module's own code, so the install comes first also when the
-    // module calls hydrate() at its top level (a call added after that code
-    // ran after hydrate() had replaced the islands). The module it imports is
-    // the one file of what-react with a side effect (package.json).
+    // of the page it hydrates claim the server's regions and adopt its HTML
+    // (src/hydrate.js), or, with `hydrateIslands: false`, claim the regions
+    // and render over them (_claimIslands). A client build that does not
+    // hydrate never imports either, and its bundle does not carry that code.
+    // An import, not a call: an import is evaluated before the module's own
+    // code, so the install comes first also when the module calls hydrate()
+    // at its top level (a call added after that code ran after hydrate() had
+    // replaced the islands). The modules it imports are the files of
+    // what-react with a side effect (package.json).
     name: 'what-react-hydrate-islands',
     enforce: 'post',
     transform(code, id, opts) {
-      if (!mixedOn || !hydrateIslands || (opts && opts.ssr)) return null;
+      if (!mixedOn || (opts && opts.ssr)) return null;
       // A JSX file, as what-compiler compiles them (its `include`).
       const file = id.split('?')[0];
       if (!/\.[jt]sx$/.test(file) || file.includes('/node_modules/') || file.startsWith('\0')) return null;
-      if (!HYDRATABLE_OUTPUT.test(code) || code.includes(HYDRATE_ISLANDS)) return null;
+      const install = hydrateIslands ? HYDRATE_ISLANDS : CLAIM_ISLANDS;
+      if (!HYDRATABLE_OUTPUT.test(code) || code.includes(install)) return null;
       // Appended (an import is hoisted wherever it stands): the module's own
       // lines and their source map stay as they are.
-      return { code: `${code}\nimport ${JSON.stringify(HYDRATE_ISLANDS)};\n`, map: null };
+      return { code: `${code}\nimport ${JSON.stringify(install)};\n`, map: null };
     },
   }];
 }
 
-// The stand-in for what-react's server.js in a client build (resolveId).
+// The stand-in for what-react's server.js in a client build (resolveId): an
+// island in the browser renders no server HTML (serverIsland gives undefined).
 const SERVER_STUB = '\0what-react:server-stub';
-const SERVER_STUB_CODE = "export function serverTree() { throw new Error('[what-react] This client build does not carry the island server renderer (a React island renders to HTML on the server only).'); }\n";
+const SERVER_STUB_CODE = "export function serverIsland() {}\n";
 
 function isServerResolve(ctx, opts) {
   if (opts && opts.ssr) return true;
@@ -545,5 +549,6 @@ function isWhatReactMixed(importer) {
 // the JSX handed to hydrate().
 const HYDRATABLE_OUTPUT = /^import\s*\{[^}]*\b_\$(?:claim|claimControl|componentVNode)\b[^}]*\}\s*from\s*['"]what-(?:framework|core)\/render['"]/m;
 const HYDRATE_ISLANDS = 'what-react/hydrate-islands';
+const CLAIM_ISLANDS = 'what-react/claim-islands';
 
 export default reactCompat;
