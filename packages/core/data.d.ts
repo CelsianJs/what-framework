@@ -123,6 +123,11 @@ export type FetchStatus = 'idle' | 'fetching';
 export interface UseQueryOptions<T, D = T> {
   /** The key. A function of signals moves the query to the key it returns. */
   queryKey: QueryKeySource;
+  /**
+   * Fetches the key's value. `queryKey` is this query's own key as it wrote it
+   * (as an array), even when another spelling of it (`'todos:1'` for
+   * `['todos', 1]`) created the cache entry they share.
+   */
   queryFn: (ctx: { queryKey: readonly unknown[]; signal: AbortSignal }) => Promise<T> | T;
   /** A boolean, a signal or a thunk: automatic fetching starts when it turns true. Explicit refetch() is never gated. */
   enabled?: boolean | (() => boolean);

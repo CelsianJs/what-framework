@@ -21,47 +21,57 @@ export type Reactive<T> = T | null | undefined | (() => T | null | undefined);
 export function jsx(type: any, props: any, key?: any): VNode;
 export function jsxs(type: any, props: any, key?: any): VNode;
 
-type EventHandler<E extends Event = Event> = (event: E & { currentTarget: EventTarget & Element; target: Element }) => void;
+/**
+ * A handler of DOM event `E` on an element of type `T`. `currentTarget` is the
+ * element the handler is on (an `<input>`'s handler reads
+ * `e.currentTarget.value` with no cast), as React types it; `target` is
+ * whatever element the event started at, which may be a descendant. Declared
+ * as a method so a handler for a narrower element still fits a wider one (a
+ * custom element's attributes, the index signature below).
+ */
+type EventHandler<E extends Event = Event, T extends EventTarget = Element> = {
+  bivarianceHack(event: E & { currentTarget: EventTarget & T; target: Element }): void;
+}['bivarianceHack'];
 
-interface WhatEventHandlers {
+interface WhatEventHandlers<T extends EventTarget = Element> {
   // What lowercases the event name, so both spellings resolve to the same DOM event.
-  onClick?: EventHandler<MouseEvent>;
-  onclick?: EventHandler<MouseEvent>;
-  onDblClick?: EventHandler<MouseEvent>;
-  ondblclick?: EventHandler<MouseEvent>;
-  onMouseDown?: EventHandler<MouseEvent>;
-  onmousedown?: EventHandler<MouseEvent>;
-  onMouseUp?: EventHandler<MouseEvent>;
-  onmouseup?: EventHandler<MouseEvent>;
-  onMouseEnter?: EventHandler<MouseEvent>;
-  onmouseenter?: EventHandler<MouseEvent>;
-  onMouseLeave?: EventHandler<MouseEvent>;
-  onmouseleave?: EventHandler<MouseEvent>;
-  onMouseMove?: EventHandler<MouseEvent>;
-  onmousemove?: EventHandler<MouseEvent>;
-  onInput?: EventHandler<InputEvent>;
-  oninput?: EventHandler<InputEvent>;
-  onChange?: EventHandler<Event>;
-  onchange?: EventHandler<Event>;
-  onSubmit?: EventHandler<SubmitEvent>;
-  onsubmit?: EventHandler<SubmitEvent>;
-  onReset?: EventHandler<Event>;
-  onreset?: EventHandler<Event>;
-  onKeyDown?: EventHandler<KeyboardEvent>;
-  onkeydown?: EventHandler<KeyboardEvent>;
-  onKeyUp?: EventHandler<KeyboardEvent>;
-  onkeyup?: EventHandler<KeyboardEvent>;
-  onKeyPress?: EventHandler<KeyboardEvent>;
-  onkeypress?: EventHandler<KeyboardEvent>;
-  onFocus?: EventHandler<FocusEvent>;
-  onfocus?: EventHandler<FocusEvent>;
-  onBlur?: EventHandler<FocusEvent>;
-  onblur?: EventHandler<FocusEvent>;
-  onScroll?: EventHandler<Event>;
-  onscroll?: EventHandler<Event>;
+  onClick?: EventHandler<MouseEvent, T>;
+  onclick?: EventHandler<MouseEvent, T>;
+  onDblClick?: EventHandler<MouseEvent, T>;
+  ondblclick?: EventHandler<MouseEvent, T>;
+  onMouseDown?: EventHandler<MouseEvent, T>;
+  onmousedown?: EventHandler<MouseEvent, T>;
+  onMouseUp?: EventHandler<MouseEvent, T>;
+  onmouseup?: EventHandler<MouseEvent, T>;
+  onMouseEnter?: EventHandler<MouseEvent, T>;
+  onmouseenter?: EventHandler<MouseEvent, T>;
+  onMouseLeave?: EventHandler<MouseEvent, T>;
+  onmouseleave?: EventHandler<MouseEvent, T>;
+  onMouseMove?: EventHandler<MouseEvent, T>;
+  onmousemove?: EventHandler<MouseEvent, T>;
+  onInput?: EventHandler<InputEvent, T>;
+  oninput?: EventHandler<InputEvent, T>;
+  onChange?: EventHandler<Event, T>;
+  onchange?: EventHandler<Event, T>;
+  onSubmit?: EventHandler<SubmitEvent, T>;
+  onsubmit?: EventHandler<SubmitEvent, T>;
+  onReset?: EventHandler<Event, T>;
+  onreset?: EventHandler<Event, T>;
+  onKeyDown?: EventHandler<KeyboardEvent, T>;
+  onkeydown?: EventHandler<KeyboardEvent, T>;
+  onKeyUp?: EventHandler<KeyboardEvent, T>;
+  onkeyup?: EventHandler<KeyboardEvent, T>;
+  onKeyPress?: EventHandler<KeyboardEvent, T>;
+  onkeypress?: EventHandler<KeyboardEvent, T>;
+  onFocus?: EventHandler<FocusEvent, T>;
+  onfocus?: EventHandler<FocusEvent, T>;
+  onBlur?: EventHandler<FocusEvent, T>;
+  onblur?: EventHandler<FocusEvent, T>;
+  onScroll?: EventHandler<Event, T>;
+  onscroll?: EventHandler<Event, T>;
 }
 
-interface WhatHTMLAttributes extends WhatEventHandlers {
+interface WhatHTMLAttributes<T extends EventTarget = Element> extends WhatEventHandlers<T> {
   children?: VNodeChild;
   /** Component-list reconciliation key. */
   key?: string | number;
@@ -89,7 +99,7 @@ interface WhatHTMLAttributes extends WhatEventHandlers {
   [attr: string]: any;
 }
 
-interface WhatInputAttributes extends WhatHTMLAttributes {
+interface WhatInputAttributes extends WhatHTMLAttributes<HTMLInputElement> {
   type?: Reactive<string>;
   value?: Reactive<string | number>;
   checked?: Reactive<boolean>;
@@ -107,14 +117,14 @@ interface WhatInputAttributes extends WhatHTMLAttributes {
   autofocus?: Reactive<boolean>;
 }
 
-interface WhatAnchorAttributes extends WhatHTMLAttributes {
+interface WhatAnchorAttributes extends WhatHTMLAttributes<HTMLAnchorElement> {
   href?: Reactive<string>;
   target?: Reactive<string>;
   rel?: Reactive<string>;
   download?: Reactive<string | boolean>;
 }
 
-interface WhatImgAttributes extends WhatHTMLAttributes {
+interface WhatImgAttributes extends WhatHTMLAttributes<HTMLImageElement> {
   src?: Reactive<string>;
   srcset?: Reactive<string>;
   alt?: Reactive<string>;
@@ -124,7 +134,7 @@ interface WhatImgAttributes extends WhatHTMLAttributes {
   decoding?: Reactive<'async' | 'auto' | 'sync'>;
 }
 
-interface WhatButtonAttributes extends WhatHTMLAttributes {
+interface WhatButtonAttributes extends WhatHTMLAttributes<HTMLButtonElement> {
   type?: Reactive<'button' | 'submit' | 'reset'>;
   disabled?: Reactive<boolean>;
   name?: Reactive<string>;
@@ -132,7 +142,7 @@ interface WhatButtonAttributes extends WhatHTMLAttributes {
   form?: Reactive<string>;
 }
 
-interface WhatFormAttributes extends WhatHTMLAttributes {
+interface WhatFormAttributes extends WhatHTMLAttributes<HTMLFormElement> {
   action?: Reactive<string>;
   method?: Reactive<string>;
   enctype?: Reactive<string>;
@@ -140,18 +150,18 @@ interface WhatFormAttributes extends WhatHTMLAttributes {
   target?: Reactive<string>;
 }
 
-interface WhatLabelAttributes extends WhatHTMLAttributes {
+interface WhatLabelAttributes extends WhatHTMLAttributes<HTMLLabelElement> {
   for?: Reactive<string>;
   htmlFor?: Reactive<string>;
 }
 
-interface WhatOptionAttributes extends WhatHTMLAttributes {
+interface WhatOptionAttributes extends WhatHTMLAttributes<HTMLOptionElement> {
   value?: Reactive<string | number>;
   selected?: Reactive<boolean>;
   disabled?: Reactive<boolean>;
 }
 
-interface WhatSelectAttributes extends WhatHTMLAttributes {
+interface WhatSelectAttributes extends WhatHTMLAttributes<HTMLSelectElement> {
   value?: Reactive<string | number>;
   name?: Reactive<string>;
   disabled?: Reactive<boolean>;
@@ -159,7 +169,7 @@ interface WhatSelectAttributes extends WhatHTMLAttributes {
   multiple?: Reactive<boolean>;
 }
 
-interface WhatTextareaAttributes extends WhatHTMLAttributes {
+interface WhatTextareaAttributes extends WhatHTMLAttributes<HTMLTextAreaElement> {
   value?: Reactive<string>;
   placeholder?: Reactive<string>;
   rows?: Reactive<string | number>;
@@ -170,7 +180,7 @@ interface WhatTextareaAttributes extends WhatHTMLAttributes {
   name?: Reactive<string>;
 }
 
-interface WhatMediaAttributes extends WhatHTMLAttributes {
+interface WhatMediaAttributes<T extends HTMLElement = HTMLMediaElement> extends WhatHTMLAttributes<T> {
   src?: Reactive<string>;
   controls?: Reactive<boolean>;
   autoplay?: Reactive<boolean>;
@@ -181,7 +191,7 @@ interface WhatMediaAttributes extends WhatHTMLAttributes {
 }
 
 // SVG (recharts and other chart libraries render through this).
-interface WhatSVGAttributes extends WhatHTMLAttributes {
+interface WhatSVGAttributes<T extends SVGElement = SVGElement> extends WhatHTMLAttributes<T> {
   width?: Reactive<string | number>;
   height?: Reactive<string | number>;
   viewBox?: Reactive<string>;
@@ -221,6 +231,7 @@ export namespace JSX {
 
   interface IntrinsicElements {
     // Element-specific typing (autocomplete for the props that matter most).
+    // Each element's event handlers see it as `e.currentTarget`.
     a: WhatAnchorAttributes;
     img: WhatImgAttributes;
     input: WhatInputAttributes;
@@ -230,95 +241,95 @@ export namespace JSX {
     option: WhatOptionAttributes;
     select: WhatSelectAttributes;
     textarea: WhatTextareaAttributes;
-    video: WhatMediaAttributes;
-    audio: WhatMediaAttributes;
-    source: WhatMediaAttributes;
+    video: WhatMediaAttributes<HTMLVideoElement>;
+    audio: WhatMediaAttributes<HTMLAudioElement>;
+    source: WhatMediaAttributes<HTMLSourceElement>;
 
     // Structural / text / sectioning elements.
-    div: WhatHTMLAttributes;
-    span: WhatHTMLAttributes;
-    p: WhatHTMLAttributes;
-    section: WhatHTMLAttributes;
-    article: WhatHTMLAttributes;
-    header: WhatHTMLAttributes;
-    footer: WhatHTMLAttributes;
-    main: WhatHTMLAttributes;
-    aside: WhatHTMLAttributes;
-    nav: WhatHTMLAttributes;
-    h1: WhatHTMLAttributes;
-    h2: WhatHTMLAttributes;
-    h3: WhatHTMLAttributes;
-    h4: WhatHTMLAttributes;
-    h5: WhatHTMLAttributes;
-    h6: WhatHTMLAttributes;
-    ul: WhatHTMLAttributes;
-    ol: WhatHTMLAttributes;
-    li: WhatHTMLAttributes;
-    dl: WhatHTMLAttributes;
-    dt: WhatHTMLAttributes;
-    dd: WhatHTMLAttributes;
-    table: WhatHTMLAttributes;
-    thead: WhatHTMLAttributes;
-    tbody: WhatHTMLAttributes;
-    tfoot: WhatHTMLAttributes;
-    tr: WhatHTMLAttributes;
-    th: WhatHTMLAttributes;
-    td: WhatHTMLAttributes;
-    caption: WhatHTMLAttributes;
-    colgroup: WhatHTMLAttributes;
-    col: WhatHTMLAttributes;
-    fieldset: WhatHTMLAttributes;
-    legend: WhatHTMLAttributes;
-    strong: WhatHTMLAttributes;
-    em: WhatHTMLAttributes;
-    b: WhatHTMLAttributes;
-    i: WhatHTMLAttributes;
-    u: WhatHTMLAttributes;
-    small: WhatHTMLAttributes;
-    mark: WhatHTMLAttributes;
-    code: WhatHTMLAttributes;
-    pre: WhatHTMLAttributes;
-    kbd: WhatHTMLAttributes;
-    blockquote: WhatHTMLAttributes;
-    hr: WhatHTMLAttributes;
-    br: WhatHTMLAttributes;
-    figure: WhatHTMLAttributes;
-    figcaption: WhatHTMLAttributes;
-    details: WhatHTMLAttributes;
-    summary: WhatHTMLAttributes;
-    dialog: WhatHTMLAttributes;
-    picture: WhatHTMLAttributes;
-    iframe: WhatHTMLAttributes;
-    canvas: WhatHTMLAttributes;
-    template: WhatHTMLAttributes;
-    slot: WhatHTMLAttributes;
-    time: WhatHTMLAttributes;
-    progress: WhatHTMLAttributes;
-    meter: WhatHTMLAttributes;
-    output: WhatHTMLAttributes;
-    datalist: WhatHTMLAttributes;
-    optgroup: WhatHTMLAttributes;
+    div: WhatHTMLAttributes<HTMLElementTagNameMap['div']>;
+    span: WhatHTMLAttributes<HTMLElementTagNameMap['span']>;
+    p: WhatHTMLAttributes<HTMLElementTagNameMap['p']>;
+    section: WhatHTMLAttributes<HTMLElementTagNameMap['section']>;
+    article: WhatHTMLAttributes<HTMLElementTagNameMap['article']>;
+    header: WhatHTMLAttributes<HTMLElementTagNameMap['header']>;
+    footer: WhatHTMLAttributes<HTMLElementTagNameMap['footer']>;
+    main: WhatHTMLAttributes<HTMLElementTagNameMap['main']>;
+    aside: WhatHTMLAttributes<HTMLElementTagNameMap['aside']>;
+    nav: WhatHTMLAttributes<HTMLElementTagNameMap['nav']>;
+    h1: WhatHTMLAttributes<HTMLElementTagNameMap['h1']>;
+    h2: WhatHTMLAttributes<HTMLElementTagNameMap['h2']>;
+    h3: WhatHTMLAttributes<HTMLElementTagNameMap['h3']>;
+    h4: WhatHTMLAttributes<HTMLElementTagNameMap['h4']>;
+    h5: WhatHTMLAttributes<HTMLElementTagNameMap['h5']>;
+    h6: WhatHTMLAttributes<HTMLElementTagNameMap['h6']>;
+    ul: WhatHTMLAttributes<HTMLElementTagNameMap['ul']>;
+    ol: WhatHTMLAttributes<HTMLElementTagNameMap['ol']>;
+    li: WhatHTMLAttributes<HTMLElementTagNameMap['li']>;
+    dl: WhatHTMLAttributes<HTMLElementTagNameMap['dl']>;
+    dt: WhatHTMLAttributes<HTMLElementTagNameMap['dt']>;
+    dd: WhatHTMLAttributes<HTMLElementTagNameMap['dd']>;
+    table: WhatHTMLAttributes<HTMLElementTagNameMap['table']>;
+    thead: WhatHTMLAttributes<HTMLElementTagNameMap['thead']>;
+    tbody: WhatHTMLAttributes<HTMLElementTagNameMap['tbody']>;
+    tfoot: WhatHTMLAttributes<HTMLElementTagNameMap['tfoot']>;
+    tr: WhatHTMLAttributes<HTMLElementTagNameMap['tr']>;
+    th: WhatHTMLAttributes<HTMLElementTagNameMap['th']>;
+    td: WhatHTMLAttributes<HTMLElementTagNameMap['td']>;
+    caption: WhatHTMLAttributes<HTMLElementTagNameMap['caption']>;
+    colgroup: WhatHTMLAttributes<HTMLElementTagNameMap['colgroup']>;
+    col: WhatHTMLAttributes<HTMLElementTagNameMap['col']>;
+    fieldset: WhatHTMLAttributes<HTMLElementTagNameMap['fieldset']>;
+    legend: WhatHTMLAttributes<HTMLElementTagNameMap['legend']>;
+    strong: WhatHTMLAttributes<HTMLElementTagNameMap['strong']>;
+    em: WhatHTMLAttributes<HTMLElementTagNameMap['em']>;
+    b: WhatHTMLAttributes<HTMLElementTagNameMap['b']>;
+    i: WhatHTMLAttributes<HTMLElementTagNameMap['i']>;
+    u: WhatHTMLAttributes<HTMLElementTagNameMap['u']>;
+    small: WhatHTMLAttributes<HTMLElementTagNameMap['small']>;
+    mark: WhatHTMLAttributes<HTMLElementTagNameMap['mark']>;
+    code: WhatHTMLAttributes<HTMLElementTagNameMap['code']>;
+    pre: WhatHTMLAttributes<HTMLElementTagNameMap['pre']>;
+    kbd: WhatHTMLAttributes<HTMLElementTagNameMap['kbd']>;
+    blockquote: WhatHTMLAttributes<HTMLElementTagNameMap['blockquote']>;
+    hr: WhatHTMLAttributes<HTMLElementTagNameMap['hr']>;
+    br: WhatHTMLAttributes<HTMLElementTagNameMap['br']>;
+    figure: WhatHTMLAttributes<HTMLElementTagNameMap['figure']>;
+    figcaption: WhatHTMLAttributes<HTMLElementTagNameMap['figcaption']>;
+    details: WhatHTMLAttributes<HTMLElementTagNameMap['details']>;
+    summary: WhatHTMLAttributes<HTMLElementTagNameMap['summary']>;
+    dialog: WhatHTMLAttributes<HTMLElementTagNameMap['dialog']>;
+    picture: WhatHTMLAttributes<HTMLElementTagNameMap['picture']>;
+    iframe: WhatHTMLAttributes<HTMLElementTagNameMap['iframe']>;
+    canvas: WhatHTMLAttributes<HTMLElementTagNameMap['canvas']>;
+    template: WhatHTMLAttributes<HTMLElementTagNameMap['template']>;
+    slot: WhatHTMLAttributes<HTMLElementTagNameMap['slot']>;
+    time: WhatHTMLAttributes<HTMLElementTagNameMap['time']>;
+    progress: WhatHTMLAttributes<HTMLElementTagNameMap['progress']>;
+    meter: WhatHTMLAttributes<HTMLElementTagNameMap['meter']>;
+    output: WhatHTMLAttributes<HTMLElementTagNameMap['output']>;
+    datalist: WhatHTMLAttributes<HTMLElementTagNameMap['datalist']>;
+    optgroup: WhatHTMLAttributes<HTMLElementTagNameMap['optgroup']>;
 
     // SVG.
-    svg: WhatSVGAttributes;
-    g: WhatSVGAttributes;
-    path: WhatSVGAttributes;
-    circle: WhatSVGAttributes;
-    ellipse: WhatSVGAttributes;
-    rect: WhatSVGAttributes;
-    line: WhatSVGAttributes;
-    polyline: WhatSVGAttributes;
-    polygon: WhatSVGAttributes;
-    text: WhatSVGAttributes;
-    tspan: WhatSVGAttributes;
-    defs: WhatSVGAttributes;
-    linearGradient: WhatSVGAttributes;
-    radialGradient: WhatSVGAttributes;
-    stop: WhatSVGAttributes;
-    clipPath: WhatSVGAttributes;
-    use: WhatSVGAttributes;
+    svg: WhatSVGAttributes<SVGElementTagNameMap['svg']>;
+    g: WhatSVGAttributes<SVGElementTagNameMap['g']>;
+    path: WhatSVGAttributes<SVGElementTagNameMap['path']>;
+    circle: WhatSVGAttributes<SVGElementTagNameMap['circle']>;
+    ellipse: WhatSVGAttributes<SVGElementTagNameMap['ellipse']>;
+    rect: WhatSVGAttributes<SVGElementTagNameMap['rect']>;
+    line: WhatSVGAttributes<SVGElementTagNameMap['line']>;
+    polyline: WhatSVGAttributes<SVGElementTagNameMap['polyline']>;
+    polygon: WhatSVGAttributes<SVGElementTagNameMap['polygon']>;
+    text: WhatSVGAttributes<SVGElementTagNameMap['text']>;
+    tspan: WhatSVGAttributes<SVGElementTagNameMap['tspan']>;
+    defs: WhatSVGAttributes<SVGElementTagNameMap['defs']>;
+    linearGradient: WhatSVGAttributes<SVGElementTagNameMap['linearGradient']>;
+    radialGradient: WhatSVGAttributes<SVGElementTagNameMap['radialGradient']>;
+    stop: WhatSVGAttributes<SVGElementTagNameMap['stop']>;
+    clipPath: WhatSVGAttributes<SVGElementTagNameMap['clipPath']>;
+    use: WhatSVGAttributes<SVGElementTagNameMap['use']>;
 
-    // Custom elements / web components remain valid.
+    // Custom elements / web components remain valid; their handlers see an Element.
     [tagName: string]: WhatHTMLAttributes;
   }
 }

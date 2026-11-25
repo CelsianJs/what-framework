@@ -493,7 +493,7 @@ export interface RouteDefinition {
 /** What the adapter passes to (and expects back from) a render function. */
 export interface RouteMatchContext {
   path: string;
-  query: Record<string, string>;
+  query: Record<string, string | string[]>;
   params: Record<string, string>;
   config: Record<string, any>;
   route: RouteDefinition;

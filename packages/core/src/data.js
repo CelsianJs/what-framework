@@ -280,9 +280,11 @@ function startFlight(e) {
     dead: false,
     superseded: false,
     by: e.by,
-    // The observer that asked fetches with its own fetcher; the cache's own
+    // The observer that asked fetches with its own fetcher and its own key, as
+    // it wrote it (['q', 'a'] and 'q:a' name one entry); the cache's own
     // fetches use the last observer's.
     conf: (e.by !== null && e.by.conf) || e.conf,
+    key: e.by !== null && e.by.conf && untrack(e.by.hash) === e.hash ? e.by.key : e.key,
     op,
     /** @type {any} */ promise: null,
     failed: false,
@@ -339,7 +341,7 @@ function watch(at, promise) {
 function callFetcher(e, f) {
   const conf = f.conf;
   if (e.kind === PLAIN) {
-    const result = conf.run(e.key, f.ac.signal);
+    const result = conf.run(f.key, f.ac.signal);
     const share = conf.share;
     if (share == null) return result;
     // Structural sharing: what the fetch answers keeps every part of the
@@ -352,7 +354,7 @@ function callFetcher(e, f) {
   const op = f.op || { param: conf.initialPageParam, place: 'first' };
   // Through the flight's link, as retrying() holds it (see there).
   const at = f.at;
-  return Promise.resolve(conf.run(e.key, op.param, f.ac.signal)).then((page) => {
+  return Promise.resolve(conf.run(f.key, op.param, f.ac.signal)).then((page) => {
     if (at.f !== null) at.f.page = page;
     if (op.place === 'next') return { pages: [...base.pages, page], pageParams: [...base.pageParams, op.param] };
     if (op.place === 'previous') return { pages: [page, ...base.pages], pageParams: [op.param, ...base.pageParams] };
@@ -474,12 +476,12 @@ function deliver(e, f) {
   const o = f.by;
   if (o === null || !o.alive) return;
   if (f.failed) {
-    if (o.onError) o.onError(f.result, e.key);
+    if (o.onError) o.onError(f.result, f.key);
     if (o.onSettled) o.onSettled(null, f.result);
   } else {
     // An infinite query's callbacks hear the page that was fetched.
     const value = e.kind === INFINITE ? f.page : f.result;
-    if (o.onSuccess) o.onSuccess(value, e.key);
+    if (o.onSuccess) o.onSuccess(value, f.key);
     if (o.onSettled) o.onSettled(value, null);
   }
 }
@@ -622,7 +624,9 @@ function acquire(e, o) {
   // An entry is kept unread for the longest gcTime among its readers.
   e.gcTime = e.observers.size === 0 ? o.gcTime : Math.max(e.gcTime, o.gcTime);
   e.observers.add(o);
+  // The fetcher the cache's own fetches call, with its observer's key.
   e.conf = o.conf;
+  e.key = o.key;
   const path = o.path ?? (typeof location !== 'undefined' ? location.pathname : null);
   if (path != null) (e.paths || (e.paths = new Set())).add(path);
 }
@@ -719,6 +723,8 @@ function observe(kind, key, conf, opts) {
     path: pathTag,
     active: () => o.alive && (o.gate === null || o.gate.peek()),
     /** @type {() => any} */ current: noop,
+    // The key as this observer wrote it, for the entry it reads now.
+    /** @type {any} */ key: null,
     /** @type {() => string | null} */ hash: () => null,
   };
   const keyFn = typeof key === 'function' ? key : () => key;
@@ -733,6 +739,7 @@ function observe(kind, key, conf, opts) {
   o.current = computed(() => {
     const h = hash();
     const e = h === null ? null : entryFor(kind, h, raw, o);
+    o.key = raw;
     // The entry the key named before: what keepPreviousData shows.
     if (e !== last) {
       if (last !== null) o.previous = last;
@@ -1385,6 +1392,7 @@ export function prefetchQuery(key, fetcher, options = {}) {
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
   if (e.observers.size === 0) {
     e.conf = { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay };
+    e.key = key;
   }
   const v = valueOf(e);
   let done;

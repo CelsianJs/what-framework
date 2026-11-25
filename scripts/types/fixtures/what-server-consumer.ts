@@ -84,7 +84,7 @@ const routes = [{ path: '/posts/:id', title: 'Post' }];
 const matched = matchRoute('/posts/7', routes);
 const postTitle: string | undefined = matched?.route.title;
 const postId: string | undefined = matched?.params.id;
-const query: Record<string, string> = parseQuery('?page=2');
+const query: Record<string, string | string[]> = parseQuery('?page=2');
 const compiled: CompiledPath | null = null;
 
 export { html, hydratable, withHead, stream, resolved, settled, rendered, document_, staticHtml, ServerOnly, typedHtml };

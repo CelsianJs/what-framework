@@ -193,6 +193,14 @@ function splitUrl(url) {
     : { path: parsed.pathname, search: parsed.search, hash: parsed.hash };
 }
 
+// A URL without its hash: the page it shows. Two URLs of one page differ only
+// in where on it they point, and a navigation between them is a fragment
+// navigation, which keeps the page.
+function pageOf(url) {
+  const i = url.indexOf('#');
+  return i === -1 ? url : url.slice(0, i);
+}
+
 // The URL the browser commits for a navigation to `to` (a path, a relative
 // URL, a '#hash', a URL of this origin): its path, search and hash, resolved
 // against the page as history.pushState resolves it, dot segments and
@@ -333,7 +341,7 @@ function prepare(url, routes, current, state = null) {
       return;
     }
     prep.verdict = signal(/** @type {any} */ (true));
-    const context = { path, params: matched.params, query, route: r };
+    const context = { path, params: matched.params, query, route: r, url };
     let first = true;
     effect(() => {
       const decided = decide(r, context);
@@ -380,8 +388,8 @@ function load(prep, r, params, path, query) {
 // a navigation made, or one made now (the first render, a URL the router did
 // not navigate to).
 function shownFor(url, r) {
-  if (_shown !== null && _shown.url === url && _shown.route === r) return _shown;
-  if (_incoming !== null && _incoming.url === url && _incoming.route === r) {
+  if (_shown !== null && pageOf(_shown.url) === pageOf(url) && _shown.route === r) return _shown;
+  if (_incoming !== null && pageOf(_incoming.url) === pageOf(url) && _incoming.route === r) {
     const prep = _incoming;
     show(prep);
     return prep;
@@ -470,30 +478,22 @@ export async function navigate(to, opts = {}) {
   if (!_redirectChain) _redirectHistory.length = 0;
 
   // The URL the address bar will show, which is what the router commits.
-  const href = resolveHref(to) ?? to;
+  const target = resolveHref(to);
+  const href = target ?? to;
 
-  // Handle same-page hash links — use replaceState and scroll directly
-  if (typeof window !== 'undefined' && to.startsWith('#')) {
-    history.replaceState(state, '', href);
-    _url.set(href);
-    const el = document.querySelector(to);
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  // Another place on the page on screen ('#teams', '/settings#teams' on
+  // /settings, the URL on screen itself, the browser moving the hash): a
+  // fragment navigation, as the browser makes one. The page stays mounted
+  // with its state; the URL and route.hash move and the target scrolls into
+  // view. No guard, middleware or preload runs: the route has not changed. A
+  // '#hash' target replaces the history entry, as it always has here, and so
+  // does the URL on screen, as in the browser.
+  if (typeof window !== 'undefined' && target !== null && pageOf(target) === pageOf(readUrl())) {
+    fragmentNavigation(href, replace || to.startsWith('#') || href === readUrl(), state, _fromPopstate);
     return;
   }
 
-  // Don't navigate if already on the same URL
-  if (href === readUrl() && !_preparing.peek()) return;
-
-  // The newest navigation wins: one that is still running its guards or
-  // preparing its route when another starts never commits, and stops
-  // waiting for them now.
-  const nav = ++_navigation;
-  _leave();
-  _leave = noop;
-  if (_incoming !== null) {
-    _incoming.dispose();
-    _incoming = null;
-  }
+  const nav = supersede();
   // Progress shows at once, also for a navigation started inside a
   // transition (useTransition around navigate()), which would hold it.
   _urgent(() => batch(() => {
@@ -631,6 +631,36 @@ export async function navigate(to, opts = {}) {
     // newer navigation owns the progress flags.
     if (!committed && nav === _navigation) end();
   }
+}
+
+// The newest navigation wins: one that is still running its guards or
+// preparing its route when another starts never commits, and stops waiting
+// for them now. Returns the new navigation's number.
+function supersede() {
+  const nav = ++_navigation;
+  _leave();
+  _leave = noop;
+  if (_incoming !== null) {
+    _incoming.dispose();
+    _incoming = null;
+  }
+  return nav;
+}
+
+// A navigation to `href` on the page on screen. It supersedes a navigation to
+// another page still preparing, as a browser's does. For a popstate the
+// browser has already moved the URL, and scrolled.
+function fragmentNavigation(href, replace, state, fromPopstate) {
+  if (_preparing.peek()) {
+    supersede();
+    end();
+  }
+  if (!fromPopstate) {
+    scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
+    history[replace ? 'replaceState' : 'pushState'](state, '', href);
+  }
+  _url.set(location.pathname + location.search + location.hash);
+  if (!fromPopstate && location.hash) queryFragment(location.hash)?.scrollIntoView({ behavior: 'smooth' });
 }
 
 // The page of a route whose preload threw: the route's `error` boundary, or
@@ -959,9 +989,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       // Only its own: another copy of what-router mounted since keeps its.
       if (/** @type {any} */ (globalThis)[NAVIGATOR] === navigate) delete (/** @type {any} */ (globalThis)[NAVIGATOR]);
       if (_preparing.peek()) {
-        _navigation++;
-        _leave();
-        _leave = noop;
+        supersede();
         end();
       }
       for (const prep of [_incoming, _shown]) if (prep !== null) prep.dispose();
@@ -974,7 +1002,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   /** @type {any} */
   let local = null;
   const prepFor = state === tab ? shownFor : (/** @type {string} */ at, /** @type {any} */ r) => {
-    if (local !== null && local.url === at && local.route === r) return local;
+    if (local !== null && pageOf(local.url) === pageOf(at) && local.route === r) return local;
     const old = local;
     local = prepare(at, routes, undefined, state);
     if (old !== null) queueMicrotask(() => old.dispose());
@@ -991,13 +1019,18 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     const current = matched ? matched.route : null;
     return destinationLoading(_pendingUrl(), routes, current) || (current && current.loading) || null;
   });
+  // The page its URL shows: the URL without its hash, so that a fragment
+  // navigation does not render the route again. A server render's URL does
+  // not move.
+  const page = server ? state.url : computed(() => pageOf(state.url()));
   // The Router component runs ONCE. `content` is a reactive function child that
-  // re-evaluates whenever its URL changes; the fine-grained runtime reconciles
-  // only the matched page in place. The globalLayout is rendered ONCE around it
+  // re-evaluates whenever its page changes (its URL, not counting the hash); the
+  // fine-grained runtime reconciles only the matched page in place. The globalLayout is rendered ONCE around it
   // (below) so the app shell persists across navigations instead of
   // re-instantiating.
   const renderMatch = () => {
-    const currentUrl = state.url();
+    page();
+    const currentUrl = untrack(state.url);
     const { path, search } = splitUrl(currentUrl);
     const loadingView = pendingView === null ? null : pendingView();
 
@@ -1088,7 +1121,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       if (!e || !e[REDIRECT]) throw e;
       sig = e;
     }
-    const matched = matchRoute(pathOf(state.url()), routes);
+    const matched = matchRoute(pathOf(untrack(state.url)), routes);
     return handleRedirect(sig.to, sig.options, matched ? matched.route.path : undefined);
   };
 

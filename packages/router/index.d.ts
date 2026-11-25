@@ -5,6 +5,12 @@ import { VNode, VNodeChild, Component, Signal, Computed } from 'what-core';
 // --- Route State ---
 
 /**
+ * A parsed query string. A key the URL repeats (`?tag=a&tag=b`) holds every
+ * value in order (`['a', 'b']`); a key it has once holds the value.
+ */
+export type RouteQuery = Record<string, string | string[]>;
+
+/**
  * The route on screen. During a server render, the request being rendered: its
  * URL (with its query and hash), and the params and query its <Router> matched.
  */
@@ -15,8 +21,8 @@ export interface RouteState {
   readonly path: string;
   /** Route parameters */
   readonly params: Record<string, string>;
-  /** Query parameters */
-  readonly query: Record<string, string>;
+  /** Query parameters; a repeated key holds an array of its values */
+  readonly query: RouteQuery;
   /** URL hash */
   readonly hash: string;
   /** Navigation in progress */
@@ -54,7 +60,10 @@ export interface NavigateOptions {
  * pending) has landed; `route.isNavigating` is true until then. Inside a
  * transition's async action it resolves before the commit, which happens with
  * the action (useTransition's isPending shows it). The URL it commits is the
- * one the address bar shows (`/old/../find` commits `/find`). On a server,
+ * one the address bar shows (`/old/../find` commits `/find`). A target that
+ * changes only the hash (`#x`, or `/settings#x` on /settings) is a fragment
+ * navigation: the page stays mounted, the URL and `route.hash` move and the
+ * element scrolls into view, and no guard, middleware or preload runs. On a server,
  * where nothing navigates, it redirects the response of the render in
  * progress instead.
  */
@@ -84,12 +93,12 @@ export interface RouteConfig {
    * preload that throws renders the route's `error` (or the nearest error
    * boundary) with what it threw. On the server it runs for the render.
    */
-  preload?: (ctx: { params: Record<string, string>; query: Record<string, string>; url: string }) => any;
+  preload?: (ctx: { params: Record<string, string>; query: RouteQuery; url: string }) => any;
 }
 
 export interface RouteComponentProps {
   params: Record<string, string>;
-  query: Record<string, string>;
+  query: RouteQuery;
   route: RouteConfig;
   /** What the route's `preload` returned, undefined without one. */
   data?: any;
@@ -97,8 +106,24 @@ export interface RouteComponentProps {
 
 export interface LayoutProps {
   params: Record<string, string>;
-  query: Record<string, string>;
+  query: RouteQuery;
   children?: VNodeChild;
+}
+
+/**
+ * What route middleware is given: the destination's path, params, parsed
+ * query and route, and its whole URL (path, search and hash, as the address
+ * bar will show it). During a navigation `route` still reads the page being
+ * left; this is where the navigation is going.
+ */
+export interface RouteMiddlewareContext {
+  /** The destination's path, without its search or hash. */
+  path: string;
+  /** The destination's full URL: path + search + hash (`/private?a=1#top`). */
+  url: string;
+  params: Record<string, string>;
+  query: RouteQuery;
+  route: RouteConfig;
 }
 
 /**
@@ -106,10 +131,11 @@ export interface LayoutProps {
  * redirect with a path. Use asyncGuard for async checks. It runs before the
  * route's `preload`, which never runs for a route it declines. It runs once
  * for a navigation, whose verdict the page renders by, and again only when a
- * signal it read changes. On the server, a redirect redirects the render's
- * response.
+ * signal it read changes. A fragment navigation (only the hash changes) keeps
+ * the page and runs no middleware. On the server, a redirect redirects the
+ * render's response.
  */
-export type RouteMiddleware = (props: RouteComponentProps & { path: string }) => boolean | string | void;
+export type RouteMiddleware = (context: RouteMiddlewareContext) => boolean | string | void;
 
 // --- Router Component ---
 
@@ -222,7 +248,7 @@ export function setViewTransition(type: string): void;
 export interface UseRouteResult {
   path: Computed<string>;
   params: Computed<Record<string, string>>;
-  query: Computed<Record<string, string>>;
+  query: Computed<RouteQuery>;
   hash: Computed<string>;
   isNavigating: Computed<boolean>;
   navigate: typeof navigate;
@@ -243,7 +269,7 @@ export function useParams<T = Record<string, string>>(): T;
  * URL's. Same value and same caveat as `route.query`. During a server render,
  * the query the render's own <Router> matched.
  */
-export function useSearch<T = Record<string, string>>(): T;
+export function useSearch<T = RouteQuery>(): T;
 
 /** The navigate function, for symmetry with useParams/useSearch. */
 export function useNavigate(): typeof navigate;
@@ -275,15 +301,16 @@ export function redirect(to: string, options?: NavigateOptions): never;
 
 /**
  * Run before every route navigation; return false to cancel. Returns an
- * unsubscribe. Not consulted for same-page hash navigation (`navigate('#x')`
- * scrolls, it does not change the route). Cancelling a back/forward navigation
+ * unsubscribe. Not consulted for a fragment navigation, one that changes only
+ * the hash (`navigate('#x')`, `navigate('/settings#x')` on /settings): it
+ * scrolls, it does not change the route. Cancelling a back/forward navigation
  * restores the address bar by pushing the previous URL as a new history entry:
  * the entry the browser moved to is not recovered and its `history.state` is
  * not carried over.
  */
 export function beforeNavigate(fn: (to: string, from: string) => boolean | Promise<boolean>): () => void;
 
-/** Run after every committed navigation. Returns an unsubscribe. */
+/** Run after every committed route navigation (not a fragment navigation). Returns an unsubscribe. */
 export function afterNavigate(fn: (to: string, from: string) => void): () => void;
 
 // --- Outlet ---
@@ -307,8 +334,8 @@ export function matchRoute<T extends { path?: string }>(
   routes: T[],
 ): { route: T; params: Record<string, string> } | null;
 
-/** Parse a query string into a null-prototype object. */
-export function parseQuery(search: string): Record<string, string>;
+/** Parse a query string into a null-prototype object; a repeated key holds an array of its values. */
+export function parseQuery(search: string): RouteQuery;
 
 /** Reject javascript:, data:, vbscript: and protocol-relative URLs. */
 export function isSafeUrl(url: string): boolean;

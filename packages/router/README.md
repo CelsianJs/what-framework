@@ -90,18 +90,28 @@ navigate('/dashboard');
 navigate('/login', { replace: true });
 navigate('/page', { transition: false }); // skip View Transition
 navigate('/page', { flushSync: true });   // commit at once, without holding for async values
+navigate('/settings#teams');              // on /settings: a fragment navigation (below)
 
 // Route state: getters on the global `route` object. Read inside a binding,
 // an effect or a computed, they subscribe, so the reader updates on navigation.
 // During a server render they answer for the request being rendered.
 route.path;         // current path
 route.params;       // { id: '123' }
-route.query;        // { page: '1' }
+route.query;        // { page: '1' }; a repeated key is an array: ?tag=a&tag=b -> { tag: ['a', 'b'] }
 route.hash;         // '#section'
 route.url;          // path + search + hash
 route.isNavigating; // true from navigate() until the new page's first data has landed
 route.error;
 ```
+
+A navigation that changes only the hash (`navigate('#teams')`, or
+`navigate('/settings#teams')` while on `/settings`, a `<Link>` to either, the
+browser moving the hash with back/forward or `location.hash`) is a fragment
+navigation, as in the browser: the page stays mounted with its state, the URL
+and `route.hash` move, and the element with that id scrolls into view. No
+guard, middleware or `preload` runs, and `afterNavigate` is not called. A
+`'#hash'` target replaces the history entry; a path with a hash adds one
+unless `replace: true`.
 
 ## Route data: `preload`
 
@@ -257,7 +267,8 @@ const AdminOnly = asyncGuard(
 
 const routes = [
   { path: '/dashboard', component: ProtectedDashboard },
-  // Route-level middleware: called with { path, params, query, route }
+  // Route-level middleware: called with { path, url, params, query, route },
+  // where `url` is the whole destination (path + search + hash)
   { path: '/admin', component: AdminOnly, middleware: [() => isLoggedIn() || '/login'] },
 ];
 ```

@@ -101,12 +101,12 @@ export function isServableStale(entry: CacheEntry, now?: number): boolean;
 // --- Keys ---
 export function cacheKey(input: {
   path: string;
-  query?: Record<string, string> | string;
+  query?: Record<string, string | string[]> | string;
   vary?: string[] | string | Record<string, string>;
   headers?: Record<string, string>;
 }): string;
 export function normalizePath(path: string): string;
-export function normalizeQuery(query: Record<string, string> | string): string;
+export function normalizeQuery(query: Record<string, string | string[]> | string): string;
 export function hashKey(key: string): string;
 /** Resolve a declared vary list against request headers; null if unresolvable. */
 export function resolveVary(
@@ -164,7 +164,7 @@ export function isKnownParams(staticPaths: StaticPathEntry[], params: Record<str
 // --- Route match (shape passed into the engine) ---
 export interface RouteMatch {
   path: string;
-  query?: Record<string, string>;
+  query?: Record<string, string | string[]>;
   config?: PageCacheConfig;
   params?: Record<string, string>;
   route?: unknown;
