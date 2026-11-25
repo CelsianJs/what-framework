@@ -30,10 +30,47 @@ describe('an attribute written after a spread', () => {
 
   it('two spreads, or an attribute before a spread, are one merge in source order', () => {
     const { code } = quiet(`export const A = ({ a, b }) => <a {...a} id="i" {...b} title={t()} ref={r} />;`);
-    assert.match(code, /_\$spread\(_el\$0, _\$merge\(_props\.a, \{ __proto__: null, id: "i" \}, _props\.b, \{ __proto__: null, get title\(\) \{ return t\(\); \} \}\), \["ref"\]\); _\$applyRef\(r, _el\$0\);/);
+    // Sources in source order; read again, for spreads of props that may be new objects.
+    assert.match(code, /_\$spreads\(_el\$0, \(\) => \[_props\.a, \{ __proto__: null, id: "i" \}, _props\.b, \{ __proto__: null, get title\(\) \{ return t\(\); \} \}\], \["ref"\]\); _\$applyRef\(r, _el\$0\);/);
     const before = quiet(`export const B = ({ v, ...rest }) => <button class="c" onClick={own} {...rest} />;`).code;
     assert.match(before, /_\$template\("<button class=c>"\)/, 'a static attribute before the spreads stays in the template');
-    assert.match(before, /_\$spread\(_el\$0, _\$merge\(\{ __proto__: null, onClick: own \}, rest\)\)/);
+    assert.match(before, /_\$spreads\(_el\$0, \[\{ __proto__: null, onClick: own \}, rest\]\)/);
+  });
+
+  it('one plain spread compiles as it did, and only what needs it imports _$spreads', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <div><a {...rest} href="/x" /><input ref={input} {...register('t')} placeholder={d()} /></div>;`);
+    assert.doesNotMatch(code, /_\$spreads/);
+    assert.match(code, /_\$spread\(_el\$\d+, rest, \["href"\]\)/);
+    assert.match(code, /_\$spread\(_\$controlled\(_el\$\d+\), register\('t'\), \["placeholder"\]\)/);
+  });
+
+  it('a spread whose object may be built again is read again; a name or a call with arguments is not', () => {
+    const { code } = quiet(`export const A = (props) => <div><a {...bag()} /><a {...props.attrs} title="t" /><a {...rest} /><a {...register('t')} /></div>;
+      export const L = () => <ul>{rows().map((r) => <li key={r.id} {...r} />)}</ul>;`);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[bag\(\)\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[props\.attrs\], \["title"\]\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, rest\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, register\('t'\)\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[_\$item\(_item\$0\)\]\)/, 'a keyed row\'s item');
+  });
+
+  it('names after a spread are the ones the runtime compares; a namespaced attribute keeps the merge', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <svg><use {...rest} className="c" xlinkHref="#a" onClick={f} /><use {...rest} {...more} xlink:href="#b" /></svg>;`);
+    assert.match(code, /_\$spread\(_el\$\d+, rest, \["className", "class", "xlinkHref", "xlink:href", "onclick"\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \[rest, more, \{ __proto__: null, "xlink:href": "#b" \}\]\)/);
+  });
+
+  it('a module installs the XLink writer only where an SVG element may write an XLink attribute', () => {
+    assert.match(quiet(`export const A = () => <svg><use xlinkHref={p()} /></svg>;`).code, / _\$xlink\(\); /);
+    assert.match(quiet(`export const A = () => <svg><use {...rest} /></svg>;`).code, / _\$xlink\(\); /);
+    for (const source of [`export const A = () => <a {...rest} />;`, `export const A = () => <svg><use href={p()} /></svg>;`, `export const A = () => <svg><use xlink:href="#a" /></svg>;`]) {
+      assert.doesNotMatch(quiet(source).code, /_\$xlink/, source);
+    }
+  });
+
+  it('a literal that names children takes part in the children, the last winning', () => {
+    const { code } = quiet(`const first = { children: 'first' }; export const A = () => <div {...first} {...{ children: 'last' }} />;`);
+    assert.match(code, /_\$place\(_\$merge\(first, \{ children: 'last' \}\), "children"\)/);
   });
 
   it('an event written twice in two cases is one writer, the last', () => {

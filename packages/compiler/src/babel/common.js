@@ -1348,12 +1348,15 @@ export function spreadChildren(elPath, state) {
     : isVoidHtmlElement(name.name) || NO_SPREAD_CHILDREN.has(name.name)) return;
   const attrs = node.openingElement.attributes;
   // An object literal with no spread and no `children` in it holds no
-  // children (`{...{ title: 'last' }}`): the other spreads' are placed.
-  const spreads = attrs.filter((a) => t.isJSXSpreadAttribute(a) && !(t.isObjectExpression(a.argument)
-    && a.argument.properties.every((p) => t.isObjectProperty(p) && !p.computed && propertyName(p.key, false) !== 'children')));
+  // children (`{...{ title: 'last' }}`): the other spreads' are placed. One
+  // that names them (`{...{ children: 'last' }}`) is read again for them,
+  // in its place among the spreads, so the last that holds children wins.
+  const plain = (arg) => t.isObjectExpression(arg) && arg.properties.every((p) => t.isObjectProperty(p) && !p.computed);
+  const names = (arg) => arg.properties.some((p) => propertyName(p.key, false) === 'children');
+  const spreads = attrs.filter((a) => t.isJSXSpreadAttribute(a) && !(plain(a.argument) && !names(a.argument)));
   if (spreads.length === 0 || attrs.some((a) => t.isJSXAttribute(a) && getAttrName(a) === 'children')) return;
   if (node.children.some((c) => !t.isJSXText(c) || /[^ \t\r\n]/.test(c.value))) return;
-  if (!spreads.every((s) => isNameChain(s.argument))) return;
+  if (!spreads.every((s) => isNameChain(s.argument) || plain(s.argument))) return;
   const source = spreads.length === 1 ? spreads[0].argument
     : state.ssr ? t.objectExpression(spreads.map((s) => t.spreadElement(t.cloneNode(s.argument))))
       : t.callExpression(helper(state, '_$merge'), spreads.map((s) => t.cloneNode(s.argument)));

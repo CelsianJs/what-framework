@@ -275,15 +275,38 @@ function writtenAfter(attributes, index) {
     const attr = attributes[i];
     if (t.isJSXSpreadAttribute(attr)) continue;
     const name = getAttrName(attr);
-    if (name === 'key' || name.includes(':')) continue;
+    if (name === 'key' || isDirective(name)) continue;
     // An event in lower case, the name the runtime compares (render.js spread).
     if (isEventAttrName(name)) { names.add(name.toLowerCase()); continue; }
     names.add(name);
     const alias = attributeName(name);
     if (alias !== name) names.add(alias);
     for (const [prop, attrName] of ATTRIBUTE_ALIASES) if (attrName === name) names.add(prop);
+    // An XLink attribute in both spellings (`xlink:href`, `xlinkHref`).
+    if (name.startsWith('xlink') && name.length > 6) {
+      const local = name.slice(name[5] === ':' ? 6 : 5).toLowerCase();
+      names.add('xlink:' + local).add('xlink' + local[0].toUpperCase() + local.slice(1));
+    }
   }
   return names.size === 0 ? [] : [t.arrayExpression([...names].map((n) => t.stringLiteral(n)))];
+}
+
+// `bind:value`, `client:load`: compiler directives, never an element's prop.
+function isDirective(name) {
+  return name.startsWith('bind:') || name.startsWith('client:');
+}
+
+
+// A spread whose object the code may build again with other keys
+// (`{...attrs()}`, `{...props.attrs}`, a keyed row's item, a literal that
+// reads state): the runtime reads its sources again when what they read
+// changes (render.js spread). A name is read once, a props object or a rest
+// of it keeping its own getters live; so is a call handed arguments
+// (`{...register('title')}`), which builds what it returns each time.
+function liveSpread(arg, state) {
+  if (t.isIdentifier(arg)) return false;
+  if (t.isCallExpression(arg) && arg.arguments.length > 0 && arg.callee._whatRowItem !== true) return false;
+  return isPotentiallyReactive(arg, state.signalNames, state.importedIdentifiers);
 }
 
 // Whether the element's spreads are written as one merge of everything in
@@ -293,7 +316,8 @@ function writtenAfter(attributes, index) {
 // `<button onClick={own} {...rest} />`), as the props object React builds.
 // One spread with attributes only after it skips their names instead
 // (writtenAfter). Not when an attribute is not a plain prop (`bind:`, an event
-// modifier), which has no place in a props object.
+// modifier), which has no place in a props object; a namespaced attribute
+// (`xlink:href`) is one.
 function mergesSpreads(attributes, tagName, state) {
   const last = attributes.findLastIndex((a) => t.isJSXSpreadAttribute(a));
   if (last === -1) return false;
@@ -305,7 +329,7 @@ function mergesSpreads(attributes, tagName, state) {
       continue;
     }
     const name = getAttrName(attr);
-    if (name.includes(':') || name.includes('|') || (isEventAttrName(name) && hasEventModifiers(name, state))) return false;
+    if (isDirective(name) || name.includes('|') || (isEventAttrName(name) && hasEventModifiers(name, state))) return false;
     // A ref is applied as it is, beside the spreads' own (`ref={input}
     // {...register('title')}` hands both the element).
     if (i < last && name !== 'key' && name !== 'ref' && !inTemplate(attributes, i, tagName) && !isShadowedAttr(attributes, i)) contested = true;
@@ -577,6 +601,7 @@ const FIELD_TAGS = new Set(['input', 'textarea', 'select']);
 const SELECT_TAGS = new Set(['select', 'option']);
 
 function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
+  if (ns === 'svg' && attributes.some((a) => t.isJSXSpreadAttribute(a) || (getAttrName(a).startsWith('xlink') && t.isJSXExpressionContainer(a.value)))) state.writesXlink = true;
   // Specialized monomorphic setters for statically-known attribute names.
   // The generic _$setProp re-dispatches on the key string
   // (ref/key/url/class/style/innerHTML/boolean/...) on EVERY reactive update;
@@ -690,9 +715,12 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
         ? t.objectMethod('get', propKey(name), [], t.blockStatement([t.returnStatement(value)]))
         : t.objectProperty(propKey(name), value));
     }
-    statements.push(t.expressionStatement(t.callExpression(helper(state, '_$spread'), [
+    // The sources in source order; read again where one may be built again
+    // with other keys (liveSpread).
+    const sources = t.arrayExpression(parts);
+    statements.push(t.expressionStatement(t.callExpression(helper(state, '_$spreads'), [
       FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId),
-      t.callExpression(helper(state, '_$merge'), parts),
+      attributes.some((a) => t.isJSXSpreadAttribute(a) && liveSpread(a.argument, state)) ? t.arrowFunctionExpression([], sources) : sources,
       // A ref after the last spread is the element's only one.
       ...(refs.some(([, after]) => after) ? [t.arrayExpression([t.stringLiteral('ref')])] : []),
     ])), ...refs.map(([statement]) => statement));
@@ -710,7 +738,12 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
           // A spread on a form field may bind its value or checked to state:
           // the field then shows what they hold after its events (what-core
           // _$controlled).
-          t.callExpression(helper(state, '_$spread'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId), attr.argument, ...writtenAfter(attributes, attrIndex)])
+          // One that may be built again with other keys is read again
+          // (liveSpread, what-core _$spreads).
+          liveSpread(attr.argument, state)
+            ? t.callExpression(helper(state, '_$spreads'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId),
+              t.arrowFunctionExpression([], t.arrayExpression([attr.argument])), ...writtenAfter(attributes, attrIndex)])
+            : t.callExpression(helper(state, '_$spread'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId), attr.argument, ...writtenAfter(attributes, attrIndex)])
         )
       );
       continue;
@@ -2882,6 +2915,9 @@ export function initDomState(state) {
   // A module whose JSX writes a prop of a select or an option installs the
   // selection code (_$selects()).
   state.makesSelects = false;
+  // A module whose JSX has an SVG element with an XLink attribute or a spread
+  // installs the XLink writer (_$xlink()).
+  state.writesXlink = false;
   state._selectorDecls = [];
   state._selectorIds = new Map();
   state.delegatedEvents = new Set();
@@ -2915,6 +2951,8 @@ const RENDER_IMPORTS = [
   ['_$rowFields', '_$rowFields'],
   ['_$createSelector', 'createSelector'],
   ['_$spread', '_$spread'],
+  ['_$spreads', '_$spreads'],
+  ['_$xlink', '_$xlink'],
   ['_$controlled', '_$controlled'],
   ['_$setProp', '_$setProp'],
   ['_$memo', '_$memo'],
@@ -3045,6 +3083,7 @@ export function finishDomProgram(path, state) {
   // At module scope, so the code is installed before any of the module's
   // components builds a select.
   if (state.makesSelects) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$selects'), [])));
+  if (state.writesXlink) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$xlink'), [])));
 
   for (const reader of state.rowFieldReaders.reverse()) {
     path.unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier(reader.id), reader.fn)]));

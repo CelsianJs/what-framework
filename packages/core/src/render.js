@@ -13,6 +13,10 @@ import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changed
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
+// The vnode renderer slot (vnode-renderer.js), for a renderer of another
+// package's elements in a program that has none of what-core's: what-react's
+// mixed mode places its elements, and keeps a hole's keyed rows, through it.
+export { _installVNodeRuntime } from './vnode-renderer.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
 export { effect, untrack };
 // The eager memo, for compiled output (branch memoization: the compiler emits
@@ -2135,8 +2139,70 @@ function spread(el, props, after) {
   }
 }
 
+/**
+ * Compiled JSX's spreads with other writers (`<button {...rest} {...{ title:
+ * 'last', onClick: b }} />`, `<a title={t} {...rest} />`, `{...attrs()}`):
+ * `sources` are the spreads and the attributes between them in source order,
+ * an array, or a function that gives one, read again when what it read
+ * changes, as React renders an object spread again with its new keys. Each
+ * name has one writer, the last source that holds it, in the place the first
+ * one put it; a name is one whatever its spelling (writerName). A name the
+ * sources no longer hold is removed. Only what-compiler's output for such an
+ * element imports it: an element with one plain spread calls _$spread.
+ */
+export function _$spreads(el, sources, after) {
+  if (typeof sources !== 'function') return spread(el, winners(sources), after);
+  /** @type {Record<string, any> | null} */
+  let shown = null;
+  effect(() => {
+    const next = winners(sources());
+    if (shown !== null) for (const key in shown) if (!(key in next) && !_isEventProp(key)) setProp(el, key, undefined);
+    spread(el, shown = next, after);
+  });
+}
+
+// The last writer of each name among `sources`, as one props object (getters
+// of a props object What built kept: render.js _$merge).
+function winners(sources) {
+  const names = new Map();
+  for (let src of sources) {
+    src = Object(src);
+    for (const key of Object.keys(src)) names.set(writerName(key), [src, key]);
+  }
+  const out = Object.create(null);
+  for (const [src, key] of names.values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
+  return out;
+}
+
+// The name a key writes: an event's in lower case (`onClick` and `onclick`
+// are one listener), `class` for `className`, `xlink:href` for `xlinkHref`.
+function writerName(key) {
+  return _isEventProp(key) ? key.toLowerCase() : key === 'className' ? 'class'
+    : key.startsWith('xlink') ? 'xlink:' + key.slice(key[5] === ':' ? 6 : 5).toLowerCase() : key;
+}
+
 function listen(el, key, handler) {
   if (typeof handler === 'function') on(el, key.slice(2).toLowerCase(), handler);
+}
+
+/** @type {((el: Element, key: string, value: any) => boolean) | null} */
+let xlink = null;
+
+/**
+ * @internal Install the writer of SVG's XLink attributes (`xlinkHref`,
+ * `xlink:href`), in their namespace as React writes them: compiled JSX calls
+ * it at module scope where an SVG element has an XLink attribute or a spread,
+ * so an app with neither carries none of it.
+ */
+export function _$xlink() {
+  xlink = (el, key, value) => {
+    if (!key.startsWith('xlink')) return false;
+    const local = key.slice(key[5] === ':' ? 6 : 5).toLowerCase();
+    const ns = 'http://www.w3.org/1999/xlink';
+    if (value == null || value === false) el.removeAttributeNS(ns, local);
+    else el.setAttributeNS(ns, 'xlink:' + local, value);
+    return true;
+  };
 }
 
 // NOTE: this is the fine-grained-compiler path's setProp. A second
@@ -2184,6 +2250,10 @@ function setProp(el, key, value) {
   }
 
   const isSvg = _hasSVGElement && el instanceof SVGElement;
+
+  // An XLink attribute (`xlinkHref`, `xlink:href`) in its namespace, once a
+  // module whose JSX may write one installed the writer (_$xlink).
+  if (isSvg && xlink?.(el, key, value)) return;
 
   if (key === 'class' || key === 'className') {
     _writeClass(el, value, isSvg);

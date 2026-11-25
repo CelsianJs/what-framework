@@ -30,6 +30,10 @@ export {
   // spread(), setProp() and setValue() as compiled output calls them, and the
   // selection code a module whose JSX has a select or an option installs.
   _$spread,
+  // An element's spreads with other writers, or one read again (what-core _$spreads).
+  _$spreads,
+  // The writer of SVG's XLink attributes, installed by a module that may write one.
+  _$xlink,
   _$setProp,
   _$setValue,
   _$selects,

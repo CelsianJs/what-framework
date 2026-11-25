@@ -349,3 +349,55 @@ test('across spreads and attributes, each name has one writer, the last in sourc
     flushSync();
   }
 });
+
+test('spreads: the last writer of a name wins, its spelling aside; children, reshaped objects, class and XLink', async () => {
+  const mod4 = await loadCompiled(`
+    import { signal } from 'what-framework';
+    export const on = signal(false);
+    export const calls = [];
+    const a = () => calls.push('a'), b = () => calls.push('b'), c = () => calls.push('c');
+    const first = { children: 'first' };
+    export const obj = signal({ title: 'x', id: '1' });
+    export const bag = signal({ title: 'old', 'data-old': 'yes' });
+    const Cls = ({ u, ...rest }) => <p id="cls" {...rest} {...{ className: 'fixed' }} />;
+    export function View() {
+      return <div>
+        <button id="three" {...{ onClick: a }} {...{ onclick: b }} {...{ onClick: c }} />
+        <svg><use id="ns" {...{ onClick: a }} {...{ onclick: b }} {...{ onClick: c }} xlink:href="#old" /></svg>
+        <div id="kids" {...first} {...{ children: 'last' }} />
+        <p id="one"><a {...obj()} /></p>
+        <div id="merged" {...bag()} {...{ id: 'merged' }} />
+        <Cls class={on() ? 'b' : 'a'} />
+        <svg><use id="xl" {...{}} {...{}} xlinkHref={on() ? '#new' : '#old'} /><use id="xl2" xlinkHref={on() ? '#new' : '#old'} /></svg>
+      </div>;
+    }
+  `);
+  const XLINK = 'http://www.w3.org/1999/xlink';
+  const { el, stop } = host(mod4.View);
+  const click = (id) => { mod4.calls.length = 0; el.querySelector(id).dispatchEvent(new window.MouseEvent('click', { bubbles: true })); return mod4.calls.join(); };
+  const attrs = (id) => Object.fromEntries([...el.querySelector(id).attributes].map((x) => [x.name, x.value]));
+  try {
+    assert.equal(click('#three'), 'c', 'onClick, onclick, onClick: the last');
+    assert.equal(click('#ns'), 'c', 'a namespaced attribute beside them changes nothing');
+    assert.equal(el.querySelector('#ns').getAttributeNS(XLINK, 'href'), '#old');
+    assert.equal(el.querySelector('#kids').textContent, 'last', 'the last spread with children');
+    assert.deepEqual(attrs('#one a'), { title: 'x', id: '1' });
+    assert.equal(el.querySelector('#cls').className, 'fixed');
+    for (const id of ['#xl', '#xl2']) assert.equal(el.querySelector(id).getAttributeNS(XLINK, 'href'), '#old', id);
+    mod4.obj({ title: 'y', lang: 'en' });
+    mod4.bag({ title: 'new', 'data-new': 'yes' });
+    mod4.on(true);
+    flushSync();
+    assert.deepEqual(attrs('#one a'), { title: 'y', lang: 'en' }, 'a new object: changed, added and removed keys');
+    assert.deepEqual(attrs('#merged'), { id: 'merged', title: 'new', 'data-new': 'yes' });
+    assert.equal(el.querySelector('#cls').className, 'fixed', 'a live earlier class does not win over a later className');
+    for (const id of ['#xl', '#xl2']) {
+      assert.equal(el.querySelector(id).getAttributeNS(XLINK, 'href'), '#new', id);
+      assert.equal(el.querySelector(id).hasAttribute('xlinkHref'), false, id);
+    }
+  } finally {
+    stop();
+    mod4.on(false);
+    flushSync();
+  }
+});

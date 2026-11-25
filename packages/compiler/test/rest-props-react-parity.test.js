@@ -179,6 +179,22 @@ const SHAPES = {
     code: `const Btn = ({ variant: _v, ...rest }) => <a title={'own'} className={'own'} {...rest} />;`,
     use: (v) => `<Btn variant="x" href={${v('url')}} className={${v('cls')}}>{${v('label')}}</Btn>`,
   },
+  'three spreads of one name, the last wins': {
+    code: `const T = ({ u, ...rest }) => <a {...{ title: 'a' }} {...rest} {...{ title: 'c' }} />;`,
+    use: (v) => `<T u="x" title={${v('label')}} href={${v('url')}}>{${v('label')}}</T>`,
+  },
+  'children from the last spread that holds them': {
+    code: `const Kids = ({ label }) => { const first = { children: 'first' }; return <div {...first} {...{ children: label }} />; };`,
+    use: (v) => `<Kids label={${v('label')}} />`,
+  },
+  'a spread object built again with other keys': {
+    code: `const Re = ({ big }) => <a {...(big ? { title: 'y', lang: 'en' } : { title: 'x', id: 'one' })} />;`,
+    use: (v) => `<Re big={${v('label')} === 'two'} />`,
+  },
+  'class from one spread, className from a later one': {
+    code: `const Cls = ({ u, ...rest }) => <p {...rest} {...{ className: 'fixed' }} />;`,
+    use: (v) => `<Cls u="x" className={${v('cls')}} title={${v('label')}} />`,
+  },
   'MathML tags': {
     code: `const Shape = ({ as: Tag, ...rest }) => <Tag {...rest} />;`,
     use: (v) => `<math><Shape as="mi" className={${v('cls')}}>{${v('label')}}</Shape></math>`,

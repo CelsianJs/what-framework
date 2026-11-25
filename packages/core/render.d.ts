@@ -27,7 +27,11 @@ export function mapArray<T>(
 export function spread(el: Element, props: Record<string, any>): void;
 export function setProp(el: Element, key: string, value: any): void;
 /** @internal spread() as compiled output calls it: a select or an option it is given has its code installed by its module (`_$selects`). */
-export function _$spread(el: Element, props: Record<string, any>): void;
+export function _$spread(el: Element, props: Record<string, any>, after?: string[]): void;
+/** @internal Compiled JSX's spreads with other writers: the sources in source order (or a function giving them, read again), each name's last writer winning. */
+export function _$spreads(el: Element, sources: readonly unknown[] | (() => readonly unknown[]), after?: string[]): void;
+/** @internal Install the writer of SVG's XLink attributes (compiled JSX, at module scope). */
+export function _$xlink(): void;
 /** @internal setProp() as compiled output calls it (see `_$spread`). */
 export function _$setProp(el: Element, key: string, value: any): void;
 /** @internal setValue() as compiled output calls it (see `_$spread`). */
@@ -229,6 +233,15 @@ export function _$hcreateComponent(component: unknown, props?: unknown, ...args:
 /** @internal `_$hcreateComponent` for a module whose every component is a plain function (`_$createLazyFn`). */
 export function _$hcreateFn(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 export function _$outside<T>(build: () => T): T;
+/** @internal A value rendered as DOM nodes, appended to `out` (what-react's keyed rows render what is not theirs with it). */
+export function _valuesToNodes(value: unknown, parent: Node | null, out: Node[], isSvg?: boolean): Node[];
+/** @internal Install the vnode renderer and its keyed rows, in a program that has none of what-core's (what-react's mixed mode). */
+export function _installVNodeRuntime(
+  render: (vnode: any, parent?: any, isSvg?: boolean, inParent?: 1) => any,
+  keyedRows: (value: any, rows: any, isSvg: boolean, scope: any, end?: any, adopted?: any) => any,
+  setProp: ((el: any, key: string, value: any, isSvg: boolean) => void) | undefined,
+  refuses: ((key: string, value: any) => boolean) | undefined,
+): void;
 /** @internal A hydratable array whose members claim the server's nodes in document order as `build` creates them. `nested` 1: it follows another array's markers; 2: a component's children, with markers of their own only where their placement has them (`_$place`). */
 export function _$members<T>(build: () => T, nested?: number): T;
 /** @internal A `_$members` member that is not an element or a component, adopted where it stands while hydrating. */

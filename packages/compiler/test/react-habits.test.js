@@ -525,8 +525,9 @@ describe('a field a prop controls shows what the prop holds after each of its ev
 
   it('the compiler marks a spread on a field, and the bindings of a field\'s value and checked', () => {
     const out = compileJSX('const A = (p) => <form><input {...p.a} /><textarea {...p.b} /><select {...p.c} /><div {...p.d} /><option {...p.e} /></form>;');
-    assert.equal(out.match(/_\$spread\(_\$controlled\(/g).length, 3);
-    assert.equal(out.match(/_\$spread\(_el\$\d+, /g).length, 2);
+    // A spread of a prop is read again when the parent hands a new object (_$spreads).
+    assert.equal(out.match(/_\$spreads?\(_\$controlled\(/g).length, 3);
+    assert.equal(out.match(/_\$spreads?\(_el\$\d+, /g).length, 2);
 
     const bound = compileJSX('const A = (p) => <form><input value={p.text()} /><input type="checkbox" checked={p.on()} /><textarea value={p.text()} /><select value={p.pick()}><option value={p.first()}>a</option></select><input value="fixed" /><input value={p.name} /></form>;');
     const call = (text) => bound.split('\n').find((line) => line.includes(text));
