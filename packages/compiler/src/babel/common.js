@@ -706,7 +706,12 @@ function readThisPropsWhereUsed(fnPath, state) {
         if (!movable) { keep.push(prop); continue; }
         for (const ref of binding.referencePaths) {
           if (ref.parentPath.isObjectProperty({ shorthand: true }) && ref.key === 'value') ref.parent.shorthand = false;
-          ref.replaceWith(t.memberExpression(t.memberExpression(t.thisExpression(), t.identifier('props')), propKey(key), !t.isIdentifier(propKey(key))));
+          const read = t.memberExpression(t.memberExpression(t.thisExpression(), t.identifier('props')), propKey(key), !t.isIdentifier(propKey(key)));
+          // A name called as it is (`format()`, a tag, `new`) is called with
+          // no receiver: `(0, this.props.format)()`, never with the props as `this`.
+          const called = (ref.key === 'callee' && (ref.parentPath.isCallExpression() || ref.parentPath.isOptionalCallExpression() || ref.parentPath.isNewExpression()))
+            || (ref.key === 'tag' && ref.parentPath.isTaggedTemplateExpression());
+          ref.replaceWith(called ? t.sequenceExpression([t.numericLiteral(0), read]) : read);
         }
       }
       if (keep.length === id.properties.length) continue;
@@ -1342,7 +1347,10 @@ export function spreadChildren(elPath, state) {
   if (isComponent(name.name) ? !state.ssr || !mayHoldTag(elPath.scope.getBinding(name.name))
     : isVoidHtmlElement(name.name) || NO_SPREAD_CHILDREN.has(name.name)) return;
   const attrs = node.openingElement.attributes;
-  const spreads = attrs.filter((a) => t.isJSXSpreadAttribute(a));
+  // An object literal with no spread and no `children` in it holds no
+  // children (`{...{ title: 'last' }}`): the other spreads' are placed.
+  const spreads = attrs.filter((a) => t.isJSXSpreadAttribute(a) && !(t.isObjectExpression(a.argument)
+    && a.argument.properties.every((p) => t.isObjectProperty(p) && !p.computed && propertyName(p.key, false) !== 'children')));
   if (spreads.length === 0 || attrs.some((a) => t.isJSXAttribute(a) && getAttrName(a) === 'children')) return;
   if (node.children.some((c) => !t.isJSXText(c) || /[^ \t\r\n]/.test(c.value))) return;
   if (!spreads.every((s) => isNameChain(s.argument))) return;
@@ -1495,13 +1503,20 @@ export function getAttributeValue(value) {
 // A later SPREAD never shadows: it overrides only the names it actually
 // carries, which is not knowable here and is handled by ordering instead.
 export function isShadowedAttr(attributes, index) {
-  const name = attributeName(getAttrName(attributes[index]));
+  const name = writerName(getAttrName(attributes[index]));
   for (let i = index + 1; i < attributes.length; i += 1) {
     const later = attributes[i];
     if (t.isJSXSpreadAttribute(later)) continue;
-    if (attributeName(getAttrName(later)) === name) return true;
+    if (writerName(getAttrName(later)) === name) return true;
   }
   return false;
+}
+
+// The DOM property an attribute writes: its alias's (`className` is
+// `class`), an event's in lower case (`onClick` and `onclick` are one
+// listener, as the runtime binds them).
+function writerName(name) {
+  return isEventAttrName(name) && !name.includes('|') ? name.toLowerCase() : attributeName(name);
 }
 
 // Safely extract attribute name, handling JSXNamespacedName (e.g., client:idle, bind:value)

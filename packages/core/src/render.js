@@ -262,8 +262,9 @@ function ownProps(props) {
 export function _$merge() {
   const out = Object.create(null);
   for (let i = 0; i < arguments.length; i++) {
-    const src = arguments[i];
-    if (src == null) continue;
+    // As object spread takes a source: null, undefined, a boolean or a
+    // number gives nothing, a string its characters (`{ ...(on && x) }`).
+    const src = Object(arguments[i]);
     const own = Object.getPrototypeOf(src) === null;
     // Every own enumerable key, symbols too, as Object.assign copies them.
     for (const key of Reflect.ownKeys(src)) if (Object.prototype.propertyIsEnumerable.call(src, key)) _copyProp(out, src, key, own);
@@ -2094,13 +2095,20 @@ function spread(el, props, after) {
   // props (dom.js _isLiveProp): each is bound like a reactive attribute,
   // reading the getter again when what it read changes.
   const live = props != null && typeof props === 'object' && Object.getPrototypeOf(props) === null;
+  // An event is one whatever the case of its name (`onClick`, `onclick`):
+  // the last name the props hold for it is its handler.
+  const events = {};
+  for (const key in props) if (_isEventProp(key)) events[key.toLowerCase()] = key;
   for (const key in props) {
+    const event = _isEventProp(key);
+    const name = event ? key.toLowerCase() : key;
     // Children are never an attribute: compiled JSX places a spread's
     // children in an element that has none of its own (common.js
     // spreadChildren), as React renders `<a {...props} />`.
     // A key an attribute written after the spread sets is that attribute's
-    // (`<a {...rest} href="/x" />`, compiled JSX's `after`), as in React.
-    if (key === 'children' || after?.includes(key)) continue;
+    // (`<a {...rest} href="/x" />`, compiled JSX's `after`, an event's name
+    // in lower case), as in React.
+    if (key === 'children' || after?.includes(name) || (event && events[name] !== key)) continue;
     // A getter is bound as an accessor of it: a live prop, and a prop handed
     // on to the component that spreads it (`<Tag href={rest.href} />`, a lazy
     // slot that forwards the live prop: dom.js readLazy reads it again).
@@ -2114,7 +2122,7 @@ function spread(el, props, after) {
     // (`onClick={open() ? close : show}` handed through a rest) is the
     // current handler, bound again when the parent hands another, as React
     // calls the handler of its last render.
-    else if (_isEventProp(key)) {
+    else if (event) {
       if (get) effect(() => listen(el, key, value()));
       else listen(el, key, value);
     }

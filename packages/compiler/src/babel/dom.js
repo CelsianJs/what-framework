@@ -276,12 +276,49 @@ function writtenAfter(attributes, index) {
     if (t.isJSXSpreadAttribute(attr)) continue;
     const name = getAttrName(attr);
     if (name === 'key' || name.includes(':')) continue;
+    // An event in lower case, the name the runtime compares (render.js spread).
+    if (isEventAttrName(name)) { names.add(name.toLowerCase()); continue; }
     names.add(name);
     const alias = attributeName(name);
     if (alias !== name) names.add(alias);
     for (const [prop, attrName] of ATTRIBUTE_ALIASES) if (attrName === name) names.add(prop);
   }
   return names.size === 0 ? [] : [t.arrayExpression([...names].map((n) => t.stringLiteral(n)))];
+}
+
+// Whether the element's spreads are written as one merge of everything in
+// source order (applyDynamicAttrs): two spreads or more, or one with an
+// attribute before it that the template does not hold, so each name has one
+// writer, the last (`<button {...rest} {...{ title: 'last', onClick: b }} />`,
+// `<button onClick={own} {...rest} />`), as the props object React builds.
+// One spread with attributes only after it skips their names instead
+// (writtenAfter). Not when an attribute is not a plain prop (`bind:`, an event
+// modifier), which has no place in a props object.
+function mergesSpreads(attributes, tagName, state) {
+  const last = attributes.findLastIndex((a) => t.isJSXSpreadAttribute(a));
+  if (last === -1) return false;
+  let contested = false;
+  for (let i = 0; i < attributes.length; i++) {
+    const attr = attributes[i];
+    if (t.isJSXSpreadAttribute(attr)) {
+      if (i < last) contested = true;
+      continue;
+    }
+    const name = getAttrName(attr);
+    if (name.includes(':') || name.includes('|') || (isEventAttrName(name) && hasEventModifiers(name, state))) return false;
+    // A ref is applied as it is, beside the spreads' own (`ref={input}
+    // {...register('title')}` hands both the element).
+    if (i < last && name !== 'key' && name !== 'ref' && !inTemplate(attributes, i, tagName) && !isShadowedAttr(attributes, i)) contested = true;
+  }
+  return contested;
+}
+
+// Whether the template holds the attribute at `index` (extractStaticHTML).
+function inTemplate(attributes, index, tagName) {
+  const attr = attributes[index];
+  const name = getAttrName(attr);
+  return !t.isJSXExpressionContainer(attr.value) && isTemplateAttr(attributes, index, tagName) && !isShadowedAttr(attributes, index)
+    && name !== 'key' && !isEventAttrName(name) && !name.startsWith('bind:') && !name.includes('|');
 }
 
 // Extract the template markup for an intrinsic JSX element. The markup is
@@ -619,6 +656,47 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     statements.push(
       t.expressionStatement(t.callExpression(helper(state, '_$delegate$'), [t.identifier(elId)]))
     );
+  }
+
+  // Spreads with other writers before them: one props object, merged in
+  // source order (mergesSpreads). An attribute is a property of it, a getter
+  // where its value reads state; a ref written on the element is applied
+  // after it, as it is (one after the last spread is the only one: the
+  // merge's own is skipped).
+  if (mergesSpreads(attributes, tagName, state)) {
+    if (SELECT_TAGS.has(tagName)) state.makesSelects = true;
+    const parts = [];
+    /** @type {any} */
+    let literal = null;
+    const refs = [];
+    const last = attributes.findLastIndex((a) => t.isJSXSpreadAttribute(a));
+    for (const [attrIndex, attr] of attributes.entries()) {
+      if (t.isJSXSpreadAttribute(attr)) {
+        parts.push(attr.argument);
+        literal = null;
+        continue;
+      }
+      const name = getAttrName(attr);
+      // A later attribute of the same name is its only writer (isShadowedAttr).
+      if (name === 'key' || inTemplate(attributes, attrIndex, tagName) || isShadowedAttr(attributes, attrIndex)) continue;
+      const value = getAttributeValue(attr.value);
+      if (name === 'ref') {
+        refs.push([t.expressionStatement(buildRef(value, elId, state)), attrIndex > last]);
+        continue;
+      }
+      const live = t.isJSXExpressionContainer(attr.value) && !t.isFunction(value) && isPotentiallyReactive(value, state.signalNames, state.importedIdentifiers);
+      if (literal === null) parts.push(literal = t.objectExpression([t.objectProperty(t.identifier('__proto__'), t.nullLiteral())]));
+      literal.properties.push(live
+        ? t.objectMethod('get', propKey(name), [], t.blockStatement([t.returnStatement(value)]))
+        : t.objectProperty(propKey(name), value));
+    }
+    statements.push(t.expressionStatement(t.callExpression(helper(state, '_$spread'), [
+      FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId),
+      t.callExpression(helper(state, '_$merge'), parts),
+      // A ref after the last spread is the element's only one.
+      ...(refs.some(([, after]) => after) ? [t.arrayExpression([t.stringLiteral('ref')])] : []),
+    ])), ...refs.map(([statement]) => statement));
+    return;
   }
 
   // Static attributes the template holds are already applied (isTemplateAttr).

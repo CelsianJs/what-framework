@@ -225,8 +225,8 @@ export namespace JSX {
     children: {};
   }
   interface IntrinsicAttributes {
-    /** A row's key; <For key={(item) => item.id}> takes the function that gives it. */
-    key?: string | number | ((item: never) => unknown);
+    /** A row's key; <For key={(item) => item.id}> takes the function that gives it, which is handed the index too. */
+    key?: string | number | ((item: never, index: number) => unknown);
   }
 
   interface IntrinsicElements {

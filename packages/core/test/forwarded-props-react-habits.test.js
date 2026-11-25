@@ -262,3 +262,90 @@ test('components written with h(), a factory\'s, a hook\'s and a class\'s render
     stop();
   }
 });
+
+test('a merge takes every source object spread takes: null, undefined, booleans, numbers and strings', async () => {
+  const { _$merge } = await import('../src/render.js');
+  for (const source of [null, undefined, false, true, 0, 1, NaN, 10n, '', 'ab', Symbol('s'), [1, 2], { id: 'x' }]) {
+    assert.deepEqual({ ..._$merge({ a: 1 }, source) }, { a: 1, ...source }, String(source));
+  }
+  const conditional = await loadCompiled(`
+    import { signal } from 'what-framework';
+    export const show = signal(true);
+    function Child({ show, ...rest }) {
+      const merged = { ...rest, ...(!show && { id: 'conditional' }), ...(show && ''), ...null, ...undefined, ...7, ...true };
+      return <p {...merged}>inside</p>;
+    }
+    export function View() { return <div><Child show={show()} title="valid" /></div>; }
+  `);
+  const { el, stop } = host(conditional.View);
+  try {
+    const p = el.querySelector('p');
+    assert.equal(p.getAttribute('title'), 'valid');
+    assert.equal(p.getAttribute('id'), null);
+    assert.equal(p.textContent, 'inside');
+  } finally {
+    stop();
+  }
+});
+
+test('a name destructured from this.props in render() and called is called with no receiver', async () => {
+  const mod2 = await loadCompiled(`
+    export const seen = [];
+    function format() { return this === undefined ? 'detached' : 'bound'; }
+    function tag() { return this === undefined ? 'detached' : 'bound'; }
+    function Made() { seen.push(this instanceof Made ? 'new' : 'called'); }
+    class Child {
+      constructor(props) { this.props = props; }
+      render() {
+        const { format, tag, Made } = this.props;
+        new Made();
+        return <p>{format()}-{tag\`x\`}</p>;
+      }
+    }
+    export function View() { return <div><Child format={format} tag={tag} Made={Made} /></div>; }
+  `);
+  const { el, stop } = host(mod2.View);
+  try {
+    assert.equal(el.textContent, 'detached-detached');
+    assert.deepEqual(mod2.seen, ['new']);
+  } finally {
+    stop();
+  }
+});
+
+test('across spreads and attributes, each name has one writer, the last in source order, and stays live', async () => {
+  const mod3 = await loadCompiled(`
+    import { signal } from 'what-framework';
+    export const on = signal(false);
+    export const calls = [];
+    const a = () => calls.push('a'), b = () => calls.push('b'), own = () => calls.push('own');
+    const Two = ({ u, ...rest }) => <button id="two" {...rest} {...{ title: 'last', onClick: b }} />;
+    const Before = ({ u, ...rest }) => <button id="before" onClick={own} title="own" {...rest} />;
+    const Case = ({ u, ...rest }) => <button id="case" {...rest} onclick={own} />;
+    export function View() {
+      return <div>
+        <Two title={on() ? 't2' : 't1'} onClick={on() ? undefined : a} />
+        <Before onClick={on() ? a : undefined} />
+        <Case onClick={a} />
+      </div>;
+    }
+  `);
+  const { el, stop } = host(mod3.View);
+  const click = (id) => { mod3.calls.length = 0; el.querySelector(id).click(); return mod3.calls.join(); };
+  try {
+    assert.equal(el.querySelector('#two').title, 'last');
+    assert.equal(click('#two'), 'b', 'the later spread\'s handler only');
+    assert.equal(click('#before'), '', 'a spread that holds onClick, undefined, replaces the attribute before it');
+    assert.equal(el.querySelector('#before').title, 'own');
+    assert.equal(click('#case'), 'own', '`onclick` after a spread\'s `onClick` is the one handler');
+    mod3.on(true);
+    flushSync();
+    assert.equal(el.querySelector('#two').title, 'last', 'the earlier spread\'s live title does not win');
+    assert.equal(click('#two'), 'b');
+    assert.equal(click('#before'), 'a', 'the spread\'s live handler');
+  } finally {
+    stop();
+    mod3.on(false);
+    flushSync();
+  }
+});

@@ -20,7 +20,7 @@ const quiet = (source, options) => {
 describe('an attribute written after a spread', () => {
   it('is skipped by the spread, its alias too', () => {
     const { code } = quiet(`export const A = ({ v, ...rest }) => <a {...rest} href="/x" class="c" onClick={go} />;`);
-    assert.match(code, /_\$spread\(_el\$0, rest, \["href", "class", "className", "onClick"\]\)/);
+    assert.match(code, /_\$spread\(_el\$0, rest, \["href", "class", "className", "onclick"\]\)/);
   });
 
   it('an element whose attributes all come before the spread passes no list', () => {
@@ -28,10 +28,18 @@ describe('an attribute written after a spread', () => {
     assert.match(code, /_\$spread\(_el\$0, rest\);/);
   });
 
-  it('a spread followed by another spread lists the attributes after it only', () => {
-    const { code } = quiet(`export const A = ({ a, b }) => <a {...a} id="i" {...b} title="t" />;`);
-    assert.match(code, /_\$spread\(_el\$0, _props\.a, \["id", "title"\]\)/);
-    assert.match(code, /_\$spread\(_el\$0, _props\.b, \["title"\]\)/);
+  it('two spreads, or an attribute before a spread, are one merge in source order', () => {
+    const { code } = quiet(`export const A = ({ a, b }) => <a {...a} id="i" {...b} title={t()} ref={r} />;`);
+    assert.match(code, /_\$spread\(_el\$0, _\$merge\(_props\.a, \{ __proto__: null, id: "i" \}, _props\.b, \{ __proto__: null, get title\(\) \{ return t\(\); \} \}\), \["ref"\]\); _\$applyRef\(r, _el\$0\);/);
+    const before = quiet(`export const B = ({ v, ...rest }) => <button class="c" onClick={own} {...rest} />;`).code;
+    assert.match(before, /_\$template\("<button class=c>"\)/, 'a static attribute before the spreads stays in the template');
+    assert.match(before, /_\$spread\(_el\$0, _\$merge\(\{ __proto__: null, onClick: own \}, rest\)\)/);
+  });
+
+  it('an event written twice in two cases is one writer, the last', () => {
+    const { code } = quiet(`export const A = () => <button onClick={a} onclick={b} />;`);
+    assert.match(code, /\$\$click = b;/);
+    assert.doesNotMatch(code, /\$\$click = a/);
   });
 });
 
@@ -114,9 +122,9 @@ describe('a key that reads the index', () => {
     assert.deepEqual(seen, []);
   });
 
-  it('the server\'s key function counts the index when it is not handed one', () => {
+  it('the server\'s key function takes the index too', () => {
     const { code } = quiet(`export const T = () => <ul>{terms().map((t, i) => <li key={t.term + i}>{t.term}</li>)}</ul>;`, { pluginOptions: { generate: 'ssr' } });
-    assert.match(code, /\(_n\$0 => \(t, i = _n\$0\+\+\) => t\.term \+ i\)\(0\)/);
+    assert.match(code, /true, \(t, i\) => t\.term \+ i, \d+\)/);
   });
 
   it('a key from a name the callback declares still falls back, with a warning', () => {
@@ -136,6 +144,14 @@ describe('component shapes that used to read their props once', () => {
     assert.match(code, /function useLook\(_props2\) \{ return h\('i', \{\}, \(\) => _props2\.value\); \}/);
     assert.match(code, /const \{ other: o = 1 \} = this\.props;/, 'a name with a default keeps its destructuring');
     assert.match(code, /_\$insert\(_el\$0, \(\) => this\.props\.value\)/);
+  });
+
+  it('a name destructured from this.props and called is called with no receiver', () => {
+    const { code } = quiet(`class C { render() { const { format, tag, Make } = this.props; return <p>{format()}{format?.()}{tag\`x\`}{String(new Make())}</p>; } }`);
+    assert.match(code, /\(0, this\.props\.format\)\(\)/);
+    assert.match(code, /\(0, this\.props\.format\)\?\.\(\)/);
+    assert.match(code, /\(0, this\.props\.tag\)`x`/);
+    assert.match(code, /new \(0, this\.props\.Make\)\(\)/);
   });
 
   it('a lower-case helper that calls h() is still not a component', () => {

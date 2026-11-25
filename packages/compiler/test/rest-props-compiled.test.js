@@ -33,7 +33,9 @@ describe('a rest element of the props is read live', () => {
   it('a rest element destructured again, and read by key, reads the props', () => {
     const again = flat(compileJSX(`export const Box = ({ as: Tag, ...rest }) => { const { href, ...more } = rest; return <a href={href} {...more} />; };`));
     assert.match(again, /more = _\$omit\(rest, \["href"\]\)/);
-    assert.match(again, /_\$effect\(\(\) => _\$setProp\(_el\$\d+, "href", rest\.href\)\)/);
+    // An attribute before a spread is a property of their merge, the spread's
+    // own value winning where it has one, as in React (dom.js mergesSpreads).
+    assert.match(again, /_\$spread\(_el\$\d+, _\$merge\(\{ __proto__: null, get href\(\) \{ return rest\.href; \} \}, more\)\)/);
     const byKey = flat(compileJSX(`export function Box(props) { const { as: Tag, ...rest } = props; return <a href={rest.href}>{rest.children}</a>; }`));
     assert.match(byKey, /_\$effect\(\(\) => _\$setProp\(_el\$\d+, "href", rest\.href\)\)/);
     assert.match(byKey, /_\$insert\(_el\$\d+, _\$place\(rest, "children"\)\)/);

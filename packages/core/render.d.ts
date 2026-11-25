@@ -19,9 +19,10 @@ export function mapArray<T>(
    * (what-compiler's `.map()` lowering). `loc`: the list's source location,
    * named by the duplicate-key diagnostic. `slot`: the number what-compiler
    * gives a list it lowers, the same as the server's, for the place of its
-   * keyed rows.
+   * keyed rows. `key` is handed the item and its index (a key of both is the
+   * row's item and position).
    */
-  options?: { key?: (item: T) => string | number; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
+  options?: { key?: (item: T, index: number) => string | number; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
 ): (parent: Node, marker?: Node | null) => Node;
 export function spread(el: Element, props: Record<string, any>): void;
 export function setProp(el: Element, key: string, value: any): void;
@@ -105,7 +106,7 @@ export function _$item<T>(cell: RowItem<T>): T;
 export function _$mapKeyed<T>(
   source: () => T[] | null | undefined,
   mapFn: (item: any, index: number, raw: T) => Node,
-  options: { key: (item: T) => unknown; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
+  options: { key: (item: T, index: number) => unknown; raw?: boolean; follow?: boolean; loc?: string; slot?: number },
 ): (parent: Node, marker?: Node | null) => Comment;
 
 // Equality-gated eager memo (the reactive memo, NOT the component-HOC `memo`

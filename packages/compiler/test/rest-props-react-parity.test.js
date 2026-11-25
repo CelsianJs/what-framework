@@ -171,6 +171,14 @@ const SHAPES = {
     code: `const List = ({ items }) => <ul>{items.map((i, n) => <li key={i + '-' + n}>{i}{n}</li>)}</ul>;`,
     use: (v) => `<List items={${v('items')}} />`,
   },
+  'two spreads, the later wins': {
+    code: `const Btn = ({ variant: _v, ...rest }) => <a {...rest} {...{ title: 'last', className: 'fixed' }} />;`,
+    use: (v) => `<Btn variant="x" href={${v('url')}} className={${v('cls')}} title={${v('label')}}>{${v('label')}}</Btn>`,
+  },
+  'an attribute before a spread': {
+    code: `const Btn = ({ variant: _v, ...rest }) => <a title={'own'} className={'own'} {...rest} />;`,
+    use: (v) => `<Btn variant="x" href={${v('url')}} className={${v('cls')}}>{${v('label')}}</Btn>`,
+  },
   'MathML tags': {
     code: `const Shape = ({ as: Tag, ...rest }) => <Tag {...rest} />;`,
     use: (v) => `<math><Shape as="mi" className={${v('cls')}}>{${v('label')}}</Shape></math>`,

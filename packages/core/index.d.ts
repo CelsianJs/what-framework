@@ -444,7 +444,8 @@ export function Show(props: {
  */
 export function For<T>(props: {
   each: readonly T[] | (() => readonly T[] | null | undefined);
-  key: (item: T) => unknown;
+  /** The row's key; it is handed the item's index too, for a key of item and position. */
+  key: (item: T, index: number) => unknown;
   fallback?: VNodeChild;
   children: (item: () => T, index: number) => VNodeChild;
 }): VNode;

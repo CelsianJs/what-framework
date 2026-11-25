@@ -60,14 +60,14 @@ export declare function ssrList<T>(
   list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
   fn: (item: T, index: number, list: readonly T[]) => unknown,
   asArray: boolean,
-  keyFn?: ((item: T) => unknown) | null,
+  keyFn?: ((item: T, index: number) => unknown) | null,
   slot?: number,
 ): SSRMarkup;
 export declare function ssrList<T>(
   list: readonly T[] | { map(fn: (item: T, index: number) => unknown): unknown[] },
   fn: (rowFns: ReadonlyArray<(item: T) => unknown>, item: T, index: number, list: readonly T[]) => unknown,
   asArray: boolean,
-  keyFn: ((item: T) => unknown) | null,
+  keyFn: ((item: T, index: number) => unknown) | null,
   slot: number | undefined,
   rowFns: ReadonlyArray<(item: T) => unknown>,
 ): SSRMarkup;
@@ -75,7 +75,7 @@ export declare function ssrList<T>(
 export declare function ssrFor<T>(
   each: readonly T[] | (() => readonly T[] | null | undefined) | null | undefined,
   fn: (item: T | (() => T), index: number) => unknown,
-  key: ((item: T) => unknown) | false,
+  key: ((item: T, index: number) => unknown) | false,
   fallback: unknown,
   slot?: number,
 ): () => unknown;
