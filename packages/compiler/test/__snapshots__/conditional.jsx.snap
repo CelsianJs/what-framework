@@ -1,4 +1,4 @@
-import { _$template, insert as _$insert, _$memo, _$lazyMemo } from "what-framework/render";
+import { _$template, _$reactive as _$insert, _$memo, _$lazyMemo } from "what-framework/render";
 const _tmpl$0 = /* @__PURE__ */_$template("<div><!><!>");
 const _tmpl$1 = /* @__PURE__ */_$template("<p>positive");
 const _tmpl$2 = /* @__PURE__ */_$template("<strong>big");

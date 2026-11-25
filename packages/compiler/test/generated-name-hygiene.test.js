@@ -46,6 +46,8 @@ describe('generated names are hygienic', () => {
     const code = compileJSX('const a = () => <p onClick={go}>{x()}</p>;');
     assert.match(code, /const _tmpl\$0 = /);
     assert.match(code, /const _el\$0 = _tmpl\$0\(\);/);
-    assert.match(code, /insert as _\$insert/);
+    // The one hole holds a function written in it, so the module imports the
+    // reactive region under insert's local name (dom.js renderExport).
+    assert.match(code, /_\$reactive as _\$insert/);
   });
 });

@@ -9,6 +9,8 @@ export {
   // "template() is a compiler internal" guard.
   _$template,
   insert,
+  // insert() for a function written in the hole itself (compiled output).
+  _$reactive,
   mapArray,
   // Keyed-only list entry, imported instead of mapArray by modules whose every
   // list is a keyed .map().
@@ -25,6 +27,12 @@ export {
   createSelector,
   spread,
   setProp,
+  // spread(), setProp() and setValue() as compiled output calls them, and the
+  // selection code a module whose JSX has a select or an option installs.
+  _$spread,
+  _$setProp,
+  _$setValue,
+  _$selects,
   // Specialized setters emitted by the compiler for statically-known
   // attribute names.
   setClass,
@@ -50,6 +58,11 @@ export {
   effect,
   untrack,
   _$createComponent,
+  // The same call for a module whose JSX hands no component children and no
+  // JSX in a prop: what-compiler imports it under _$createComponent's name.
+  _$createLeaf,
+  // And for a module whose every component is a plain function.
+  _$createFn,
   // The unbuilt sibling of _$createComponent. Emitted for the JSX handed
   // straight to hydrate(), which needs a VNode rather than finished DOM.
   _$componentVNode,

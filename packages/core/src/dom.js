@@ -705,18 +705,13 @@ function applyProps(el, newProps, oldProps, isSvg) {
  */
 export function _setFieldProp(el, key, value) {
   const tag = el.tagName;
-  if (tag === 'OPTION') {
-    // Its value names it: a select a value controls selects again when the
-    // value changed, and after its default changed (_keepSelection).
-    if (key === 'value') {
-      if (value == null) el.removeAttribute('value');
-      else el.value = value;
-      _optionsChanged(el);
-    } else if (key === 'selected' || key === 'defaultSelected') {
-      el.defaultSelected = !!value;
-      _keepSelection(el);
-    } else return false;
-  } else if (tag === 'INPUT' && key === 'checked') {
+  if (tag === 'OPTION' || tag === 'SELECT') {
+    if (selects !== null) return selects(el, tag, key, value);
+    // Every path that writes one installs the code first (_installSelects).
+    if (__DEV__) console.error(`[what] internal: a <${el.localName}>'s ${key} was written before what-core installed its select code.`);
+    return false;
+  }
+  if (tag === 'INPUT' && key === 'checked') {
     const on = value == null ? undefined : !!value;
     if (el._$checked !== on) el.checked = (el._$checked = on) === true;
   } else if (tag === 'INPUT' && key === 'defaultChecked') {
@@ -728,17 +723,54 @@ export function _setFieldProp(el, key, value) {
       for (const other of _formMember(el.form, 'elements')) if (other._$checked && other.name === el.name) other.checked = true;
     }
   } else if ((key !== 'value' && key !== 'defaultValue')
-    || (tag === 'INPUT' ? ATTRIBUTE_VALUE_TYPES.has(el.type) : tag !== 'TEXTAREA' && tag !== 'SELECT')) {
+    || (tag === 'INPUT' ? ATTRIBUTE_VALUE_TYPES.has(el.type) : tag !== 'TEXTAREA')) {
     return false;
   } else if (key === 'defaultValue') {
-    if (tag === 'SELECT') setSelectDefault(el, value);
-    else el.defaultValue = value == null ? '' : String(value);
-  } else if (tag === 'SELECT') {
-    _setSelectValue(el, value);
+    el.defaultValue = value == null ? '' : String(value);
   } else {
     const str = value == null ? undefined : String(value);
     if (el._$value !== str) el.value = (el._$value = str) ?? '';
   }
+  return true;
+}
+
+// The props of a <select> and its <option>s: their value, their default and
+// the selection kept in step with them (below). Installed by what can write
+// one, so a program that makes no select does not carry the code: compiled
+// JSX whose module writes a prop of a <select> or an <option> (`_$selects()`,
+// at module scope), the h() renderer and hydration writing a vnode's props
+// (setProp below), and the setters written by hand given one (render.js
+// setProp, setValue, spread).
+// A select whose value a prop wrote has it installed (showControlled,
+// _resetForm write it again through it).
+/** @type {typeof selectProp | null} */
+let selects = null;
+
+/** @internal Install what the props of a <select> and its <option>s need. */
+export function _installSelects() {
+  selects = selectProp;
+}
+
+/** @internal Install the select code for `el` when it is a select or an option. */
+export function _selectsFor(el) {
+  if (selects === null && (el.tagName === 'SELECT' || el.tagName === 'OPTION')) selects = selectProp;
+}
+
+function selectProp(el, tag, key, value) {
+  if (tag === 'OPTION') {
+    // Its value names it: a select a value controls selects again when the
+    // value changed, and after its default changed (_keepSelection).
+    if (key === 'value') {
+      if (value == null) el.removeAttribute('value');
+      else el.value = value;
+      _optionsChanged(el);
+    } else if (key === 'selected' || key === 'defaultSelected') {
+      el.defaultSelected = !!value;
+      _keepSelection(el);
+    } else return false;
+  } else if (key === 'defaultValue') setSelectDefault(el, value);
+  else if (key === 'value') _setSelectValue(el, value);
+  else return false;
   return true;
 }
 
@@ -826,7 +858,8 @@ function takenOnChange(path) {
 function showControlled(el) {
   const value = el._$value;
   if (value !== undefined) {
-    if (el.localName === 'select') markOptions(el, value, 'selected');
+    // A select's value was written by its installed code (selects).
+    if (el.localName === 'select') /** @type {any} */ (selects)(el, 'SELECT', 'value', value);
     else if (el.value !== value && (el.type !== 'number' || (!el.validity.badInput && +el.value !== +value))) el.value = value;
   }
   if (el._$checked === undefined) return;
@@ -837,7 +870,7 @@ function showControlled(el) {
   }
 }
 
-export function _setSelectValue(el, value) {
+function _setSelectValue(el, value) {
   if (value == null && el._$value === undefined) return;
   _selectionKeeper = _keepSelection;
   el._$value = value ?? undefined;
@@ -872,7 +905,7 @@ function markOptions(el, value, prop) {
 // write of its default, by hydration after it rewrites an option's
 // attributes (_selectionKeeper), and with a select after a write of its
 // default.
-export function _keepSelection(el) {
+function _keepSelection(el) {
   const select = el.closest('select');
   if (select !== null) refollow(select, true);
 }
@@ -941,9 +974,8 @@ function follow(select) {
 
 // What hydration calls with an option whose attributes it rewrote: the above,
 // installed by the first write of a select's value or default, so the
-// hydration walk itself does not reach the option marking. A program that
-// writes any form field's value or default still carries it: the one field
-// writer, _setFieldProp, reaches the select branch statically.
+// hydration walk itself does not reach the option marking. The select code
+// it belongs to is itself installed (_installSelects).
 /** @type {((option: Element) => void) | null} */
 export let _selectionKeeper = null;
 
@@ -1211,7 +1243,9 @@ function setProp(el, key, value, isSvg) {
   }
 
   // A form field's state, before the nullish and boolean branches below,
-  // which would write its value as its default (Form fields above).
+  // which would write its value as its default (Form fields above). The h()
+  // renderer and hydration, which write props here, carry the select code.
+  selects = selectProp;
   if (_setFieldProp(el, key, value)) return;
 
   // null / undefined — attribute must be ABSENT (React/Solid semantics), not
@@ -1299,7 +1333,7 @@ export function _resetForm(form, onError) {
   attempt(_formMember(form, 'reset'));
   fields.forEach((el, i) => {
     const [value, checked] = held[i];
-    if (value !== undefined) attempt(() => (el.tagName === 'SELECT' ? _setSelectValue(el, value) : (el.value = value)));
+    if (value !== undefined) attempt(() => (el.tagName === 'SELECT' ? /** @type {any} */ (selects)(el, 'SELECT', 'value', value) : (el.value = value)));
     if (checked !== undefined) attempt(() => { el.checked = checked; });
   });
 }

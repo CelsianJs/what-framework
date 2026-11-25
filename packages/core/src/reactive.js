@@ -2933,14 +2933,17 @@ function dropEffect(e) {
 // one on its root), else to console.error. A handler that throws passes its
 // error further up. It never aborts the flush: sibling effects still run. A
 // run that read a value that is not ready is held instead (see effect()).
-function handleEffectError(e, err, inCleanup) {
+// `ofComputed`: the cleanup that threw belongs to a computed's run, not an
+// effect's (cleanupFailed), which only the wording and the devtools record
+// tell apart.
+function handleEffectError(e, err, inCleanup, ofComputed) {
   if (!inCleanup && asyncOps !== null && asyncOps.held(e, err)) return;
-  if (__DEV__ && __devtools) _devError(err, { type: inCleanup ? 'effect-cleanup' : 'effect', effect: e });
+  if (__DEV__ && __devtools) _devError(err, ofComputed ? { type: 'cleanup' } : { type: inCleanup ? 'effect-cleanup' : 'effect', effect: e });
   const left = _handleError(e.owner, err);
   if (left === HANDLED) return;
   // Reporting must not interrupt sibling updates, even with a throwing console.
   try {
-    console.error(`[what] Uncaught error in effect ${inCleanup ? 'cleanup' : 'during update'}:`, left);
+    console.error(`[what] Uncaught error in ${ofComputed ? 'cleanup' : inCleanup ? 'effect cleanup' : 'effect during update'}:`, left);
   } catch { /* no console */ }
 }
 
@@ -3208,8 +3211,7 @@ function disposeRun(node) {
 }
 
 function cleanupFailed(node, err) {
-  if (node.flags & EFFECT) handleEffectError(node, err, true);
-  else reportCleanupError(node, err);
+  handleEffectError(node, err, true, (node.flags & EFFECT) === 0);
 }
 
 /**
@@ -3226,13 +3228,6 @@ export function _handlePending(owner, waiting) {
     }
   }
   return false;
-}
-
-function reportCleanupError(node, err) {
-  if (__DEV__ && __devtools) _devError(err, { type: 'cleanup' });
-  const left = _handleError(node.owner, err);
-  if (left === HANDLED) return;
-  try { console.error('[what] Uncaught error in cleanup:', left); } catch { /* no console */ }
 }
 
 export function getOwner() {

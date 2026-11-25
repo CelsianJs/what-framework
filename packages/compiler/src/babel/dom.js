@@ -512,6 +512,8 @@ function buildRef(refExpr, elId, state) {
 const VALUE_PROP_TAGS = new Set(['input', 'textarea', 'select', 'option']);
 // The form fields a `value` or `checked` prop controls.
 const FIELD_TAGS = new Set(['input', 'textarea', 'select']);
+// The elements whose props the selection code of what-core keeps in step.
+const SELECT_TAGS = new Set(['select', 'option']);
 
 function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   // Specialized monomorphic setters for statically-known attribute names.
@@ -523,6 +525,9 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   // sanitization and the { __html } enforcement live there.
   // `bound`: the call is made in the effect of a binding (bindingEffect).
   function buildSetPropCall(propName, valueExpr, bound) {
+    // A prop of a select or an option brings the code that keeps the
+    // selection (what-core _$selects, written once at module scope).
+    if (SELECT_TAGS.has(tagName)) state.makesSelects = true;
     // A value or checked a binding writes to a form field: the field shows it
     // again after each of its events when the binding read state (what-core
     // setValue, _controlFields). A value written once is where the field
@@ -597,6 +602,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
   // exactly as it does in the h() call.
   for (const [attrIndex, attr] of attributes.entries()) {
     if (t.isJSXSpreadAttribute(attr)) {
+      if (SELECT_TAGS.has(tagName)) state.makesSelects = true;
       statements.push(
         t.expressionStatement(
           // A spread on a form field may bind its value or checked to state:
@@ -1110,6 +1116,11 @@ function applyDynamicChildren(statements, elId, children, parentNode, state, row
       if (marker === undefined) args.push(t.unaryExpression('void', t.numericLiteral(0)));
       args.push(name);
     }
+    // A function written where it is inserted is no list and no children
+    // factory, so insert() could only hand it to its reactive region. A
+    // module whose every insert is one imports that region under insert's
+    // name (renderExport), and does not bring insert() itself.
+    if (!plain && !t.isArrowFunctionExpression(value) && !t.isFunctionExpression(value)) state.needsGeneralInsert = true;
     return t.callExpression(helper(state, plain ? '_$plain' : '_$insert'), args);
   }
 
@@ -1476,7 +1487,9 @@ function transformComponentFineGrained(path, state) {
       );
     }
 
-    const islandArgs = [helper(state, '_$Island'), islandPropsExpr, transformComponentChildren()];
+    const islandChildren = transformComponentChildren();
+    if (!isEmptyArray(islandChildren)) state.needsLazyProps = true;
+    const islandArgs = [helper(state, '_$Island'), islandPropsExpr, islandChildren];
     const islandMeta = componentMetadata(node, state);
     // Hydratable output's component call takes the JSX's number before its
     // development location (below); an island has none, as on the server.
@@ -1648,6 +1661,13 @@ function transformComponentFineGrained(path, state) {
   }
 
   const childrenArg = transformComponentChildren();
+  // Children, or JSX in a prop, are built where the component reads them
+  // (render.js lazyProps). A module with neither imports the call that
+  // installs no lazy getter (renderExport).
+  if (slots.length > 0 || !isEmptyArray(childrenArg)) state.needsLazyProps = true;
+  // And one whose every component is a plain function imports the call that
+  // does not look for a class component.
+  if (!isPlainFunctionComponent(path.scope ?? state.file?.path?.scope, openingElement.name)) state.classComponents = true;
 
   const componentArgs = [componentRef, propsExpr, childrenArg];
   const meta = componentMetadata(node, state);
@@ -1964,6 +1984,8 @@ function transformForFineGrained(path, state) {
     ])
   );
 
+  // The fallback goes in as an array (below), which only insert() takes.
+  state.needsGeneralInsert = true;
   const parentParam = t.identifier('_parent');
   const markerParam = t.identifier('_marker');
   const endId = t.identifier('_end');
@@ -2702,6 +2724,19 @@ export function initDomState(state) {
   // A module whose every list is a keyed .map() imports the keyed-only list
   // entry; <For> and hand-written mapArray() need the general one.
   state.needsGeneralMapArray = false;
+  // A module none of whose component calls hands over children or JSX in a
+  // prop imports the component call that installs no lazy getter.
+  state.needsLazyProps = false;
+  // A module whose every insert is of a function written in the hole imports
+  // the reactive region insert() would hand it to.
+  state.needsGeneralInsert = false;
+  // A module that calls a component which may be a class component (one
+  // whose prototype has render(): anything but a plain function the module
+  // can see, isPlainFunctionComponent) imports the call that runs one.
+  state.classComponents = false;
+  // A module whose JSX writes a prop of a select or an option installs the
+  // selection code (_$selects()).
+  state.makesSelects = false;
   state._selectorDecls = [];
   state._selectorIds = new Map();
   state.delegatedEvents = new Set();
@@ -2724,7 +2759,7 @@ const RENDER_IMPORTS = [
   // dev-warns for hand-written calls with dynamic strings.
   // Hydratable output takes `_$htemplate`, which also hands claims the root.
   ['_$template', null],
-  ['_$insert', 'insert'],
+  ['_$insert', null],
   ['_$effect', 'effect'],
   ['_$mapArray', null],
   ['_$item', '_$item'],
@@ -2734,9 +2769,9 @@ const RENDER_IMPORTS = [
   ['_$hplain', '_$hplain'],
   ['_$rowFields', '_$rowFields'],
   ['_$createSelector', 'createSelector'],
-  ['_$spread', 'spread'],
+  ['_$spread', '_$spread'],
   ['_$controlled', '_$controlled'],
-  ['_$setProp', 'setProp'],
+  ['_$setProp', '_$setProp'],
   ['_$memo', '_$memo'],
   ['_$lazyMemo', '_$lazyMemo'],
   ['_$Island', '_$Island'],
@@ -2746,7 +2781,7 @@ const RENDER_IMPORTS = [
   ['_$applyRef', 'applyRef'],
   ['_$setStyle', 'setStyle'],
   ['_$setAttr', 'setAttr'],
-  ['_$setValue', 'setValue'],
+  ['_$setValue', '_$setValue'],
   ['_$setChecked', 'setChecked'],
   ['_$createComponent', null],
   ['_$componentVNode', '_$componentVNode'],
@@ -2767,13 +2802,52 @@ const RENDER_IMPORTS = [
   ['_$place', '_$place'],
   ['_$merge', '_$merge'],
   ['_$omit', '_$omit'],
+  ['_$selects', '_$selects'],
 ];
 
 // The export a helper whose RENDER_IMPORTS entry is null imports.
 function renderExport(name, state) {
   if (name === '_$mapArray') return state.needsGeneralMapArray ? 'mapArray' : '_$mapKeyed';
   if (name === '_$template') return state.hydratable ? '_$htemplate' : '_$template';
-  return state.hydratable ? '_$hcreateComponent' : '_$createComponent';
+  if (name === '_$insert') return state.needsGeneralInsert ? 'insert' : '_$reactive';
+  if (state.hydratable) return '_$hcreateComponent';
+  if (state.needsLazyProps) return '_$createComponent';
+  return state.classComponents ? '_$createLeaf' : '_$createFn';
+}
+
+// The components of what-framework itself, which are functions.
+const FRAMEWORK_SOURCES = new Set(['what-framework', 'what-core']);
+
+// Whether the component a JSX tag names is a plain function, which a class
+// component (a prototype with render() or isReactComponent, render.js
+// _toFunctionComponent) can never be: an arrow function the module defines
+// (the bridge would construct it, which throws for an arrow, whatever its
+// prototype holds), a function the module defines, does not export and uses
+// only in JSX (so nothing can give its prototype a render()), and a component
+// imported from what-framework. In every case the binding is never
+// reassigned.
+function isPlainFunctionComponent(scope, name) {
+  if (!t.isJSXIdentifier(name) || scope == null) return false;
+  const binding = scope.getBinding(name.name);
+  if (!binding || !binding.constant) return false;
+  const decl = binding.path;
+  if (binding.kind === 'module') {
+    return t.isImportSpecifier(decl.node) && FRAMEWORK_SOURCES.has(decl.parent.source.value);
+  }
+  /** @type {any} */
+  let fn = null;
+  if (t.isFunctionDeclaration(decl.node)) fn = decl.node;
+  else if (t.isVariableDeclarator(decl.node) && (t.isArrowFunctionExpression(decl.node.init) || t.isFunctionExpression(decl.node.init))) fn = decl.node.init;
+  if (fn === null || fn.async || fn.generator) return false;
+  if (t.isArrowFunctionExpression(fn)) return true;
+  // Another module could give an exported function a prototype with render().
+  const statement = t.isVariableDeclarator(decl.node) ? decl.parentPath : decl;
+  if (t.isExportNamedDeclaration(statement.parent) || t.isExportDefaultDeclaration(statement.parent)) return false;
+  return binding.referencePaths.every((ref) => t.isJSXOpeningElement(ref.parent) || t.isJSXClosingElement(ref.parent));
+}
+
+function isEmptyArray(node) {
+  return t.isArrayExpression(node) && node.elements.length === 0;
 }
 const CORE_IMPORTS = ['h'];
 
@@ -2817,6 +2891,10 @@ export function finishDomProgram(path, state) {
       helperFn,
     ];
   }
+
+  // At module scope, so the code is installed before any of the module's
+  // components builds a select.
+  if (state.makesSelects) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$selects'), [])));
 
   for (const reader of state.rowFieldReaders.reverse()) {
     path.unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier(reader.id), reader.fn)]));

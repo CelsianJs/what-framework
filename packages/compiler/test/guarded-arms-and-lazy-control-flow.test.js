@@ -671,7 +671,8 @@ describe('#24 <For fallback> is not silently discarded', () => {
     // insert(), createDOM(), hydrateNode() and the server's _mapArrayToArray all
     // branch on these. Losing them is what drops the value into insert()'s
     // generic reactive branch, which is where the rebuild-per-flip came from.
-    assert.equal(inserter._mapArray, true,
+    // The mark is what renders the list as a value (render.js _listFragment).
+    assert.equal(typeof inserter._mapArray, 'function',
       'the fallback lowering stopped being a mapArray inserter');
     const [source, mapFn] = inserter._list;
     assert.equal(typeof source, 'function', 'server-side row rendering reads the list source (_list)');

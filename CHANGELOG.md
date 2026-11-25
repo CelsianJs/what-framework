@@ -1229,6 +1229,28 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **A compiled app carries only the runtime its JSX uses.** Built as the
+  scaffold builds it, the create-what counter is 5,242 B gzip (6,041 B
+  before this change; 0.14: 7,731 B), the counter with one `computed()`
+  9,172 B (9,873 B), and an app on hooks, a store and a form 14,131 B
+  (15,378 B); every app `npm run check:size` builds is smaller. A compiled
+  module imports the component call it needs: with no component handed
+  children or JSX in a prop it leaves out the lazy getters, and when every
+  component is a function the module defines (or one of what-framework's) it
+  leaves out the class component bridge. A module whose every hole holds a
+  function written in it imports the reactive region instead of `insert()`.
+  The code that keeps a `<select>` and its `<option>`s in step with their
+  props comes with a module whose JSX writes one (`_$selects()`), with
+  `h()`, and with `spread()`, `setProp()` and `setValue()` written by hand;
+  an app of inputs leaves it out (about 690 B). `useEffect`, `onMount` and
+  the router read the server render store without making it, so a browser
+  bundle leaves the store out (about 100 B). Smaller cuts: the walk to the
+  nearest `<Suspense>` comes with what can suspend, a list rendered as a
+  value brings its own fragment, and only the vnode renderer asks whether a
+  parent is an SVG element. Nothing changes in what an app does: the krausest
+  benchmark makes the same DOM calls for every operation, and
+  `benchmark/size/why.mjs` says which declaration of a scenario's bundle
+  costs what and why the bundler keeps it.
 - **what-react does the DOM work React does, and an unmodified React app
   now runs faster on it than on React.** The krausest keyed benchmark as a
   React app writes it (memo rows, immutable updates), script time against

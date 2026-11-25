@@ -176,13 +176,16 @@ export function __markServerProcess() {
 
 /** @internal Whether code outside a render runs on a server (see above). */
 export function _isServerProcess() {
-  const state = store();
-  return state.server && (!state.withDocument || state.storage === null);
+  const state = shared ?? /** @type {any} */ (globalThis)[STORE];
+  return state != null && state.server && (!state.withDocument || state.storage === null);
 }
 
 /** @returns the active render context, or null on the client / outside a render. */
+// Read without making the store (see isServerRender below): a browser that no
+// render touched has none, and no context.
 export function getServerContext() {
-  const state = store();
+  const state = shared ?? /** @type {any} */ (globalThis)[STORE];
+  if (state == null) return null;
   if (state.current != null) return state.current;
   return state.storage ? state.storage.getStore() ?? null : null;
 }
@@ -195,16 +198,16 @@ export function getServerContext() {
  * two answers diverge under every DOM shim (jsdom, happy-dom, a Workers
  * polyfill) and in any test that renders both ways in one process.
  */
-// With a document, it reads the store as getServerContext() does, but does
+// With a document, it reads the store as getServerContext() does, which does
 // not make it: a page that no server render ever touched has none, and is
-// not rendering. So a browser bundle whose hooks ask (useEffect, onMount)
+// not rendering. So a browser bundle whose hooks ask (useEffect, onMount),
+// or whose router reads the render (getServerContext, _isServerProcess),
 // does not carry the store and the owner lookup it installs (store(),
 // renderOwner); a copy of the engine that a render reaches later still finds
-// its root through the store's `adopt` (reactive.js ownerNow).
+// its root through the store's `adopt` (reactive.js ownerNow), and the copy
+// that renders installs its own when it starts (serving()).
 export function isServerRender() {
-  if (typeof document === 'undefined') return true;
-  const state = shared ?? /** @type {any} */ (globalThis)[STORE];
-  return state != null && (state.current != null || (state.storage != null && state.storage.getStore() != null));
+  return typeof document === 'undefined' || getServerContext() != null;
 }
 
 /**

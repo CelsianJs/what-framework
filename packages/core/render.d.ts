@@ -5,6 +5,11 @@ import type { VNodeChild, Signal, Component, VNode } from './index.js';
 // written without JSX.
 export function template(html: string): () => Element;
 export function insert(parent: Node, child: any, marker?: Node | null): any;
+/**
+ * @internal insert() for a function written in the hole itself: the reactive
+ * region insert() would hand it to. Emitted by the compiler.
+ */
+export function _$reactive(parent: Node, child: () => any, marker?: Node | null, devName?: string): void;
 /** `source` is an accessor, or an array for a list that never changes. */
 export function mapArray<T>(
   source: (() => readonly T[] | null | undefined) | readonly T[],
@@ -20,6 +25,14 @@ export function mapArray<T>(
 ): (parent: Node, marker?: Node | null) => Node;
 export function spread(el: Element, props: Record<string, any>): void;
 export function setProp(el: Element, key: string, value: any): void;
+/** @internal spread() as compiled output calls it: a select or an option it is given has its code installed by its module (`_$selects`). */
+export function _$spread(el: Element, props: Record<string, any>): void;
+/** @internal setProp() as compiled output calls it (see `_$spread`). */
+export function _$setProp(el: Element, key: string, value: any): void;
+/** @internal setValue() as compiled output calls it (see `_$spread`). */
+export function _$setValue(el: Element, value: any, bound?: 1): void;
+/** @internal Compiler output, once at module scope in a module whose JSX writes a prop of a <select> or an <option>: installs the code that keeps their selection. */
+export function _$selects(): void;
 /**
  * One listener per event type on `root` (the document by default; a shadow root
  * or an element delegates for its own subtree) runs the `$$event` handlers on
@@ -158,6 +171,19 @@ export function svgTemplate(html: string): () => Element;
  * the package a scaffolded app actually depends on.
  */
 export function _$createComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
+
+/**
+ * @internal `_$createComponent` for a module whose JSX hands no component
+ * children and no JSX in a prop: the compiler imports it under that name, so
+ * an app of such modules does not carry the lazy props.
+ */
+export function _$createLeaf(component: unknown, props?: unknown, ...args: unknown[]): unknown;
+
+/**
+ * @internal `_$createLeaf` for a module whose every component is a plain
+ * function (never a class component): it does not look for one.
+ */
+export function _$createFn(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 
 /**
  * @internal The unbuilt sibling of `_$createComponent`, emitted for the JSX

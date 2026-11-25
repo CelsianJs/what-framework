@@ -9,7 +9,7 @@
 
 import { effect, untrack, batch, createRoot, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses } from './vnode-renderer.js';
@@ -156,6 +156,32 @@ export function _$createComponent(Component, props, children, devLoc) {
   if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
   const merged = ownProps(props);
   return _renderComponent(Component, merged, lazyProps(Component, merged, props, children), false, devLoc);
+}
+
+/**
+ * _$createComponent for a module whose JSX hands no component children and no
+ * JSX in a prop: what-compiler imports it under the same name when every
+ * component call of the module is one (as it picks _$mapKeyed for a module of
+ * keyed lists), and still passes the empty children array. With nothing to
+ * build lazily, the lazy getters (dom.js _installLazyChildren, readLazy) are
+ * not reached from here, so an app none of whose modules needs them does not
+ * carry them. The same statements as above on purpose: an app that has both
+ * kinds of module carries both functions, and the repeat compresses away.
+ */
+export function _$createLeaf(Component, props, _children, devLoc) {
+  const proto = Component.prototype;
+  if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  return _renderComponent(Component, ownProps(props), null, false, devLoc);
+}
+
+/**
+ * _$createLeaf for a module whose every component is a plain function, which
+ * what-compiler can tell (dom.js isPlainFunctionComponent): no class
+ * component to run through its bridge (_toFunctionComponent), so an app none
+ * of whose modules may call one does not carry it.
+ */
+export function _$createFn(Component, props, _children, devLoc) {
+  return _renderComponent(Component, ownProps(props), null, false, devLoc);
 }
 
 // The props object a compiled component runs with. Compiled JSX builds a
@@ -338,9 +364,13 @@ function renderWhenSettled(thenable, parentOwner, start, end, Component, props, 
   if (thenable == null || typeof thenable.then !== 'function') return componentFailed(thenable, parentOwner);
   const settled = (settledPromises || (settledPromises = new WeakMap())).get(thenable);
   if (settled !== undefined) {
-    return componentFailed(settled.failed ? settled.reason : new Error(__DEV__
+    const error = settled.failed ? settled.reason : new Error(__DEV__
       ? '[what] A component suspended on a promise that had already settled, so rendering it again would suspend again forever. Read a settled promise with use(promise), which returns its value.'
-      : '[what] suspended on a settled promise'), parentOwner);
+      : '[what] suspended on a settled promise');
+    // A promise rejected with a thenable: that one goes to the nearest
+    // Suspense as it is, before an error boundary.
+    if (error != null && typeof error.then === 'function' && _handlePending(parentOwner, error)) return HANDLED;
+    return componentFailed(error, parentOwner);
   }
   // The promise's callbacks hold only `job`, which lets go of the component
   // (its props, its place, its owner) once that place is disposed, so a
@@ -390,13 +420,19 @@ function retryIn(parentOwner, start, end, Component, props, isSvg, devLoc) {
   };
 }
 
-// A component threw while it was built. A thrown thenable is a suspension, not
-// a failure: it goes to the nearest Suspense (`_onPending`). A navigation
-// signal carries its own handler. Anything else goes to the nearest error
-// boundary (`_onError`). Returns HANDLED, or the error nothing took.
+// A component threw while it was built. A navigation signal carries its own
+// handler. Anything else goes to the nearest error boundary (`_onError`).
+// Returns HANDLED, or the error nothing took. A thrown thenable is a
+// suspension, which renderWhenSettled takes before it gets here: only a
+// Suspense has an `_onPending` handler, and it installs renderWhenSettled
+// (_enableSuspense) before it creates the owner that has one, so a program
+// that cannot suspend has no handler to look for and does not carry the walk
+// (reactive.js _handlePending). What can still meet a thenable with a
+// Suspense above it asks for itself: a suspension whose promise had settled
+// (renderWhenSettled), and a component that throws one while it hydrates
+// (adoptComponent).
 function componentFailed(error, owner) {
   if (_handleNavigationSignal(error)) return HANDLED;
-  if (error != null && typeof error.then === 'function' && _handlePending(owner, error)) return HANDLED;
   if (__DEV__ && __devtools) _devError(error, { type: 'component', owner });
   return _handleError(owner, error);
 }
@@ -582,11 +618,15 @@ export function insert(parent, child, marker, devName) {
 // allocation) and the general reconcile path. The effect owns what each run
 // builds and disposes it before the next run, so a component or binding a run
 // creates goes away with the content it belongs to.
+// Compiled JSX calls it directly (`_$reactive`) for a function written in the
+// hole itself, which insert() could only pass on.
 function insertReactive(parent, child, marker, devName) {
   // Keyed vnode rows outlive the region's runs: they belong to the owner the
   // region is created under (see _vnodeRows).
   effect(region(parent, child, marker, vnodeRows !== null ? getOwner() : null), __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
 }
+
+export { insertReactive as _$reactive };
 
 // The function a region's effect runs.
 function region(parent, child, marker, scope) {
@@ -839,7 +879,7 @@ export function _isDomNode(value) {
 
 // Check if parent is an SVG element. Cached typeof check avoids repeated lookups.
 const _hasSVGElement = typeof SVGElement !== 'undefined';
-function isSvgParent(parent) {
+export function _isSvgParent(parent) {
   return _hasSVGElement
     && parent instanceof SVGElement
     && parent.tagName !== 'foreignObject';
@@ -1000,7 +1040,7 @@ function createVNodeRows(isSvg, scope, end = document.createComment('/list'), ro
   const build = (vnode) => runWithOwner(scope, () => createRoot((dispose) => {
     const host = end.parentNode;
     const frag = document.createDocumentFragment();
-    for (const n of valuesToNodes(vnode, host, [], isSvg || isSvgParent(host))) frag.appendChild(n);
+    for (const n of valuesToNodes(vnode, host, [], isSvg || _isSvgParent(host))) frag.appendChild(n);
     if (frag.firstChild === null) frag.appendChild(document.createComment(''));
     return { key: vnode.key, vnode, dispose, first: frag.firstChild, last: frag.lastChild };
   }));
@@ -1078,7 +1118,8 @@ function valuesToNodes(value, parent, out, isSvg) {
 
   if (typeof value === 'function') {
     if (value._lazyChildren) return valuesToNodes(value(), parent, out, isSvg);
-    const frag = value._mapArray ? _listFragment(value) : _region(value, isSvg);
+    // A list brings its own fragment (_listFragment, its `_mapArray`).
+    const frag = value._mapArray ? value._mapArray(value) : _region(value, isSvg);
     for (let node = frag.firstChild; node !== null; node = node.nextSibling) out.push(node);
     return out;
   }
@@ -1101,7 +1142,8 @@ function valuesToNodes(value, parent, out, isSvg) {
   // its text. With no renderer installed no vnode producer is in the program,
   // so an object is text; development still explains a vnode from elsewhere.
   if (vnodeRenderer !== null) {
-    const node = vnodeRenderer(value, parent, isSvg || isSvgParent(parent));
+    // The renderer asks whether `parent` is an SVG element (h.js).
+    const node = vnodeRenderer(value, parent, isSvg, 1);
     if (node && node.nodeType === 11 /* DOCUMENT_FRAGMENT_NODE */ && node.childNodes.length > 0) {
       for (let child = node.firstChild; child !== null; child = child.nextSibling) out.push(child);
     } else if (node) {
@@ -1144,15 +1186,8 @@ function reconcileNodes(parent, value, current, marker) {
 
   const targetMarker = marker || null;
 
-  if (value == null || typeof value === 'boolean') {
-    const oldNodes = _liveRegionNodes(asNodeArray(current));
-    for (let i = 0; i < oldNodes.length; i++) {
-      const oldNode = oldNodes[i];
-      if (oldNode.parentNode === parent) parent.removeChild(oldNode);
-    }
-    return null;
-  }
-
+  // Nothing to show (null, undefined, a boolean) takes the general path below
+  // with no new nodes: every live node of `current` is removed, in order.
   if ((typeof value === 'string' || typeof value === 'number')
       && current && !Array.isArray(current) && current.nodeType === 3) {
     const text = String(value);
@@ -1332,7 +1367,9 @@ function listInserter(source, mapFn, keyFn, keyedSignals, keyed) {
     });
     return endMarker;
   };
-  inserter._mapArray = true;
+  // The mark of a list inserter, and what renders one as a value: a program
+  // without a list does not carry _listFragment, which only a list reaches.
+  inserter._mapArray = _listFragment;
   // The server has no DOM to insert into, so it renders the rows from the
   // inserter's inputs instead (_mapArrayToArray), in the same order and with
   // the same item protocol the client uses; hydrate() adopts the rows it
@@ -1984,7 +2021,7 @@ function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
 // Fine-grained prop effects. Function props create individual effects.
 // Event props use direct assignment.
 
-export function spread(el, props) {
+function spread(el, props) {
   // A props object What built (forwarded props, a rest element) may hold live
   // props (dom.js _isLiveProp): each is bound like a reactive attribute,
   // reading the getter again when what it read changes.
@@ -2051,7 +2088,7 @@ export function spread(el, props) {
 //     addEventListener) — no el._events bookkeeping here.
 //   - sanitizes URL attributes (href/src) against javascript: protocol.
 //   - enforces innerHTML must be { __html: ... } — plain strings are warned.
-export function setProp(el, key, value) {
+function setProp(el, key, value) {
   // Ref handling — assign element to ref object/callback (defense in depth)
   if (key === 'ref') {
     applyRef(value, el);
@@ -2330,7 +2367,7 @@ export function setAttr(el, name, value) {
 // _wrapPropAccessor applies). A field a binding that read state controls
 // shows what the binding holds after each of its events (dom.js
 // _controlFields).
-export function setValue(el, value, bound) {
+function setValue(el, value, bound) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, setValue);
   if (bound === 1) _controlFields(el);
   if (!_setFieldProp(el, 'value', value)) setProp(el, 'value', value);
@@ -2341,6 +2378,29 @@ export function setChecked(el, value, bound) {
   if (bound === 1) _controlFields(el);
   if (!_setFieldProp(el, 'checked', value)) setProp(el, 'checked', value);
 }
+
+// spread(), setProp() and setValue() as code written by hand calls them: one
+// given a <select> or an <option> brings the code that keeps their selection
+// (dom.js _installSelects). Compiled JSX imports them without it (`_$spread`,
+// `_$setProp`, `_$setValue`) and installs it from a module whose JSX has a
+// select or an option (`_$selects()`), so an app that makes none carries none.
+function handSpread(el, props) {
+  _selectsFor(el);
+  spread(el, props);
+}
+
+function handSetProp(el, key, value) {
+  _selectsFor(el);
+  setProp(el, key, value);
+}
+
+function handSetValue(el, value, bound) {
+  _selectsFor(el);
+  setValue(el, value, bound);
+}
+
+export { handSpread as spread, handSetProp as setProp, handSetValue as setValue, spread as _$spread, setProp as _$setProp, setValue as _$setValue };
+export { _installSelects as _$selects } from './dom.js';
 
 // What spread() hands a value or checked that follows state (a live prop, an
 // accessor) to, once a spread on a field exists: the binding an attribute of
@@ -3545,7 +3605,7 @@ function adoptVNode(vnode) {
   }
   const el = takeElement(c, tag);
   if (el === null) {
-    recover(c, clientBuild(vnodeRenderer, vnode, c.p, isSvgParent(c.p)), `<${tag}>`);
+    recover(c, clientBuild(vnodeRenderer, vnode, c.p, _isSvgParent(c.p)), `<${tag}>`);
     return;
   }
   if (tag === 'input' || tag === 'select' || tag === 'textarea') _keepControl(el);
@@ -3694,7 +3754,7 @@ function adoptComponent(Component, props, endChildrenPass, site, devLoc) {
     // A throw while hydrating is classified as _renderComponent classifies it
     // (a thenable belongs to the nearest <Suspense>), but never escapes
     // hydrate(): the rest of the page still hydrates.
-    const left = componentFailed(error, owner.owner);
+    const left = error != null && typeof error.then === 'function' && _handlePending(owner.owner, error) ? HANDLED : componentFailed(error, owner.owner);
     if (left !== HANDLED) console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', left);
     return [];
   }

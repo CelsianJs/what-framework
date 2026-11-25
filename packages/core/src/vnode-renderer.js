@@ -65,7 +65,7 @@ export function isVNode(value) {
   return VNode.is(value);
 }
 
-/** @type {((vnode: any, parent?: any, isSvg?: boolean) => Node) | null} */
+/** @type {((vnode: any, parent?: any, isSvg?: boolean, inParent?: 1) => Node) | null} */
 export let vnodeRenderer = null;
 
 // The keyed vnode rows a reactive region renders a keyed vnode list through

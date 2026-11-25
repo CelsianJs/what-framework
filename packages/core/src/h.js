@@ -6,7 +6,7 @@
 // VNode: { tag, props, children, key }, branded (vnode-renderer.js)
 
 import { createDOM, _setVNodeProp, _isUnsafeAttr } from './dom.js';
-import { _vnodeRows } from './render.js';
+import { _vnodeRows, _isSvgParent } from './render.js';
 import { VNode, _installVNodeRuntime } from './vnode-renderer.js';
 
 // Every vnode is made by h, _jsxVNode or _vnode, and defining each of them
@@ -30,7 +30,10 @@ function vnodeProducer(produce) {
   // Installed as they are, they would stay undefined and every vnode would
   // throw "vnodeRows is not a function".
   _installVNodeRuntime(
-    (vnode, parent, isSvg) => createDOM(vnode, parent, isSvg),
+    // `inParent` 1: a vnode rendered as a value of `parent` (render.js
+    // valuesToNodes) is SVG in an SVG element, which only this renderer asks,
+    // so a program that makes no vnode does not carry the question.
+    (vnode, parent, isSvg, inParent) => createDOM(vnode, parent, isSvg || (inParent === 1 && _isSvgParent(parent))),
     (value, rows, isSvg, scope, end, adopted) => _vnodeRows(value, rows, isSvg, scope, end, adopted),
     (el, key, value, isSvg) => _setVNodeProp(el, key, value, isSvg),
     (key, value) => _isUnsafeAttr(key, value),
