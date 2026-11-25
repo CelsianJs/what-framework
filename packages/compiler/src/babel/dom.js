@@ -669,8 +669,9 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     // An input's type and a select's multiple: a write that changes one
     // writes the field's value and checked again (what-core _$retype), as
     // `type={kind()} value="abc"` shows `abc` again once `date` gives way to
-    // `text`.
-    if ((propName === 'type' && tagName === 'input') || (propName === 'multiple' && tagName === 'select')) {
+    // `text`. An HTML element's attribute names fold their case (`TYPE`).
+    const folded = propName.toLowerCase();
+    if ((folded === 'type' && tagName === 'input') || (folded === 'multiple' && tagName === 'select')) {
       return t.callExpression(helper(state, '_$retype'), [t.identifier(elId), t.stringLiteral(propName), valueExpr]);
     }
     if (isEnumeratedAttr(propName)) {

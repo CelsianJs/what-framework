@@ -50,6 +50,36 @@ const mod = await loadCompiled(`
   </div>;
 `);
 
+// Verification 6: the field's kind changing, at its edges.
+// - A file field takes no value but the empty one (any other throws): one
+//   whose value goes away while it is a file field, and comes back once it is
+//   a text field again, shows it, with nothing thrown, and a spread read again
+//   is not left a file field (React: text, file, text with abc, nothing, abc).
+// - An empty number field is not the number 0: a value of 0 shows once the
+//   field becomes a number field (React writes 0 into an empty field).
+// - `TYPE` is an HTML input's `type`, so its change writes the value again.
+// - `xlink:Href` and `xml:Lang` are the attributes `xlinkHref` and `xmlLang`
+//   write: one name, the last writer's, the earlier one's again once it goes.
+const edge = await loadCompiled(`
+  import { signal } from 'what-framework';
+  export const step = signal(0);
+  const kind = () => ['text', 'file', 'text'][step()];
+  const held = () => (step() === 1 ? undefined : 'abc');
+  export const View = () => <div>
+    <input id="file-live" {...(() => ({ type: kind(), value: held(), multiple: true }))()} />
+    <input id="file-stable" {...{ type: kind, value: held, multiple: true }} />
+    <input id="file-kept" {...{ type: kind, value: 'abc' }} />
+    <input id="zero-live" {...(() => ({ type: step() ? 'number' : 'date', value: 0 }))()} />
+    <input id="zero-stable" {...{ type: () => (step() ? 'number' : 'date'), value: 0 }} />
+    <input id="upper-live" {...(() => ({ TYPE: step() ? 'text' : 'date', value: 'abc' }))()} />
+    <input id="upper-stable" {...{ TYPE: () => (step() ? 'text' : 'date'), value: 'abc' }} />
+    <svg>
+      <g id="xlink-case" {...{ xlinkHref: '#fixed' }} {...(() => (step() === 1 ? {} : { 'xlink:Href': '#later' }))()} />
+      <g id="xml-case" {...{ xmlLang: 'fixed' }} {...(() => (step() === 1 ? {} : { 'xml:Lang': 'later' }))()} />
+    </svg>
+  </div>;
+`);
+
 async function withView(check) {
   const el = document.body.appendChild(document.createElement('div'));
   const unmount = mount(mod.View, el);
@@ -170,3 +200,67 @@ test("a spread source's getter is called on its own source (`this.label`)", () =
   flushSync();
   assert.equal(q('#receiver').title, 'own', 'after the getter ran again');
 }));
+
+// Each step's [type, value] of the fields `ids`, and what the steps reported
+// to console.error (an effect that threw).
+async function steps(ids, read = (el) => [el.type, el.value]) {
+  const el = document.body.appendChild(document.createElement('div'));
+  const errors = [];
+  const error = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  const unmount = mount(edge.View, el);
+  try {
+    flushSync();
+    const frames = [];
+    for (const step of [0, 1, 2]) {
+      edge.step(step);
+      flushSync();
+      frames.push(ids.map((id) => read(el.querySelector(id))));
+    }
+    return { frames, errors };
+  } finally {
+    console.error = error;
+    unmount();
+    el.remove();
+    edge.step(0);
+    flushSync();
+  }
+}
+
+test('a field that is a file field for a while shows its value again after it, with nothing thrown', async () => {
+  const { frames, errors } = await steps(['#file-live', '#file-stable']);
+  assert.deepEqual(errors, []);
+  for (const [i, id] of ['#file-live', '#file-stable'].entries()) {
+    assert.deepEqual(frames.map((f) => f[i]), [['text', 'abc'], ['file', ''], ['text', 'abc']], id);
+  }
+});
+
+test('a file field is never written the value it holds; it shows it once it is a text field again', async () => {
+  const { frames, errors } = await steps(['#file-kept']);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(frames.map((f) => f[0]), [['text', 'abc'], ['file', ''], ['text', 'abc']]);
+});
+
+test('a value of 0 shows once the field becomes a number field: an empty field is not 0', async () => {
+  const { frames, errors } = await steps(['#zero-live', '#zero-stable']);
+  assert.deepEqual(errors, []);
+  for (const [i, id] of ['#zero-live', '#zero-stable'].entries()) {
+    assert.deepEqual(frames.map((f) => f[i]), [['date', ''], ['number', '0'], ['number', '0']], id);
+  }
+});
+
+test("an HTML input's TYPE is its type: its change shows the value again", async () => {
+  const { frames } = await steps(['#upper-live', '#upper-stable']);
+  for (const [i, id] of ['#upper-live', '#upper-stable'].entries()) {
+    assert.deepEqual(frames.map((f) => f[i]), [['date', ''], ['text', 'abc'], ['text', 'abc']], id);
+  }
+});
+
+test('xlink:Href and xml:Lang are the names xlinkHref and xmlLang write: the earlier writer shows once the later goes', async () => {
+  const { frames } = await steps(['#xlink-case', '#xml-case'], (el) => [
+    el.getAttributeNS(XLINK_NS, 'href') ?? el.getAttributeNS(XML_NS, 'lang'),
+    [...el.attributes].map((a) => a.name).filter((n) => n !== 'id').join(),
+  ]);
+  assert.deepEqual(frames.map((f) => f[0]), [['#later', 'xlink:href'], ['#fixed', 'xlink:href'], ['#later', 'xlink:href']], 'xlink');
+  assert.deepEqual(frames.map((f) => f[1]), [['later', 'xml:lang'], ['fixed', 'xml:lang'], ['later', 'xml:lang']], 'xml');
+});

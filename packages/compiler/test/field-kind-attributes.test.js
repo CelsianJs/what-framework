@@ -34,6 +34,21 @@ const source = `
 
 const mod = await loadCompiled(source);
 
+// Verification 6: a file field takes no value but the empty one, an empty
+// number field is not the number 0, and an HTML input's `TYPE` is its type.
+const edgeSource = `
+  import { signal } from 'what-framework';
+  export const step = signal(0), count = signal(0);
+  export const View = () => <div>
+    <input id="file" type={['text', 'file', 'text'][step()]} multiple value={step() === 1 ? undefined : 'abc'} />
+    <input id="file-kept" type={['text', 'file', 'text'][step()]} value="abc" />
+    <input id="zero" type={step() ? 'number' : 'date'} value={0} />
+    <input id="upper" TYPE={step() ? 'text' : 'date'} value="abc" />
+    <input id="count" type="number" value={count()} />
+  </div>;
+`;
+const edge = await loadCompiled(edgeSource);
+
 test('an input type and a select multiple are written through _$retype; xmlLang installs its writer', () => {
   const out = compileJSX(source);
   assert.match(out, /_\$retype\(_el\$\d+, "multiple", multiple\(\)\)/);
@@ -42,6 +57,8 @@ test('an input type and a select multiple are written through _$retype; xmlLang 
   // Another element's type is a plain prop.
   assert.doesNotMatch(compileJSX('const A = () => <button type={t()} />;'), /_\$retype/);
   assert.doesNotMatch(compileJSX('const A = () => <input multiple={m()} />;'), /_\$retype/);
+  // An HTML element's attribute names fold their case.
+  assert.match(compileJSX(edgeSource), /_\$retype\(_el\$\d+, "TYPE", /);
 });
 
 async function withView(check) {
@@ -101,3 +118,64 @@ test('an SVG xmlLang attribute is written in the XML namespace', () => withView(
   flushSync();
   assert.equal(g.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang'), 'de');
 }));
+
+// Each step's [type, value] of the fields `ids`, and what the steps reported
+// to console.error (an effect that threw).
+function steps(ids) {
+  const el = document.body.appendChild(document.createElement('div'));
+  const errors = [];
+  const error = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  const unmount = mount(edge.View, el);
+  try {
+    flushSync();
+    const frames = [];
+    for (const step of [0, 1, 2]) {
+      edge.step(step);
+      flushSync();
+      frames.push(ids.map((id) => [el.querySelector(id).type, el.querySelector(id).value]));
+    }
+    return { frames, errors };
+  } finally {
+    console.error = error;
+    unmount();
+    el.remove();
+    edge.step(0);
+    flushSync();
+  }
+}
+
+test('an input that is a file field for a while is written no value then, and shows its value after it', () => {
+  const { frames, errors } = steps(['#file', '#file-kept']);
+  assert.deepEqual(errors, []);
+  for (const [i, id] of ['#file', '#file-kept'].entries()) {
+    assert.deepEqual(frames.map((f) => f[i]), [['text', 'abc'], ['file', ''], ['text', 'abc']], id);
+  }
+});
+
+test('value={0} shows once its type becomes number: an empty number field is not 0', () => {
+  const { frames } = steps(['#zero']);
+  assert.deepEqual(frames.map((f) => f[0]), [['date', ''], ['number', '0'], ['number', '0']]);
+});
+
+test("an input's TYPE attribute is its type: its change shows the value again", () => {
+  const { frames } = steps(['#upper']);
+  assert.deepEqual(frames.map((f) => f[0]), [['date', ''], ['text', 'abc'], ['text', 'abc']]);
+});
+
+test('a number field whose state is 0 shows 0 again after the user empties it, as React writes it', async () => {
+  const el = document.body.appendChild(document.createElement('div'));
+  const unmount = mount(edge.View, el);
+  flushSync();
+  try {
+    const input = el.querySelector('#count');
+    assert.equal(input.value, '0');
+    input.value = '';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(input.value, '0');
+  } finally {
+    unmount();
+    el.remove();
+  }
+});

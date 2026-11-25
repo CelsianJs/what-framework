@@ -2102,9 +2102,10 @@ function spread(el, props, after) {
   // reading the getter again when what it read changes.
   const live = props != null && Object.getPrototypeOf(props) === null;
   // An event is one whatever the case of its name (`onClick`, `onclick`):
-  // the last name the props hold for it is its handler.
-  const events = {};
-  for (const key in props) if (_isEventProp(key)) events[key.toLowerCase()] = key;
+  // the last name the props hold for it is its handler (`last`, by each
+  // key's name: an event's in lower case).
+  const last = {};
+  for (const key in props) last[_isEventProp(key) ? key.toLowerCase() : key] = key;
   for (const key in props) {
     const event = _isEventProp(key);
     const name = event ? key.toLowerCase() : key;
@@ -2114,7 +2115,7 @@ function spread(el, props, after) {
     // A key an attribute written after the spread sets is that attribute's
     // (`<a {...rest} href="/x" />`, compiled JSX's `after`, an event's name
     // in lower case), as in React.
-    if (key === 'children' || after?.includes(name) || (event && events[name] !== key)) continue;
+    if (key === 'children' || after?.includes(name) || last[name] !== key) continue;
     // A getter is bound as an accessor of it: a live prop, and a prop handed
     // on to the component that spreads it (`<Tag href={rest.href} />`, a lazy
     // slot that forwards the live prop: dom.js readLazy reads it again).
@@ -2143,24 +2144,28 @@ function spread(el, props, after) {
 }
 
 /**
- * @internal setProp(), where `key` is an input's `type` or a select's
- * `multiple` (a spread's props, and those two as compiled JSX writes them):
- * they decide what the field's value can be (`date` drops `abc`, `text` keeps
- * it; one option or several), so a write that changes one writes the value and
- * checked the field's props hold again, as React writes them after its type,
- * whether a new writer, an accessor's next value or a writer's removal
- * changed it. A field the user edited and no prop controls keeps the edit.
+ * @internal setProp() for a spread's props, and for an input's `type` and a
+ * select's `multiple` as compiled JSX writes them. Those two decide what the
+ * field's value can be (`date` drops `abc`, `text` keeps it; one option or
+ * several), so a write that changes one writes the value and checked the
+ * field's props hold again, as React writes them after its type, whether a
+ * new writer, an accessor's next value or a writer's removal changed it. A
+ * field the user edited and no prop controls keeps the edit. What changed is
+ * read from the element's `type`, which a select's multiple changes too
+ * (`select-one`, `select-multiple`), so a name in any case is one (`TYPE`,
+ * which an HTML element folds; on an SVG element it is an attribute of its
+ * own, which changes no `type`). An accessor is bound here, so each of its
+ * values is compared, except where setProp takes a function as it is (a ref's
+ * callback, a classList's, a key).
  */
 function retype(el, key, value) {
-  if (key === 'type' || key === 'multiple') {
-    if (typeof value === 'function') {
-      if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
-      return effect(() => retype(el, key, value()));
-    }
-    const was = el[key];
-    setProp(el, key, value);
-    if (el[key] !== was) _showControlled(el);
-  } else setProp(el, key, value);
+  if (typeof value === 'function' && key !== 'ref' && key !== 'key' && key !== 'classList') {
+    if (__DEV__) setNextBinding(el, `${el.localName}.${key}`);
+    return effect(() => retype(el, key, value()));
+  }
+  const was = el.type;
+  setProp(el, key, value);
+  if (el.type !== was) _showControlled(el);
 }
 export { retype as _$retype };
 
@@ -2270,13 +2275,21 @@ function writers(sources, el) {
 // `tabindex` are one); SVG's are not (`viewBox` and `viewbox` are two).
 // React's names for one property are made one on every element: `class` for
 // `className`, `for` for `htmlFor`, `innerhtml` for `dangerouslySetInnerHTML`,
-// `xlink:href` for `xlinkHref` and `xml:lang` for `xmlLang`.
+// and an XLink or XML name is the attribute the namespace writer (_$xlink)
+// writes for it: `xlink:href` for `xlinkHref` and `xlink:Href`, `xml:lang` for
+// `xmlLang` and `xml:Lang`.
 function writerName(key, el) {
   const name = key.toLowerCase();
-  const alias = name === 'classname' ? 'class' : name === 'htmlfor' ? 'for' : name === 'dangerouslysetinnerhtml' ? 'innerhtml'
-    : name.replace(/^(xlink(?!:)|xml(?![:n]))(?=.)/, '$1:');
-  return alias !== name || _isEventProp(key) || el.namespaceURI === NAMESPACES[0] ? alias : key;
+  const html = el.namespaceURI === NAMESPACES[0];
+  const xml = XML_NAME.exec(html ? name : key);
+  return xml ? xml[1] + ':' + xml[2].toLowerCase()
+    : name === 'classname' ? 'class' : name === 'htmlfor' ? 'for' : name === 'dangerouslysetinnerhtml' ? 'innerhtml'
+    : html || _isEventProp(key) ? name : key;
 }
+
+// An XLink or XML attribute's name (`xlinkHref`, `xlink:href`, `xmlLang`), as
+// a prefix and a local name; `xmlns` is neither.
+const XML_NAME = /^(xlink|xml(?!ns)):?(.+)/;
 
 // `name`: an event prop's name in lower case (`onclick`).
 function listen(el, name, handler) {
@@ -2295,7 +2308,7 @@ let xlink = null;
  */
 export function _$xlink() {
   xlink = (el, key, value) => {
-    const name = /^(xlink|xml(?!ns)):?(.+)/.exec(key);
+    const name = XML_NAME.exec(key);
     if (name === null) return false;
     const [, prefix, local] = name;
     const ns = prefix === 'xml' ? 'http://www.w3.org/XML/1998/namespace' : 'http://www.w3.org/1999/xlink';

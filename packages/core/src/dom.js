@@ -837,9 +837,10 @@ function controlledChanged(e) {
   const el = path[0];
   // A form, on its reset (showControlled shows its fields, and passes over
   // anything else a script dispatched one at); else a field, and before a
-  // change only a text field its handlers do not take as the user types.
-  if (e.type !== 'reset' && (e.isComposing || el == null || !el._$kept
-    || (e.type !== 'change' && (el.localName === 'select' || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))))) return;
+  // change only a text field its handlers do not take as the user types (not
+  // a select, the one field with options, a checkbox or a radio).
+  if (e.type !== 'reset' && (e.isComposing || !el?._$kept
+    || (e.type !== 'change' && (el.options || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))))) return;
   if (e.eventPhase === 1) setTimeout(showControlled, 0, el);
   else queueMicrotask(() => showControlled(el));
 }
@@ -862,10 +863,14 @@ function takenOnChange(path) {
 // Show what the props of `el` hold, where the field shows something else.
 // Nothing is written to a field that already shows it, so the caret stays.
 // A number field is compared as a number, and left alone while what it holds
-// is not one yet ("1." on the way to "1.5", which it reports as bad input).
-// A radio is checked or unchecked with the rest of its group: checking one
-// unchecked the one a prop keeps checked. Also called once an input's type or
-// a select's multiple changed what the field shows (render.js retype).
+// is not one yet ("1." on the way to "1.5", which it reports as bad input);
+// an empty one is not the number 0, so a value of 0 is written to it, as
+// React writes it. A file field holds only what the user picked: nothing is
+// written to it (any value but '' throws), and it shows the value once it is
+// another kind of field again. A radio is checked or unchecked with the rest
+// of its group: checking one unchecked the one a prop keeps checked. Also
+// called once an input's type or a select's multiple changed what the field
+// shows (render.js retype).
 function showControlled(el) {
   // A form after its reset: its fields a prop controls.
   if (el.localName === 'form') {
@@ -876,13 +881,14 @@ function showControlled(el) {
   if (value !== undefined) {
     // A select's value was written by the select code it carries (above).
     if (el._$select) el._$select(el, value);
-    else if (el.value !== value && (el.type !== 'number' || (!el.validity.badInput && +el.value !== +value))) el.value = value;
+    // `files` is a file field's alone (null on any other input).
+    else if (!el.files && el.value !== value && (el.type !== 'number' || (!el.validity.badInput && (el.value || NaN) != +value))) el.value = value;
   }
   if (el._$checked === undefined) return;
   const group = el.type !== 'radio' || !el.name ? [el]
     : el.form ? _formMember(el.form, 'elements') : el.getRootNode().querySelectorAll('input[type=radio]');
   for (const field of group) {
-    if (field._$kept && field._$checked !== undefined && field.type === el.type && field.name === el.name && field.checked !== field._$checked) field.checked = field._$checked;
+    if (field._$kept && field._$checked !== undefined && field.type === el.type && field.name === el.name) field.checked = field._$checked;
   }
 }
 export { showControlled as _showControlled };
