@@ -22,18 +22,19 @@
 
 import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
 import { isVNode, _provide, __DEV__ } from 'what-core/internal';
-import { _$createComponent } from 'what-core/render';
+import { _$createComponent, _installVNodeRuntime, _valuesToNodes } from 'what-core/render';
 import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
-  _setVNodePlacer, renderInstance, _domNodes,
+  _vnodeIsland, renderInstance, _domNodes, _flushPendingPassive,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
 
 // A binding of this module's own, not a re-export: a React file imports it
 // (what-react's plugin lowers its JSX to it), and with it keeps this module's
-// install of placeKeyed below, also where no native file renders a React tag.
+// install of the hole rows below, also where no native file renders a React
+// tag.
 export const createElement = element;
 export { Fragment };
 
@@ -86,97 +87,146 @@ export function ReactIsland(props) {
   return html !== undefined ? html : _island(props.view, props.svg === true);
 }
 
-// A keyed React element that native code places in a hole itself (a What
-// component mapping an array to React elements, `{rows(order())}`) keeps its
-// island from one run of the hole to the next, by key and type, as React
-// keeps a keyed child: its nodes, its state, the text typed in it and the
-// focus, with its new props rendered into it. what-core renders such an
-// element through the `_$r` runtime.js gives what-react's vnodes when its
-// own vnode renderer is not in the program (a client build whose native code
-// makes no vnode); where it is (a page that hydrates, native code that makes
-// a vnode, a native component inside a React tree) its keyed rows keep the
-// element while its props stay the same, and this is not reached.
+// React elements that native code places in a hole itself (a What component
+// mapping an array to React elements, `{rows(order())}`) are reconciled as
+// React reconciles a component's children: each array of the hole is a list
+// of its own, a row is kept by its key (or, unkeyed, its place) and its type,
+// and keeps its nodes, its state, the text typed in it and the focus, with its
+// new props rendered into it. Two arrays of one hole (`{[rows(a), rows(b)]}`,
+// a nested array, a list and an element beside it) never take each other's
+// rows, a key that moves to another array mounts again, and a key repeated
+// in one array keeps the first element's row while the others mount again on
+// every run (runtime.js reconcile does the same; development warns as React
+// does).
 //
-// The hole is the effect whose run places the element. Its island is a root
-// under the owner that effect was created under, as what-core's keyed rows
-// are: native code inside it finds the What context around the hole, and the
-// island goes with that owner. When a run of the hole is over (its next run
-// begins, or the hole goes), what it placed can be taken by the next run;
-// what that run did not take is unmounted on the microtask after it (the
-// hole has removed its nodes by then).
+// what-core's regions hand a value to the keyed rows of its vnode renderer
+// on every run (render.js region, `vnodeRows`). In a program with no renderer
+// of what-core's (a client build whose native code makes no vnode), this
+// module installs what-react's: a vnode renders as an island (runtime.js
+// _vnodeIsland), and a value that holds a React element is placed by
+// holeRows below, the rest by what-core. Where what-core's renderer is in the
+// program (a page that hydrates, native code that makes a vnode) its own
+// keyed rows keep such a list while the elements' props stay the same.
 //
-// what-core flattens the arrays a hole renders before it hands over their
-// elements, so a key here stands for the whole hole, not for one list in it.
-// A key that more than one element of a run has (two lists in one hole that
-// share keys, a list and an element beside it) cannot say which list's row
-// is which: those elements are built again on every run, as unkeyed ones are,
-// and a row never takes another list's island. Keys that each element of the
-// hole has alone are kept. Lists in holes of their own (a fragment of two
-// holes) are kept apart.
-//
-// what-core puts the rows in their new order by moving nodes, which takes the
-// focus from a moved element: the element that had it, inside the hole, gets
-// it back on the microtask after the run.
-/** @type {WeakMap<any, any>} */
-const holes = new WeakMap();
-
-function placeKeyed(vnode, svg, parent) {
-  const key = vnode.key;
-  // The record of an effect's run: its `owner` is the effect, whose own
-  // `owner` is the owner the effect was created under (what-core reactive.js).
-  const run = /** @type {any} */ (getOwner());
-  const hole = run && run.owner;
-  const scope = hole && hole.fn && hole.owner;
-  let state = scope != null && key != null ? holes.get(hole) : null;
-  if (state === undefined) holes.set(hole, (state = {}));
-  if (state !== null && state.run !== run) {
-    // The first keyed element of this run.
-    const placed = (state.live = new Map());
-    state.run = run;
-    onCleanup(() => {
-      state.old = placed;
-      queueMicrotask(() => placed.forEach((entry) => entry.dispose()));
-    });
-    // The focused element in the hole, before what-core moves the rows:
-    // focused again if the move took the focus from it (its text selection
-    // stays with it: an input keeps it when it is moved).
-    const focused = /** @type {any} */ (document.activeElement);
-    if (parent != null && parent.contains(focused)) {
-      queueMicrotask(() => {
-        if (document.activeElement === document.body && focused.isConnected) focused.focus({ preventScroll: true });
-      });
-    }
+// Each run is a commit: the passive effects earlier commits left run first,
+// a row whose key goes is unmounted before the run returns, and the next run
+// takes only what this one placed. Each island is a root under the owner the
+// hole was created under, as what-core's keyed rows are: native code inside
+// it finds the What context around the hole. Rows that move are moved node
+// by node, which takes the focus from a moved element: the element in the
+// hole that had it gets it back when the run is done, if the focus was left
+// on nothing (the page's body) and the element is still in the page.
+{
+  const proto = Object.getPrototypeOf(element('i', null));
+  if (proto._$r === _vnodeIsland) {
+    _installVNodeRuntime(_vnodeIsland, (value, rows, svg, scope) => (rows !== null || hasElement(value) ? rows || holeRows(svg, scope) : null), undefined, undefined);
   }
-  let entry = state !== null ? state.live.get(key) : undefined;
-  if (entry !== undefined) {
-    // A key another element of this run has: the next run takes neither.
-    entry.shared = true;
-  }
-  if (state === null || entry !== undefined) return _island(() => vnode, svg);
-  entry = state.old && state.old.get(key);
-  let out;
-  // A hole is in SVG or not for as long as it lives: the type is enough.
-  if (entry && !entry.shared && entry.type === vnode.type) {
-    state.old.delete(key);
-    if (entry.vnode !== vnode) {
-      entry.vnode = vnode;
-      untrack(() => runInCommit(() => renderInstance(entry.inst)));
-    }
-    out = _domNodes(entry.inst);
-  } else {
-    /** @type {any} */
-    const made = (entry = { type: vnode.type, vnode });
-    // The island's view records its instance (it renders as that instance).
-    runWithOwner(scope, () => createRoot((dispose) => {
-      made.dispose = dispose;
-      out = _island(() => ((made.inst = _getCurrentInstance()), made.vnode), svg);
-    }));
-  }
-  state.live.set(key, entry);
-  return out;
 }
 
-_setVNodePlacer(placeKeyed);
+// Whether `value` (a hole's value) holds a what-react element.
+function hasElement(value) {
+  if (Array.isArray(value)) return value.some(hasElement);
+  return value != null && value._compat === true;
+}
+
+// The keyed rows of one hole. `update` places `value` before `marker`;
+// `remove` takes everything out (the hole's value holds no React element).
+function holeRows(svg, scope) {
+  const end = document.createComment('/w$rows');
+  /** @type {Map<string, any>} */
+  let kept = new Map();
+  /** @type {any[]} */
+  let placed = [];
+  const nodesOf = (list) => {
+    const out = [];
+    for (const n of list) {
+      out.push(n);
+      // A region's or list's nodes, as they stand now (dom.js _liveRegionNodes).
+      const last = n._rangeEnd;
+      if (last !== undefined) for (let m = n.nextSibling; m !== null; m = m.nextSibling) {
+        out.push(m);
+        if (m === last) break;
+      }
+    }
+    return out;
+  };
+  const drop = () => {
+    kept.forEach((entry) => {
+      placed.push(..._domNodes(entry.inst));
+      entry.dispose();
+    });
+  };
+  return {
+    update(host, marker, value) {
+      if (end.parentNode !== host) host.insertBefore(end, marker);
+      _flushPendingPassive();
+      const focused = /** @type {any} */ (document.activeElement);
+      const had = host.contains(focused) ? focused : null;
+      /** @type {Map<string, any>} */
+      const next = new Map();
+      /** @type {any[]} */
+      const out = [];
+      const walk = (v, slot, i) => {
+        if (Array.isArray(v)) {
+          for (let j = 0; j < v.length; j++) walk(v[j], Array.isArray(v[j]) ? slot + j + '.' : slot, j);
+          return;
+        }
+        if (v == null || v._compat !== true) {
+          _valuesToNodes(v, host, out, svg);
+          return;
+        }
+        const id = v.key != null ? slot + ':' + v.key : slot + '#' + i;
+        if (next.has(id)) {
+          if (__DEV__ && v.key != null) console.error(`[what-react] Encountered two children with the same key, \`${v.key}\`. Keys should be unique so that components maintain their identity across updates.`);
+          for (let n = /** @type {any} */ (_vnodeIsland(v, host, svg)).firstChild; n !== null; n = n.nextSibling) out.push(n);
+          return;
+        }
+        let entry = kept.get(id);
+        if (entry !== undefined && entry.type === v.type) {
+          kept.delete(id);
+          if (entry.vnode !== v) {
+            entry.vnode = v;
+            untrack(() => runInCommit(() => renderInstance(entry.inst)));
+          }
+          out.push(..._domNodes(entry.inst));
+        } else {
+          /** @type {any} */
+          const made = (entry = { type: v.type, vnode: v });
+          runWithOwner(scope, () => createRoot((dispose) => {
+            made.dispose = dispose;
+            // The island's view records its instance (it renders as that instance).
+            const frag = /** @type {any} */ (_island(() => ((made.inst = _getCurrentInstance()), made.vnode), svg));
+            for (let n = frag.firstChild; n !== null; n = n.nextSibling) out.push(n);
+          }));
+        }
+        next.set(id, entry);
+      };
+      walk(value, '', 0);
+      // What this run did not take goes, unmounted and out of the page.
+      drop();
+      kept = next;
+      const stays = new Set(out);
+      for (const n of nodesOf(placed)) if (!stays.has(n) && n.parentNode === host) host.removeChild(n);
+      let ref = end;
+      for (let j = out.length - 1; j >= 0; j--) {
+        const n = out[j];
+        if (n.parentNode !== host || n.nextSibling !== ref) host.insertBefore(n, ref);
+        ref = n;
+      }
+      placed = out;
+      const now = document.activeElement;
+      if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
+    },
+    remove() {
+      if (end.parentNode === null) return;
+      drop();
+      kept = new Map();
+      for (const n of nodesOf(placed)) n.remove();
+      placed = [];
+      end.remove();
+    },
+  };
+}
 
 // =====================================================================
 // Native inside React

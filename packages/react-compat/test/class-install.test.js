@@ -1,9 +1,10 @@
 // what-react's Vite plugin installs class components (`what-react/class`)
-// in a module that sets or reads the class marker as a property, so a class
-// marked `isReactComponent` without Component renders in a production build,
-// from an ES module or a CommonJS dependency alike. Text is not an install
-// (a comment that names `what-react/class`), and text is not a marker (an
-// app that renders the string 'isReactComponent' carries no class code).
+// in a module whose code has the class marker's name in it, so a class marked
+// `isReactComponent` without Component renders in a production build, from
+// an ES module or a CommonJS dependency, in any spelling of the marker. Text
+// is not an install (a comment that names `what-react/class`). The name as
+// text counts as a marker: that costs the class code, and the app still
+// renders.
 // Production builds through Vite of an installed layout, run in jsdom.
 // Run: node --test packages/react-compat/test/class-install.test.js
 import { test, after } from 'node:test';
@@ -32,6 +33,13 @@ for (const [pkg, dir] of Object.entries(FRAMEWORK)) {
 // Each dependency marks its class by hand, and says in a comment how the
 // class is installed: the comment names the installer, it does not import it.
 const COMMENT = '// This class can be installed via what-react/class.\n';
+// The ways a dependency marks a class, as written or as a minifier writes them.
+const MARKS = {
+  quoted: "Object.assign(Marked.prototype, { 'isReactComponent': {} });",
+  getter: 'Object.defineProperties(Marked.prototype, Object.getOwnPropertyDescriptors({ get isReactComponent() { return {}; } }));',
+  define: "Object.defineProperty(Marked.prototype, 'isReactComponent', { value: {} });",
+  minified: "if (!('isReactComponent'in Marked.prototype)) Object.assign(Marked.prototype, { ['isReact' + 'Component']: {} });",
+};
 const files = {
   'package.json': JSON.stringify({ name: 'app', type: 'module' }),
   'node_modules/marked-esm/package.json': JSON.stringify({ name: 'marked-esm', type: 'module', main: 'index.js' }),
@@ -51,6 +59,21 @@ CjsMarked.prototype.componentDidMount = function () { window.__log.push('cjs mou
 CjsMarked.prototype.render = function () { return React.createElement('b', { id: 'cjs' }, 'cjs ' + this.props.n); };
 module.exports = { CjsMarked };
 `,
+  ...Object.fromEntries(Object.entries(MARKS).flatMap(([name, mark]) => [
+    [`node_modules/marked-${name}/package.json`, JSON.stringify({ name: `marked-${name}`, type: 'module', main: 'index.js' })],
+    [`node_modules/marked-${name}/index.js`, `import { createElement } from 'react';
+export class Marked {
+  constructor(props) { this.props = props; }
+  render() { return createElement('b', { id: '${name}' }, '${name}'); }
+}
+${mark}
+`],
+    [`src/${name}.jsx`, `import { createRoot } from 'react-dom/client';
+import { Marked } from 'marked-${name}';
+window.__log = [];
+createRoot(document.getElementById('app')).render(<Marked />);
+`],
+  ])),
   // One dependency per app: a CommonJS dependency's require('react') holds
   // all of React's exports, Component's definition with them.
   'src/esm.jsx': `import { createRoot } from 'react-dom/client';
@@ -99,6 +122,7 @@ async function clientBuild(entry) {
 }
 
 const bundles = { esm: await clientBuild('esm'), cjs: await clientBuild('cjs'), mentions: await clientBuild('mentions') };
+for (const name of Object.keys(MARKS)) bundles[name] = await clientBuild(name);
 
 const { installDOM } = await import(path.join(REPO, 'test-utils/dom.js'));
 installDOM();
@@ -138,10 +162,19 @@ test('a marked class from a CommonJS dependency renders, though the module names
   assert.deepEqual(window.__log, ['cjs mounted']);
 });
 
-test('an app that renders the string isReactComponent, with no class, carries no class code (production build)', async () => {
+for (const [name, mark] of Object.entries(MARKS)) {
+  test(`a class marked with \`${mark.slice(0, 60)}\` renders (production build)`, async () => {
+    const { html, printed } = await run(bundles[name]);
+    assert.deepEqual(printed, []);
+    assert.equal(html, `<b id="${name}">${name}</b>`);
+  });
+}
+
+// The marker's name as text installs class components too: a false positive
+// that costs the class code and changes nothing else.
+test('an app that renders the string isReactComponent, with no class, renders (and carries the class code) (production build)', async () => {
   const code = fs.readFileSync(bundles.mentions, 'utf8');
-  assert.ok(code.includes('isReactComponent'), 'the string is in the bundle');
-  assert.ok(!CLASS_CODE.test(code), 'no class code');
+  assert.ok(CLASS_CODE.test(code), 'class code');
   const { html, printed } = await run(bundles.mentions);
   assert.deepEqual(printed, []);
   assert.equal(html, '<p id="word">isReactComponent</p>');

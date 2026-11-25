@@ -89,19 +89,14 @@ export function _vnodeOf(tag, props) {
 // carries (`_$r`, render.js valuesToNodes): here, as an island of its own,
 // under React's rules. Where native code installed what-core's renderer, that
 // one renders it, as a native What tree renders a React element (a component
-// through its bridge, getBridge below). In a mixed app a keyed element keeps
-// its island by key (mixed.js placeKeyed, installed here).
-/** @type {(vnode: any, svg: boolean, parent: any) => any} */
-let placeVNode = (vnode, svg) => _island(() => vnode, svg);
-
+// through its bridge, getBridge below). A mixed app installs this renderer as
+// what-core's own (mixed.js), with keyed rows of its own for a hole's arrays.
 /** @internal mixed.js */
-export function _setVNodePlacer(fn) {
-  placeVNode = fn;
-}
+export const _vnodeIsland = (/** @type {any} */ vnode, /** @type {any} */ _parent, /** @type {any} */ isSvg) => _island(() => vnode, isSvg === true);
 
 {
   const proto = Object.getPrototypeOf(_$componentVNode(null, EMPTY_OBJ, NO_CHILDREN));
-  if (proto._$r === undefined) proto._$r = (/** @type {any} */ vnode, /** @type {any} */ parent, /** @type {any} */ isSvg) => placeVNode(vnode, isSvg === true, parent);
+  if (proto._$r === undefined) proto._$r = _vnodeIsland;
 }
 
 /**
@@ -490,7 +485,7 @@ export function _flushPassive() {
 // render starts. Not from inside an effect (an effect that calls flushSync):
 // the effects queued after it wait for it to return.
 let flushingPassive = false;
-function _flushPendingPassive() {
+export function _flushPendingPassive() {
   if (flushingPassive || (passiveQueue.length === 0 && unmountedPassive.length === 0)) return;
   flushingPassive = true;
   try { flushPassiveEffects(); } finally { flushingPassive = false; }

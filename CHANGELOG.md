@@ -774,9 +774,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`what-react/class`** installs class components for a program whose
   classes do not extend `Component` (a class marked `isReactComponent` by
   hand, as React accepts, or by a library). `reactCompat()` imports it into
-  every module whose code sets or reads the `isReactComponent` property; a
-  build without the plugin
-  imports it once. `ERR_CLASS_COMPONENT_NOT_INSTALLED` names the fix when
+  every module whose code has the name `isReactComponent` in it (any
+  spelling of the marker; the name in a string or a comment counts too,
+  which costs only the class code); a build without the plugin imports it
+  once. `ERR_CLASS_COMPONENT_NOT_INSTALLED` names the fix when
   neither did.
 - **what-devtools-mcp/vite looks for `what-devtools` where Vite resolves the
   bootstrap's import** (a node_modules at or above the root), not through
@@ -1097,20 +1098,26 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   with `Component`'s definition, which the bundler drops when nothing
   references `Component`. `Component` still installs it, so an app without
   classes carries none of it; `what-react/class` installs it on its own, and
-  `reactCompat()` imports it into any module whose code sets or reads the
-  `isReactComponent` property (`node_modules` included, the framework's own
-  files excepted). A build without the plugin that reaches such a class throws
+  `reactCompat()` imports it into any module whose code has the name
+  `isReactComponent` in it (`node_modules` included, the framework's own
+  files excepted; the name in a string or a comment counts too, which costs
+  only the class code). A build without the plugin that reaches such a class throws
   `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering nothing. Tested in
   esbuild and Vite production builds (`packages/react-compat/test/bundle.test.js`).
 - **what-react: a keyed list of React elements placed by native What code
   keeps its rows.** A row was built again when an item was inserted ahead of
   it, losing its node, its React state, the text typed in it and the focus.
-  Each keyed island is kept under the hole's owner and handed back by key and
-  type on the next run, rendered with the new element; a row whose key goes
-  unmounts on the following microtask, and a moved row that had the focus
-  gets it back, with its selection. Rows of two lists in one hole that share
-  a key are built again, never handed to each other (MIXED.md, Limits;
-  `packages/react-compat/test/native-keyed-list.test.js`).
+  In a mixed app with no vnode renderer of what-core's, what-react installs
+  its own (what-core's `_installVNodeRuntime`, now exported from
+  `what-core/render`; a native-only app carries none of it), and a hole's
+  value that holds a React element is reconciled as React reconciles
+  children: a row is kept by its key within its own array and its type, as
+  React keeps it. Two arrays of one hole never take each other's rows, and a
+  key that moves to another array mounts again. A row whose key goes
+  unmounts before the update returns. A moved row that had the focus gets it
+  back unless something else took it (MIXED.md, Limits;
+  `packages/react-compat/test/native-keyed-list.test.js`,
+  `native-keyed-scenes.test.js`).
 - **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
   as in TanStack Query, not the spelling that created the cache entry they
   share (`'q:alpha'`), and a reactive key that changes only its spelling
@@ -1602,7 +1609,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   what-core's unbuilt component call instead of `h()`, which installed
   what-core's vnode renderer in every React app; the class lifecycle comes
   with `Component`, or with `what-react/class`, which the Vite plugin imports
-  into a module that sets or reads the `isReactComponent` property (without either, such a class
+  into a module whose code has the name `isReactComponent` in it (without either, such a class
   throws `ERR_CLASS_COMPONENT_NOT_INSTALLED`); `Suspense`, `StrictMode`, `Profiler` and `Activity` are
   dropped when unused; how an island claims the server's region is installed
   by the hydrating entry (`what-react/claim-islands`, which

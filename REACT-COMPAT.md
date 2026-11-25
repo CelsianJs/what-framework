@@ -50,10 +50,10 @@ what-react in the page and in a server render:
   (Vite's `ssr.noExternal`); the rules are in MIXED.md, "What a server
   render bundles". Only mixed mode renders on the server.
 
-It also adds `import 'what-react/class'` to every module whose code sets or
-reads the `isReactComponent` property (`.isReactComponent`,
-`isReactComponent:`, `['isReactComponent']`), so a class marked that way without extending
-`Component` renders. A build without the plugin (esbuild, another bundler)
+It also adds `import 'what-react/class'` to every module whose code has the
+name `isReactComponent` in it (any spelling of the marker; the name in a
+string or a comment counts too, which costs only the class code), so a class
+marked that way without extending `Component` renders. A build without the plugin (esbuild, another bundler)
 that has such a class imports `what-react/class` once, in its entry; without
 it the class throws `ERR_CLASS_COMPONENT_NOT_INSTALLED` ("What an app
 carries", below).
@@ -411,10 +411,10 @@ What an app does not use, it does not carry:
   lifecycle, so a program without `Component` does not carry it. A class
   marked `isReactComponent` that does not extend `Component` (by hand, as
   React accepts, or by a library) gets it from `what-react/class`, which
-  what-react's Vite plugin imports into every module whose code sets or reads
-  the `isReactComponent` property (the framework's own files excepted; a
-  marker set with `Object.defineProperty` or a computed name is not seen,
-  so such a module imports `what-react/class` itself); a build
+  what-react's Vite plugin imports into every module whose code has the name
+  `isReactComponent` in it (the framework's own files excepted; the name in
+  a string or a comment counts too, which costs only the class code); a
+  build
   without the plugin imports it once. Without either, such a class is
   refused with `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering
   nothing. With the lifecycle installed, a class that has a `render()` method

@@ -378,28 +378,29 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   native component) renders as an island of its own, by React's rules. A
   keyed list of such elements keeps each row by key when the list changes:
   its nodes, its React state, the text typed in it and the focus
-  (`test/native-keyed-list.test.js`). In a client build whose native code
-  makes no vnode (compiled JSX makes none) a row is kept by key and type and
-  renders its new props, a row whose key goes unmounts on the microtask
-  after the change, and a row that moves gets its focus and text selection
-  back on that microtask (what-core moves its nodes). The keys there are the
-  hole's, not each list's: what-core flattens the arrays of a hole before
-  what-react sees its elements, so where two elements of one hole share a
-  key (two lists with common keys, `{[rows(a), rows(b)]}`, or a list and an
-  element beside it) those elements are built again on every change, and a
-  row never takes another list's; give each list a hole of its own
-  (`<>{rows(a)}{rows(b)}</>`) to keep both. A row that moves from one list
-  to another of the same hole under the same key keeps its state, where
-  React would build it again. This comes with `what-react/mixed`, which a
-  React file's JSX imports once what-react's plugin lowers it, so elements
-  made only without JSX (`React.createElement` in a file with no JSX, or a
-  package) are built again. A page that hydrates, and an app whose native
-  code makes a vnode or renders a native component inside a React tree,
-  keep the list through what-core's keyed rows (its vnode renderer is
-  installed there), which build a row again when its element's props
-  change, and do not give a moved row its focus back. An unkeyed list of
-  such elements is built again whenever it changes. Rendering the list in a
-  React component keeps it by React's rules in every build.
+  (`test/native-keyed-list.test.js`, `test/native-keyed-scenes.test.js`). In
+  a client build whose native code makes no vnode (compiled JSX makes none)
+  what-react installs its own vnode renderer in what-core, whose regions
+  hand it each value that holds a React element, and it reconciles that value
+  as React reconciles a component's children: each array of the hole is a
+  list of its own, a row is kept by its key (unkeyed, its place) and its
+  type, and renders its new props; two arrays of one hole (`{[rows(a),
+  rows(b)]}`, a nested array, a list and an element beside it) never take
+  each other's rows, a key that moves to another array mounts again, and a
+  row whose key goes unmounts before the update returns. A key repeated in
+  one array keeps the first element's row, the others mount again
+  (development warns). A row that moves gets the focus back if the move took
+  it and nothing else was focused.
+  This comes with `what-react/mixed`, which a React file's JSX imports once
+  what-react's plugin lowers it, so elements made only without JSX
+  (`React.createElement` in a file with no JSX, or a package) are built
+  again. A page that hydrates, and an app whose native code makes a vnode or
+  renders a native component inside a React tree, keep the list through
+  what-core's keyed rows (its vnode renderer is installed there), which
+  build a row again when its element's props change, and do not give a
+  moved row its focus back, and build an unkeyed list of such elements again
+  whenever it changes. Rendering the list in a React component keeps it by
+  React's rules in every build.
 - React hooks run only in React files. Calling one in a native component
   throws `ERR_HOOK_OUTSIDE_RENDER`.
 - A native component inside a React tree is rebuilt (losing its state, with

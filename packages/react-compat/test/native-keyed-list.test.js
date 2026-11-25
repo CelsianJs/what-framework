@@ -6,9 +6,9 @@
 //
 // A production build is what can tell: without a vnode made by native code
 // (compiled JSX makes none) the bundle has no what-core vnode renderer, and
-// what-core hands each element to what-react (runtime.js `_$r`, mixed.js
-// placeKeyed, which a React file's lowered JSX brings in), which keeps a
-// row's island by key and type, and renders the row's new props into it.
+// what-react installs its own (mixed.js holeRows, which a React file's
+// lowered JSX brings in), which keeps a row's island by key and type, and
+// renders the row's new props into it.
 // With one (native code calling h()) what-core's keyed rows keep the
 // elements, while their props stay the same (a row whose vnode changed is
 // built again there: render.js sameVNode). Both are built here through Vite
@@ -222,10 +222,9 @@ test('native code that makes a vnode: what-core keeps the same list by key (prod
 
 // Two lists in one hole that share a key, and a list beside an element with
 // one of its keys: removing the first list's row never hands its node or its
-// state to the other one. what-core flattens a hole's arrays before it hands
-// the elements over, so a key two elements share cannot tell their rows
-// apart, and those are built again (MIXED.md, Limits). Lists in two holes (a
-// fragment) keep each row by key, as React does.
+// state to the other one, which keeps its own, as in React: each array of a
+// hole is a key space of its own (mixed.js holeRows). More cases in
+// native-keyed-scenes.test.js.
 test('native code that makes no vnode: two keyed lists, or a list and an element, never take each other\'s rows (production build)', async () => {
   document.body.innerHTML = '<div id="app"></div>';
   window.__log = [];
@@ -253,10 +252,12 @@ test('native code that makes no vnode: two keyed lists, or a list and an element
     assert.equal(a.querySelector('button').textContent, '0', `${id}: not the first list's state`);
     assert.equal([...document.querySelectorAll(`#${id} [data-row]`)].map((el) => el.dataset.row).join(''), id === 'sibling' ? 'xba' : 'xbab', id);
   }
-  // In two holes, the second list's row is its own, kept.
-  const kept = document.querySelector('#frag [data-row=a]');
-  assert.equal(kept, before.frag.second);
-  assert.equal(kept.querySelector('input').value, 'second list');
+  // The second list's row (or the element beside the list) is its own, kept.
+  for (const id of sections) {
+    const kept = document.querySelector(`#${id} [data-row=a]`);
+    assert.equal(kept, before[id].second, id);
+    assert.equal(kept.querySelector('input').value, 'second list', id);
+  }
   window.__unmount();
   await settle();
   assert.equal(document.getElementById('app').innerHTML, '');
