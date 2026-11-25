@@ -252,6 +252,25 @@ describe('feature reach in production bundles', () => {
     assert.deepEqual(LAZY_PROPS.filter((name) => has(code, name)), []);
   });
 
+  it('a compiled app of plain functions, one handed children, carries neither the class bridge nor the tag component', async () => {
+    const code = await compiled(`
+      import { mount } from 'what-framework';
+      function Box(props) { return <div>{props.children}</div>; }
+      mount(<Box><p>x</p></Box>, document.body);
+    `);
+    assert.ok(has(code, '_$createLazyFn'), 'the lazy getters are there');
+    assert.deepEqual(['_toFunctionComponent', 'asComponent', 'tagComponent'].filter((name) => has(code, name)), []);
+  });
+
+  it('a component the compiler cannot tell is a plain function brings both', async () => {
+    const code = await compiled(`
+      import { mount } from 'what-framework';
+      export const App = (props) => { const Tag = props.as; return <Tag />; };
+      mount(<App as="b" />, document.body);
+    `);
+    assert.deepEqual(['_toFunctionComponent', 'asComponent', 'tagComponent'].filter((name) => !has(code, name)), []);
+  });
+
   for (const [what, jsx] of [
     ['children', '<Box><p>x</p></Box>'],
     ['JSX in a prop', '<Box header={<p>x</p>} />'],

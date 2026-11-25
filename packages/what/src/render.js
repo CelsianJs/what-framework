@@ -58,10 +58,12 @@ export {
   effect,
   untrack,
   _$createComponent,
-  // The same call for a module whose JSX hands no component children and no
-  // JSX in a prop: what-compiler imports it under _$createComponent's name.
+  // The same call for a module whose every component is a plain function,
+  // for one whose JSX hands no component children and no JSX in a prop, and
+  // for one that is both: what-compiler imports each under _$createComponent's
+  // name.
+  _$createLazyFn,
   _$createLeaf,
-  // And for a module whose every component is a plain function.
   _$createFn,
   // The unbuilt sibling of _$createComponent. Emitted for the JSX handed
   // straight to hydrate(), which needs a VNode rather than finished DOM.
@@ -78,6 +80,8 @@ export {
   _$hole,
   _$exit,
   _$hcreateComponent,
+  // _$hcreateComponent for a module whose every component is a plain function.
+  _$hcreateFn,
   _$outside,
   // A hydratable array whose members claim the server's nodes in order.
   _$members,

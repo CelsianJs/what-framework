@@ -320,7 +320,10 @@ are the differences from 0.14.
   reads the new state. A field whose handlers listen for `change` and none
   for `input` (`onChange` on a text field) is the user's while they type,
   and is put back after the commit's `change` (blur, Enter) if the handlers
-  did not take it. A field that already shows the value is not
+  did not take it; a handler counts while it is there (one `on()` added and
+  removed does not), on the field or above it, compiled or made with `h()`.
+  After its form's reset the field shows the bound value again, as React's
+  does. A field that already shows the value is not
   written, so the caret stays; nothing is written while an input method
   composes; a field with `defaultValue` or `defaultChecked` and no `value` is
   the user's. A value that reads no state is still only where the field

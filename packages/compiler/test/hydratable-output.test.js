@@ -48,7 +48,7 @@ describe('hydratable output', () => {
     // The hydrating template and component helpers are imported under the
     // names the rest of the output already calls.
     assert.match(hydratable, /_\$htemplate as _\$template\b/);
-    assert.match(hydratable, /_\$hcreateComponent as _\$createComponent\b/);
+    assert.match(hydratable, /_\$hcreate(?:Component|Fn) as _\$createComponent\b/);
     assert.match(hydratable, /const _el\$\d+ = _\$claim\(_tmpl\$\d+, 1\);/);
     assert.match(hydratable, /_\$next\(0, 1\)/);
     assert.match(hydratable, /_\$hole\(_el\$\d+, \(\) => count\(\), 3\)/);

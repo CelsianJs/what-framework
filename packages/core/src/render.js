@@ -152,36 +152,63 @@ export function _$slots(props, slots) {
 // development metadata, "Name@src/File.jsx:12:5".
 
 export function _$createComponent(Component, props, children, devLoc) {
-  const proto = Component.prototype;
-  if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  return _$createLazyFn(asComponent(Component), props, children, devLoc);
+}
+
+/**
+ * _$createComponent for a module whose every component is a plain function,
+ * which what-compiler can tell (dom.js isPlainFunctionComponent): no class
+ * component to run through its bridge, and no tag (asComponent below), so an
+ * app none of whose modules may call one does not carry them. what-compiler
+ * imports it under the same name, as it picks _$mapKeyed for a module of
+ * keyed lists.
+ */
+export function _$createLazyFn(Component, props, children, devLoc) {
   const merged = ownProps(props);
   return _renderComponent(Component, merged, lazyProps(Component, merged, props, children), false, devLoc);
 }
 
 /**
  * _$createComponent for a module whose JSX hands no component children and no
- * JSX in a prop: what-compiler imports it under the same name when every
- * component call of the module is one (as it picks _$mapKeyed for a module of
- * keyed lists), and still passes the empty children array. With nothing to
+ * JSX in a prop, and still passes the empty children array. With nothing to
  * build lazily, the lazy getters (dom.js _installLazyChildren, readLazy) are
  * not reached from here, so an app none of whose modules needs them does not
- * carry them. The same statements as above on purpose: an app that has both
- * kinds of module carries both functions, and the repeat compresses away.
+ * carry them.
  */
 export function _$createLeaf(Component, props, _children, devLoc) {
-  const proto = Component.prototype;
-  if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  return _$createFn(asComponent(Component), props, _children, devLoc);
+}
+
+/** _$createLeaf for a module whose every component is a plain function (_$createLazyFn). */
+export function _$createFn(Component, props, _children, devLoc) {
   return _renderComponent(Component, ownProps(props), null, false, devLoc);
 }
 
-/**
- * _$createLeaf for a module whose every component is a plain function, which
- * what-compiler can tell (dom.js isPlainFunctionComponent): no class
- * component to run through its bridge (_toFunctionComponent), so an app none
- * of whose modules may call one does not carry it.
- */
-export function _$createFn(Component, props, _children, devLoc) {
-  return _renderComponent(Component, ownProps(props), null, false, devLoc);
+// What a compiled component call runs `Component` as when what-compiler cannot
+// tell it is a plain function: a class component through its bridge, and a
+// string as the element it names, as React renders one
+// (`const Tag = props.as || 'div'; <Tag {...rest} />`).
+function asComponent(Component) {
+  if (typeof Component === 'string') return tagComponent(Component);
+  const proto = Component.prototype;
+  return proto != null && (proto.isReactComponent || proto.render) ? _toFunctionComponent(Component) : Component;
+}
+
+// The component a tag held in a binding renders as: its element, with its
+// props spread on it as `<tag {...props}>` spreads them (a field's value and
+// checked bound as a binding does, a select's or an option's with the select
+// code) and its children inserted. what-compiler writes a tag it can read
+// (`const Tag = 'select'`) as the element itself. An element in HTML: a tag of
+// SVG or MathML held in a binding is not told apart.
+function tagComponent(tag) {
+  return (props) => {
+    const el = document.createElement(tag);
+    _selectsFor(el);
+    spread(FIELD_TAGS.has(el.localName) ? _$controlled(el) : el, _copyProps(props, ['children']));
+    const children = props.children;
+    if (children != null) insert(el, children);
+    return el;
+  };
 }
 
 // The props object a compiled component runs with. Compiled JSX builds a
@@ -2129,21 +2156,16 @@ function setProp(el, key, value) {
 
   if (key === 'class' || key === 'className') {
     _writeClass(el, value, isSvg);
-  } else if (key === 'dangerouslySetInnerHTML') {
-    const html = value?.__html ?? '';
-    if (typeof __DEV__ !== 'undefined' && __DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
-      console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
-    }
-    el.innerHTML = html;
-  } else if (key === 'innerHTML') {
-    if (value && typeof value === 'object' && '__html' in value) {
-      const html = value.__html ?? '';
+  } else if (key === 'dangerouslySetInnerHTML' || key === 'innerHTML') {
+    // innerHTML takes { __html } only: a string is refused, { __html } marks
+    // markup someone trusted.
+    if (key === 'dangerouslySetInnerHTML' || (value && typeof value === 'object' && '__html' in value)) {
+      const html = value?.__html ?? '';
       if (typeof __DEV__ !== 'undefined' && __DEV__ && typeof html === 'string' && /(<script|onerror\s*=|onload\s*=|javascript:)/i.test(html)) {
         console.warn('[what] dangerouslySetInnerHTML contains potential XSS vectors. Ensure content is sanitized.');
       }
       el.innerHTML = html;
     } else if (__DEV__ && value != null && value !== '') {
-      // A string is refused: { __html } marks markup someone trusted.
       report('ERR_UNSAFE_INNERHTML', { subject: { kind: 'element', name: el.localName } });
     }
   } else if (key === 'style') {
@@ -2513,13 +2535,19 @@ export function _$own(el) {
 
 // --- addEventListener helper for non-delegated events ---
 // The listener goes with the current owner, and the returned function removes
-// it sooner. A listener for a field's input or change marks its element, as a
-// delegated handler is seen on it (`$$input`): a controlled field is put back
-// after the event its handlers listen for (dom.js takenOnChange).
+// it sooner. The listeners for a field's input and change are counted on its
+// element while they are there (`_$input`, `_$change`), as a delegated
+// handler is seen on it (`$$input`): a controlled field is put back after the
+// event its handlers listen for (dom.js takenOnChange). A listener leaves the
+// count once, however often it is removed.
 export function on(el, event, handler, options) {
-  if (event === 'input' || event === 'change') el['_$' + event] = true;
+  let count = event === 'input' || event === 'change' ? '_$' + event : '';
+  if (count) el[count] = (el[count] | 0) + 1;
   el.addEventListener(event, handler, options);
-  const off = () => el.removeEventListener(event, handler, options);
+  const off = () => {
+    if (count) el[count]--, count = '';
+    el.removeEventListener(event, handler, options);
+  };
   onCleanup(off);
   return off;
 }
@@ -4998,10 +5026,13 @@ export function _$exit() {
 
 /** _$createComponent for hydratable output: while hydrating, the component adopts the server's nodes and the nodes come back as an array. `site` is the number what-compiler gave the JSX (hydration-data.js _assignOwnerPath). */
 export function _$hcreateComponent(Component, props, children, site, devLoc) {
+  return _$hcreateFn(asComponent(Component), props, children, site, devLoc);
+}
+
+/** _$hcreateComponent for a module whose every component is a plain function (_$createLazyFn). */
+export function _$hcreateFn(Component, props, children, site, devLoc) {
   const c = cur;
-  if (c === null || !c.h) return _$createComponent(Component, props, children, devLoc);
-  const proto = Component.prototype;
-  if (proto != null && (proto.isReactComponent || proto.render)) Component = _toFunctionComponent(Component);
+  if (c === null || !c.h) return _$createLazyFn(Component, props, children, devLoc);
   const merged = ownProps(props);
   return adoptComponent(Component, merged, lazyProps(Component, merged, props, children), site, devLoc);
 }

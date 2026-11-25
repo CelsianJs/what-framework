@@ -52,6 +52,17 @@ import { annotatePrimitive } from './babel/dev-metadata.js';
 import { resolveCallees } from './babel/reactivity.js';
 import { fileRuntimeMismatch } from './release.js';
 
+// The element a component-cased JSX tag names when its binding is a constant
+// holding an element's name (`const Tag = 'select'`), else null.
+function constantTag(elPath) {
+  const name = elPath.node.openingElement.name;
+  if (!t.isJSXIdentifier(name) || !/^[A-Z]/.test(name.name)) return null;
+  const binding = elPath.scope.getBinding(name.name);
+  if (!binding || !binding.constant || !t.isVariableDeclarator(binding.path.node)) return null;
+  const init = binding.path.node.init;
+  return t.isStringLiteral(init) && /^[a-z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)*$/.test(init.value) ? init.value : null;
+}
+
 export default function whatBabelPlugin({ types }) {
   setTypes(types);
 
@@ -151,6 +162,19 @@ export default function whatBabelPlugin({ types }) {
               if (node.type === 'JSXElement' && t.isJSXIdentifier(node.openingElement.name, { name: 'noscript' })) node.children = [];
             });
           }
+          // A tag held in a constant the file spells (`const Tag = 'select'`)
+          // is that element, as React renders it: written as the element, it
+          // is lowered as one on both targets (its namespace, a select's code,
+          // hydration). A tag the compiler cannot read is a component call,
+          // which what-core renders as the element at run time.
+          path.traverse({
+            JSXElement(elPath) {
+              const tag = constantTag(elPath);
+              if (tag === null) return;
+              elPath.node.openingElement.name = t.jsxIdentifier(tag);
+              if (elPath.node.closingElement) elPath.node.closingElement.name = t.jsxIdentifier(tag);
+            },
+          });
           // Before any JSX is lowered: placed props, server action ids,
           // development names and what each call's callee reads, all read
           // against the original source.

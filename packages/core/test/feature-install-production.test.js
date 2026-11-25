@@ -36,6 +36,12 @@
 //                    carries none of it.
 //   isServerRender   asked by useEffect and onMount, without making the
 //                    server render store a browser never has.
+//   asComponent      what a component call the compiler cannot tell is a
+//                    plain function runs its tag as: a class component
+//                    through its bridge, a string as the element it names
+//                    (`const Tag = props.as`), with the select code for a
+//                    select. A tag in a constant is the element at compile
+//                    time. memo() runs a class component through the bridge.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -483,6 +489,79 @@ describe('the props of a <select> and its <option>s (_$selects and the setters t
     await flush();
     assert.equal(el.querySelector('#t').value, 'b');
     assert.equal(el.querySelector('#c').checked, false);
+  });
+});
+
+describe('a tag held in a binding, and a class component in memo() (asComponent)', () => {
+  it('a string read from props is the element it names, a select with its select code', async () => {
+    const { exports, compiled, code } = await app({ 'main.jsx': `
+      import { mount, signal } from 'what-framework';
+      export const picked = signal('b');
+      export const clicks = [];
+      // Its props forwarded whole, so they stay live (a rest element of a
+      // destructured parameter does only where the compiler rewrites it).
+      function Field(props) {
+        const Tag = props.as;
+        return <Tag {...props} />;
+      }
+      function App() {
+        return <form>
+          <Field as="select" id="dyn" value={picked()} onChange={() => {}}><option>a</option><option>b</option></Field>
+          <Field as="button" type="button" class="go" onClick={() => clicks.push('go')}>go</Field>
+        </form>;
+      }
+      export const run = (el) => mount(<App />, el);
+    ` });
+    assert.match(compiled['main.jsx'], /_\$createComponent\(Tag/);
+    assert.ok(code.includes(SELECT_MARK), 'a select made from a string brings the select code');
+    const el = host();
+    exports.run(el);
+    await flush();
+    const select = el.querySelector('select#dyn');
+    assert.ok(select, el.innerHTML);
+    assert.deepEqual([...select.options].map((o) => o.text), ['a', 'b']);
+    assert.equal(select.value, 'b');
+    exports.picked('a');
+    await flush();
+    assert.equal(select.value, 'a', 'its value follows the state');
+    select.value = 'b';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush();
+    assert.equal(select.value, 'a', 'and it is controlled: a pick its handler did not take goes back');
+    const button = el.querySelector('button.go');
+    assert.equal(button.textContent, 'go');
+    assert.equal(button.type, 'button');
+    click(button);
+    assert.deepEqual(exports.clicks, ['go']);
+  });
+
+  it('a string in a constant is the element at compile time', async () => {
+    const { exports, compiled } = await app({ 'main.jsx': `
+      import { mount, signal } from 'what-framework';
+      export const picked = signal('b');
+      const Tag = 'select';
+      export const run = (el) => mount(() => <Tag {...{ value: picked() }}><option>a</option><option>b</option></Tag>, el);
+    ` });
+    assert.doesNotMatch(compiled['main.jsx'], /_\$createComponent/);
+    const el = host();
+    exports.run(el);
+    await flush();
+    assert.equal(el.querySelector('select').value, 'b');
+  });
+
+  it('memo() of a class component', async () => {
+    const { exports } = await app({ 'main.jsx': `
+      import { mount, memo } from 'what-framework';
+      class Legacy {
+        constructor(props) { this.props = props; }
+        render() { return <b>{this.props.label}</b>; }
+      }
+      const Memo = memo(Legacy);
+      export const run = (el) => mount(<Memo label="kept" />, el);
+    ` });
+    const el = host();
+    exports.run(el);
+    assert.equal(el.querySelector('b')?.textContent, 'kept');
   });
 });
 

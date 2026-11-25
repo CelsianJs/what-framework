@@ -103,24 +103,15 @@ function createFormController(options = {}) {
   const errorsState = signal({});
 
   function getFieldSignal(name) {
-    if (!fieldSignals[name]) {
-      fieldSignals[name] = signal(defaultValues[name] ?? '');
-    }
-    return fieldSignals[name];
+    return fieldSignals[name] ||= signal(defaultValues[name] ?? '');
   }
 
   function getErrorSignal(name) {
-    if (!errorSignals[name]) {
-      errorSignals[name] = signal(null);
-    }
-    return errorSignals[name];
+    return errorSignals[name] ||= signal(null);
   }
 
   function getTouchedSignal(name) {
-    if (!touchedSignals[name]) {
-      touchedSignals[name] = signal(false);
-    }
-    return touchedSignals[name];
+    return touchedSignals[name] ||= signal(false);
   }
 
   // Aggregate signals for bulk operations
@@ -132,7 +123,7 @@ function createFormController(options = {}) {
 
   // Helper: get all current values as a plain object.
   // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
-  function getAllValues(tracked = false) {
+  function getAllValues(tracked) {
     const result = { ...defaultValues };
     for (const [name, sig] of Object.entries(fieldSignals)) {
       result[name] = tracked ? sig() : sig.peek();
@@ -142,7 +133,7 @@ function createFormController(options = {}) {
 
   // Helper: get all current errors as a plain object.
   // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
-  function getAllErrors(tracked = false) {
+  function getAllErrors(tracked) {
     return tracked ? errorsState() : errorsState.peek();
   }
 
@@ -153,7 +144,7 @@ function createFormController(options = {}) {
       const prevError = prev[name];
       if (prevError === nextError) return prev;
       if (nextError == null) {
-        if (!Object.prototype.hasOwnProperty.call(prev, name)) return prev;
+        if (!Object.hasOwn(prev, name)) return prev;
         const next = { ...prev };
         delete next[name];
         return next;
@@ -162,11 +153,11 @@ function createFormController(options = {}) {
     });
   }
 
-  function replaceAllErrors(nextErrors = {}) {
+  function replaceAllErrors(nextErrors) {
     const normalized = nextErrors || {};
     batch(() => {
       for (const [name, sig] of Object.entries(errorSignals)) {
-        if (!Object.prototype.hasOwnProperty.call(normalized, name)) {
+        if (!Object.hasOwn(normalized, name)) {
           sig.set(null);
         }
       }
@@ -196,7 +187,7 @@ function createFormController(options = {}) {
 
     isValidating.set(true);
     try {
-      const result = await resolver(getAllValues(false));
+      const result = await resolver(getAllValues());
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
@@ -277,8 +268,14 @@ function createFormController(options = {}) {
       } else if (type === 'checkbox') {
         value = target.checked;
       } else {
-        value = target.value;
+        // A multiple select holds the values of its selected options.
+        value = type === 'select-multiple' ? Array.from(target.selectedOptions, (option) => option.value) : target.value;
       }
+      // A `change` that brings what the form already holds is no news: a
+      // field registered as a value (below) takes its edit from `input`, and
+      // from `change` only what that did not bring (a listbox, a multiple
+      // select or one with a size, fires only `change` for a key typed).
+      if (e.type === 'change' && JSON.stringify(value) === JSON.stringify(fieldSig.peek())) return;
       setValue(name, value);
 
       if (mode === 'onChange' || (isSubmitted.peek() && reValidateMode === 'onChange')) {
@@ -351,12 +348,13 @@ function createFormController(options = {}) {
       });
       result.onchange = handler;
     } else {
-      // Text/select/textarea: use value prop + oninput event
+      // Text/select/textarea: use value prop + oninput event, and onchange,
+      // which a listbox fires alone for a key typed (the handler above).
       Object.defineProperty(result, 'value', {
         get() { return fieldSig(); },
         enumerable: true,
       });
-      result.oninput = handler;
+      result.oninput = result.onchange = handler;
       result.ref = (el) => {
         _applyRef(options.ref, el);
         // An UNTYPED registration spread onto a radio cannot be rescued, and it
@@ -400,11 +398,6 @@ function createFormController(options = {}) {
   // Get single field value
   function getValue(name) {
     return getFieldSignal(name)();
-  }
-
-  // Set error for a field
-  function setError(name, error) {
-    setFieldError(name, error);
   }
 
   // Clear error for a field
@@ -455,7 +448,7 @@ function createFormController(options = {}) {
         if (isFormValid) {
           await onValid(getAllValues());
         } else if (onInvalid) {
-          onInvalid(getAllErrors(false));
+          onInvalid(getAllErrors());
         }
       } finally {
         isSubmitting.set(false);
@@ -477,7 +470,8 @@ function createFormController(options = {}) {
     handleSubmit,
     setValue,
     getValue,
-    setError,
+    // Set error for a field
+    setError: setFieldError,
     clearError,
     clearErrors,
     reset,
@@ -741,13 +735,15 @@ export function useField(name, options = {}) {
 
 // --- Controlled Input Components ---
 
+// The registration is merged into the caller's props (_mergeRegistration), so
+// a handler of the caller's for an event the registration listens for runs
+// too: an `onChange` of <Select> with the registration's `onchange`.
 export function Input(props) {
   const { register, error, ...rest } = props;
   const registered = register ? register(props.name) : {};
 
   return h('input', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   });
 }
@@ -757,8 +753,7 @@ export function Textarea(props) {
   const registered = register ? register(props.name) : {};
 
   return h('textarea', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   });
 }
@@ -772,8 +767,7 @@ export const Select = /* @__PURE__ */ Object.assign(function Select(props) {
   const registered = register ? register(props.name) : {};
 
   return h('select', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   }, children);
 }, { _deferChildren: true });

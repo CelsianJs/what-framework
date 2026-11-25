@@ -403,7 +403,9 @@ describe('runtime shape: forms', () => {
     const text = form.register('email');
     assert.equal(text.onInput, undefined, 'register() has never defined onInput');
     assert.equal(typeof text.oninput, 'function');
-    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'oninput', 'ref', 'value']);
+    // onchange too: a select takes its pick from `change`, which a listbox
+    // fires alone for a key typed (form.js register).
+    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'onchange', 'oninput', 'ref', 'value']);
 
     const checkbox = form.register('agree', { type: 'checkbox' });
     assert.deepEqual(keys(checkbox), ['checked', 'name', 'onBlur', 'onFocus', 'onchange', 'ref']);

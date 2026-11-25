@@ -741,8 +741,9 @@ export function _setFieldProp(el, key, value) {
 // at module scope), the h() renderer and hydration writing a vnode's props
 // (setProp below), and the setters written by hand given one (render.js
 // setProp, setValue, spread).
-// A select whose value a prop wrote has it installed (showControlled,
-// _resetForm write it again through it).
+// A select whose value a prop wrote carries the code that wrote it
+// (`_$select`), which showControlled and _resetForm write it again with: the
+// copy of what-core that does is not always the one that wrote it.
 /** @type {typeof selectProp | null} */
 let selects = null;
 
@@ -802,12 +803,26 @@ function selectProp(el, tag, key, value) {
 // they type, and put back after that `change` when the handlers did not take
 // it.
 //
+// A form's reset gives each of its fields its default once the `reset` event
+// is over: a field a prop controls shows what the prop holds again after it,
+// as React's does (it keeps a controlled field's value attribute in step).
+// The event comes before the reset: a reset a script calls (`form.reset()`)
+// is done by the microtask the bubble phase takes, and one the user makes (a
+// reset button) is done by the task the capture phase takes.
+//
 // Reached only from the bindings compiled JSX makes for a field's value and
 // checked (render.js setValue, setChecked, and a spread on a field,
 // _$controlled), so a program with no such binding does not carry it. A
 // binding that read state marks its field (`_$kept`), and only a marked field
 // is put back: the edit of any other field stands until its prop's next
 // write, whatever else the page holds.
+//
+// A page can hold two copies of what-core (a library bundled with its own):
+// the first to bind a field listens for the window, and puts back the fields
+// of both. Everything it reads and writes is on the field, so it needs none
+// of the other copy's code: a select is written again by the select code that
+// wrote its value, which leaves itself on the select (`_$select`), so a copy
+// without select code puts back the other copy's select.
 
 /**
  * @internal Called by a binding of `el`'s value or checked, in its run, with
@@ -819,10 +834,10 @@ export function _controlFields(el) {
   el._$kept = true;
   // A field cloned from a template is in the template's document, which has
   // no window, until it is placed: its events will reach this one's.
-  const win = el.ownerDocument.defaultView || (typeof window !== 'undefined' ? window : null);
-  if (win === null || win._$controlled) return;
+  const win = el.ownerDocument.defaultView || globalThis.window;
+  if (!win || win._$controlled) return;
   win._$controlled = true;
-  for (const type of ['input', 'change', 'compositionend']) {
+  for (const type of ['input', 'change', 'compositionend', 'reset']) {
     win.addEventListener(type, controlledChanged, true);
     win.addEventListener(type, controlledChanged);
   }
@@ -831,20 +846,26 @@ export function _controlFields(el) {
 function controlledChanged(e) {
   const path = e.composedPath();
   const el = path[0];
-  if (e.isComposing || el == null || !el._$kept) return;
-  if (e.type !== 'change' && (el.localName === 'select' || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))) return;
+  // A form, on its reset (showControlled shows its fields, and passes over
+  // anything else a script dispatched one at); else a field, and before a
+  // change only a text field its handlers do not take as the user types.
+  if (e.type !== 'reset' && (e.isComposing || el == null || !el._$kept
+    || (e.type !== 'change' && (el.localName === 'select' || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))))) return;
   if (e.eventPhase === 1) setTimeout(showControlled, 0, el);
   else queueMicrotask(() => showControlled(el));
 }
 
 // Whether the handlers on the event's path listen for `change` and not for
-// `input`: a delegated handler (`$$change`), or a listener render.js on()
-// added (a spread's, an event with modifiers), which it marks (`_$change`).
+// `input`: a delegated handler (`$$change`), a listener render.js on() added
+// (a spread's, an event with modifiers), which it counts while it is there
+// (`_$change`), or one an h() element's props added (setProp below:
+// `_events`, in either phase).
 function takenOnChange(path) {
   let change = false;
   for (const node of path) {
-    if (node.$$input || node._$input) return false;
-    if (node.$$change || node._$change) change = true;
+    const events = node._events || 0;
+    if (node.$$input || node._$input || events.input || events.input_capture) return false;
+    if (node.$$change || node._$change || events.change || events.change_capture) change = true;
   }
   return change;
 }
@@ -856,10 +877,15 @@ function takenOnChange(path) {
 // A radio is checked or unchecked with the rest of its group: checking one
 // unchecked the one a prop keeps checked.
 function showControlled(el) {
+  // A form after its reset: its fields a prop controls.
+  if (el.localName === 'form') {
+    for (const field of _formMember(el, 'elements')) if (field._$kept) showControlled(field);
+    return;
+  }
   const value = el._$value;
   if (value !== undefined) {
-    // A select's value was written by its installed code (selects).
-    if (el.localName === 'select') /** @type {any} */ (selects)(el, 'SELECT', 'value', value);
+    // A select's value was written by the select code it carries (above).
+    if (el._$select) el._$select(el, value);
     else if (el.value !== value && (el.type !== 'number' || (!el.validity.badInput && +el.value !== +value))) el.value = value;
   }
   if (el._$checked === undefined) return;
@@ -874,6 +900,8 @@ function _setSelectValue(el, value) {
   if (value == null && el._$value === undefined) return;
   _selectionKeeper = _keepSelection;
   el._$value = value ?? undefined;
+  // What writes it again (showControlled, _resetForm), from any copy.
+  el._$select = _setSelectValue;
   _installOptionsChanged(_optionsChanged);
   const write = (el._$selectWrite = (el._$selectWrite || 0) + 1);
   if (!markOptions(el, value, 'selected')) {
@@ -1333,7 +1361,8 @@ export function _resetForm(form, onError) {
   attempt(_formMember(form, 'reset'));
   fields.forEach((el, i) => {
     const [value, checked] = held[i];
-    if (value !== undefined) attempt(() => (el.tagName === 'SELECT' ? /** @type {any} */ (selects)(el, 'SELECT', 'value', value) : (el.value = value)));
+    // A select's value was written by the select code it carries (_setSelectValue).
+    if (value !== undefined) attempt(() => (el._$select ? el._$select(el, value) : (el.value = value)));
     if (checked !== undefined) attempt(() => { el.checked = checked; });
   });
 }

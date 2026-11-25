@@ -5,6 +5,11 @@
 //   _$createComponent   `_$createLeaf` when no component call of the module
 //                       hands over children or JSX in a prop: nothing is
 //                       built lazily, so the lazy getters are not reached.
+//                       `_$createFn` and `_$createLazyFn` (and `_$hcreateFn`
+//                       for hydratable output) when every component of the
+//                       module is a plain function: no class component bridge
+//                       and no tag held in a binding (render.js asComponent).
+//   a tag in a constant `const Tag = 'select'; <Tag />` is the element itself.
 //   _$insert            `_$reactive` when every insert of the module is of a
 //                       function written in the hole itself, which insert()
 //                       could only hand to its reactive region.
@@ -65,7 +70,6 @@ describe('the component call a module imports', () => {
     ['JSX in a prop', 'const A = () => <Box header={<i />} />;'],
     ['a forwarded children prop', 'const A = (props) => <Box>{props.children}</Box>;'],
     ['a prop handed on to a component', 'const A = (props) => <Box fallback={props.fallback} />;'],
-    ['an island with children', 'const A = () => <Counter client:idle><p>x</p></Counter>;'],
     ['one such call among leaf calls', 'const A = () => <div><Leaf /><Box><p>x</p></Box><Leaf /></div>;'],
   ]) {
     it(`is the general call for ${what}`, () => {
@@ -84,6 +88,9 @@ describe('the component call a module imports', () => {
   it('a hydratable module imports the hydrating call either way', () => {
     assert.equal(component('const A = () => <Leaf />;', { hydratable: true }), '_$hcreateComponent');
     assert.equal(component('const A = () => <Box><p>x</p></Box>;', { hydratable: true }), '_$hcreateComponent');
+    // And the one for plain functions when every component is one.
+    assert.equal(component('const Leaf = () => <i />; export const A = () => <Leaf />;', { hydratable: true }), '_$hcreateFn');
+    assert.equal(component('const Box = (p) => <b>{p.children}</b>; export const A = () => <Box><p>x</p></Box>;', { hydratable: true }), '_$hcreateFn');
   });
 
   it('passes the leaf call the arguments the general one takes', () => {
@@ -210,9 +217,55 @@ describe('the leaf call for a module whose every component is a plain function',
     });
   }
 
-  it('no component what-framework exports is a class component', async () => {
-    const framework = await import('what-framework');
-    const classes = Object.entries(framework).filter(([, v]) => typeof v === 'function' && v.prototype != null && (v.prototype.render || v.prototype.isReactComponent));
-    assert.deepEqual(classes.map(([name]) => name), []);
+  it('no component what-framework or its router exports is a class component', async () => {
+    for (const entry of ['what-framework', 'what-framework/router']) {
+      const framework = await import(entry);
+      const classes = Object.entries(framework).filter(([, v]) => typeof v === 'function' && v.prototype != null && (v.prototype.render || v.prototype.isReactComponent));
+      assert.deepEqual(classes.map(([name]) => name), [], entry);
+    }
   });
+});
+
+describe('the general call for a module whose every component is a plain function', () => {
+  for (const [what, source] of [
+    ['a function of the module handed children', 'const Box = (p) => <b>{p.children}</b>; export const x = <Box><p>x</p></Box>;'],
+    ['an island with children (what-framework\'s _$Island)', 'export const x = <Counter client:idle><p>x</p></Counter>;'],
+    ['a <Suspense> with a fallback', 'import { Suspense } from "what-framework"; const Leaf = () => <i />; export const x = <Suspense fallback={<p>wait</p>}><Leaf /></Suspense>;'],
+    ['a router of what-framework', 'import { Router, Link } from "what-framework/router"; export const x = <div><Link href="/">home</Link><Router routes={[]} /></div>;'],
+  ]) {
+    it(`is the one that looks for no class component and no tag for ${what}`, () => {
+      assert.equal(component(source), '_$createLazyFn');
+      assert.ok(!Object.values(renderImports(compile(source))).includes('_$createComponent'), 'the general call is not imported beside it');
+    });
+  }
+
+  it('is the general call once any component of the module may be something else', () => {
+    assert.equal(component('import Other from "./other.js"; const Box = (p) => <b>{p.children}</b>; export const x = <Box><Other /></Box>;'), '_$createComponent');
+  });
+});
+
+describe('a tag held in a binding', () => {
+  it('a constant holding an element\'s name is that element, on both targets', () => {
+    const source = 'const Tag = "select"; export const A = (p) => <Tag {...p} value={p.v()}><option>a</option></Tag>;';
+    const code = compile(source);
+    assert.match(code, /_\$template\("<select><option>a"\)/);
+    assert.doesNotMatch(code, /_\$createComponent\(Tag/);
+    assert.equal(code.match(/^_\$selects\(\);$/gm)?.length, 1, 'with the select code its props need');
+    const ssr = compile(source, { generate: 'ssr' });
+    assert.match(ssr, /\("select"/, 'the server writes a select');
+    assert.doesNotMatch(ssr, /\(Tag\b/);
+  });
+
+  for (const [what, source] of [
+    ['a tag read from props', 'export const A = (props) => { const Tag = props.as || "div"; return <Tag id="x">body</Tag>; };'],
+    ['a binding written again', 'let Tag = "b"; Tag = "i"; export const A = () => <Tag />;'],
+    ['a constant naming no element', 'const Tag = "Foo"; export const A = () => <Tag />;'],
+    ['a parameter', 'export const A = ({ as: Tag }) => <Tag />;'],
+  ]) {
+    it(`${what} is a component call, which renders a string as its element (render.js asComponent)`, () => {
+      const code = compile(source);
+      assert.match(code, /_\$createComponent\(Tag/);
+      assert.ok(['_$createComponent', '_$createLeaf'].includes(component(source)), component(source));
+    });
+  }
 });

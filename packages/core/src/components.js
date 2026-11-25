@@ -9,7 +9,7 @@ import {
 } from './reactive.js';
 import { report, recordObservation } from './diagnostics.js';
 import { isServerRender } from './server-context.js';
-import { hydrate, insert, _enableSuspense, _hydrationErrorHook } from './render.js';
+import { hydrate, insert, _enableSuspense, _hydrationErrorHook, _toFunctionComponent } from './render.js';
 import { createDOM, _handleNavigationSignal, _place } from './dom.js';
 import { _islandHost } from './hydration-data.js';
 
@@ -17,12 +17,16 @@ import { _islandHost } from './hydration-data.js';
 // In the run-once model, components execute exactly once and never re-render.
 // Signals update the DOM directly via fine-grained effects. Therefore, memo()
 // is a no-op identity wrapper — there is no re-render to skip.
-// Kept for API compatibility with React-style code.
+// Kept for API compatibility with React-style code. A class component is run
+// through the bridge compiled JSX and h() run one through
+// (render.js _toFunctionComponent): called as a function it would throw.
 
 export function memo(Component, _areEqual) {
+  const proto = Component.prototype;
+  const render = proto != null && (proto.isReactComponent || proto.render) ? _toFunctionComponent(Component) : Component;
   // No-op in run-once model — just return the component as-is
   const MemoWrapper = function MemoWrapper(props) {
-    return Component(props);
+    return render(props);
   };
   MemoWrapper.displayName = `Memo(${Component.name || 'Anonymous'})`;
   return MemoWrapper;

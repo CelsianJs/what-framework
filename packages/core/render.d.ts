@@ -173,6 +173,13 @@ export function svgTemplate(html: string): () => Element;
 export function _$createComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 
 /**
+ * @internal `_$createComponent` for a module whose every component is a plain
+ * function (never a class component, never a tag held in a binding): it does
+ * not look for either.
+ */
+export function _$createLazyFn(component: unknown, props?: unknown, ...args: unknown[]): unknown;
+
+/**
  * @internal `_$createComponent` for a module whose JSX hands no component
  * children and no JSX in a prop: the compiler imports it under that name, so
  * an app of such modules does not carry the lazy props.
@@ -181,7 +188,8 @@ export function _$createLeaf(component: unknown, props?: unknown, ...args: unkno
 
 /**
  * @internal `_$createLeaf` for a module whose every component is a plain
- * function (never a class component): it does not look for one.
+ * function (never a class component, never a tag held in a binding): it does
+ * not look for either.
  */
 export function _$createFn(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 
@@ -217,6 +225,8 @@ export function _$skip(count: number): void;
 export function _$hole(parent: Node, value: unknown, flag: number, devName?: string): void;
 export function _$exit(): void;
 export function _$hcreateComponent(component: unknown, props?: unknown, ...args: unknown[]): unknown;
+/** @internal `_$hcreateComponent` for a module whose every component is a plain function (`_$createLazyFn`). */
+export function _$hcreateFn(component: unknown, props?: unknown, ...args: unknown[]): unknown;
 export function _$outside<T>(build: () => T): T;
 /** @internal A hydratable array whose members claim the server's nodes in document order as `build` creates them. `nested` 1: it follows another array's markers; 2: a component's children, with markers of their own only where their placement has them (`_$place`). */
 export function _$members<T>(build: () => T, nested?: number): T;

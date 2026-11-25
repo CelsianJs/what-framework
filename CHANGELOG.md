@@ -109,14 +109,23 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   whose handlers listen for `change` and none for `input` (`onChange` on a
   text field, on the field, through a spread or on a form above it) is the
   user's while they type and is put back after the `change` of a commit
-  (blur, Enter) its handlers did not take. A field that already shows the
+  (blur, Enter) its handlers did not take. The handlers counted are the ones
+  there now: a listener `on()` added and then removed (by its function or
+  with its owner) no longer counts, and an `h()` element's `onChange` or
+  `onInput` (either phase) over a compiled field counts as a compiled one
+  does. After a form's reset (`form.reset()` or its reset button) such a
+  field shows the bound value again, as React's does; WebKit showed the
+  field's default. A field that already shows the
   value is not written (the caret stays), nothing is written while an input
   method composes, and a field with `defaultValue` or `defaultChecked` and no
   `value` is left to the user. A value that reads no state is still only
   where the field starts: a constant, what a spread reads once (the forms
   kit's `{...register('title')}`), and any field made with `h()`. Nothing is
   added per field: the window hears the events once a binding controls one,
-  and an app with no compiled field binding does not carry the code.
+  and an app with no compiled field binding does not carry the code. A page
+  with two copies of what-core (a library bundled with its own) puts back
+  the fields of both, a `<select>` of the other copy included, with no
+  select code in the copy that listens.
   *Migration:* a field bound to state only to start with something in it
   takes `defaultValue`; a handler writes the state itself, not after an
   `await` or in a timer.
@@ -839,6 +848,22 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Fixed
 
+- **A tag held in a binding renders the element it names**, as in React:
+  `const Tag = props.as || 'div'; <Tag {...rest}>…</Tag>` rendered nothing in
+  production and threw `… is not a function`. A tag in a constant
+  (`const Tag = 'select'`) compiles to the element itself on both targets;
+  any other is rendered as its element at run time, its props spread on it
+  (a field's `value` and `checked` bound as compiled JSX binds them, a
+  `<select>`'s with the select code), in HTML.
+- **`memo()` of a class component** runs it through the class component
+  bridge; it threw `Class constructor … cannot be invoked without 'new'`.
+- **The forms kit's `register()` on a `<select multiple>`** holds the array
+  of the options picked: picking with the keyboard left the form's value as
+  it was (a listbox fires only `change` for a key typed), and a pick a script
+  dispatched `input` for stored one option's value as a string. The text and
+  select registration now also returns `onchange`, taken only when it brings
+  a value the form does not hold, and `<Input>`, `<Textarea>` and `<Select>`
+  merge it with the caller's own `onChange` instead of replacing it.
 - **Development locations name the line you wrote.** Vite reprints a
   .jsx/.tsx file with esbuild (oxc on Vite 8) before what-compiler's plugin
   runs, so every `file:line:col` in a diagnostic and in the devtools could
@@ -1278,8 +1303,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (15,378 B); every app `npm run check:size` builds is smaller. A compiled
   module imports the component call it needs: with no component handed
   children or JSX in a prop it leaves out the lazy getters, and when every
-  component is a function the module defines (or one of what-framework's) it
-  leaves out the class component bridge. A module whose every hole holds a
+  component is a function the module defines (or one of what-framework's or
+  its router's) it leaves out the class component bridge and the rendering of
+  a tag held in a binding, also when it hands children. A module whose every hole holds a
   function written in it imports the reactive region instead of `insert()`.
   The code that keeps a `<select>` and its `<option>`s in step with their
   props comes with a module whose JSX writes one (`_$selects()`), with

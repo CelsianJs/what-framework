@@ -2810,13 +2810,17 @@ function renderExport(name, state) {
   if (name === '_$mapArray') return state.needsGeneralMapArray ? 'mapArray' : '_$mapKeyed';
   if (name === '_$template') return state.hydratable ? '_$htemplate' : '_$template';
   if (name === '_$insert') return state.needsGeneralInsert ? 'insert' : '_$reactive';
-  if (state.hydratable) return '_$hcreateComponent';
-  if (state.needsLazyProps) return '_$createComponent';
+  // A module whose every component is a plain function imports the call that
+  // looks for neither a class component nor a tag held in a binding (render.js
+  // asComponent).
+  if (state.hydratable) return state.classComponents ? '_$hcreateComponent' : '_$hcreateFn';
+  if (state.needsLazyProps) return state.classComponents ? '_$createComponent' : '_$createLazyFn';
   return state.classComponents ? '_$createLeaf' : '_$createFn';
 }
 
-// The components of what-framework itself, which are functions.
-const FRAMEWORK_SOURCES = new Set(['what-framework', 'what-core']);
+// The components of what-framework itself, which are functions: its root
+// entry's, and its router's.
+const FRAMEWORK_SOURCES = new Set(['what-framework', 'what-core', 'what-framework/router', 'what-router']);
 
 // Whether the component a JSX tag names is a plain function, which a class
 // component (a prototype with render() or isReactComponent, render.js

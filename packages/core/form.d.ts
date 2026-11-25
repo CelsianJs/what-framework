@@ -39,7 +39,7 @@ export type RegisterProps = {
   checked?: boolean | (() => boolean);
   /** text/select/textarea only. */
   oninput?: (e: any) => void;
-  /** checkbox/radio only. */
+  /** Every control: a checkbox's or a radio's pick, and a value a `change` brings that `input` did not (a listbox fires only `change` for a key typed). */
   onchange?: (e: any) => void;
 };
 
