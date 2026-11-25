@@ -1132,6 +1132,19 @@ import { reactCompat } from 'what-react/vite';
 export default { plugins: [reactCompat()] };`,
   },
 
+  CLASS_COMPONENT_NOT_INSTALLED: {
+    code: 'ERR_CLASS_COMPONENT_NOT_INSTALLED',
+    severity: 'error',
+    template: "[what-react] {{name}} is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.",
+    suggestion: "Class components come with what-react's Component and PureComponent, or with `what-react/class`. A class whose prototype is marked isReactComponent without extending Component (by hand, or by a library) needs the install. reactCompat() adds `import 'what-react/class'` to every module that has the marker; a build without the plugin (esbuild, another bundler) imports it once, in its entry.",
+    codeExample: `// main.jsx, built without what-react's Vite plugin
+import 'what-react/class';
+import { createRoot } from 'react-dom/client';
+import { App } from './App.jsx';
+
+createRoot(document.getElementById('app')).render(<App />);`,
+  },
+
   CHILDREN_ONLY: {
     code: 'ERR_CHILDREN_ONLY',
     severity: 'error',

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 75 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 76 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 75 of them: 43 errors and 32 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 76 of them: 44 errors and 32 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -80,6 +80,7 @@
             <li><a href="#ERR_ASYNC_READ_IN_BODY">ERR_ASYNC_READ_IN_BODY</a></li>
             <li><a href="#ERR_ASYNC_WITHOUT_SUSPENSE">ERR_ASYNC_WITHOUT_SUSPENSE</a></li>
             <li><a href="#ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</a></li>
+            <li><a href="#ERR_CLASS_COMPONENT_NOT_INSTALLED">ERR_CLASS_COMPONENT_NOT_INSTALLED</a></li>
             <li><a href="#ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</a></li>
             <li><a href="#ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</a></li>
             <li><a href="#ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</a></li>
@@ -252,6 +253,17 @@ mount(&lt;Suspense fallback={&lt;Spinner /&gt;}&gt;&lt;Settings /&gt;&lt;/Suspen
 
 // Good:
 &lt;Tooltip&gt;&lt;span&gt;a&lt;/span&gt;&lt;/Tooltip&gt;</code></pre>
+
+          <h2 id="ERR_CLASS_COMPONENT_NOT_INSTALLED">ERR_CLASS_COMPONENT_NOT_INSTALLED</h2>
+          <p class="subtitle">[what-react] name is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-react</code>.</p>
+          <p>Class components come with what-react's Component and PureComponent, or with `what-react/class`. A class whose prototype is marked isReactComponent without extending Component (by hand, or by a library) needs the install. reactCompat() adds `import 'what-react/class'` to every module that has the marker; a build without the plugin (esbuild, another bundler) imports it once, in its entry.</p>
+<pre><code>// main.jsx, built without what-react's Vite plugin
+import 'what-react/class';
+import { createRoot } from 'react-dom/client';
+import { App } from './App.jsx';
+
+createRoot(document.getElementById('app')).render(&lt;App /&gt;);</code></pre>
 
           <h2 id="ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</h2>
           <p class="subtitle">onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs.</p>

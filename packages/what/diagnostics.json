@@ -119,6 +119,19 @@
       "example": "// Bad:\n<Tooltip><span>a</span><span>b</span></Tooltip>\n\n// Good:\n<Tooltip><span>a</span></Tooltip>"
     },
     {
+      "code": "ERR_CLASS_COMPONENT_NOT_INSTALLED",
+      "severity": "error",
+      "detects": [
+        "thrown"
+      ],
+      "raisedBy": [
+        "what-react"
+      ],
+      "trigger": "[what-react] {{name}} is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.",
+      "fix": "Class components come with what-react's Component and PureComponent, or with `what-react/class`. A class whose prototype is marked isReactComponent without extending Component (by hand, or by a library) needs the install. reactCompat() adds `import 'what-react/class'` to every module that has the marker; a build without the plugin (esbuild, another bundler) imports it once, in its entry.",
+      "example": "// main.jsx, built without what-react's Vite plugin\nimport 'what-react/class';\nimport { createRoot } from 'react-dom/client';\nimport { App } from './App.jsx';\n\ncreateRoot(document.getElementById('app')).render(<App />);"
+    },
+    {
       "code": "ERR_CLEANUP_WITHOUT_OWNER",
       "severity": "warning",
       "detects": [

@@ -89,10 +89,19 @@ export function _vnodeOf(tag, props) {
 // carries (`_$r`, render.js valuesToNodes): here, as an island of its own,
 // under React's rules. Where native code installed what-core's renderer, that
 // one renders it, as a native What tree renders a React element (a component
-// through its bridge, getBridge below).
+// through its bridge, getBridge below). In a mixed app a keyed element keeps
+// its island by key (mixed.js placeKeyed, installed here).
+/** @type {(vnode: any, svg: boolean) => any} */
+let placeVNode = (vnode, svg) => _island(() => vnode, svg);
+
+/** @internal mixed.js */
+export function _setVNodePlacer(fn) {
+  placeVNode = fn;
+}
+
 {
   const proto = Object.getPrototypeOf(_$componentVNode(null, EMPTY_OBJ, NO_CHILDREN));
-  if (proto._$r === undefined) proto._$r = (/** @type {any} */ vnode, /** @type {any} */ _parent, /** @type {any} */ isSvg) => _island(() => vnode, isSvg === true);
+  if (proto._$r === undefined) proto._$r = (/** @type {any} */ vnode, /** @type {any} */ _parent, /** @type {any} */ isSvg) => placeVNode(vnode, isSvg === true);
 }
 
 /**

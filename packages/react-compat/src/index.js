@@ -86,13 +86,28 @@ const fragmentBridge = getBridge(FragmentComponent);
 
 // ---- Class components ----
 
-// A class component extends Component or PureComponent (below), whose
-// definition installs the wrapper that renders one: a program that never
-// defines a class component (it does not have Component in it) does not
-// carry the class lifecycle. React itself renders as a class only what has
-// `isReactComponent` on its prototype, which is Component's.
+// A class component is rendered through the wrapper below (getClassWrapper),
+// which a program carries only when something installs it: Component's
+// definition (so a class that extends Component or PureComponent brings it),
+// or `what-react/class` (src/class.js), which what-react's Vite plugin
+// imports into a module that has `isReactComponent` in it (a class marked by
+// hand, as React accepts, or by a library). A program with neither does not
+// carry the class lifecycle, and a class that reaches it anyway is refused
+// with ERR_CLASS_COMPONENT_NOT_INSTALLED instead of being called as a
+// function.
 /** @type {((type: any) => any) | null} */
 let classWrapper = null;
+
+/** @internal Install class components (Component's definition, src/class.js). */
+export function _installClasses() {
+  classWrapper = getClassWrapper;
+}
+
+// The render function of class component `type`.
+function classRender(type) {
+  if (classWrapper !== null) return classWrapper(type);
+  throw Object.assign(new Error(`[what-react] ${type.name} is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.`), { code: 'ERR_CLASS_COMPONENT_NOT_INSTALLED' });
+}
 
 function isClassComponent(type) {
   return (
@@ -386,7 +401,7 @@ export function _element(type, props, key) {
 // for: a class that inherits the property from its parent class, or a
 // wrapper a library copied a component's statics onto, gets its own.
 function bridgeOf(type) {
-  const bridge = getBridge(classWrapper !== null && isClassComponent(type) ? classWrapper(type) : type);
+  const bridge = getBridge(isClassComponent(type) ? classRender(type) : type);
   bridge._compatFor = type;
   try {
     Object.defineProperty(type, '_compatBridge', { value: bridge, configurable: true, writable: true });
@@ -436,7 +451,7 @@ export function createRef() {
 // equal (default: shallow equality) and no self-update is pending.
 
 export function memo(Component, areEqual) {
-  const render = classWrapper !== null && isClassComponent(Component) ? classWrapper(Component) : Component;
+  const render = isClassComponent(Component) ? classRender(Component) : Component;
   function Memoized(props) {
     // The wrapped component's own defaultProps (the memo's are resolved
     // when the element is made).
@@ -769,7 +784,7 @@ export const Component = /* @__PURE__ */ (() => {
     return null;
   };
 
-  classWrapper = getClassWrapper;
+  _installClasses();
   return Component;
 })();
 

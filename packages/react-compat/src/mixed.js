@@ -23,14 +23,19 @@
 import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
 import { isVNode, _provide, __DEV__ } from 'what-core/internal';
 import { _$createComponent } from 'what-core/render';
-import { createElement, Fragment } from './index.js';
+import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
+  _setVNodePlacer, renderInstance, _domNodes,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
 
-export { createElement, Fragment };
+// A binding of this module's own, not a re-export: a React file imports it
+// (what-react's plugin lowers its JSX to it), and with it keeps this module's
+// install of placeKeyed below, also where no native file renders a React tag.
+export const createElement = element;
+export { Fragment };
 
 /**
  * Hydrating islands by adopting the server's HTML: an island takes the
@@ -80,6 +85,71 @@ export function ReactIsland(props) {
   const html = serverIsland(props.view);
   return html !== undefined ? html : _island(props.view, props.svg === true);
 }
+
+// A keyed React element that native code places in a hole itself (a What
+// component mapping an array to React elements, `{rows(order())}`) keeps its
+// island from one run of the hole to the next, by key and type, as React
+// keeps a keyed child: its nodes, its state, the text typed in it and the
+// focus, with its new props rendered into it. what-core renders such an
+// element through the `_$r` runtime.js gives what-react's vnodes when its
+// own vnode renderer is not in the program (a client build whose native code
+// makes no vnode); where it is (a page that hydrates, native code that makes
+// a vnode, a native component inside a React tree) its keyed rows keep the
+// element while its props stay the same, and this is not reached.
+//
+// The hole is the effect whose run places the element. Its island is a root
+// under the owner that effect was created under, as what-core's keyed rows
+// are: native code inside it finds the What context around the hole, and the
+// island goes with that owner. When a run of the hole is over (its next run
+// begins, or the hole goes), what it placed can be taken by the next run;
+// what that run did not take is unmounted on the microtask after it (the
+// hole has removed its nodes by then). A key repeated in one run is placed
+// as an unkeyed element is.
+/** @type {WeakMap<any, any>} */
+const holes = new WeakMap();
+
+function placeKeyed(vnode, svg) {
+  const key = vnode.key;
+  // The record of an effect's run: its `owner` is the effect, whose own
+  // `owner` is the owner the effect was created under (what-core reactive.js).
+  const run = /** @type {any} */ (getOwner());
+  const hole = run && run.owner;
+  const scope = hole && hole.fn && hole.owner;
+  let state = scope != null && key != null ? holes.get(hole) : null;
+  if (state === undefined) holes.set(hole, (state = { run: null, live: null, old: null }));
+  if (state !== null && state.run !== run) {
+    // The first keyed element of this run.
+    const placed = (state.live = new Map());
+    state.run = run;
+    onCleanup(() => {
+      state.old = placed;
+      queueMicrotask(() => placed.forEach((entry) => entry.dispose()));
+    });
+  }
+  if (state === null || state.live.has(key)) return _island(() => vnode, svg);
+  let entry = state.old !== null ? state.old.get(key) : undefined;
+  let out;
+  if (entry !== undefined && entry.type === vnode.type && entry.svg === svg) {
+    state.old.delete(key);
+    if (entry.vnode !== vnode) {
+      entry.vnode = vnode;
+      untrack(() => runInCommit(() => renderInstance(entry.inst)));
+    }
+    out = _domNodes(entry.inst);
+  } else {
+    /** @type {any} */
+    const made = (entry = { type: vnode.type, svg, vnode, inst: null, dispose: null });
+    // The island's view records its instance (it renders as that instance).
+    runWithOwner(scope, () => createRoot((dispose) => {
+      made.dispose = dispose;
+      out = _island(() => ((made.inst = _getCurrentInstance()), made.vnode), svg);
+    }));
+  }
+  state.live.set(key, entry);
+  return out;
+}
+
+_setVNodePlacer(placeKeyed);
 
 // =====================================================================
 // Native inside React

@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 75 of them: 43 errors and 32 warnings.
+Every code in What's error catalogue, all 76 of them: 44 errors and 32 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -54,6 +54,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_ASYNC_READ_IN_BODY`](#err-async-read-in-body) | error | Component "`component`" read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever. |
 | [`ERR_ASYNC_WITHOUT_SUSPENSE`](#err-async-without-suspense) | warning | Component "`component`" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
+| [`ERR_CLASS_COMPONENT_NOT_INSTALLED`](#err-class-component-not-installed) | error | [what-react] `name` is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component. |
 | [`ERR_CLEANUP_WITHOUT_OWNER`](#err-cleanup-without-owner) | warning | onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs. |
 | [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler client output cannot be server-rendered: `file`. |
 | [`ERR_COMPILER_RUNTIME_MISMATCH`](#err-compiler-runtime-mismatch) | error | what-compiler `compiler` cannot build for `name` `version` (`file`). |
@@ -288,6 +289,25 @@ Children.only asserts exactly one element. Pass one child, or use Children.toArr
 
 // Good:
 <Tooltip><span>a</span></Tooltip>
+```
+
+## ERR_CLASS_COMPONENT_NOT_INSTALLED
+
+**Severity:** error
+  ·  **Raised by:** `what-react`
+  ·  **Detected:** thrown
+
+> [what-react] {{name}} is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.
+
+Class components come with what-react's Component and PureComponent, or with `what-react/class`. A class whose prototype is marked isReactComponent without extending Component (by hand, or by a library) needs the install. reactCompat() adds `import 'what-react/class'` to every module that has the marker; a build without the plugin (esbuild, another bundler) imports it once, in its entry.
+
+```jsx
+// main.jsx, built without what-react's Vite plugin
+import 'what-react/class';
+import { createRoot } from 'react-dom/client';
+import { App } from './App.jsx';
+
+createRoot(document.getElementById('app')).render(<App />);
 ```
 
 ## ERR_CLEANUP_WITHOUT_OWNER

@@ -122,10 +122,10 @@ function assertAppRan({ result, printed }) {
   assert.equal(result.left, '', 'unmounting removed the app');
 }
 
-async function esbuildApp(outdir, conditions) {
+async function esbuildApp(outdir, conditions, entry = 'main') {
   await esbuild({
     absWorkingDir: FIXTURE,
-    entryPoints: ['src/main.jsx'],
+    entryPoints: [`src/${entry}.jsx`],
     outdir,
     bundle: true,
     format: 'esm',
@@ -133,11 +133,11 @@ async function esbuildApp(outdir, conditions) {
     conditions,
     jsx: 'automatic',
     jsxImportSource: 'react',
-    alias: { react: 'what-react', 'react-dom': 'what-react/dom' },
+    alias: { react: 'what-react', 'react-dom/client': 'what-react/dom', 'react-dom': 'what-react/dom' },
     define: { __WHAT_DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
     logLevel: 'silent',
   });
-  return join(outdir, 'main.js');
+  return join(outdir, `${entry}.js`);
 }
 
 // Vite sets process.env.NODE_ENV for the whole process when it resolves a
@@ -211,6 +211,76 @@ test('Vite production build, `production` condition: renders, updates, unmounts 
   const { entry, loaded } = await viteBuildFixture(join(scratch, 'vite-dist'));
   assert.ok(loaded.has(exportTarget('what-core', 'production')), 'built from the dist');
   assertAppRan(await inJsdom(entry, driveApp));
+});
+
+// fixtures/bundle/src/class-app.jsx: a class marked `isReactComponent` by hand,
+// in a program with no Component in it. Class components come with
+// Component's definition, or with `what-react/class`, which what-react's Vite
+// plugin imports into a module that has the marker. Before either existed, a
+// production bundle that dropped Component called the class as a function
+// ("Class constructor ... cannot be invoked without 'new'") and rendered
+// nothing; without the install it is refused with a coded error now.
+async function driveClass(document, window) {
+  const text = () => document.getElementById('marked')?.textContent ?? null;
+  const initial = text();
+  document.getElementById('next').click();
+  await tick();
+  const updated = text();
+  window.__unmount();
+  await tick();
+  return { initial, updated, log: window.__log, left: document.getElementById('app').innerHTML };
+}
+
+// The class wrapper's code: only it reads this lifecycle method.
+const CLASS_CODE = /getSnapshotBeforeUpdate/;
+// Component's and PureComponent's definitions.
+const COMPONENT_CODE = /isPureReactComponent\s*=(?!=)/;
+
+function assertClassRan({ result, printed }, code) {
+  assert.deepEqual(printed, [], 'nothing printed');
+  assert.equal(result.initial, 'first', 'the marked class rendered');
+  assert.equal(result.updated, 'second', 'it rendered its new props');
+  assert.deepEqual(result.log, ['mounted first', 'updated first -> second', 'unmounted'], 'its lifecycle ran');
+  assert.equal(result.left, '', 'unmounting removed it');
+  assert.ok(!COMPONENT_CODE.test(code), 'Component and PureComponent were dropped');
+}
+
+test('esbuild production bundle, source, no plugin: a class marked isReactComponent with no Component in the program is refused with ERR_CLASS_COMPONENT_NOT_INSTALLED', async () => {
+  const entry = await esbuildApp(join(scratch, 'esbuild-class'), [], 'class');
+  assert.ok(!CLASS_CODE.test(readFileSync(entry, 'utf8')), 'no class code in the bundle');
+  let thrown = null;
+  const { printed } = await inJsdom(entry, () => null).catch((error) => {
+    thrown = error;
+    return { printed: [] };
+  });
+  const said = thrown !== null ? `${thrown.code} ${thrown.message}` : printed.join('\n');
+  assert.match(said, /ERR_CLASS_COMPONENT_NOT_INSTALLED/);
+  assert.match(said, /is a class component/);
+  assert.match(said, /what-react\/class/);
+});
+
+test('esbuild production bundle, source, no plugin: with what-react/class imported, a class marked isReactComponent renders', async () => {
+  const entry = await esbuildApp(join(scratch, 'esbuild-class-installed'), [], 'class-installed');
+  assertClassRan(await inJsdom(entry, driveClass), readFileSync(entry, 'utf8'));
+});
+
+test('Vite production build, source: the plugin installs class components for a class marked isReactComponent with no Component in the program', async () => {
+  const { entry } = await viteBuildFixture(join(scratch, 'vite-class'), { conditions: SOURCE_CONDITIONS, page: 'class.html' });
+  assertClassRan(await inJsdom(entry, driveClass), readFileSync(entry, 'utf8'));
+});
+
+test('Vite production build, `production` condition: the plugin installs class components for a class marked isReactComponent with no Component in the program', { skip: NEEDS_DIST }, async () => {
+  const { entry } = await viteBuildFixture(join(scratch, 'vite-class-dist'), { page: 'class.html' });
+  assertClassRan(await inJsdom(entry, driveClass), readFileSync(entry, 'utf8'));
+});
+
+test('an app with no class and no isReactComponent carries no class code (esbuild, and Vite with the plugin)', async () => {
+  const esbuilt = await esbuildApp(join(scratch, 'esbuild-noclass'), []);
+  assert.ok(!CLASS_CODE.test(readFileSync(esbuilt, 'utf8')), 'esbuild');
+  // The framework's own files read the marker (what-react's, what-core's):
+  // the plugin adds no install for them.
+  const { entry } = await viteBuildFixture(join(scratch, 'vite-noclass'), { conditions: SOURCE_CONDITIONS });
+  assert.ok(!CLASS_CODE.test(readFileSync(entry, 'utf8')), 'Vite');
 });
 
 test('compat plugin resolves each framework subpath to its own export, and no alias captures a subpath', async () => {

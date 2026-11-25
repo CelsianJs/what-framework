@@ -5,7 +5,8 @@
   "type": "module",
   "sideEffects": [
     "./src/hydrate-islands.js",
-    "./src/claim-islands.js"
+    "./src/claim-islands.js",
+    "./src/class.js"
   ],
   "main": "src/index.js",
   "types": "index.d.ts",
@@ -37,6 +38,11 @@
       "types": "./claim-islands.d.ts",
       "import": "./src/claim-islands.js",
       "default": "./src/claim-islands.js"
+    },
+    "./class": {
+      "types": "./class.d.ts",
+      "import": "./src/class.js",
+      "default": "./src/class.js"
     },
     "./jsx-runtime": {
       "types": "./jsx-runtime.d.ts",
@@ -70,6 +76,7 @@
     "mixed.d.ts",
     "hydrate-islands.d.ts",
     "claim-islands.d.ts",
+    "class.d.ts",
     "MIXED.md"
   ],
   "keywords": [

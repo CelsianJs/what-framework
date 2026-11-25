@@ -511,7 +511,54 @@ export function reactCompat(options = {}) {
       // lines and their source map stay as they are.
       return { code: `${code}\nimport ${JSON.stringify(install)};\n`, map: null };
     },
+  }, {
+    // Class components come with Component's definition (src/index.js), so a
+    // program none of whose classes extends Component does not carry them. A
+    // module that has `isReactComponent` in it (a class whose prototype is
+    // marked by hand, as React accepts, or a library that marks or reads the
+    // marker) imports `what-react/class`, which installs them; the program
+    // pays for them only then. The framework's own packages, which read the
+    // marker, are left alone. An import in an ES module, a require() in a
+    // CommonJS one.
+    name: 'what-react-classes',
+    enforce: 'post',
+    transform(code, id) {
+      const file = id.split('?')[0];
+      if (file.startsWith('\0') || !code.includes('isReactComponent') || code.includes(CLASSES)) return null;
+      if (isFrameworkFile(file)) return null;
+      const install = ESM_HINT.test(code) || !CJS_HINT.test(code)
+        ? `${code}\nimport ${JSON.stringify(CLASSES)};\n`
+        : `require(${JSON.stringify(CLASSES)});\n${code}`;
+      return { code: install, map: null };
+    },
   }];
+}
+
+const CLASSES = 'what-react/class';
+
+/** @type {Map<string, { name: string | null, root: string } | null>} */
+const packagesOf = new Map();
+
+// Whether `file` is one of what-react's own sources or a framework package's
+// (any copy, a workspace link included), by the nearest package.json above
+// it that names a package.
+function isFrameworkFile(file) {
+  const seen = [];
+  let pkg = null;
+  for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
+    const known = packagesOf.get(dir);
+    if (known !== undefined) { pkg = known; break; }
+    seen.push(dir);
+    try {
+      const name = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name;
+      if (typeof name === 'string') { pkg = { name, root: dir }; break; }
+    } catch { /* none here: look further up */ }
+    if (path.dirname(dir) === dir) break;
+  }
+  for (const dir of seen) packagesOf.set(dir, pkg);
+  if (pkg === null) return false;
+  if (pkg.name === 'what-react') return file.startsWith(path.join(pkg.root, 'src') + path.sep);
+  return pkg.name === 'what-compiler' || FRAMEWORK_PACKAGES.includes(pkg.name);
 }
 
 // The stand-in for what-react's server.js in a client build (resolveId): an
