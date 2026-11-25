@@ -508,14 +508,27 @@ export function componentCallee(name) {
 // `props.<key>`.
 export function deferPlacedProps(fnPath, state) {
   const params = fnPath.node.params;
+  if (params.length === 0 && fnPath.isClassMethod({ kind: 'method' }) && !fnPath.node.computed && t.isIdentifier(fnPath.node.key, { name: 'render' })) {
+    readThisPropsWhereUsed(fnPath, state);
+    return;
+  }
   // A second parameter that is a name is forwardRef's render function's ref
   // (`({ as: Tag, ...rest }, ref) => …`): the first is still the props.
   if (params.length === 0 || params.length > 2 || (params.length === 2 && !t.isIdentifier(params[1])) || isRowFunction(fnPath, state)) return;
   const param = params[0];
   const rendersJsx = containsJsx(fnPath.node);
-  if (!rendersJsx && !isComponentWithoutJsx(fnPath, state)) return;
+  const builds = rendersJsx ? JSX : componentWithoutJsx(fnPath, state);
+  if (builds === null) {
+    warnDelegatedRender(fnPath, state);
+    return;
+  }
+  if (builds !== PROP) warnBranchedReturn(fnPath, state);
+  // A component that renders JSX or calls h() reads a destructured prop as
+  // `props.<key>` where it is used, so a binding or an h() thunk over it
+  // (`h('i', {}, () => value)`) follows the parent's state.
+  const readsLive = builds !== PROP;
   if (t.isObjectPattern(param)) {
-    const found = placedProps(fnPath, param, fnPath.scope, state, rendersJsx);
+    const found = placedProps(fnPath, param, fnPath.scope, state, readsLive);
     if (found === null || !movesIntoBody(fnPath, found.others)) return;
     const propsId = fnPath.scope.generateUidIdentifier('props');
     if (param.typeAnnotation) propsId.typeAnnotation = param.typeAnnotation;
@@ -546,12 +559,12 @@ export function deferPlacedProps(fnPath, state) {
       binding = fnPath.scope.getBinding(param.name);
       if (!binding) return;
     }
-    if (!readPropsWhereUsed(fnPath, binding, param, state, rendersJsx)) return;
+    if (!readPropsWhereUsed(fnPath, binding, param, state, readsLive)) return;
   } else {
     return;
   }
   fnPath.scope.crawl();
-  readRestsWhereUsed(fnPath, state, rendersJsx);
+  readRestsWhereUsed(fnPath, state, readsLive);
 }
 
 // The reads of the props object `binding` (named `id`) where they are used:
@@ -560,9 +573,12 @@ export function deferPlacedProps(fnPath, state) {
 function readPropsWhereUsed(fnPath, binding, id, state, rendersJsx) {
   const rewrites = [];
   const reads = [];
+  const merges = [];
   for (const ref of binding.referencePaths) {
     const decl = ref.parentPath;
-    if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
+    if (!state.ssr && rendersJsx && decl.isSpreadElement() && decl.parentPath.isObjectExpression()) {
+      if (!merges.includes(decl.parentPath) && mergesLive(decl.parentPath, fnPath)) merges.push(decl.parentPath);
+    } else if (decl.isVariableDeclarator() && ref.key === 'init' && t.isObjectPattern(decl.node.id)) {
       // `const { children } = props` in the body, or in a function of it
       // that renders JSX (`const row = () => { const { a, ...rest } = props; … }`).
       const inner = ref.getFunctionParent();
@@ -578,7 +594,25 @@ function readPropsWhereUsed(fnPath, binding, id, state, rendersJsx) {
       reads.push(decl);
     }
   }
-  if (rewrites.length === 0 && reads.length === 0) return false;
+  if (rewrites.length === 0 && reads.length === 0 && merges.length === 0) return false;
+  for (const obj of merges) {
+    // `{ ...rest, className: 'fixed' }`: the sources merged in order, getters
+    // kept (render.js _$merge), where object spread would read each getter
+    // once. A name it is declared as is read as the props are (readRestsWhereUsed).
+    const parts = [];
+    for (const prop of obj.node.properties) {
+      if (t.isSpreadElement(prop)) parts.push(prop.argument);
+      else if (parts.length > 0 && t.isObjectExpression(parts[parts.length - 1]) && !parts[parts.length - 1]._whatSource) parts[parts.length - 1].properties.push(prop);
+      else parts.push(t.objectExpression([prop]));
+    }
+    for (const part of parts) if (!t.isObjectExpression(part) || part.properties.some((p) => t.isSpreadElement(p))) part._whatSource = true;
+    const declarator = obj.parentPath;
+    obj.replaceWith(t.callExpression(helper(state, '_$merge'), parts));
+    if (declarator.isVariableDeclarator() && t.isIdentifier(declarator.node.id)) {
+      declarator.node._whatPropsRest = true;
+      (fnPath.node._whatPropsRests ||= []).push(declarator.node.id.name);
+    }
+  }
   for (const [decl, found] of rewrites) {
     readAtUse(fnPath, found, id, state);
     const declarators = otherProps(fnPath, found, id, state);
@@ -587,6 +621,33 @@ function readPropsWhereUsed(fnPath, binding, id, state, rendersJsx) {
   }
   for (const read of reads) read.replaceWith(placingRead(id, propertyName(read.node.property, read.node.computed), state));
   return true;
+}
+
+// Whether the object literal at `obj`, which spreads a props object, can be
+// that object merged with the rest of the literal and still be what the code
+// reads: plain properties and spreads only, either spread straight onto JSX
+// (`<a {...{ ...rest, id }} />`) or the value of a `const` in the component
+// that is only spread (onto JSX or into another literal) and read by key. An
+// object the code hands elsewhere, writes or calls a method of keeps object
+// spread's plain copy.
+function mergesLive(obj, fnPath) {
+  if (!obj.node.properties.every((p) => t.isSpreadElement(p)
+      || (t.isObjectProperty(p) && !(propertyName(p.key, p.computed) === '__proto__' && !p.computed)))) return false;
+  const parent = obj.parentPath;
+  if (parent.isJSXSpreadAttribute()) return true;
+  if (!parent.isVariableDeclarator() || obj.key !== 'init' || !t.isIdentifier(parent.node.id)) return false;
+  if (parent.parent.kind !== 'const' || parent.getFunctionParent() !== fnPath) return false;
+  const binding = parent.scope.getBinding(parent.node.id.name);
+  if (!binding || binding.constantViolations.length > 0 || binding.referencePaths.length === 0) return false;
+  return binding.referencePaths.every((ref) => {
+    const at = ref.parentPath;
+    if (at.isJSXSpreadAttribute()) return true;
+    if (at.isSpreadElement()) return at.parentPath.isObjectExpression();
+    if (!(at.isMemberExpression() && ref.key === 'object' && propertyName(at.node.property, at.node.computed) !== null)) return false;
+    const use = at.parentPath;
+    return !(use.isAssignmentExpression() && at.key === 'left') && !use.isUpdateExpression()
+      && !(use.isUnaryExpression({ operator: 'delete' })) && !(use.isCallExpression() && at.key === 'callee');
+  });
 }
 
 // A rest element of the props (otherProps marks its declarator,
@@ -614,6 +675,44 @@ function readRestsWhereUsed(fnPath, state, rendersJsx) {
     }
     if (!changed) return;
     fnPath.scope.crawl();
+  }
+}
+
+// A class component's render() that destructures its props
+// (`const { value } = this.props`) reads each name as `this.props.<key>`
+// where it is used: what-core runs a class component once, with the live
+// props object as `this.props`, so a destructured name kept its first value
+// where `{this.props.value}` follows the parent. Only plain names with a
+// static key, read where `this` is the method's (the method itself or arrow
+// functions in it); anything else keeps its destructuring.
+function readThisPropsWhereUsed(fnPath, state) {
+  if (state.frameworkFile || !containsJsx(fnPath.node)) return;
+  for (const stmt of fnPath.get('body.body')) {
+    if (!stmt.isVariableDeclaration({ kind: 'const' })) continue;
+    for (const decl of stmt.get('declarations')) {
+      const { id, init } = decl.node;
+      if (!t.isObjectPattern(id) || !t.isMemberExpression(init) || init.computed || !t.isThisExpression(init.object) || !t.isIdentifier(init.property, { name: 'props' })) continue;
+      // A rest element would take in the names moved out of the pattern.
+      if (id.properties.some((p) => t.isRestElement(p))) continue;
+      const keep = [];
+      for (const prop of id.properties) {
+        const key = t.isObjectProperty(prop) ? propertyName(prop.key, prop.computed) : null;
+        const binding = key !== null && t.isIdentifier(prop.value) ? decl.scope.getBinding(prop.value.name) : null;
+        const movable = binding && binding.constantViolations.length === 0 && binding.referencePaths.every((ref) => {
+          if (ref.isJSXIdentifier()) return false;
+          for (let fn = ref.getFunctionParent(); fn !== fnPath; fn = fn.getFunctionParent()) if (!fn || !fn.isArrowFunctionExpression()) return false;
+          return true;
+        });
+        if (!movable) { keep.push(prop); continue; }
+        for (const ref of binding.referencePaths) {
+          if (ref.parentPath.isObjectProperty({ shorthand: true }) && ref.key === 'value') ref.parent.shorthand = false;
+          ref.replaceWith(t.memberExpression(t.memberExpression(t.thisExpression(), t.identifier('props')), propKey(key), !t.isIdentifier(propKey(key))));
+        }
+      }
+      if (keep.length === id.properties.length) continue;
+      if (keep.length === 0) decl.remove();
+      else id.properties = keep;
+    }
   }
 }
 
@@ -711,9 +810,24 @@ function firstKey(node) {
 // (what-react's `ForwardRefComponent`), a higher-order component that calls
 // the component it wraps, a reducer, a class's method. In What's own packages
 // (framework-files.js) only a function that renders JSX is.
-function isComponentWithoutJsx(fnPath, state) {
-  if (state.frameworkFile || !namedAsComponent(fnPath)) return false;
-  return callsWhatH(fnPath) || returnsProp(fnPath);
+//
+// Two more call What's h() and so render as one with no name of a component:
+// a function a factory returns (`const Make = () => ({ value }) => h(…)`)
+// and a hook handed props (`function useLook({ value }) { return h(…); }`).
+const JSX = 1, H = 2, PROP = 3;
+
+/** How a function with no JSX renders as a component (H, PROP), else null. */
+function componentWithoutJsx(fnPath, state) {
+  if (state.frameworkFile) return null;
+  if (callsWhatH(fnPath)) return namedAsComponent(fnPath) || returnedByFunction(fnPath) || /^use[A-Z]/.test(componentName(fnPath)) ? H : null;
+  return namedAsComponent(fnPath) && returnsProp(fnPath) ? PROP : null;
+}
+
+// `() => (props) => …`, `function make() { return function (props) { … }; }`.
+function returnedByFunction(fnPath) {
+  const parent = fnPath.parentPath;
+  if (parent.isArrowFunctionExpression() && fnPath.key === 'body') return true;
+  return parent.isReturnStatement() && parent.getFunctionParent() !== null;
 }
 
 function namedAsComponent(fnPath) {
@@ -884,6 +998,99 @@ function readOnce(fnPath, state, prop, counts) {
 
 const warnedReadOnce = new Set();
 
+// The names of `fnPath`'s props, for a test that reads one: the names its
+// pattern binds, or `props.<key>` of a props parameter. Each as
+// [the name to report, a predicate over a node].
+function propReader(fnPath) {
+  const param = fnPath.node.params[0];
+  if (t.isIdentifier(param)) {
+    return (node) => (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) && t.isIdentifier(node.object, { name: param.name })
+      && !node.computed && t.isIdentifier(node.property) && fnPath.scope.getBinding(param.name)?.kind === 'param' ? `props.${node.property.name}` : null;
+  }
+  if (!t.isObjectPattern(param)) return null;
+  const names = collectNames(param);
+  return (node) => t.isIdentifier(node) && names.has(node.name) && fnPath.scope.getBinding(node.name)?.kind === 'param' ? node.name : null;
+}
+
+// The first prop `node` reads, outside a function written in it.
+function propReadIn(node, read) {
+  let found = null;
+  const visit = (n) => {
+    if (found !== null || !n || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (typeof n.type !== 'string' || t.isFunction(n)) return;
+    found = read(n);
+    if (found !== null) return;
+    for (const key of t.VISITOR_KEYS[n.type] || []) visit(n[key]);
+  };
+  visit(node);
+  return found;
+}
+
+// A component that decides what it returns from a prop (`return on ? <a /> :
+// <b />`, `if (!open) return null;`, `value ? h('i') : null`) decides once,
+// when it runs: the parent's later state does not change which branch it
+// shows, where React renders the other one.
+function warnBranchedReturn(fnPath, state) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || !isComponentFunction(fnPath)) return;
+  const read = propReader(fnPath);
+  if (read === null) return;
+  const body = fnPath.node.body;
+  const tests = [];
+  const branch = (expr) => {
+    while (t.isParenthesizedExpression(expr) || t.isTSAsExpression(expr) || t.isTSNonNullExpression(expr)) expr = expr.expression;
+    if (t.isConditionalExpression(expr)) tests.push(expr.test);
+    else if (t.isLogicalExpression(expr)) tests.push(expr.left);
+  };
+  if (!t.isBlockStatement(body)) branch(body);
+  else {
+    for (const stmt of body.body) {
+      if (t.isReturnStatement(stmt)) branch(stmt.argument);
+      else if (t.isIfStatement(stmt) && containsReturn(stmt)) tests.push(stmt.test);
+    }
+  }
+  for (const test of tests) {
+    const name = propReadIn(test, read);
+    if (name === null) continue;
+    warnReadOnce(fnPath, state, test, name, 'it decides what the component returns, and the component runs once',
+      'branch where it renders, `<>{() => (cond ? <A /> : <B />)}</>` or `<Show when={…}>`, with h() `() => (cond ? h(…) : null)`');
+    return;
+  }
+}
+
+function containsReturn(stmt) {
+  let found = false;
+  t.traverseFast(stmt, (node) => { if (node.type === 'ReturnStatement') found = true; });
+  // A return in a function written in it is that function's.
+  if (found) {
+    let nested = false;
+    t.traverseFast(stmt, (node) => { if (t.isFunction(node)) nested = true; });
+    if (nested) return t.isReturnStatement(stmt.consequent) || (t.isBlockStatement(stmt.consequent) && stmt.consequent.body.some((s) => t.isReturnStatement(s)));
+  }
+  return found;
+}
+
+// A function named as a component, with no JSX and no h(), that returns what
+// a function of this module that renders JSX returns for its props
+// (`function Helper({ value }) { return mk({ value }); }`) hands that function
+// the values its props had when it ran: a plain object, not the props.
+function warnDelegatedRender(fnPath, state) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || state.frameworkFile || !namedAsComponent(fnPath) || !isComponentFunction(fnPath)) return;
+  const param = fnPath.node.params[0];
+  if (!t.isObjectPattern(param) || isRowFunction(fnPath, state)) return;
+  const body = fnPath.node.body;
+  const ret = t.isBlockStatement(body) ? body.body.find((s) => t.isReturnStatement(s))?.argument : body;
+  if (!t.isCallExpression(ret) || !t.isIdentifier(ret.callee)) return;
+  const callee = fnPath.scope.getBinding(ret.callee.name);
+  const fn = callee?.path.isVariableDeclarator() ? callee.path.get('init') : callee?.path;
+  if (!fn || !fn.isFunction() || !containsJsx(fn.node)) return;
+  const read = propReader(fnPath);
+  const name = read && propReadIn(ret.arguments, read);
+  if (name === null || name === undefined) return;
+  warnReadOnce(fnPath, state, param, name, `it is handed to \`${ret.callee.name}()\` as a value, which renders JSX from the value it is given`,
+    `hand the props on (\`${ret.callee.name}(props)\`) or render it as a component (\`<${ret.callee.name[0].toUpperCase()}${ret.callee.name.slice(1)} ${name}={${name}} />\`)`);
+}
+
 function collectNames(pattern, out = new Set()) {
   if (t.isIdentifier(pattern)) out.add(pattern.name);
   else if (t.isAssignmentPattern(pattern)) collectNames(pattern.left, out);
@@ -901,7 +1108,7 @@ function warnReadOnce(fnPath, state, node, name, why, fix) {
   if (warnedReadOnce.has(`${at}::${name}`)) return;
   warnedReadOnce.add(`${at}::${name}`);
   console.warn(
-    `[what-compiler] ERR_PROP_READ_ONCE: \`${name}\`, destructured from the props of <${componentName(fnPath)}> at ${at}, ` +
+    `[what-compiler] ERR_PROP_READ_ONCE: \`${name}\`, ${name.startsWith('props.') ? 'read from' : 'destructured from'} the props of <${componentName(fnPath)}> at ${at}, ` +
     `is read once, when the component runs, because ${why}: it keeps that value when the parent's state changes. ` +
     `Fix: ${fix}. Run what_fix({ error: 'ERR_PROP_READ_ONCE' }) for the worked example.`
   );
@@ -1034,7 +1241,7 @@ function isPlainLiteral(node, scope) {
 // conditional, a logical expression or an array that is one of those. A
 // function written in such a place is a reactive child, so what it returns
 // is placed too. The child of <For> is its row function, not content.
-function placesValue(path, fnPath, state) {
+function placesValue(path, fnPath, state, fnValue = false) {
   let child = path;
   let parent = path.parentPath;
   while ((parent.isConditionalExpression() && child.key !== 'test')
@@ -1046,7 +1253,10 @@ function placesValue(path, fnPath, state) {
   }
   if (parent.isJSXExpressionContainer()) {
     const owner = parent.parentPath;
-    if (owner.isJSXAttribute()) return placingAttribute(owner.parentPath.parent, owner.node, state);
+    // A function handed to a component in a prop is a callback it calls
+    // (`read={() => props.project}`), not JSX it places: what the callback
+    // returns is the value, read where it is called.
+    if (owner.isJSXAttribute()) return !(fnValue && isSlotAttribute(owner.parentPath.parent, owner.node, state)) && placingAttribute(owner.parentPath.parent, owner.node, state);
     if (parent.listKey !== 'children') return false;
     return owner.isJSXFragment() || !isLoweredTag(owner.node, 'For', state);
   }
@@ -1056,7 +1266,7 @@ function placesValue(path, fnPath, state) {
   else if (parent.isArrowFunctionExpression() && child.key === 'body') fn = parent;
   if (fn === null) return false;
   if (fn === fnPath) return true;
-  return (fn.isArrowFunctionExpression() || fn.isFunctionExpression()) && placesValue(fn, fnPath, state);
+  return (fn.isArrowFunctionExpression() || fn.isFunctionExpression()) && placesValue(fn, fnPath, state, true);
 }
 
 // An attribute whose value is rendered where it stands: one a component

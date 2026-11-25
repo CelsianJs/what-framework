@@ -50,7 +50,7 @@ import {
   checkIslandProp, directiveValue, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
-import { findMappedJsx, isKeyedRow, listSlot, markRowItemReads, rowField } from './lists.js';
+import { findMappedJsx, isKeyedRow, keyIndex, listSlot, markRowItemReads, rowField } from './lists.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { componentMetadata } from './dev-metadata.js';
 
@@ -623,7 +623,16 @@ function ssrListOf(mapCall, state, asArray) {
   // list's number, the DOM target's too (lists.js listSlot).
   if (keyed) {
     const item = found.mapFn.params[0] ? t.cloneNode(found.mapFn.params[0], true) : t.identifier('_item');
-    args.push(t.arrowFunctionExpression([item], t.cloneNode(found.keyValue, true)));
+    const index = keyIndex(found);
+    if (index === null) args.push(t.arrowFunctionExpression([item], t.cloneNode(found.keyValue, true)));
+    else {
+      // A key that reads the index (lists.js keyIndex): the list calls its key
+      // function for its items in order, so one that is not handed the index
+      // counts it (`((n) => (t, i = n++) => key)(0)`).
+      const count = t.identifier(uniqueName(state, '_n$'));
+      const keyFn = t.arrowFunctionExpression([item, t.assignmentPattern(t.identifier(index), t.updateExpression('++', t.cloneNode(count), false))], t.cloneNode(found.keyValue, true));
+      args.push(t.callExpression(t.arrowFunctionExpression([count], keyFn), [t.numericLiteral(0)]));
+    }
     const slot = listSlot(mapCall);
     if (slot !== null) args.push(slot);
   }

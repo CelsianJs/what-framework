@@ -188,55 +188,30 @@ export function findMappedJsx(mapCall, state, requireKey) {
   const keyValue = getAttributeValue(keyAttr.value);
   if (!keyValue) return null;
 
-  // The key function is rebuilt as `(item) => keyExpr` and hoisted out of the
-  // callback, so it only sees the first parameter. A key built from the index
-  // (`key={i}`, the pattern the tutorial itself taught) compiled to
-  // `key: t => i` with `i` free, and the failure was about as bad as it gets:
-  // the list rendered correctly the first time, then the reconciler threw
-  // `ReferenceError: i is not defined` inside its effect, the effect error
-  // handler swallowed it to a single console.error, and the list stayed
-  // frozen on its first render forever. Nothing visibly crashed. A key built
-  // from a variable declared in the callback body failed the same way.
+  // The key function is rebuilt as `(item, index) => keyExpr` and hoisted out
+  // of the callback, so it sees the first two parameters only. A key built
+  // from a variable declared in the callback body compiled to a key function
+  // with that name free: the list rendered correctly the first time, then the
+  // reconciler threw `ReferenceError` inside its effect, which was swallowed
+  // to a single console.error, and the list stayed frozen on its first render.
+  // Such a key falls back to the unkeyed path, with a warning.
   //
-  // Falling back is also the semantically right answer, not just the safe
-  // one. A key derived from the index IS the position, so it carries no
-  // identity across an update: an item that moves gets a different key and
-  // reads as a different item. That is precisely what the unkeyed path
-  // already does, correctly and more cheaply, so hand it that.
-  const invisible = namesInvisibleToKeyFn(mapFn);
+  // A key that reads the index (`key={i}`, `key={`${t.term}-${i}`}`) is keyed
+  // by item and position, as React keys it: the key function is handed the
+  // index (keyIndex), so a row stays while its key does (an item replaced at
+  // its position, a refetch) and an item that moves is a new row.
+  const invisible = keyInvisibleNames(mapFn);
   const unreachable = referencesAny(keyValue, invisible);
   if (unreachable) {
-    // A BARE index key (`key={i}`, exactly the second parameter and nothing
-    // else) is deliberate and now behaves correctly, so it gets no warning.
-    // The author wrote "position is identity", positional reconciliation is
-    // precisely that, and there is no edit that would improve the output. The
-    // framework's own tutorial keys a fixed nine-square board this way, where
-    // it is not merely acceptable but the right answer, and a build-time
-    // warning on step two of a beginner tutorial reads as something being
-    // broken when nothing is.
-    //
-    // Everything else still warns, because everything else looks stable and is
-    // not: `key={`${t.type}-${i}`}` reads like a composite identity but changes
-    // the moment a row moves, and a key built from a variable declared in the
-    // callback body would have been a ReferenceError before this fallback
-    // existed. Those are worth interrupting someone over. A bare index is not.
-    const isBareIndex = t.isIdentifier(keyValue)
-      && mapFn.params[1]
-      && t.isIdentifier(mapFn.params[1], { name: keyValue.name });
-
-    if (!isBareIndex && process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV !== 'production') {
       const loc = returnExpr.loc;
       const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
       const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
-      const usesIndex = mapFn.params[1] && t.isIdentifier(mapFn.params[1], { name: unreachable });
       console.warn(
         `[what-compiler] key={...} at ${fileName}${lineInfo} reads \`${unreachable}\`, which is not available ` +
-        `to the key function (it only receives the item). ` +
-        (usesIndex
-          ? `A key built from the index is the item's position, not its identity, so it cannot survive a reorder. `
-          : `\`${unreachable}\` is declared inside the map callback. `) +
-        `Falling back to positional reconciliation. Key by something stable on the item (key={item.id}) ` +
-        `to get keyed reconciliation.`
+        `to the key function (it receives the item and its index). \`${unreachable}\` is declared inside the map callback. ` +
+        `Falling back to an unkeyed list, built again on every update. Key by something on the item (key={item.id}) ` +
+        `or its index to get keyed reconciliation.`
       );
     }
     return null;
@@ -496,7 +471,21 @@ export function listSlot(node) {
 // Whether `found` (findMappedJsx) is a row the DOM target lowers to a keyed
 // list: it has a key, and the key reads only the item.
 export function isKeyedRow(found) {
-  return !!found.keyValue && !referencesAny(found.keyValue, namesInvisibleToKeyFn(found.mapFn));
+  return !!found.keyValue && !referencesAny(found.keyValue, keyInvisibleNames(found.mapFn));
+}
+
+// The names a key function `(item, index) => key` cannot see: those the
+// callback declares, but its index when that is a plain name.
+function keyInvisibleNames(mapFn) {
+  const names = namesInvisibleToKeyFn(mapFn);
+  if (t.isIdentifier(mapFn.params[1])) names.delete(mapFn.params[1].name);
+  return names;
+}
+
+/** The index name a keyed row's key reads (`key={`${t.term}-${i}`}`), else null. */
+export function keyIndex(found) {
+  const index = found.mapFn.params[1];
+  return t.isIdentifier(index) && referencesAny(found.keyValue, new Set([index.name])) ? index.name : null;
 }
 
 // The reads of a keyed row's item other than its key expression, as

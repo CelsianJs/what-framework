@@ -147,6 +147,30 @@ const SHAPES = {
     code: `const Shape = ({ as: Tag, ...rest }) => <Tag {...rest} />;`,
     use: (v) => `<svg><Shape as="circle" r={${v('url')}.length} className={${v('cls')}} /><Shape as="a" href={${v('url')}}><Shape as="text">{${v('label')}}</Shape></Shape><foreignObject><Shape as="a" href="/h">h</Shape></foreignObject></svg>`,
   },
+  'an attribute after the spread': {
+    code: `const Btn = ({ variant: _v, ...rest }) => <a {...rest} href="/override" className={'own ' + rest.className} />;`,
+    use: (v) => `<Btn variant="x" href={${v('url')}} className={${v('cls')}}>{${v('label')}}</Btn>`,
+  },
+  'children as a prop through three rests': {
+    code: `const Deep3 = ({ u, ...rest }) => <a {...rest} />;
+      const Deep2 = ({ u, ...rest }) => <Deep3 {...rest} />;
+      const Deep1 = ({ u, ...rest }) => <Deep2 {...rest} />;`,
+    use: (v) => `<Deep1 href={${v('url')}} className={${v('cls')}} children={${v('label')}} />`,
+  },
+  'an object spread of the rest': {
+    code: `const Btn = ({ variant: _v, ...rest }) => { const merged = { ...rest, className: 'fixed' }; return <a {...merged} title={merged.href} />; };`,
+    use: (v) => `<Btn variant="x" href={${v('url')}} className={${v('cls')}}>{${v('label')}}</Btn>`,
+  },
+  'an accessor callback over a prop': {
+    code: `const Child = (props) => <i>{props.read()}</i>;
+      const Box = (props) => <Child read={() => props.label} />;
+      const Named = ({ label }) => <Child read={() => label} />;`,
+    use: (v) => `<p><Box label={${v('label')}} /><Named label={${v('url')}} /></p>`,
+  },
+  'a key that reads the index': {
+    code: `const List = ({ items }) => <ul>{items.map((i, n) => <li key={i + '-' + n}>{i}{n}</li>)}</ul>;`,
+    use: (v) => `<List items={${v('items')}} />`,
+  },
   'MathML tags': {
     code: `const Shape = ({ as: Tag, ...rest }) => <Tag {...rest} />;`,
     use: (v) => `<math><Shape as="mi" className={${v('cls')}}>{${v('label')}}</Shape></math>`,

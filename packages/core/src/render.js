@@ -1460,7 +1460,7 @@ function reportDuplicateKey(items, keyFn, keyed) {
   if (items.length < 2) return;
   const seen = new Set();
   for (let i = 0; i < items.length; i++) {
-    const key = keyFn(items[i]);
+    const key = keyFn(items[i], i);
     if (seen.size === seen.add(key).size) {
       report('ERR_DUPLICATE_KEY', {
         data: { key: describeKey(key) },
@@ -1707,12 +1707,18 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     return;
   }
 
+  // The key of the item at `i`. A key function is handed the item's index:
+  // a key that reads it (`key={`${t.term}-${i}`}`) keys the row by item and
+  // position, as React does.
+  const oldKey = (i) => keyFn(oldItems[i], i);
+  const newKey = (i) => keyFn(newItems[i], i);
+
   // --- Common prefix: skip matching keys at the start ---
   let start = 0;
   const minLen = Math.min(oldLen, newLen);
   while (start < minLen) {
     if (oldItems[start] !== newItems[start]) {
-      if (keyFn(oldItems[start]) !== keyFn(newItems[start])) break;
+      if (oldKey(start) !== newKey(start)) break;
       if (keyedSignals) renewItem(parent, endMarker, start, start, newItems[start], mapFn, mappedNodes, disposeFns, keyedSignals === FOLLOW);
     }
     start++;
@@ -1721,9 +1727,12 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // --- Common suffix: skip matching keys at the end ---
   let oldEnd = oldLen - 1;
   let newEnd = newLen - 1;
+  // A key that reads the index (`key={`${t.term}-${i}`}`, `(item, i) => …`)
+  // is the position's too: an item that moved is not its row.
+  const moved = keyFn.length > 1 && oldEnd !== newEnd;
   while (oldEnd >= start && newEnd >= start) {
-    if (oldItems[oldEnd] !== newItems[newEnd]) {
-      if (keyFn(oldItems[oldEnd]) !== keyFn(newItems[newEnd])) break;
+    if (moved || oldItems[oldEnd] !== newItems[newEnd]) {
+      if (oldKey(oldEnd) !== newKey(newEnd)) break;
       if (keyedSignals) renewItem(parent, endMarker, oldEnd, newEnd, newItems[newEnd], mapFn, mappedNodes, disposeFns, keyedSignals === FOLLOW);
     }
     oldEnd--;
@@ -1780,7 +1789,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       const oldItem = oldItems[start + i];
       const newItem = newItems[start + i];
       if (oldItem === newItem) continue;
-      if (keyFn(oldItem) !== keyFn(newItem)) {
+      if (oldKey(start + i) !== newKey(start + i)) {
         if (mismatchCount === 0) mm1 = i;
         else if (mismatchCount === 1) mm2 = i;
         mismatchCount++;
@@ -1792,8 +1801,8 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     // --- Fast path A: Pure swap (exactly 2 key mismatches, keys exchanged) ---
     if (mismatchCount === 2) {
       const i1 = start + mm1, i2 = start + mm2;
-      const oldKey1 = keyFn(oldItems[i1]), oldKey2 = keyFn(oldItems[i2]);
-      const newKey1 = keyFn(newItems[i1]), newKey2 = keyFn(newItems[i2]);
+      const oldKey1 = oldKey(i1), oldKey2 = oldKey(i2);
+      const newKey1 = newKey(i1), newKey2 = newKey(i2);
 
       if (oldKey1 === newKey2 && oldKey2 === newKey1) {
         for (let i = start; i <= newEnd; i++) {
@@ -1845,20 +1854,20 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
       let isMove = false;
 
       // Check forward move: item at old[start+fromRel] moved later
-      const candidateKey = keyFn(oldItems[start + fromRel]);
+      const candidateKey = oldKey(start + fromRel);
       let destRel = -1;
       for (let i = fromRel; i < midNewLen; i++) {
-        if (keyFn(newItems[start + i]) === candidateKey) { destRel = i; break; }
+        if (newKey(start + i) === candidateKey) { destRel = i; break; }
       }
       if (destRel > fromRel) {
         let match = true;
         for (let i = fromRel; i < destRel; i++) {
-          if (keyFn(oldItems[start + i + 1]) !== keyFn(newItems[start + i])) { match = false; break; }
+          if (oldKey(start + i + 1) !== newKey(start + i)) { match = false; break; }
         }
         if (match) {
           let afterMatch = true;
           for (let i = destRel + 1; i < midNewLen; i++) {
-            if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i])) { afterMatch = false; break; }
+            if (oldKey(start + i) !== newKey(start + i)) { afterMatch = false; break; }
           }
           if (afterMatch) {
             isMove = true;
@@ -1870,20 +1879,20 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
 
       if (!isMove) {
         // Check backward move: item from later in old moved to start+fromRel in new
-        const candidateKey2 = keyFn(newItems[start + fromRel]);
+        const candidateKey2 = newKey(start + fromRel);
         let srcRel = -1;
         for (let i = fromRel; i < midOldLen; i++) {
-          if (keyFn(oldItems[start + i]) === candidateKey2) { srcRel = i; break; }
+          if (oldKey(start + i) === candidateKey2) { srcRel = i; break; }
         }
         if (srcRel > fromRel) {
           let match = true;
           for (let i = fromRel; i < srcRel; i++) {
-            if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i + 1])) { match = false; break; }
+            if (oldKey(start + i) !== newKey(start + i + 1)) { match = false; break; }
           }
           if (match) {
             let afterMatch = true;
             for (let i = srcRel + 1; i < midNewLen; i++) {
-              if (keyFn(oldItems[start + i]) !== keyFn(newItems[start + i])) { afterMatch = false; break; }
+              if (oldKey(start + i) !== newKey(start + i)) { afterMatch = false; break; }
             }
             if (afterMatch) {
               isMove = true;
@@ -1945,14 +1954,14 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   // of the range; then each occurrence is chained to the next one with the same
   // key, and new items claim them in order.
   const oldKeyMap = new Map();
-  for (let i = start; i <= oldEnd; i++) oldKeyMap.set(keyFn(oldItems[i]), i);
+  for (let i = start; i <= oldEnd; i++) oldKeyMap.set(oldKey(i), i);
   /** @type {Int32Array | null} */
   let nextSameKey = null;
   if (oldKeyMap.size !== midOldLen) {
     nextSameKey = new Int32Array(midOldLen).fill(-1);
     oldKeyMap.clear();
     for (let i = oldEnd; i >= start; i--) {
-      const key = keyFn(oldItems[i]);
+      const key = oldKey(i);
       const later = oldKeyMap.get(key);
       if (later !== undefined) nextSameKey[i - start] = later;
       oldKeyMap.set(key, i);
@@ -1964,7 +1973,7 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
   let reusedCount = 0;
 
   for (let i = start; i <= newEnd; i++) {
-    const key = keyFn(newItems[i]);
+    const key = newKey(i);
     const oldIdx = oldKeyMap.get(key);
     if (oldIdx === undefined) continue;
     const next = nextSameKey === null ? -1 : nextSameKey[oldIdx - start];
@@ -2080,7 +2089,7 @@ function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
 // Fine-grained prop effects. Function props create individual effects.
 // Event props use direct assignment.
 
-function spread(el, props) {
+function spread(el, props, after) {
   // A props object What built (forwarded props, a rest element) may hold live
   // props (dom.js _isLiveProp): each is bound like a reactive attribute,
   // reading the getter again when what it read changes.
@@ -2089,19 +2098,25 @@ function spread(el, props) {
     // Children are never an attribute: compiled JSX places a spread's
     // children in an element that has none of its own (common.js
     // spreadChildren), as React renders `<a {...props} />`.
-    if (key === 'children') continue;
+    // A key an attribute written after the spread sets is that attribute's
+    // (`<a {...rest} href="/x" />`, compiled JSX's `after`), as in React.
+    if (key === 'children' || after?.includes(key)) continue;
     // A getter is bound as an accessor of it: a live prop, and a prop handed
     // on to the component that spreads it (`<Tag href={rest.href} />`, a lazy
     // slot that forwards the live prop: dom.js readLazy reads it again).
-    const value = live && key !== 'ref' && !_isEventProp(key) && /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(props, key)).get ? () => props[key] : props[key];
+    const get = live && key !== 'ref' && /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(props, key)).get;
+    const value = get ? () => props[key] : props[key];
 
     // A field's value or checked that follows state is bound as an attribute
     // of the field binds it, so the field shows it after its events.
     if (fieldSpread !== null && typeof value === 'function' && (key === 'value' || key === 'checked')) fieldSpread(el, key, value);
-    // An event handler: a listener the current owner removes ($$name for a
-    // delegated event).
+    // An event handler: a listener the current owner removes. A live one
+    // (`onClick={open() ? close : show}` handed through a rest) is the
+    // current handler, bound again when the parent hands another, as React
+    // calls the handler of its last render.
     else if (_isEventProp(key)) {
-      if (typeof value === 'function') on(el, key.slice(2).toLowerCase(), value);
+      if (get) effect(() => listen(el, key, value()));
+      else listen(el, key, value);
     }
     // Anything else is written as setProp writes a prop: a ref is handed the
     // element (a function ref is a callback, never an accessor: a
@@ -2110,6 +2125,10 @@ function spread(el, props) {
     // its own, owned like every binding.
     else setProp(el, key, value);
   }
+}
+
+function listen(el, key, handler) {
+  if (typeof handler === 'function') on(el, key.slice(2).toLowerCase(), handler);
 }
 
 // NOTE: this is the fine-grained-compiler path's setProp. A second
@@ -4139,7 +4158,7 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
         adopt(mapFn(cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item));
       };
       if (list === null) _createItemScope(build);
-      else adoptRow(list, keyFn(item), _createItemScope, build);
+      else adoptRow(list, keyFn(item, i), _createItemScope, build);
       if (cell !== null) {
         cell.building = false;
         disposeFns[i]._item = cell;

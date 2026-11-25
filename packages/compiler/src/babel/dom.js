@@ -1,7 +1,7 @@
 // The DOM back end: JSX lowered to cloned templates, fine-grained bindings and
 // keyed list inserters (what-framework/render).
 
-import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
+import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, ATTRIBUTE_ALIASES, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
@@ -18,7 +18,7 @@ import {
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
-import { findMappedJsx, listSlot, readItemThroughAccessor, rowField, withItem } from './lists.js';
+import { findMappedJsx, keyIndex, listSlot, readItemThroughAccessor, rowField, withItem } from './lists.js';
 import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 
 
@@ -195,7 +195,10 @@ function tryLowerMapCall(mapCall, state) {
   // with the user's map callback AST and keyValue may be referenced elsewhere
   // in the tree. Cloning insulates this new arrow from later mutations.
   const itemParam = mapFn.params[0] ? t.cloneNode(mapFn.params[0], true) : t.identifier('_item');
-  const keyFn = t.arrowFunctionExpression([itemParam], t.cloneNode(keyValue, true));
+  // A key that reads the index takes it too (lists.js keyIndex; what-core
+  // hands every key function the item's index).
+  const index = keyIndex(found);
+  const keyFn = t.arrowFunctionExpression(index === null ? [itemParam] : [itemParam, t.identifier(index)], t.cloneNode(keyValue, true));
 
   // Build: _$mapArray(source, mapFn, { key: keyFn, follow: true }). A row that
   // reads its item for more than its key reads it through an accessor
@@ -259,6 +262,27 @@ function rowFieldsOption(state) {
 // An attribute value written without quotes: non-empty, none of the characters
 // that end or change an unquoted value, and no `&` (left to the quoted form).
 const UNQUOTED_ATTR_VALUE = /^[^\s"'=<>`&]+$/;
+
+// The names an element's attributes after the spread at `index` write, as
+// the spread's third argument (render.js spread skips them): `<a {...rest}
+// href="/x" />` means href "/x" whatever `rest.href` becomes, as the later
+// attribute wins in React, and a live `rest.href` re-bound by the spread
+// overwrote it. A name and its alias (`class`, `className`) are one.
+// Nothing when no attribute follows.
+function writtenAfter(attributes, index) {
+  const names = new Set();
+  for (let i = index + 1; i < attributes.length; i++) {
+    const attr = attributes[i];
+    if (t.isJSXSpreadAttribute(attr)) continue;
+    const name = getAttrName(attr);
+    if (name === 'key' || name.includes(':')) continue;
+    names.add(name);
+    const alias = attributeName(name);
+    if (alias !== name) names.add(alias);
+    for (const [prop, attrName] of ATTRIBUTE_ALIASES) if (attrName === name) names.add(prop);
+  }
+  return names.size === 0 ? [] : [t.arrayExpression([...names].map((n) => t.stringLiteral(n)))];
+}
 
 // Extract the template markup for an intrinsic JSX element. The markup is
 // minified the way the HTML parser allows: simple attribute values unquoted,
@@ -608,7 +632,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
           // A spread on a form field may bind its value or checked to state:
           // the field then shows what they hold after its events (what-core
           // _$controlled).
-          t.callExpression(helper(state, '_$spread'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId), attr.argument])
+          t.callExpression(helper(state, '_$spread'), [FIELD_TAGS.has(tagName) ? t.callExpression(helper(state, '_$controlled'), [t.identifier(elId)]) : t.identifier(elId), attr.argument, ...writtenAfter(attributes, attrIndex)])
         )
       );
       continue;
@@ -1762,7 +1786,10 @@ function isPlainRead(node) {
 // never a name (an accessor handed on as `count={count}` stays the accessor),
 // a literal, a function, `ref` or `children`.
 function isLivePropValue(name, value, state) {
-  if (name === 'ref' || name === 'children') return false;
+  // `children={label()}` is the children, as React reads it: live like any
+  // other prop (dom.js _place shows it as a reactive child), so children a
+  // wrapper forwards through its rest follow the parent's state.
+  if (name === 'ref') return false;
   let expr = value;
   while (t.isTSAsExpression(expr) || t.isTSSatisfiesExpression(expr) || t.isTSNonNullExpression(expr) || t.isTSTypeAssertion(expr)) expr = expr.expression;
   // A template literal with holes is not a literal here (Babel's isLiteral

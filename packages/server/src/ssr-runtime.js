@@ -390,7 +390,7 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
   if (list == null) list = [];
   const m = new Markup('', false, asArray);
   if (Array.isArray(list)) {
-    const keys = keyFn ? list.map((item) => keyFn(item)) : null;
+    const keys = keyFn ? list.map((item, i) => keyFn(item, i)) : null;
     if (asArray) m.keys = keys;
     // A keyed list's rows are keyed rows (what-core hydration-data.js
     // _enterRow): it takes its place where it starts, with no rows too, and

@@ -155,15 +155,15 @@ describe('a key the key function cannot reach falls back instead of breaking', (
     }
   });
 
-  it('warns at compile time, naming the unreachable binding', async () => {
+  it('keys a list by a key that reads the index, as React does, and says nothing', () => {
+    // `key={`${t.type}-${i}`}` is a key React accepts: the row is the item at
+    // its position. The key function is handed the index (what-core passes it
+    // to every key function), so the list is keyed and silent.
     const log = captureConsole(() => {
-      compileJSX('const A = () => <ul>{items().map((t, i) => <li key={`${t.type}-${i}`}>{t.name}</li>)}</ul>;');
+      const code = compileJSX('const A = () => <ul>{items().map((t, i) => <li key={`${t.type}-${i}`}>{t.name}</li>)}</ul>;');
+      assert.match(code, /key: \(t, i\) => `\$\{t\.type\}-\$\{i\}`/);
     });
-    const warning = log.find((l) => l.includes('key='));
-    assert.ok(warning, `no warning for an index-derived key: ${JSON.stringify(log)}`);
-    assert.match(warning, /`i`/, 'the warning should name the binding');
-    assert.match(warning, /position/, 'the warning should explain why an index-derived key cannot work');
-    assert.match(warning, /key=\{item\.id\}/, 'the warning should show the fix');
+    assert.deepEqual(log, [], `an index key is not reported: ${JSON.stringify(log)}`);
   });
 
   it('says nothing about a bare index key', () => {
@@ -181,16 +181,11 @@ describe('a key the key function cannot reach falls back instead of breaking', (
     }
   });
 
-  it('still warns when the index is only part of the key', () => {
-    // These are the dangerous ones: they LOOK like a stable composite identity
-    // and change the moment a row moves.
+  it('keys by the index wherever it is only part of the key', () => {
     for (const key of ['`${t.type}-${i}`', 'i + 1', 'String(i)']) {
       const src = `const A = () => <ul>{items().map((t, i) => <li key={${key}}>{t.name}</li>)}</ul>;`;
-      const log = captureConsole(() => compileJSX(src));
-      assert.ok(
-        log.some((l) => l.includes('key=')),
-        `key={${key}} should warn, it reads as stable and is not: ${JSON.stringify(log)}`,
-      );
+      const log = captureConsole(() => assert.match(compileJSX(src), /key: \(t, i\) =>/));
+      assert.deepEqual(log, [], `key={${key}} is keyed by item and index: ${JSON.stringify(log)}`);
     }
   });
 });
