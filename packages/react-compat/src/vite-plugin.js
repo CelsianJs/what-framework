@@ -547,7 +547,7 @@ const CLASSES = 'what-react/class';
 // `{ isReactComponent: ... }`, `x['isReactComponent']`, `'isReactComponent' in x`.
 const CLASS_MARKER = /\.isReactComponent\b|\bisReactComponent\s*:|\[\s*(['"`])isReactComponent\1\s*\]|(['"`])isReactComponent\2\s+in\b/;
 
-/** @type {Map<string, { name: string | null, root: string } | null>} */
+/** @type {Map<string, { name: string, root: string } | null>} */
 const packagesOf = new Map();
 
 // Whether `file` is one of what-react's own sources or a framework package's
@@ -555,6 +555,7 @@ const packagesOf = new Map();
 // it that names a package.
 function isFrameworkFile(file) {
   const seen = [];
+  /** @type {{ name: string, root: string } | null} */
   let pkg = null;
   for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
     const known = packagesOf.get(dir);
