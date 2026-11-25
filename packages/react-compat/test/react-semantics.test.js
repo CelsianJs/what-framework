@@ -1957,3 +1957,69 @@ test('a row inserted before a row a library moved elsewhere goes before the next
   assert.equal(container.querySelector('#home').textContent, 'axc');
   assert.equal(away.textContent, 'b', 'b stays where the library put it');
 });
+
+test('a keyed child is not handed the state of a nested list\'s child that stood in a place written like its key', async () => {
+  // React 19.3.1: "keyed 2 tail", and instance 1 (the nested Row) is cleaned
+  // up. At a6888c51 the top-level key '0:0' and the nested list's first place
+  // were one entry of the reconciler's map: "keyed 1 tail", instance 2 dropped.
+  let serial = 0;
+  const lifecycle = [];
+  function Row({ name }) {
+    const [id] = useState(() => ++serial);
+    useEffect(() => { lifecycle.push('mount ' + id); return () => lifecycle.push('drop ' + id); }, []);
+    return h('i', null, name + ' ' + id);
+  }
+  const { container, root } = mount(h('section', null, [[h(Row, { name: 'nested' })], h(Row, { key: '0:0', name: 'keyed' })]));
+  await settle();
+  assert.equal(container.textContent, 'nested 1keyed 2');
+  act(() => root.render(h('section', null, [h(Row, { key: '0:0', name: 'keyed' }), h('b', { key: 'tail' }, ' tail')])));
+  await settle();
+  assert.equal(container.textContent, 'keyed 2 tail');
+  assert.deepEqual(lifecycle, ['mount 1', 'mount 2', 'drop 1']);
+});
+
+test('flushSync inside a layout effect renders with the flush under way, so a loop through it ends at the update-loop guard', () => {
+  // React 19.3.1 warns "flushSync was called from inside a lifecycle method"
+  // and renders the update after the commit: a 40-step cascade ends at 40,
+  // and a loop ends with React's "Maximum update depth exceeded". At a6888c51
+  // each nested call started a flush of its own, past the guard, and the loop
+  // ended in "Maximum call stack size exceeded" at about 1193.
+  for (const [limit, shown] of [[40, '40'], [1500, '101']]) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    function Probe() {
+      const [n, set] = useState(0);
+      useLayoutEffect(() => { if (n < limit) flushSync(() => set(n + 1)); }, [n]);
+      return h('output', null, n);
+    }
+    const errors = [];
+    const error = console.error;
+    console.error = (...a) => errors.push(String(a[0]));
+    let thrown = null;
+    try {
+      flushSync(() => root.render(h(Probe)));
+    } catch (e) {
+      thrown = e.message;
+    } finally {
+      console.error = error;
+    }
+    assert.equal(thrown, null, `limit ${limit}`);
+    assert.equal(container.textContent, shown, `limit ${limit}`);
+    if (limit > 100) assert.ok(errors.some((e) => e.includes('Too many re-renders')), errors.join('\n'));
+    else assert.deepEqual(errors, []);
+    act(() => root.unmount());
+  }
+});
+
+test('flushSync in an event handler renders before it returns', () => {
+  // React 19.3.1: the handler reads the new text right after flushSync.
+  let read = null;
+  function Button() {
+    const [n, set] = useState(0);
+    return h('button', { onClick: (e) => { flushSync(() => set(n + 1)); read = e.currentTarget.textContent; } }, 'n' + n);
+  }
+  const { container } = mount(h(Button));
+  fire(container.firstChild, 'click');
+  assert.equal(read, 'n1');
+});

@@ -15,6 +15,7 @@ import {
   flushUpdates,
   _flushPassive,
   _domNodes,
+  _canFlushSynchronously,
 } from './runtime.js';
 import { useFormStatus, useActionState } from './hooks.js';
 
@@ -110,6 +111,9 @@ export function createPortal(children, container, key) {
 export function flushSync(fn) {
   let result;
   if (fn) result = fn();
+  // Inside a render, a commit or an effect: the update renders with the
+  // flush already under way (React's rule), not in a flush of its own.
+  if (!_canFlushSynchronously()) return result;
   flushUpdates();
   _flushPassive();
   flushUpdates();

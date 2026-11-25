@@ -374,6 +374,16 @@ const passiveQueue = [];
 const unmountedPassive = [];
 let passiveScheduled = false;
 
+/**
+ * Whether flushSync() may render now: not while a component renders, a
+ * commit runs or its effects run (React defers it then, and warns). A flush
+ * started there would start a render loop of its own on each nested call,
+ * past the guard that ends an update loop.
+ */
+export function _canFlushSynchronously() {
+  return currentInstance === null && commitDepth === 0 && effectDepth === 0;
+}
+
 export function runInCommit(fn) {
   commitDepth++;
   try {
@@ -729,10 +739,11 @@ function pushFlat(list, name, out, ids, lists) {
   }
 }
 
-// A place as one value, for a map: the id itself at the top level (a number
-// and a string never collide), and behind the list's name inside one.
+// A place as one value, for a map: at the top level an index as it is and a
+// key behind '$' (a key that reads like a nested list's place, '0:0', is not
+// that place), and behind the list's name inside one.
 function slotOf(list, id) {
-  if (list === null) return id;
+  if (list === null) return typeof id === 'string' ? '$' + id : id;
   return typeof id === 'number' ? list + id : list + '$' + id;
 }
 
