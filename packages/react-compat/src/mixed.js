@@ -22,11 +22,11 @@
 
 import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
 import { isVNode, _provide, __DEV__ } from 'what-core/internal';
-import { _$createComponent, _installVNodeRuntime, _valuesToNodes } from 'what-core/render';
+import { _$createComponent, _installVNodeRuntime, _valuesToNodes, _$childrenChanged } from 'what-core/render';
 import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
-  _vnodeIsland, renderInstance, _domNodes, _flushPendingPassive,
+  _vnodeIsland, renderInstance, _domNodes, _flushPendingPassive, _flushQueued,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
@@ -108,9 +108,15 @@ export function ReactIsland(props) {
 // program (a page that hydrates, native code that makes a vnode) its own
 // keyed rows keep such a list while the elements' props stay the same.
 //
-// Each run is a commit: the passive effects earlier commits left run first,
-// a row whose key goes is unmounted before the run returns, and the next run
-// takes only what this one placed. Each island is a root under the owner the
+// Each run is a commit, in React's order: the passive effects earlier commits
+// left run first; the rows render; a row whose key goes is unmounted (its
+// layout cleanups and refs) and the nodes are placed in the page; then the
+// refs and layout effects of what mounted or updated run, on nodes in the
+// page; the passive effects are scheduled. What the commit queued (an error
+// boundary's fallback, a Suspense boundary's) renders before the run
+// returns, as React's commit takes them in. The next run takes only what
+// this one placed. A top-level unkeyed fragment stands for its children, as
+// React reads it. Rows inside an <svg> are SVG elements. Each island is a root under the owner the
 // hole was created under, as what-core's keyed rows are: native code inside
 // it finds the What context around the hole. Rows that move are moved node
 // by node, which takes the focus from a moved element: the element in the
@@ -160,72 +166,77 @@ function holeRows(svg, scope) {
     update(host, marker, value) {
       if (end.parentNode !== host) host.insertBefore(end, marker);
       _flushPendingPassive();
-      const focused = /** @type {any} */ (document.activeElement);
-      const had = host.contains(focused) ? focused : null;
-      /** @type {Map<string, any>} */
-      const next = new Map();
-      /** @type {any[]} */
-      const out = [];
-      const walk = (v, slot, i) => {
-        if (Array.isArray(v)) {
-          for (let j = 0; j < v.length; j++) walk(v[j], Array.isArray(v[j]) ? slot + j + '.' : slot, j);
-          return;
-        }
-        if (v == null || v._compat !== true) {
-          _valuesToNodes(v, host, out, svg);
-          return;
-        }
-        const id = v.key != null ? slot + ':' + v.key : slot + '#' + i;
-        if (next.has(id)) {
-          if (__DEV__ && v.key != null) console.error(`[what-react] Encountered two children with the same key, \`${v.key}\`. Keys should be unique so that components maintain their identity across updates.`);
-          for (let n = /** @type {any} */ (_vnodeIsland(v, host, svg)).firstChild; n !== null; n = n.nextSibling) out.push(n);
-          return;
-        }
-        let entry = kept.get(id);
-        if (entry !== undefined && entry.type === v.type) {
-          kept.delete(id);
-          if (entry.vnode !== v) {
-            entry.vnode = v;
-            untrack(() => runInCommit(() => renderInstance(entry.inst)));
-          }
-          out.push(..._domNodes(entry.inst));
-        } else {
-          /** @type {any} */
-          const made = (entry = { type: v.type, vnode: v });
-          runWithOwner(scope, () => createRoot((dispose) => {
-            made.dispose = dispose;
-            // The island's view records its instance (it renders as that instance).
-            const frag = /** @type {any} */ (_island(() => ((made.inst = _getCurrentInstance()), made.vnode), svg));
-            for (let n = frag.firstChild; n !== null; n = n.nextSibling) out.push(n);
-          }));
-        }
-        next.set(id, entry);
-      };
-      walk(value, '', 0);
-      // What this run did not take goes, unmounted and out of the page.
-      drop();
-      kept = next;
-      const stays = new Set(out);
-      for (const n of nodesOf(placed)) if (!stays.has(n) && n.parentNode === host) host.removeChild(n);
-      let ref = end;
-      for (let j = out.length - 1; j >= 0; j--) {
-        const n = out[j];
-        if (n.parentNode !== host || n.nextSibling !== ref) host.insertBefore(n, ref);
-        ref = n;
-      }
-      placed = out;
-      const now = document.activeElement;
-      if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
+      runInCommit(() => place(host, value));
+      _flushQueued();
     },
     remove() {
       if (end.parentNode === null) return;
-      drop();
-      kept = new Map();
-      for (const n of nodesOf(placed)) n.remove();
-      placed = [];
+      runInCommit(() => place(end.parentNode, null));
       end.remove();
     },
   };
+
+  function place(host, value) {
+    if (value != null && value.type === Fragment && value.key == null) value = value.props.children;
+    const inSvg = svg || (host.namespaceURI.endsWith('svg') && host.localName !== 'foreignObject');
+    const focused = /** @type {any} */ (document.activeElement);
+    const had = host.contains(focused) ? focused : null;
+    /** @type {Map<string, any>} */
+    const next = new Map();
+    /** @type {any[]} */
+    const out = [];
+    const walk = (v, slot, i) => {
+      if (Array.isArray(v)) {
+        for (let j = 0; j < v.length; j++) walk(v[j], Array.isArray(v[j]) ? slot + j + '.' : slot, j);
+        return;
+      }
+      if (v == null || v._compat !== true) {
+        _valuesToNodes(v, host, out, inSvg);
+        return;
+      }
+      const id = v.key != null ? slot + ':' + v.key : slot + '#' + i;
+      if (next.has(id)) {
+        if (__DEV__ && v.key != null) console.error(`[what-react] Encountered two children with the same key, \`${v.key}\`. Keys should be unique so that components maintain their identity across updates.`);
+        out.push(.../** @type {any} */ (_vnodeIsland(v, host, inSvg)).childNodes);
+        return;
+      }
+      let entry = kept.get(id);
+      if (entry !== undefined && entry.type === v.type) {
+        kept.delete(id);
+        if (entry.vnode !== v) {
+          entry.vnode = v;
+          untrack(() => runInCommit(() => renderInstance(entry.inst)));
+        }
+        out.push(..._domNodes(entry.inst));
+      } else {
+        /** @type {any} */
+        const made = (entry = { type: v.type, vnode: v });
+        runWithOwner(scope, () => createRoot((dispose) => {
+          made.dispose = dispose;
+          // The island's view records its instance (it renders as that instance).
+          out.push(.../** @type {any} */ (_island(() => ((made.inst = _getCurrentInstance()), made.vnode), inSvg)).childNodes);
+        }));
+      }
+      next.set(id, entry);
+    };
+    walk(value, '', 0);
+    // What this run did not take goes, unmounted and out of the page.
+    drop();
+    kept = next;
+    const stays = new Set(out);
+    for (const n of nodesOf(placed)) if (!stays.has(n) && n.parentNode === host) host.removeChild(n);
+    let ref = end;
+    for (let j = out.length - 1; j >= 0; j--) {
+      const n = out[j];
+      if (n.parentNode !== host || n.nextSibling !== ref) host.insertBefore(n, ref);
+      ref = n;
+    }
+    placed = out;
+    const now = document.activeElement;
+    if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
+    // A select whose options these are writes its value again.
+    _$childrenChanged(host);
+  }
 }
 
 // =====================================================================

@@ -36,7 +36,7 @@ for (const [pkg, dir] of Object.entries(FRAMEWORK)) {
 
 const files = {
   'package.json': JSON.stringify({ name: 'app', type: 'module' }),
-  'src/rows.jsx': `import { useState, useEffect } from 'react';
+  'src/rows.jsx': `import { useState, useEffect, useLayoutEffect, useRef, use, Suspense, Component } from 'react';
 function Row({ id, list }) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -59,11 +59,70 @@ export const rows = (ids, list, others = []) => ids.map((id) => {
   return <Type key={id} id={id} list={list} />;
 });
 export const solo = (list) => <Row key="a" id="a" list={list} />;
+
+// The commit's order, as React logs it (refs, layout effects, passive effects).
+const ref = (n) => {
+  if (n) {
+    window.log.push('ref+' + n.dataset.id + ':' + n.isConnected);
+    return () => window.log.push('ref-' + n.dataset.id + ':' + n.isConnected);
+  }
+};
+function Life({ id, autoFocus }) {
+  const input = useRef(null);
+  useLayoutEffect(() => {
+    window.log.push('layout+' + id + ':' + input.current.isConnected);
+    return () => window.log.push('layout-' + id + ':' + (input.current && input.current.isConnected));
+  }, []);
+  useEffect(() => {
+    window.log.push('passive+' + id);
+    return () => window.log.push('passive-' + id);
+  }, []);
+  return <div data-life={id} ref={ref} data-id={id}><input ref={input} defaultValue={id} autoFocus={autoFocus} /></div>;
+}
+export const lives = (n) => n ? [<Life key="b" id="b" />, <Life key="c" id="c" autoFocus />] : [<Life key="a" id="a" />, <Life key="b" id="b" />];
+// A top-level unkeyed fragment stands for its children.
+export const fragTop = (n) => n ? <><Row key="a" id="a" list={7} /></> : [<Row key="a" id="a" list={7} />];
+export const shapes = () => [<circle key="c" r="1" />, <a key="a" href="#x"><title>t</title></a>];
+export const options = (n) => (n ? ['a', 'x', 'b'] : ['a']).map((id) => <option key={id} value={id}>{id}</option>);
+class Boundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? <b id="caught">caught</b> : this.props.children;
+  }
+}
+function Fault({ bad }) {
+  if (bad) throw new Error('intentional');
+  return <span id="safe">safe</span>;
+}
+const never = new Promise(() => {});
+function Waiting({ wait }) {
+  return <b id="ready">{wait ? use(never) : 'initial'}</b>;
+}
+export const guarded = (n) => [<Boundary key="bound"><Fault bad={n === 1} /></Boundary>, <Row key="a" id="a" list={8} />];
+export const suspending = (n) => [<Suspense key="sus" fallback={<i id="waiting">waiting</i>}><Waiting wait={n === 1} /></Suspense>, <Row key="a" id="a" list={8} />];
 `,
   // One hole per scene, so each scene's arrays are the hole's own.
   'src/main.jsx': `import { signal, mount, flushSync } from 'what-framework';
-import { rows, solo } from './rows.jsx';
+import { rows, solo, lives, fragTop, shapes, options, guarded, suspending } from './rows.jsx';
 const scene = signal('');
+const extra = signal('');
+const phase = signal(0);
+const selection = signal('b');
+function Extra() {
+  const s = extra();
+  const n = phase();
+  if (s === 'life') return lives(n);
+  if (s === 'frag-top') return fragTop(n);
+  if (s === 'guard') return guarded(n);
+  if (s === 'suspend') return suspending(n);
+  return null;
+}
 const sets = signal([[], [], []]);
 const others = signal([]);
 function Lists() {
@@ -80,6 +139,9 @@ function App() {
     <main>
       <section id="hole">{Lists()}</section>
       <section id="frag"><>{scene() === 'frag' ? rows(sets()[0], 0) : null}{scene() === 'frag' ? rows(sets()[1], 1) : null}</></section>
+      <section id="extra">{Extra()}</section>
+      <svg id="shapes">{extra() === 'svg' ? shapes() : null}</svg>
+      <select id="sel" value={selection()}>{extra() === 'select' ? options(phase()) : null}</select>
     </main>
   );
 }
@@ -92,6 +154,8 @@ window.start = (name, initial) => {
   flushSync();
 };
 window.put = (next) => { sets(next); flushSync(); };
+window.scene2 = (name) => { window.log = []; extra(name); phase(0); flushSync(); };
+window.step = (n) => { phase(n); flushSync(); };
 window.retype = (ids) => { others(ids); flushSync(); };
 window.stop = mount(<App />, '#app');
 `,
@@ -174,12 +238,11 @@ test('three arrays in one hole: a key that moves to another array mounts again t
   await begin('three', [[], ['a'], []]);
   const middle = await edit('#hole', 1, 'a');
   window.put([[], [], ['a']]);
-  // Unmounted before the update returns, as React's commit does.
-  assert.deepEqual(window.log, ['-1a']);
-  assert.deepEqual(shape('#hole', middle), [['2', 'a', '0', '2a', false]]);
-  assert.equal(middle.isConnected, false);
+  // Unmounted, its passive cleanup run after the commit, as React does.
   await settle();
   assert.deepEqual(window.log, ['-1a', '+2a']);
+  assert.deepEqual(shape('#hole', middle), [['2', 'a', '0', '2a', false]]);
+  assert.equal(middle.isConnected, false);
 });
 
 test('nested arrays: each array is its own key space', async () => {
@@ -265,7 +328,8 @@ test('another component type under a key: the row mounts again and the old one u
   await begin('flat', [[], ['a', 'b'], []]);
   const old = await edit('#hole', 1, 'a');
   window.retype(['a']);
-  assert.deepEqual(window.log, ['-1a']);
+  await settle();
+  assert.deepEqual(window.log, ['-1a', '+1a']);
   assert.deepEqual(shape('#hole', old).map((r) => r.slice(0, 4)), [['1', 'a', '0', '1a'], ['1', 'b', '0', '1b']]);
   assert.equal(old.isConnected, false);
 });
@@ -298,7 +362,68 @@ test('a moved row keeps its focus and selection; focus taken elsewhere in the sa
   await settle();
   assert.equal(input.isConnected, false);
   assert.notEqual(document.activeElement, input);
-  input = null;
+});
+
+
+test('a row replaced beside a kept one: refs and layout effects run on nodes in the page, after the removed row\'s cleanups, in React\'s order (react-dom 19.3.1)', async () => {
+  window.scene2('life');
+  // The first mount, too, runs them on nodes in the page.
+  assert.deepEqual(window.log.slice(0, 4), ['ref+a:true', 'layout+a:true', 'ref+b:true', 'layout+b:true']);
+  await settle();
+  window.log = [];
+  window.step(1);
+  const returned = document.activeElement && document.activeElement.defaultValue;
+  await settle();
+  // Real React 19.3.1 logs the same (scratchpad probe, react-dom/client).
+  assert.deepEqual(window.log, ['layout-a:true', 'ref-a:true', 'ref+c:true', 'layout+c:true', 'passive-a', 'passive+c']);
+  assert.equal(returned, 'c', 'autoFocus focused the new input before the update returned');
+  window.scene2('');
+  await settle();
+});
+
+test('rows in an <svg> hole are SVG elements', async () => {
+  window.scene2('svg');
+  const SVG = 'http://www.w3.org/2000/svg';
+  assert.deepEqual([...document.querySelectorAll('#shapes *')].map((el) => [el.localName, el.namespaceURI === SVG]), [['circle', true], ['a', true], ['title', true]]);
+  window.scene2('');
+});
+
+test('a controlled select takes its value when the option for it arrives as a React row', async () => {
+  window.scene2('select');
+  window.step(1);
+  assert.equal(document.getElementById('sel').value, 'b');
+  window.scene2('');
+});
+
+test('a top-level unkeyed fragment stands for its children: the row is kept from a list to a fragment and back', async () => {
+  window.scene2('frag-top');
+  const row = document.querySelector('#extra [data-id=a]');
+  row.querySelector('input').value = 'edited';
+  window.step(1);
+  assert.equal(document.querySelector('#extra [data-id=a]'), row);
+  window.step(0);
+  assert.equal(document.querySelector('#extra [data-id=a]'), row);
+  assert.equal(row.querySelector('input').value, 'edited');
+  window.scene2('');
+});
+
+test('an error boundary\'s fallback and a Suspense fallback are in the page when the update returns, beside a kept row', async () => {
+  const { error } = console;
+  console.error = () => {};
+  try {
+    window.scene2('guard');
+    const row = document.querySelector('#extra [data-id=a]');
+    window.step(1);
+    assert.ok(document.getElementById('caught'), 'the boundary\'s fallback');
+    assert.equal(document.querySelector('#extra [data-id=a]'), row);
+    window.scene2('suspend');
+    window.step(1);
+    assert.ok(document.getElementById('waiting'), 'the Suspense fallback');
+  } finally {
+    console.error = error;
+  }
+  window.scene2('');
+  await settle();
 });
 
 test('unmounting the hole unmounts every row once', async () => {

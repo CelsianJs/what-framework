@@ -335,6 +335,11 @@ export function scheduleUpdate(inst) {
 }
 
 /** Render everything queued. False when the update-loop guard ended it. */
+/** @internal What a commit outside a render queued renders now (mixed.js: a hole's commit takes in its error and Suspense fallbacks, as React's does). */
+export function _flushQueued() {
+  if (dirtyQueue.size > 0 && _canFlushSynchronously()) flushUpdates();
+}
+
 export function flushUpdates() {
   flushScheduled = false;
   let cycles = 0;

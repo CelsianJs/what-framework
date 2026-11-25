@@ -390,7 +390,13 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   row whose key goes unmounts before the update returns. A key repeated in
   one array keeps the first element's row, the others mount again
   (development warns). A row that moves gets the focus back if the move took
-  it and nothing else was focused.
+  it and nothing else was focused. Each update is a commit in React's order
+  (a removed row's layout cleanups and refs, then the nodes in the page,
+  then the new rows' refs, layout effects and autoFocus, then the passive
+  effects), and an error boundary's or Suspense's fallback is in the page
+  when it returns. A top-level unkeyed fragment stands for its children,
+  rows in an `<svg>` are SVG, and a controlled `<select>` takes its value
+  when the option for it arrives.
   This comes with `what-react/mixed`, which a React file's JSX imports once
   what-react's plugin lowers it, so elements made only without JSX
   (`React.createElement` in a file with no JSX, or a package) are built
