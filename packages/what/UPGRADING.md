@@ -428,7 +428,8 @@ and navigations that are transitions. Each change below has its migration.
 - **`invalidateQueries` returns a promise** that resolves once the refetches
   it started have landed. Ignoring it is unchanged.
 - **Callbacks fire once per landing**, for the reader that started the fetch
-  (an invalidation's belongs to the key's first reader). Two readers of one
+  (an invalidation's belongs to the active reader that attached last, as in
+  TanStack Query). Two readers of one
   key no longer both run `onSuccess` for one response.
 - **Unmounting the last reader of a key while its fetch is in flight cancels
   the fetch**, and a remount fetches again. **`setQueryData` drops a fetch in
