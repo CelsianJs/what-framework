@@ -335,11 +335,6 @@ export function scheduleUpdate(inst) {
 }
 
 /** Render everything queued. False when the update-loop guard ended it. */
-/** @internal What a commit outside a render queued renders now (mixed.js: a hole's commit takes in its error and Suspense fallbacks, as React's does). */
-export function _flushQueued() {
-  if (dirtyQueue.size > 0 && _canFlushSynchronously()) flushUpdates();
-}
-
 export function flushUpdates() {
   flushScheduled = false;
   let cycles = 0;
@@ -548,8 +543,7 @@ function flushEffectQueue(queue) {
         entry.slot._pending = null;
         if (entry.inst.unmounted) continue;
         try {
-          const result = entry.fn();
-          if (typeof result === 'function') entry.slot.cleanup = result;
+          keepCleanup(entry.inst, entry.slot, entry.fn());
         } catch (e) {
           effectError(entry.inst, e);
         }
@@ -559,6 +553,18 @@ function flushEffectQueue(queue) {
     effectDepth--;
   }
 }
+
+// An effect's cleanup, kept for when it runs again or unmounts; run at once
+// when the component unmounted while the effect ran (it unmounted a root it
+// stood in).
+function keepCleanup(inst, slot, result) {
+  if (typeof result !== 'function') return;
+  if (inst.unmounted) {
+    try { result(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
+  } else slot.cleanup = result;
+}
+
+
 
 // Insertion effects: React runs them in the mutation phase, component by
 // component (a component's cleanup, then its effect), children first, before
@@ -578,8 +584,7 @@ function flushInsertionQueue() {
         try { cleanup(); } catch (e) { console.error('[what-react] effect cleanup error:', e); }
       }
       try {
-        const result = entry.fn();
-        if (typeof result === 'function') slot.cleanup = result;
+        keepCleanup(entry.inst, slot, entry.fn());
       } catch (e) {
         effectError(entry.inst, e);
       }
@@ -933,18 +938,13 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
   const result = new Array(newLen);
   if (oldLen === 0) return mountChildren(parentDom, kids, ids, lists, 0, newLen, result, anchor, svg, owner, into);
 
-  // --- The start of the list that kept its places: patched where it stands ---
+  // --- The start of the list that kept its places: patched where it stands,
+  // once what leaves is gone (React's commit removes it first) ---
   let start = 0;
   const min = oldLen < newLen ? oldLen : newLen;
-  while (start < min) {
-    const v = kids[start];
-    const kind = kindOf(v);
-    const rn = old[start];
-    if (!stays(rn, v, kind, ids, lists, start)) break;
-    result[start] = patchRNode(rn, v, kind, svg, owner);
-    start++;
-  }
+  while (start < min && stays(old[start], kids[start], kindOf(kids[start]), ids, lists, start)) start++;
   if (start === oldLen) {
+    patchHead(old, kids, start, result, svg, owner);
     if (start === newLen) return result;
     // Everything stayed, and children were added after it.
     if (inst !== null) {
@@ -970,8 +970,9 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
 
   if (newEnd === start) {
     // Children left, and nothing else changed.
-    patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
     for (let i = start; i < oldEnd; i++) unmountRNode(old[i], true);
+    patchHead(old, kids, start, result, svg, owner);
+    patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
     return result;
   }
 
@@ -982,6 +983,7 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
     const ref = firstDomNodeFrom(old, oldEnd, parentDom);
     const at = ref !== null ? ref.parentNode : null;
     if (at !== null && (inst !== null || at === parentDom)) {
+      patchHead(old, kids, start, result, svg, owner);
       mountChildren(at, kids, ids, lists, start, newEnd, result, ref, svg, owner, into);
       patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
       return result;
@@ -999,23 +1001,45 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
     const place = slotOf(rn.list, rn.id);
     if (!byPlace.has(place)) byPlace.set(place, rn);
   }
+  // Which old child each new one keeps, first: what leaves is removed before
+  // what stays is updated, as React's commit removes it first.
+  // (held in `result` until each is patched)
+  for (let i = start; i < newEnd; i++) {
+    const v = kids[i];
+    const match = byPlace.get(slotOf(lists !== null ? lists[i] : null, ids !== null ? ids[i] : idOf(v, kindOf(v), i)));
+    if (match !== undefined && match._kept !== true && canPatch(match, v, kindOf(v))) {
+      match._kept = true;
+      result[i] = match;
+    }
+  }
+
+  // Where the list goes, read while the nodes that leave are still there.
+  let ref = anchor;
+  if (inst !== null) {
+    placeOf(inst, old, oldLen);
+    parentDom = placeParent;
+    ref = placeAnchor;
+  }
+
+  for (let i = start; i < oldEnd; i++) {
+    if (old[i]._kept !== true) unmountRNode(old[i], true);
+  }
+  patchHead(old, kids, start, result, svg, owner);
+
   let lastPlaced = -1; // the highest old index among the kept nodes so far
   for (let i = start; i < newEnd; i++) {
     const v = kids[i];
     const kind = kindOf(v);
-    const id = ids !== null ? ids[i] : idOf(v, kind, i);
-    const list = lists !== null ? lists[i] : null;
-    const match = byPlace.get(slotOf(list, id));
-    if (match !== undefined && match._kept !== true && canPatch(match, v, kind)) {
-      match._kept = true;
+    const match = result[i];
+    if (match !== undefined) {
       if (match._i < lastPlaced) match._move = true;
       else lastPlaced = match._i;
       result[i] = patchRNode(match, v, kind, svg, owner);
     } else {
       // Built whole, outside the document; placed below.
       const rn = mountRNode(v, kind, null, null, svg, owner, into);
-      rn.id = id;
-      rn.list = list;
+      rn.id = ids !== null ? ids[i] : idOf(v, kind, i);
+      rn.list = lists !== null ? lists[i] : null;
       rn._i = -1;
       result[i] = rn;
     }
@@ -1023,20 +1047,10 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
   patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
 
   // Where the middle ends: at the first node of the end that stayed, or
-  // where the list ends. Read while the nodes that leave are still there.
-  let ref = anchor;
-  if (inst !== null) {
-    placeOf(inst, old, oldLen);
-    parentDom = placeParent;
-    ref = placeAnchor;
-  }
+  // where the list ends.
   if (newEnd < newLen) {
     const first = firstDomNodeFrom(result, newEnd, parentDom);
     if (first !== null) ref = first;
-  }
-
-  for (let i = start; i < oldEnd; i++) {
-    if (old[i]._kept !== true) unmountRNode(old[i], true);
   }
 
   if (parentDom === null) return result; // not in a document (its own nodes were taken out)
@@ -1058,6 +1072,11 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
 
 // Whether the rendered node `rn` is the child `v` at index `i` of the list:
 // in the same place, and of a type it can be patched to.
+// The start of a list that kept its places, patched where it stands.
+function patchHead(old, kids, start, result, svg, owner) {
+  for (let i = 0; i < start; i++) result[i] = patchRNode(old[i], kids[i], kindOf(kids[i]), svg, owner);
+}
+
 function stays(rn, v, kind, ids, lists, i) {
   if (ids !== null) {
     if (rn.id !== ids[i] || rn.list !== /** @type {any[]} */ (lists)[i]) return false;
@@ -2349,6 +2368,74 @@ export function mountIsland(view, container, parent, nativeOwner, svg, deferred)
 }
 
 /**
+ * A container React elements render into between two markers of their own,
+ * placed before `before` in `parentDom`: a hole of native code that holds
+ * React elements (mixed.js holeRows). `view` returns the hole's value; the
+ * instance renders it as a component renders what it returns, through this
+ * runtime's reconciler and commit, and renders again (renderInstance) for
+ * each new value.
+ */
+export function _mountMarked(view, parentDom, before, parent, nativeOwner, svg) {
+  const start = parentDom.insertBefore(document.createComment('w$'), before);
+  const end = parentDom.insertBefore(document.createComment('/w$'), before);
+  const inst = newInstance(view, EMPTY_OBJ, null, parent, start, end, svg);
+  inst._nativeOwner = nativeOwner;
+  return inst;
+}
+
+/**
+ * Run `render` as a commit. Where `node` is not in the page yet (native code
+ * builds a page before it places it) and no commit is running, its insertion
+ * effects run now, on nodes not in the page yet as React's do, and its refs,
+ * layout and passive effects on the microtask after, once the page placed
+ * them: React runs them on nodes in the page.
+ */
+export function _commitPlaced(node, render) {
+  if (commitDepth !== 0 || node.isConnected) {
+    runInCommit(render);
+    return;
+  }
+  commitDepth++;
+  try {
+    render();
+  } finally {
+    commitDepth--;
+  }
+  flushInsertionQueue();
+  const layout = layoutQueue.splice(0);
+  const passive = passiveQueue.splice(0);
+  queueMicrotask(() => {
+    layoutQueue.push(...layout);
+    passiveQueue.push(...passive);
+    runInCommit(() => {});
+  });
+}
+
+/**
+ * Render what waits to render inside `root` (an error boundary's fallback, a
+ * Suspense boundary's), now: a commit takes them in before it returns, as
+ * React's does. What waits elsewhere renders when its own flush runs.
+ */
+export function _flushWithin(root) {
+  for (let cycles = 0; cycles < CYCLE_LIMIT; cycles++) {
+    const batch = [];
+    for (const inst of dirtyQueue) {
+      for (let p = inst; p != null; p = p.parent) {
+        if (p === root) {
+          batch.push(inst);
+          break;
+        }
+      }
+    }
+    if (batch.length === 0) return;
+    batch.sort((a, b) => a.depth - b.depth);
+    runInCommit(() => {
+      for (const inst of batch) if (dirtyQueue.has(inst) && !inst.unmounted) renderInstance(inst);
+    });
+  }
+}
+
+/**
  * How an island takes the server's HTML for its own, once a hydrating entry
  * installed it (hydrate.js, `_hydrateIslands()` in mixed.js): called during
  * the walk, it returns what renders the island over that HTML once the walk
@@ -2547,7 +2634,10 @@ function attachRef(rn, ref, el) {
   if (el != null && el._compatMirror !== undefined) el = el._compatMirror;
   if (typeof ref === 'function') {
     const cleanup = ref(el);
-    rn._refCleanup = typeof cleanup === 'function' ? cleanup : null;
+    // Detached while it ran (it unmounted the tree it stands in): cleaned up at once.
+    if (rn._refAttached !== true) {
+      if (typeof cleanup === 'function') cleanup();
+    } else rn._refCleanup = typeof cleanup === 'function' ? cleanup : null;
   } else if (ref && typeof ref === 'object') ref.current = el;
 }
 

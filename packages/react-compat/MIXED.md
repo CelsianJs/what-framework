@@ -381,22 +381,27 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   (`test/native-keyed-list.test.js`, `test/native-keyed-scenes.test.js`). In
   a client build whose native code makes no vnode (compiled JSX makes none)
   what-react installs its own vnode renderer in what-core, whose regions
-  hand it each value that holds a React element, and it reconciles that value
-  as React reconciles a component's children: each array of the hole is a
-  list of its own, a row is kept by its key (unkeyed, its place) and its
-  type, and renders its new props; two arrays of one hole (`{[rows(a),
-  rows(b)]}`, a nested array, a list and an element beside it) never take
-  each other's rows, a key that moves to another array mounts again, and a
-  row whose key goes unmounts before the update returns. A key repeated in
-  one array keeps the first element's row, the others mount again
-  (development warns). A row that moves gets the focus back if the move took
-  it and nothing else was focused. Each update is a commit in React's order
-  (a removed row's layout cleanups and refs, then the nodes in the page,
-  then the new rows' refs, layout effects and autoFocus, then the passive
-  effects), and an error boundary's or Suspense's fallback is in the page
-  when it returns. A top-level unkeyed fragment stands for its children,
-  rows in an `<svg>` are SVG, and a controlled `<select>` takes its value
-  when the option for it arrives.
+  hand it each value that holds a React element, and the hole becomes a
+  React container: what-react's reconciler renders the value there as a
+  component renders what it returns, with the same keys, arrays, fragments,
+  commit order, error boundaries and Suspense as anywhere else in
+  what-react. Each array of the hole is a list of its own, a row is kept by
+  its key (unkeyed, its place) and its type and renders its new props, a
+  key that moves to another array mounts again, and what leaves is removed
+  before what stays is updated. A top-level unkeyed fragment stands for its
+  children, rows in an `<svg>` are SVG, a controlled `<select>` takes its
+  value when the option for it arrives, and a row that moves gets the focus
+  back if the move took it. Each run of the hole is a commit, run untracked;
+  a fallback an error boundary or Suspense queued inside the hole renders
+  before the run returns. An error no boundary catches unmounts the hole's
+  rows and is reported, as React unmounts a root. The hole's first rows run
+  their refs and layout effects once native code has placed the page (on
+  the microtask after its build). The rows go with the native owner of the
+  hole once a commit running then is done (a ref or effect that unmounted
+  the page returns its cleanup first). Passive effects run on the microtask
+  after a commit (React runs them before a `flushSync` returns), and
+  insertion effects at the commit's end, not between the DOM changes of
+  each component.
   This comes with `what-react/mixed`, which a React file's JSX imports once
   what-react's plugin lowers it, so elements made only without JSX
   (`React.createElement` in a file with no JSX, or a package) are built

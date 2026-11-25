@@ -22,11 +22,11 @@
 
 import { h, signal, batch, untrack, getOwner, runWithOwner, createRoot, onCleanup } from 'what-core';
 import { isVNode, _provide, __DEV__ } from 'what-core/internal';
-import { _$createComponent, _installVNodeRuntime, _valuesToNodes, _$childrenChanged } from 'what-core/render';
+import { _$createComponent, _installVNodeRuntime, _$childrenChanged } from 'what-core/render';
 import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
-  _vnodeIsland, renderInstance, _domNodes, _flushPendingPassive, _flushQueued,
+  _vnodeIsland, renderInstance, _flushPendingPassive, _mountMarked, _flushWithin, unmountIsland, _hostInstance, _commitPlaced, _canFlushSynchronously,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
@@ -88,40 +88,31 @@ export function ReactIsland(props) {
 }
 
 // React elements that native code places in a hole itself (a What component
-// mapping an array to React elements, `{rows(order())}`) are reconciled as
-// React reconciles a component's children: each array of the hole is a list
-// of its own, a row is kept by its key (or, unkeyed, its place) and its type,
-// and keeps its nodes, its state, the text typed in it and the focus, with its
-// new props rendered into it. Two arrays of one hole (`{[rows(a), rows(b)]}`,
-// a nested array, a list and an element beside it) never take each other's
-// rows, a key that moves to another array mounts again, and a key repeated
-// in one array keeps the first element's row while the others mount again on
-// every run (runtime.js reconcile does the same; development warns as React
-// does).
+// mapping an array to React elements, `{rows(order())}`) render as the
+// children of a React container that stands in the hole: what-react's own
+// reconciler renders the hole's value there, as a component renders what it
+// returns (runtime.js _mountMarked), so keys, arrays, fragments, the SVG
+// namespace, refs, the commit's order, error boundaries and Suspense follow
+// React's rules as they do anywhere else in what-react.
 //
 // what-core's regions hand a value to the keyed rows of its vnode renderer
 // on every run (render.js region, `vnodeRows`). In a program with no renderer
 // of what-core's (a client build whose native code makes no vnode), this
 // module installs what-react's: a vnode renders as an island (runtime.js
-// _vnodeIsland), and a value that holds a React element is placed by
-// holeRows below, the rest by what-core. Where what-core's renderer is in the
-// program (a page that hydrates, native code that makes a vnode) its own
-// keyed rows keep such a list while the elements' props stay the same.
+// _vnodeIsland), and a hole whose value holds a React element is rendered by
+// holeRows below. Where what-core's renderer is in the program (a page that
+// hydrates, native code that makes a vnode) its own keyed rows keep such a
+// list while the elements' props stay the same.
 //
-// Each run is a commit, in React's order: the passive effects earlier commits
-// left run first; the rows render; a row whose key goes is unmounted (its
-// layout cleanups and refs) and the nodes are placed in the page; then the
-// refs and layout effects of what mounted or updated run, on nodes in the
-// page; the passive effects are scheduled. What the commit queued (an error
-// boundary's fallback, a Suspense boundary's) renders before the run
-// returns, as React's commit takes them in. The next run takes only what
-// this one placed. A top-level unkeyed fragment stands for its children, as
-// React reads it. Rows inside an <svg> are SVG elements. Each island is a root under the owner the
-// hole was created under, as what-core's keyed rows are: native code inside
-// it finds the What context around the hole. Rows that move are moved node
-// by node, which takes the focus from a moved element: the element in the
-// hole that had it gets it back when the run is done, if the focus was left
-// on nothing (the page's body) and the element is still in the page.
+// Each run of the hole is a commit of its own, run untracked (a signal a
+// React callback reads is not the hole's). What the commit queued inside the
+// container (an error boundary's fallback, a Suspense boundary's) renders
+// before the run returns; what waits elsewhere waits for its own flush. An
+// error no boundary catches unmounts the container and is reported, as React
+// unmounts a root. The container goes with the owner the hole was created
+// under, once a commit running then is done (a ref or effect that unmounted
+// the page returns its cleanup first). React moves nodes as this does, and
+// gives the focus back to the element that had it; so does the container.
 {
   const proto = Object.getPrototypeOf(element('i', null));
   if (proto._$r === _vnodeIsland) {
@@ -135,108 +126,67 @@ function hasElement(value) {
   return value != null && value._compat === true;
 }
 
-// The keyed rows of one hole. `update` places `value` before `marker`;
-// `remove` takes everything out (the hole's value holds no React element).
-function holeRows(svg, scope) {
-  const end = document.createComment('/w$rows');
-  /** @type {Map<string, any>} */
-  let kept = new Map();
-  /** @type {any[]} */
-  let placed = [];
-  const nodesOf = (list) => {
-    const out = [];
-    for (const n of list) {
-      out.push(n);
-      // A region's or list's nodes, as they stand now (dom.js _liveRegionNodes).
-      const last = n._rangeEnd;
-      if (last !== undefined) for (let m = n.nextSibling; m !== null; m = m.nextSibling) {
-        out.push(m);
-        if (m === last) break;
-      }
-    }
-    return out;
-  };
-  const drop = () => {
-    kept.forEach((entry) => {
-      placed.push(..._domNodes(entry.inst));
-      entry.dispose();
-    });
-  };
-  return {
-    update(host, marker, value) {
-      if (end.parentNode !== host) host.insertBefore(end, marker);
-      _flushPendingPassive();
-      runInCommit(() => place(host, value));
-      _flushQueued();
-    },
-    remove() {
-      if (end.parentNode === null) return;
-      runInCommit(() => place(end.parentNode, null));
-      end.remove();
-    },
-  };
+// Run `fn` now, or once the render, commit or effects running now are done,
+// with the commit's passive effects first: React defers an unmount a commit's
+// callback asks for until the commit is done, so a ref or effect returns its
+// cleanup first and the commit's passive effects run before it.
+function whenCommitted(fn) {
+  if (_canFlushSynchronously()) {
+    _flushPendingPassive();
+    fn();
+  } else queueMicrotask(() => whenCommitted(fn));
+}
 
-  function place(host, value) {
-    if (value != null && value.type === Fragment && value.key == null) value = value.props.children;
-    const inSvg = svg || (host.namespaceURI.endsWith('svg') && host.localName !== 'foreignObject');
-    const focused = /** @type {any} */ (document.activeElement);
-    const had = host.contains(focused) ? focused : null;
-    /** @type {Map<string, any>} */
-    const next = new Map();
-    /** @type {any[]} */
-    const out = [];
-    const walk = (v, slot, i) => {
-      if (Array.isArray(v)) {
-        for (let j = 0; j < v.length; j++) walk(v[j], Array.isArray(v[j]) ? slot + j + '.' : slot, j);
-        return;
+// The container of one hole. `update` renders `value` before `marker`;
+// `remove` unmounts it (the hole's value holds no React element any more).
+function holeRows(svg, scope) {
+  /** @type {any} */
+  let inst = null;
+  let value;
+  // A top-level unkeyed fragment stands for the children it holds, as React
+  // reads a root's: `<><A /></>` and `[<A />]` keep the same A.
+  const view = () => (value != null && value.type === Fragment && value.key == null ? value.props.children : value);
+  const unmount = () => {
+    const was = inst;
+    if (was === null) return;
+    inst = null;
+    runInCommit(() => {
+      unmountIsland(was);
+      // Its nodes, and its markers, out of the page.
+      for (let n = was.start, next; n !== null; n = next) {
+        next = n === was.end ? null : n.nextSibling;
+        n.remove();
       }
-      if (v == null || v._compat !== true) {
-        _valuesToNodes(v, host, out, inSvg);
-        return;
-      }
-      const id = v.key != null ? slot + ':' + v.key : slot + '#' + i;
-      if (next.has(id)) {
-        if (__DEV__ && v.key != null) console.error(`[what-react] Encountered two children with the same key, \`${v.key}\`. Keys should be unique so that components maintain their identity across updates.`);
-        out.push(.../** @type {any} */ (_vnodeIsland(v, host, inSvg)).childNodes);
-        return;
-      }
-      let entry = kept.get(id);
-      if (entry !== undefined && entry.type === v.type) {
-        kept.delete(id);
-        if (entry.vnode !== v) {
-          entry.vnode = v;
-          untrack(() => runInCommit(() => renderInstance(entry.inst)));
+    });
+    _flushUnmounted();
+  };
+  if (scope != null) runWithOwner(scope, () => onCleanup(() => whenCommitted(unmount)));
+  return {
+    update(host, marker, next) {
+      value = next;
+      const focused = /** @type {any} */ (document.activeElement);
+      const had = host.contains(focused) ? focused : null;
+      untrack(() => {
+        _flushPendingPassive();
+        if (inst === null) {
+          inst = _mountMarked(view, host, marker, _hostInstance(), scope, svg || (host instanceof SVGElement && host.localName !== 'foreignObject'));
+          inst._errorHandler = (error) => {
+            if (typeof reportError === 'function') reportError(error);
+            else console.error(error);
+            whenCommitted(unmount);
+          };
         }
-        out.push(..._domNodes(entry.inst));
-      } else {
-        /** @type {any} */
-        const made = (entry = { type: v.type, vnode: v });
-        runWithOwner(scope, () => createRoot((dispose) => {
-          made.dispose = dispose;
-          // The island's view records its instance (it renders as that instance).
-          out.push(.../** @type {any} */ (_island(() => ((made.inst = _getCurrentInstance()), made.vnode), inSvg)).childNodes);
-        }));
-      }
-      next.set(id, entry);
-    };
-    walk(value, '', 0);
-    // What this run did not take goes, unmounted and out of the page.
-    drop();
-    kept = next;
-    const stays = new Set(out);
-    for (const n of nodesOf(placed)) if (!stays.has(n) && n.parentNode === host) host.removeChild(n);
-    let ref = end;
-    for (let j = out.length - 1; j >= 0; j--) {
-      const n = out[j];
-      if (n.parentNode !== host || n.nextSibling !== ref) host.insertBefore(n, ref);
-      ref = n;
-    }
-    placed = out;
-    const now = document.activeElement;
-    if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
-    // A select whose options these are writes its value again.
-    _$childrenChanged(host);
-  }
+        const at = inst;
+        _commitPlaced(at.end, () => renderInstance(at));
+        _flushWithin(at);
+      });
+      const now = document.activeElement;
+      if (had !== null && (now === null || now === document.body) && had.isConnected) had.focus({ preventScroll: true });
+      // A select whose options these are writes its value again.
+      _$childrenChanged(host);
+    },
+    remove: unmount,
+  };
 }
 
 // =====================================================================

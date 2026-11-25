@@ -306,22 +306,22 @@ test('rapid updates in one tick: each update is a commit of its own', async () =
   assert.deepEqual(window.log, ['+0a', '+2a', '-0a', '-1a', '-2a', '+1a']);
 });
 
-test('a key repeated in one array: the first element keeps its row, the others mount again', async () => {
+test('a key repeated in one array: rows are kept by place while their keys stay put, as React 19.3.1 keeps them', async () => {
   await begin('flat', [[], ['a', 'a'], []]);
   const [first, second] = rowsIn('#hole');
   first.querySelector('input').value = 'one';
   second.querySelector('input').value = 'two';
   window.put([[], ['a', 'a', 'b'], []]);
   const now = rowsIn('#hole');
-  assert.deepEqual([now[0] === first, now[1] === second, now[2].dataset.id], [true, false, 'b']);
-  assert.deepEqual([now[0].querySelector('input').value, now[1].querySelector('input').value], ['one', '1a']);
-  await settle();
-  // Every row mounted was cleaned up or is still there.
+  // Real React: [true, true, 3] (scratchpad realreact/dupes.cjs).
+  assert.deepEqual([now[0] === first, now[1] === second, now.length], [true, true, 3]);
+  assert.deepEqual([now[0].querySelector('input').value, now[1].querySelector('input').value], ['one', 'two']);
   window.put([[], [], []]);
   await settle();
   const mounts = window.log.filter((l) => l[0] === '+').length;
   const cleanups = window.log.filter((l) => l[0] === '-').length;
-  assert.equal(mounts + 2, cleanups, window.log.join(' '));
+  // b mounted; a, a and b cleaned up.
+  assert.deepEqual([mounts, cleanups], [1, 3], window.log.join(' '));
 });
 
 test('another component type under a key: the row mounts again and the old one unmounts', async () => {
