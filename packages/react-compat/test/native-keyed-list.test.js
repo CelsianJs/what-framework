@@ -69,6 +69,25 @@ export const rows = (order) => order.map((id) => <Row key={id} id={id} label={id
 export const countedRows = (order) => order.map((id) => <Row key={id} id={id} label={id + order.length} />);
 // The same list placed by a React parent, which native code renders as a tag.
 export const ReactList = ({ order }) => <aside>{rows(order.map((id) => id + '!'))}</aside>;
+// An element beside a list, with a key one of the list's rows has.
+export const solo = () => <Row key="a" id="a" label="solo" />;
+`,
+  // Two lists that share keys, in one hole and in two.
+  'src/multi.jsx': `import { signal, mount } from 'what-framework';
+import { rows, solo } from './rows.jsx';
+const order = signal(['x', 'a', 'b']);
+function App() {
+  return (
+    <main>
+      <section id="nested">{[rows(order()), rows(['a', 'b'])]}</section>
+      <section id="deep">{[[rows(order())], [[rows(['a', 'b'])]]]}</section>
+      <section id="sibling">{[rows(order()), solo()]}</section>
+      <section id="frag"><>{rows(order())}{rows(['a', 'b'])}</></section>
+    </main>
+  );
+}
+window.__order = order;
+window.__unmount = mount(<App />, '#app');
 `,
   // Native code that makes no vnode, and native code that does.
   'src/compiled.jsx': native(false, 'countedRows'),
@@ -102,7 +121,7 @@ async function clientBuild(entry) {
   return path.join(assets, fs.readdirSync(assets).find((f) => f.startsWith(`${entry}-`) && f.endsWith('.js')));
 }
 
-const bundles = { compiled: await clientBuild('compiled'), tagged: await clientBuild('tagged'), vnode: await clientBuild('vnode') };
+const bundles = { compiled: await clientBuild('compiled'), tagged: await clientBuild('tagged'), vnode: await clientBuild('vnode'), multi: await clientBuild('multi') };
 
 const { installDOM } = await import(path.join(REPO, 'test-utils/dom.js'));
 installDOM();
@@ -142,10 +161,17 @@ async function drive(bundle) {
       focused: document.activeElement === input,
     };
 
-    // The rows moved: a keeps its state.
+    // The rows moved: a keeps its state, and the focus and text selection.
+    input.setSelectionRange(1, 3);
     window.__order(['b', 'a', 'x']);
     await settle();
-    const moved = { order: ids(), sameRow: list.querySelector('[data-row=a]') === row, count: row.querySelector('button').textContent };
+    const moved = {
+      order: ids(),
+      sameRow: list.querySelector('[data-row=a]') === row,
+      count: row.querySelector('button').textContent,
+      focused: document.activeElement === input,
+      selection: [input.selectionStart, input.selectionEnd],
+    };
 
     // Keys that go are unmounted; the one that stays is kept.
     window.__order(['a']);
@@ -161,13 +187,13 @@ async function drive(bundle) {
   }
 }
 
-function assertKept(r, labels) {
+function assertKept(r, labels, focusOnMove = true) {
   assert.deepEqual(r.printed, [], 'nothing printed');
   // React (react-dom 19): the same node, its state, the typed text and the focus.
   assert.deepEqual(r.inserted, {
     order: 'xab', labels, sameRow: true, sameInput: true, count: '1', value: 'typed', focused: true,
   });
-  assert.deepEqual(r.moved, { order: 'bax', sameRow: true, count: '1' });
+  assert.deepEqual(r.moved, { order: 'bax', sameRow: true, count: '1', focused: focusOnMove, selection: [1, 3] });
   assert.deepEqual(r.removed, { order: 'a', sameRow: true, log: ['unmount b', 'unmount x'] });
   assert.deepEqual(r.unmounted, { log: ['unmount a', 'unmount b', 'unmount x'], left: '' });
 }
@@ -189,5 +215,49 @@ test('native code that makes no vnode, next to a React tag: the native list keep
 
 test('native code that makes a vnode: what-core keeps the same list by key (production build)', async () => {
   assert.ok(/String\(\w+\)\s*===\s*String\(\w+\)/.test(fs.readFileSync(bundles.vnode, 'utf8')), 'what-core vnode renderer in the bundle');
-  assertKept(await drive(bundles.vnode), 'x a b');
+  // what-core's keyed rows move the row, which takes its focus (what-core's
+  // part, as the changed-props rebuild there is: MIXED.md, Limits).
+  assertKept(await drive(bundles.vnode), 'x a b', false);
+});
+
+// Two lists in one hole that share a key, and a list beside an element with
+// one of its keys: removing the first list's row never hands its node or its
+// state to the other one. what-core flattens a hole's arrays before it hands
+// the elements over, so a key two elements share cannot tell their rows
+// apart, and those are built again (MIXED.md, Limits). Lists in two holes (a
+// fragment) keep each row by key, as React does.
+test('native code that makes no vnode: two keyed lists, or a list and an element, never take each other\'s rows (production build)', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  window.__log = [];
+  await import(pathToFileURL(bundles.multi).href);
+  await settle();
+  const sections = ['nested', 'deep', 'sibling', 'frag'];
+  const before = {};
+  for (const id of sections) {
+    const [first, second] = document.querySelectorAll(`#${id} [data-row=a]`);
+    first.querySelector('input').value = 'first list';
+    second.querySelector('input').value = 'second list';
+    first.querySelector('button').click();
+    before[id] = { first, second };
+  }
+  await settle();
+  // Row a leaves the first list.
+  window.__order(['x', 'b']);
+  await settle();
+  for (const id of sections) {
+    const left = document.querySelectorAll(`#${id} [data-row=a]`);
+    assert.equal(left.length, 1, id);
+    const [a] = left;
+    assert.notEqual(a, before[id].first, `${id}: not the first list's node`);
+    assert.notEqual(a.querySelector('input').value, 'first list', `${id}: not the first list's text`);
+    assert.equal(a.querySelector('button').textContent, '0', `${id}: not the first list's state`);
+    assert.equal([...document.querySelectorAll(`#${id} [data-row]`)].map((el) => el.dataset.row).join(''), id === 'sibling' ? 'xba' : 'xbab', id);
+  }
+  // In two holes, the second list's row is its own, kept.
+  const kept = document.querySelector('#frag [data-row=a]');
+  assert.equal(kept, before.frag.second);
+  assert.equal(kept.querySelector('input').value, 'second list');
+  window.__unmount();
+  await settle();
+  assert.equal(document.getElementById('app').innerHTML, '');
 });

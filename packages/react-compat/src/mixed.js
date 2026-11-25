@@ -103,12 +103,24 @@ export function ReactIsland(props) {
 // island goes with that owner. When a run of the hole is over (its next run
 // begins, or the hole goes), what it placed can be taken by the next run;
 // what that run did not take is unmounted on the microtask after it (the
-// hole has removed its nodes by then). A key repeated in one run is placed
-// as an unkeyed element is.
+// hole has removed its nodes by then).
+//
+// what-core flattens the arrays a hole renders before it hands over their
+// elements, so a key here stands for the whole hole, not for one list in it.
+// A key that more than one element of a run has (two lists in one hole that
+// share keys, a list and an element beside it) cannot say which list's row
+// is which: those elements are built again on every run, as unkeyed ones are,
+// and a row never takes another list's island. Keys that each element of the
+// hole has alone are kept. Lists in holes of their own (a fragment of two
+// holes) are kept apart.
+//
+// what-core puts the rows in their new order by moving nodes, which takes the
+// focus from a moved element: the element that had it, inside the hole, gets
+// it back on the microtask after the run.
 /** @type {WeakMap<any, any>} */
 const holes = new WeakMap();
 
-function placeKeyed(vnode, svg) {
+function placeKeyed(vnode, svg, parent) {
   const key = vnode.key;
   // The record of an effect's run: its `owner` is the effect, whose own
   // `owner` is the owner the effect was created under (what-core reactive.js).
@@ -116,7 +128,7 @@ function placeKeyed(vnode, svg) {
   const hole = run && run.owner;
   const scope = hole && hole.fn && hole.owner;
   let state = scope != null && key != null ? holes.get(hole) : null;
-  if (state === undefined) holes.set(hole, (state = { run: null, live: null, old: null }));
+  if (state === undefined) holes.set(hole, (state = {}));
   if (state !== null && state.run !== run) {
     // The first keyed element of this run.
     const placed = (state.live = new Map());
@@ -125,11 +137,26 @@ function placeKeyed(vnode, svg) {
       state.old = placed;
       queueMicrotask(() => placed.forEach((entry) => entry.dispose()));
     });
+    // The focused element in the hole, before what-core moves the rows:
+    // focused again if the move took the focus from it (its text selection
+    // stays with it: an input keeps it when it is moved).
+    const focused = /** @type {any} */ (document.activeElement);
+    if (parent != null && parent.contains(focused)) {
+      queueMicrotask(() => {
+        if (document.activeElement === document.body && focused.isConnected) focused.focus({ preventScroll: true });
+      });
+    }
   }
-  if (state === null || state.live.has(key)) return _island(() => vnode, svg);
-  let entry = state.old !== null ? state.old.get(key) : undefined;
+  let entry = state !== null ? state.live.get(key) : undefined;
+  if (entry !== undefined) {
+    // A key another element of this run has: the next run takes neither.
+    entry.shared = true;
+  }
+  if (state === null || entry !== undefined) return _island(() => vnode, svg);
+  entry = state.old && state.old.get(key);
   let out;
-  if (entry !== undefined && entry.type === vnode.type && entry.svg === svg) {
+  // A hole is in SVG or not for as long as it lives: the type is enough.
+  if (entry && !entry.shared && entry.type === vnode.type) {
     state.old.delete(key);
     if (entry.vnode !== vnode) {
       entry.vnode = vnode;
@@ -138,7 +165,7 @@ function placeKeyed(vnode, svg) {
     out = _domNodes(entry.inst);
   } else {
     /** @type {any} */
-    const made = (entry = { type: vnode.type, svg, vnode, inst: null, dispose: null });
+    const made = (entry = { type: vnode.type, vnode });
     // The island's view records its instance (it renders as that instance).
     runWithOwner(scope, () => createRoot((dispose) => {
       made.dispose = dispose;

@@ -514,17 +514,25 @@ export function reactCompat(options = {}) {
   }, {
     // Class components come with Component's definition (src/index.js), so a
     // program none of whose classes extends Component does not carry them. A
-    // module that has `isReactComponent` in it (a class whose prototype is
-    // marked by hand, as React accepts, or a library that marks or reads the
-    // marker) imports `what-react/class`, which installs them; the program
-    // pays for them only then. The framework's own packages, which read the
-    // marker, are left alone. An import in an ES module, a require() in a
-    // CommonJS one.
+    // module that sets or reads the class marker as a property
+    // (CLASS_MARKER: a class whose prototype is marked by hand, as React
+    // accepts, or a library that marks or reads the marker) imports
+    // `what-react/class`, which installs them; the program pays for them
+    // only then. The framework's own packages, which read the marker, are
+    // left alone. An import in an ES module, a require() in a CommonJS one,
+    // added also where the module imports it already (a second import of a
+    // module does nothing): text that names it, in a comment, is not one.
+    // What the pattern still takes for a marker: text that spells the
+    // property access (`.isReactComponent`, `isReactComponent:`) in a string
+    // or a comment, which costs the class code and nothing else. What it
+    // misses: the marker set only through a computed name built at run time,
+    // or `Object.defineProperty(proto, 'isReactComponent', ...)`; such a
+    // class needs `import 'what-react/class'`.
     name: 'what-react-classes',
     enforce: 'post',
     transform(code, id) {
       const file = id.split('?')[0];
-      if (file.startsWith('\0') || !code.includes('isReactComponent') || code.includes(CLASSES)) return null;
+      if (file.startsWith('\0') || !code.includes('isReactComponent') || !CLASS_MARKER.test(code)) return null;
       if (isFrameworkFile(file)) return null;
       const install = ESM_HINT.test(code) || !CJS_HINT.test(code)
         ? `${code}\nimport ${JSON.stringify(CLASSES)};\n`
@@ -535,6 +543,9 @@ export function reactCompat(options = {}) {
 }
 
 const CLASSES = 'what-react/class';
+// The class marker as a property: `x.isReactComponent`, `x?.isReactComponent`,
+// `{ isReactComponent: ... }`, `x['isReactComponent']`, `'isReactComponent' in x`.
+const CLASS_MARKER = /\.isReactComponent\b|\bisReactComponent\s*:|\[\s*(['"`])isReactComponent\1\s*\]|(['"`])isReactComponent\2\s+in\b/;
 
 /** @type {Map<string, { name: string | null, root: string } | null>} */
 const packagesOf = new Map();

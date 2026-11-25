@@ -774,7 +774,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`what-react/class`** installs class components for a program whose
   classes do not extend `Component` (a class marked `isReactComponent` by
   hand, as React accepts, or by a library). `reactCompat()` imports it into
-  every module that has `isReactComponent` in it; a build without the plugin
+  every module whose code sets or reads the `isReactComponent` property; a
+  build without the plugin
   imports it once. `ERR_CLASS_COMPONENT_NOT_INSTALLED` names the fix when
   neither did.
 - **what-devtools-mcp/vite looks for `what-devtools` where Vite resolves the
@@ -1096,9 +1097,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   with `Component`'s definition, which the bundler drops when nothing
   references `Component`. `Component` still installs it, so an app without
   classes carries none of it; `what-react/class` installs it on its own, and
-  `reactCompat()` imports it into any module whose code contains
-  `isReactComponent` (`node_modules` included, the framework's own files
-  excepted). A build without the plugin that reaches such a class throws
+  `reactCompat()` imports it into any module whose code sets or reads the
+  `isReactComponent` property (`node_modules` included, the framework's own
+  files excepted). A build without the plugin that reaches such a class throws
   `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering nothing. Tested in
   esbuild and Vite production builds (`packages/react-compat/test/bundle.test.js`).
 - **what-react: a keyed list of React elements placed by native What code
@@ -1106,7 +1107,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   it, losing its node, its React state, the text typed in it and the focus.
   Each keyed island is kept under the hole's owner and handed back by key and
   type on the next run, rendered with the new element; a row whose key goes
-  unmounts on the following microtask (MIXED.md, Limits;
+  unmounts on the following microtask, and a moved row that had the focus
+  gets it back, with its selection. Rows of two lists in one hole that share
+  a key are built again, never handed to each other (MIXED.md, Limits;
   `packages/react-compat/test/native-keyed-list.test.js`).
 - **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
   as in TanStack Query, not the spelling that created the cache entry they
@@ -1596,7 +1599,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   what-core's unbuilt component call instead of `h()`, which installed
   what-core's vnode renderer in every React app; the class lifecycle comes
   with `Component`, or with `what-react/class`, which the Vite plugin imports
-  into a module that has `isReactComponent` (without either, such a class
+  into a module that sets or reads the `isReactComponent` property (without either, such a class
   throws `ERR_CLASS_COMPONENT_NOT_INSTALLED`); `Suspense`, `StrictMode`, `Profiler` and `Activity` are
   dropped when unused; how an island claims the server's region is installed
   by the hydrating entry (`what-react/claim-islands`, which
