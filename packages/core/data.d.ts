@@ -264,7 +264,15 @@ export function invalidatePath(path: string): Promise<void>;
 /** Call `callback` whenever invalidatePath(path) runs. Returns the unsubscribe. */
 export function onRevalidate(path: string, callback: () => void): () => void;
 
-/** Fetch `key` into the cache unless it holds a value fresher than `staleTime`, and resolve with it. The fetch calls `fetcher` with `key` as written, even while other readers of the entry are attached. Rejects with a failed fetch's error. */
+/**
+ * Fetch `key` into the cache unless it holds a value fresher than `staleTime`,
+ * and resolve with it. The fetch calls `fetcher` with `key` as written, even
+ * while other readers of the entry are attached, or joins a fetch already in
+ * flight for the entry. It runs to completion and writes the cache even if
+ * every reader of the key unmounts meanwhile; a newer fetch of the key
+ * supersedes it, and it resolves with that one's value. Rejects with a failed
+ * fetch's error.
+ */
 export function prefetchQuery<T = any, K extends QueryKey = QueryKey>(
   key: K,
   fetcher: (key: K, ctx: { signal: AbortSignal }) => Promise<T> | T,

@@ -284,6 +284,9 @@ function startFlight(e) {
     by: e.by,
     conf: from.conf,
     key: from.key,
+    // A prefetchQuery waits on it (it started it, joined it, or a flight it
+    // waited on was superseded by this one): no reader unmounting cancels it.
+    keep: from.keep === true || (prev !== null && prev.keep),
     op,
     /** @type {any} */ promise: null,
     failed: false,
@@ -327,7 +330,7 @@ function startFlight(e) {
 // entry's own: the last attach's fetcher and key.
 function sourceOf(e) {
   for (const o of [e.by, e.src]) {
-    if (o != null && o.alive !== false && (o.hash === undefined || untrack(o.hash) === e.hash)) return o;
+    if (o != null && (o.hash === undefined || untrack(o.hash) === e.hash)) return o;
   }
   return e;
 }
@@ -651,10 +654,10 @@ function release(e, o) {
   // and key stay, as e.conf and e.key).
   if (e.src === o) e.src = null;
   if (e.observers.size > 0) return;
-  // Nothing shows this entry now: what is in flight is cancelled (its readers
-  // keep the last value), and the entry is dropped once it has stayed unread
-  // for its gcTime.
-  if (e.flight !== null) commitValue(e, untrack(() => e.node.peek()));
+  // Nothing shows this entry now: what the readers had in flight is cancelled
+  // (they keep the last value), a prefetch's runs on, and the entry is dropped
+  // once it has stayed unread for its gcTime.
+  if (e.flight !== null && !e.flight.keep) commitValue(e, untrack(() => e.node.peek()));
   armGc(e);
 }
 
@@ -1329,7 +1332,9 @@ function matching(target, exact) {
 // The active reader that attached last: an invalidation fetches as it.
 function lastActive(e) {
   let last = null;
-  for (const o of e.observers) if (o.active()) last = o;
+  // Among the readers that read it now: one whose key has just moved to
+  // another entry still holds this one until its effect runs.
+  for (const o of e.observers) if (o.active() && untrack(o.hash) === e.hash) last = o;
   return last;
 }
 
@@ -1411,15 +1416,18 @@ export function prefetchQuery(key, fetcher, options = {}) {
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
   // Its fetch calls its own fetcher with its own key, whoever else reads the
   // entry; with no reader, the cache's own fetches use them too.
-  const own = { conf: { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay }, key };
+  const own = { conf: { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay }, key, keep: true };
   if (e.observers.size === 0) {
     e.conf = own.conf;
     e.key = key;
   }
   const v = valueOf(e);
   let done;
-  if (e.flight !== null) done = outcome(e, e.flight);
-  else if (v !== undefined && e.error === undefined && Date.now() - e.updatedAt <= (options.staleTime ?? 0)) done = Promise.resolve(v);
+  if (e.flight !== null) {
+    // It joins the fetch in flight, which then runs to completion for it.
+    e.flight.keep = true;
+    done = outcome(e, e.flight);
+  } else if (v !== undefined && e.error === undefined && Date.now() - e.updatedAt <= (options.staleTime ?? 0)) done = Promise.resolve(v);
   else done = refetchOf(e, own);
   armGc(e);
   return done;
