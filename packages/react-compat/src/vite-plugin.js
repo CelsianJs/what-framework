@@ -100,13 +100,22 @@ export function detectSsrReactPackages(projectRoot, { commonjs = false, dependen
     if (REPLACED_PACKAGES.includes(name) || FRAMEWORK_PACKAGES.includes(name) || name === 'what-react') continue;
     // Seen as an app dependency, a package is looked at again when a React
     // package turns out to depend on it.
-    const key = (under && dependencies ? 'dep:' : '') + name;
+    const key = (under ? 'dep:' : '') + name;
     if (seen.has(key) || seen.has('dep:' + name)) continue;
     seen.add(key);
     const hit = readPkg(name, fromDir);
     if (hit === null) continue;
     const react = isReactPackage(hit.pkg);
-    if (!react && !(under && dependencies)) continue;
+    // A dependency that Node and a bundler load differently (no exports map,
+    // a CommonJS main, an ES module build): Node takes the main, where a
+    // default import is the whole exports object, so one whose main sets
+    // __esModule has no callable default there (@emotion/hash 0.8, under
+    // @ant-design/cssinjs: every antd island rendered empty in the dev
+    // server). A bundler takes the module build, and so does Vite for a
+    // bundled package: bundled in the dev server too, it is the same file
+    // as in a production server build.
+    const split = under && !react && hit.pkg.exports === undefined && typeof hit.pkg.module === 'string' && hit.pkg.type !== 'module';
+    if (!react && !(under && dependencies) && !split) continue;
     const esm = hit.pkg.type === 'module' || Boolean(hit.pkg.module) || JSON.stringify(hit.pkg.exports ?? '').includes('"import"');
     if (esm || commonjs) found.add(name);
     const deps = react ? { ...hit.pkg.dependencies, ...hit.pkg.peerDependencies } : { ...hit.pkg.dependencies };
@@ -310,6 +319,7 @@ export function reactCompat(options = {}) {
   let compatDir = ownDir;
   let serving = false;
   let ssrBuild = false;
+  let building = false;
   /** @type {unknown} */
   let noExternal = [];
 
@@ -402,16 +412,27 @@ export function reactCompat(options = {}) {
 
     configResolved(config) {
       serving = config.command === 'serve';
-      ssrBuild = config.command === 'build' && Boolean(config.build && config.build.ssr);
+      building = config.command === 'build';
+      ssrBuild = building && Boolean(config.build && config.build.ssr);
       noExternal = config.ssr ? config.ssr.noExternal : [];
       console.log(`\n  ⚡ what-react compat active${mixedOn ? ' (mixed: native What files and React files)' : ''}\n`);
     },
 
-    // An app whose root cannot resolve `what-react`: the name is this
-    // plugin's own package.
     resolveId(id, importer, opts) {
+      // A client build has no use for an island's server render: mixed.js
+      // reaches server.js only where what-core renders on the server, so a
+      // build for the browser gets a stand-in, and its bundle does not carry
+      // the server's renderer (the dev server, and tests run through Vite,
+      // keep the file).
+      if (id === './server.js' && building && importer !== undefined && !isServerResolve(this, opts) && isWhatReactMixed(importer)) return SERVER_STUB;
+      // An app whose root cannot resolve `what-react`: the name is this
+      // plugin's own package.
       if (ownEntries === null || !Object.prototype.hasOwnProperty.call(ownEntries, id)) return null;
       return this.resolve(ownEntries[id], importer, { ...opts, skipSelf: true });
+    },
+
+    load(id) {
+      return id === SERVER_STUB ? SERVER_STUB_CODE : null;
     },
 
     // A CommonJS module in a dev-server render (see commonJsToEsm).
@@ -484,6 +505,35 @@ export function reactCompat(options = {}) {
       return { code: `${code}\nimport { _hydrateIslands as ${HYDRATE_ISLANDS} } from 'what-react/mixed';\n${HYDRATE_ISLANDS}();\n`, map: null };
     },
   }];
+}
+
+// The stand-in for what-react's server.js in a client build (resolveId).
+const SERVER_STUB = '\0what-react:server-stub';
+const SERVER_STUB_CODE = "export function serverTree() { throw new Error('[what-react] This client build does not carry the island server renderer (a React island renders to HTML on the server only).'); }\n";
+
+function isServerResolve(ctx, opts) {
+  if (opts && opts.ssr) return true;
+  const env = ctx && ctx.environment;
+  return Boolean(env && env.config && env.config.consumer === 'server');
+}
+
+/** @type {Map<string, boolean>} */
+const mixedFiles = new Map();
+
+// Whether `importer` is what-react's src/mixed.js (any copy of the package).
+function isWhatReactMixed(importer) {
+  const file = importer.split('?')[0];
+  if (!file.endsWith(path.join('src', 'mixed.js'))) return false;
+  let known = mixedFiles.get(file);
+  if (known === undefined) {
+    try {
+      known = JSON.parse(fs.readFileSync(path.join(path.dirname(path.dirname(file)), 'package.json'), 'utf8')).name === 'what-react';
+    } catch {
+      known = false;
+    }
+    mixedFiles.set(file, known);
+  }
+  return known;
 }
 
 // What only what-compiler's hydratable output imports, in the import it

@@ -35,6 +35,10 @@ export default {
       await t.press('Enter');
       await t.text('#rm-picked', 'deep');
       await t.gone('#rm-content');
+      // Radix gives the focus back to the trigger a task after the menu
+      // unmounts (FocusScope, setTimeout 0): wait for it, or the next step's
+      // focus can be taken back from under it.
+      await t.focus('rm-trigger');
     });
     await t.step('the select shows its value and opens from the keyboard', async () => {
       await t.text('#rs-trigger', /Apple/);

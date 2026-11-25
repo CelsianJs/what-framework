@@ -48,11 +48,12 @@ import * as coreRender from 'what-core/render';
 import { _$createComponent, _$hcreateComponent, _hydrateRange } from 'what-core/render';
 import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
-import { idsOf, islandId, styleText, RENAMED } from './server.js';
+import { idsOf, islandId, boundaryIds, apart, idsMark, idsBack, styleText, attrOf, attrName } from './markup.js';
 import {
-  KIND_TEXT, KIND_ELEMENT, KIND_COMPONENT, KIND_OPAQUE, KIND_PORTAL, NO_RNODES, TEXTAREA_KIDS, SVG_NS, SVG_ATTR_MAP,
-  claim, _setClaim, _setAdopter, _setNativeBuilder, mountRNode, mountComponent, mountChildren, flatten, flatIds, flatLists,
-  onlyText, setText, setProperty, trackField, controlField, refQueue, runInCommit, renderInstance, unmountRNode,
+  KIND_TEXT, KIND_ELEMENT, KIND_COMPONENT, KIND_OPAQUE, KIND_PORTAL, NO_RNODES, TEXTAREA_KIDS, SVG_NS,
+  claim, _setClaim, _setAdopter, _setNativeBuilder, mountRNode, mountComponent, mountPortal, mountChildren, flatten, flatIds, flatLists,
+  onlyText, setText, setProperty, trackField, controlField, insertionQueue, layoutQueue, passiveQueue, formActionRunner,
+  runInCommit, renderInstance, unmountRNode,
 } from './runtime.js';
 
 // The onHydrationError hook of the hydrate() walking now (what-core
@@ -87,16 +88,40 @@ function adopt(inst, start, end) {
   return () => {
     if (inst.unmounted || end.parentNode === null) return;
     claimIsland(inst, start, end, onError, ownerPath === undefined ? null : ownerPath);
+    replaySubmits();
   };
+}
+
+// ---- A form submitted before hydration ----
+// What the server's capture script kept (server.js FORM_GUARD): each submit
+// whose form (or submitter) has its function action now runs it with the
+// data it was submitted with, as React replays it; the others wait for their
+// island (or <Suspense>) to hydrate.
+function replaySubmits() {
+  const queue = typeof document !== 'undefined' ? /** @type {any} */ (document).$$whatForms : undefined;
+  if (!Array.isArray(queue) || queue.length === 0 || formActionRunner === null) return;
+  for (let i = 0; i < queue.length;) {
+    const form = queue[i];
+    const submitter = queue[i + 1];
+    const action = submitter && typeof submitter._compatAction === 'function' ? submitter._compatAction : form._compatAction;
+    if (typeof action !== 'function' || !form.isConnected) {
+      i += 3;
+      continue;
+    }
+    const data = queue[i + 2];
+    queue.splice(i, 3);
+    formActionRunner(form, action, data);
+  }
 }
 
 // ---- The cursor ----
 // Where the claim stands: the element it claims in (p), the next server node
 // (n; null at the element's end), where its region ends (e: the island's or
 // a <Suspense>'s closing marker, else null), whether the element said
-// suppressHydrationWarning (s), and the <Suspense> being hydrated around it
-// (r: see claimSuspense).
-/** @type {{ p: any, n: any, e: any, s: boolean, r: any } | null} */
+// suppressHydrationWarning (s), the <Suspense> being hydrated around it
+// (r: see claimSuspense), whether what the client renders there differs
+// from the server's in structure (d: see differs), and its reports (q).
+/** @type {{ p: any, n: any, e: any, s: boolean, r: any, d: boolean, q: any[] | null } | null} */
 let cur = null;
 /** @type {any[]} */
 const outer = [];
@@ -110,40 +135,141 @@ function claimIsland(inst, start, end, onError, ownerPath) {
   const savedCur = cur;
   const depth = outer.length;
   const claiming = claim;
-  session = { onError, reported: new WeakSet(), ownerPath, island: inst };
-  cur = { p: end.parentNode, n: start.nextSibling, e: end, s: false, r: undefined };
+  session = { onError, reported: new WeakMap(), ownerPath, island: inst };
+  cur = { p: end.parentNode, n: start.nextSibling, e: end, s: false, r: undefined, d: false, q: null };
   runInCommit(() => {
+    const marks = queued();
+    const ids = idsMark(inst);
+    let thrown = NOT_THROWN;
+    let differed = false;
     _setClaim(claimNode);
     try {
       renderInstance(inst);
-      finish(cur, '');
+      const top = /** @type {NonNullable<typeof cur>} */ (cur);
+      finish(top, '');
+      differed = top.d;
+      send(top);
+    } catch (error) {
+      thrown = error;
     } finally {
       _setClaim(claiming);
       cur = savedCur;
       outer.length = depth;
       session = saved;
     }
+    if (thrown !== NOT_THROWN) recoverIsland(inst, start, end, thrown, marks, onError, ownerPath);
+    else if (differed) renderAgain(inst, start, end, marks, ids);
   });
 }
 
-// Run `fn` (a mount) with no claim: what it builds is new.
+// ---- An island that throws while it hydrates ----
+// One island's error stays in that island: the walk, the other islands and
+// the native page hydrate as if it were not there. What its render did to
+// the server's HTML goes, with every ref and effect the render queued (none
+// runs), and it renders again in the browser, as React renders a root again
+// when hydrating it threw. Should that throw too, the island is left empty,
+// as React unmounts a root whose render throws: the server's HTML of a
+// component that cannot render in the browser would look live and do
+// nothing. Either way the error is reported (console.error in every build,
+// as React's reportError, and hydrate()'s onHydrationError with kind
+// `error`). An error boundary above it (in a React tree around the island)
+// catches it first, as always.
+
+const NOT_THROWN = {};
+
+// How long each effect queue of the commit is now.
+function queued() {
+  return [insertionQueue.length, layoutQueue.length, passiveQueue.length];
+}
+
+// What a render that threw queued after `marks` never runs.
+function drop(marks) {
+  insertionQueue.length = marks[0];
+  layoutQueue.length = marks[1];
+  passiveQueue.length = marks[2];
+}
+
+// The island `inst` (or a <Suspense> it hydrates) holds nothing: what it
+// rendered unmounts, and the nodes between its markers go.
+function empty(inst, start, end) {
+  const rendered = inst.rendered;
+  inst.rendered = NO_RNODES;
+  for (let i = 0; i < rendered.length; i++) unmountRNode(rendered[i], false);
+  for (let x = start.nextSibling; x !== null && x !== end;) {
+    const next = x.nextSibling;
+    x.remove();
+    x = next;
+  }
+}
+
+function recoverIsland(inst, start, end, error, marks, onError, ownerPath) {
+  drop(marks);
+  empty(inst, start, end);
+  let recovered = true;
+  if (!inst.unmounted) {
+    try {
+      // A client render: what it reads is the browser's (useSyncExternalStore's own snapshot).
+      withClaim(null, () => renderInstance(inst));
+    } catch (again) {
+      drop(marks);
+      empty(inst, start, end);
+      error = again;
+      recovered = false;
+    }
+  }
+  thrownWhileHydrating(error, recovered, onError, ownerPath, end);
+}
+
+function thrownWhileHydrating(error, recovered, onError, ownerPath, at) {
+  console.error(`[what-react] A React island threw while it hydrated, so ${recovered ? 'it was rendered again in the browser' : 'it renders nothing'}:`, error);
+  if (onError !== null) {
+    onError({
+      kind: 'error', component: 'ReactIsland', ownerPath, path: domPath(at.parentNode),
+      expected: 'a render', found: String(error && error.message !== undefined ? error.message : error),
+      recovery: recovered ? 'client-render' : 'none', error,
+    });
+  }
+}
+
+// Run `fn` (a mount) claiming nothing: what it builds is new. It is still
+// part of the island's hydrating render (fresh): useSyncExternalStore reads
+// the server snapshot in it as in what is claimed around it, so the two
+// agree in one commit.
 function built(fn) {
+  return withClaim(fresh, fn);
+}
+
+function withClaim(fn, mount) {
   const claiming = claim;
-  _setClaim(null);
+  _setClaim(fn);
   try {
-    return fn();
+    return mount();
   } finally {
     _setClaim(claiming);
   }
 }
 
+// runtime.js mountRNode while a hydrating island builds something new: null
+// (mounted as always), except for what names ids. A <Suspense> takes its id
+// as it does where it is claimed (claimSuspense), and a portal's content is
+// numbered apart (server.js useId).
+function fresh(v, kind, parentDom, before, svg, owner, into) {
+  if (kind === KIND_PORTAL) return apart(owner, 'P', () => mountPortal(v, parentDom, before, owner, into));
+  if (kind !== KIND_COMPONENT || (/** @type {any} */ (v.tag)._compatType || v.tag) !== Suspense) return null;
+  const rn = mountComponent(v, parentDom, before, svg, owner, into);
+  boundaryIds(rn.inst);
+  return rn;
+}
+
 function enter(p, n, e, s, r) {
   outer.push(cur);
-  cur = { p, n, e, s, r };
+  cur = { p, n, e, s, r, d: false, q: null };
 }
 
 function leave() {
+  const inner = cur;
   cur = outer.pop();
+  pass(inner, cur);
 }
 
 // The separator a hydratable server render writes between two texts
@@ -174,11 +300,6 @@ function at(c) {
   return n;
 }
 
-// The node after `n` past separators, in the cursor's region.
-function after(c, n) {
-  return past(n.nextSibling, c);
-}
-
 // ---- The claim ----
 
 /**
@@ -193,6 +314,9 @@ function claimNode(v, kind, parentDom, before, svg, owner, into) {
   if (kind < 0) return suspended(v, parentDom);
   const c = cur;
   if (c === null || parentDom !== c.p) return null;
+  // The rest of a region whose structure differs: built off the page, and
+  // rendered again with the whole region (differs).
+  if (c.d) return built(() => mountRNode(v, kind, null, null, svg, owner, into));
   const r = c.r;
   if (r !== undefined) {
     // The <Suspense> being hydrated around it: its first child names it, and
@@ -224,7 +348,7 @@ function claimNode(v, kind, parentDom, before, svg, owner, into) {
       return rebuild(c, () => mountRNode(v, kind, c.p, c.n, svg, owner, into), owner);
     case KIND_PORTAL:
       // Rendered nothing on the server: its children mount in its container.
-      return built(() => mountRNode(v, kind, parentDom, c.n, svg, owner, into));
+      return built(() => fresh(v, kind, parentDom, c.n, svg, owner, into));
   }
   return null;
 }
@@ -286,7 +410,8 @@ function holdsElement(value) {
 // again in place of the server's nodes for it.
 function rebuild(c, mount, owner) {
   const region = regionAt(c);
-  if (region === null) report(c, 'marker', 'native What content', describe(c.n === c.e ? null : c.n), c.n || c.p, owner);
+  // No bracket: the server rendered something else here (differs).
+  if (region === null) differs(c, 'marker', 'native What content', describe(c.n === c.e ? null : c.n), c.n || c.p, owner);
   else {
     c.n = region[1].nextSibling;
     removeRegion(region[0], region[1]);
@@ -344,20 +469,14 @@ function textNode(v, dom, text) {
 function claimText(c, v, text, owner) {
   // The server writes nothing for an empty text: it is made, as a client render makes it.
   if (text === '') return placeText(c, v, text);
-  let n = at(c);
-  if (n !== null && n.nodeType !== 3) {
-    // A node the client does not render, before the text it does.
-    const next = after(c, n);
-    if (next !== null && next.nodeType === 3 && next.data.startsWith(text)) {
-      report(c, 'extra-nodes', 'nothing', describe(n), n, owner);
-      n.remove();
-      c.n = next;
-      n = next;
-    }
-  }
+  const n = at(c);
   if (n === null || n.nodeType !== 3) {
-    report(c, n === null ? 'missing' : n.nodeType === 8 ? 'marker' : 'tag', JSON.stringify(short(text)), describe(n), n || c.p, owner);
-    return placeText(c, v, text);
+    // A node the client does not render where it renders a text (before
+    // the text: extra-nodes), or none.
+    const next = n === null ? null : past(n.nextSibling, c);
+    const kind = n === null ? 'missing' : next !== null && next.nodeType === 3 && next.data.startsWith(text) ? 'extra-nodes' : n.nodeType === 8 ? 'marker' : 'tag';
+    differs(c, kind, kind === 'extra-nodes' ? 'nothing' : JSON.stringify(short(text)), describe(n), n || c.p, owner);
+    return textNode(v, document.createTextNode(text), text);
   }
   const data = n.data;
   if (sameText(data, text)) {
@@ -399,18 +518,13 @@ const FIELD_STATE = new Set(['value', 'checked', 'defaultValue', 'defaultChecked
 function claimElement(c, v, svg, owner) {
   const tag = v.tag;
   const isSvg = svg === true || tag === 'svg';
-  let el = at(c);
+  const el = at(c);
   if (!isElement(el, tag, isSvg)) {
-    const next = el === null ? null : after(c, el);
-    if (el !== null && isElement(next, tag, isSvg)) {
-      // A node the client does not render, before the element it does.
-      report(c, 'extra-nodes', 'nothing', describe(el), el, owner);
-      el.remove();
-      c.n = next;
-      el = next;
-    } else {
-      return replace(c, v, svg, owner, el);
-    }
+    // Another node (another tag, a text, a marker; before the element:
+    // extra-nodes), or none.
+    const kind = el === null ? 'missing' : isElement(past(el.nextSibling, c), tag, isSvg) ? 'extra-nodes' : el.nodeType === 8 ? 'marker' : el.nodeType === 3 ? 'text' : 'tag';
+    differs(c, kind, kind === 'extra-nodes' ? 'nothing' : `<${v.tag}>`, describe(el), el || c.p, owner);
+    return built(() => mountRNode(v, KIND_ELEMENT, null, null, svg, owner, null));
   }
   c.n = el.nextSibling;
 
@@ -429,14 +543,18 @@ function claimElement(c, v, svg, owner) {
 
   const raw = v.children !== undefined ? v.children : props.children;
   if (props.dangerouslySetInnerHTML != null) {
-    // The server's content stands: raw HTML is the server's (React compares
-    // it in development only).
+    // The server's content stands: raw HTML is the server's. In development
+    // one that differs is reported, as React warns (it compares the HTML as
+    // the browser reads it).
+    if (__DEV__ && !suppress) {
+      const html = props.dangerouslySetInnerHTML.__html;
+      const want = html == null ? '' : readAs(el, String(html));
+      if (el.innerHTML !== want) report(c, 'attribute', `innerHTML ${JSON.stringify(short(want))}`, `innerHTML ${JSON.stringify(short(el.innerHTML))}`, el, owner, 'none');
+    }
   } else if (tag === 'noscript') {
-    // To the browser the server's content is text, which stays; React
-    // hydrates none of it. Its children are built off the page, so a later
-    // render patches them there instead of mounting them.
-    const kids = flatten(raw);
-    if (kids.length > 0) rn.children = built(() => mountChildren(null, kids, flatIds, flatLists, 0, kids.length, new Array(kids.length), null, false, owner, rn));
+    // To the browser the server's content is text, which stays. What it
+    // holds is not rendered in the browser at all, as in React (runtime.js
+    // mountElement): no component in it renders or runs an effect.
   } else if (tag === 'textarea' && !isSvg && (raw == null || onlyText(raw) !== null || (Array.isArray(raw) && raw.length === 0))) {
     // Its children were its default value (claimField).
     rn.children = TEXTAREA_KIDS;
@@ -454,87 +572,114 @@ function claimElement(c, v, svg, owner) {
       const kids = flatten(raw);
       const ids = flatIds;
       const lists = flatLists;
+      const marks = queued();
+      const idMark = idsMark(owner);
+      let differed = false;
       enter(el, el.firstChild, null, suppress, c.r);
       try {
         if (kids.length > 0) rn.children = mountChildren(el, kids, ids, lists, 0, kids.length, new Array(kids.length), null, childSvg, owner, rn);
-        finish(cur, tag, owner);
+        const inner = /** @type {NonNullable<typeof cur>} */ (cur);
+        finish(inner, tag, owner);
+        differed = inner.d;
       } finally {
         leave();
+      }
+      if (differed) {
+        // Its children differ from the server's in structure: rendered again
+        // by the client, all of them (differs).
+        forget(rn.children, marks, idMark);
+        el.textContent = '';
+        rn.children = built(() => mountChildren(el, kids, ids, lists, 0, kids.length, new Array(kids.length), null, childSvg, owner, rn));
       }
     }
   }
 
   if (field) claimField(c, el, tag, props, suppress, owner);
-  if (rn.ref) refQueue.push({ rn, ref: rn.ref, el });
+  if (rn.ref) layoutQueue.push({ rn, ref: rn.ref, el, inst: owner });
   return rn;
 }
 
 const NO_PROPS = {};
 
-// The client's element in place of the server's node `found` (another tag, a
-// text, a marker, or nothing), built as a client render builds it.
-function replace(c, v, svg, owner, found) {
-  const kind = found === null ? 'missing' : found.nodeType === 8 ? 'marker' : found.nodeType === 3 ? 'text' : 'tag';
-  report(c, kind, `<${v.tag}>`, describe(found), found || c.p, owner);
-  const rn = built(() => mountRNode(v, KIND_ELEMENT, null, null, svg, owner, null));
-  if (found !== null && (found.nodeType === 1 || found.nodeType === 3)) {
-    c.n = found.nextSibling;
-    c.p.replaceChild(rn.dom, found);
-  } else {
-    c.p.insertBefore(rn.dom, c.n);
-  }
-  return rn;
+// `html` as the browser reads it in an element like `el`.
+function readAs(el, html) {
+  const probe = el.namespaceURI === SVG_NS ? document.createElementNS(SVG_NS, el.localName) : document.createElement(el.localName);
+  probe.innerHTML = html;
+  return probe.innerHTML;
+}
+
+// ---- Structure ----
+// Where what the client renders in an element (or at the top of an island or
+// a <Suspense>) differs from the server's in structure (a node the client
+// does not render, one the server did not, another tag), nothing of that
+// region is mended by position: one report, the rest of it is built off the
+// page, and once it has rendered, the client renders all of it again in
+// place of the server's nodes (claimElement, renderAgain), as React renders
+// a boundary again. So no node's state (typed text, focus, a scroll
+// position, an open <details>, a playing video) ends up in another item's
+// node. A text or an attribute that differs is mended where it is.
+
+function differs(c, kind, expected, found, node, owner) {
+  if (c.d) return;
+  c.d = true;
+  // What this region reported so far is about nodes that go.
+  c.q = null;
+  report(c, kind, expected, found, node, owner);
+}
+
+// What a render that is rendered again did goes: its rendered nodes unmount,
+// no ref or effect it queued runs, and the ids it took are given again.
+function forget(rendered, marks, idMark) {
+  drop(marks);
+  for (let i = 0; i < rendered.length; i++) unmountRNode(rendered[i], false);
+  idsBack(idMark);
+}
+
+// An island, or a <Suspense> it hydrates (start and end: its markers), whose
+// structure differs at its top: rendered again by the client between its
+// markers, still as part of the hydrating render (built).
+function renderAgain(inst, start, end, marks, idMark) {
+  const rendered = inst.rendered;
+  inst.rendered = NO_RNODES;
+  forget(rendered, marks, idMark);
+  empty(inst, start, end);
+  const own = inst.start;
+  inst.start = start;
+  inst.end = end;
+  built(() => renderInstance(inst));
+  if (own === null) inst.start = inst.end = null;
 }
 
 // The nodes left in the cursor's region once the client's have claimed
-// theirs are the server's only: reported, and removed (a form and a button
-// keep them, as React keeps them).
+// theirs are the server's only: a difference in structure (a form and a
+// button keep them, unreported, as React keeps them).
 function finish(c, tag, owner) {
   const n = at(c);
   if (n === null || tag === 'form' || tag === 'button') return;
-  report(c, 'extra-nodes', 'nothing', describe(n), n, owner);
-  for (let x = n; x !== null && x !== c.e;) {
-    const next = x.nextSibling;
-    x.remove();
-    x = next;
-  }
-  c.n = c.e;
+  differs(c, 'extra-nodes', 'nothing', describe(n), n, owner);
 }
 
 // ---- Attributes ----
 
-// The attribute a prop writes.
-function attrName(name, svg) {
-  if (name === 'className' || name === 'class') return 'class';
-  if (name === 'htmlFor') return 'for';
-  if (svg) return name === 'xlinkHref' ? 'xlink:href' : SVG_ATTR_MAP[name] || name;
-  return RENAMED[name] || name;
-}
-
-// Whether the server's attribute for `name` is what the client's prop writes
-// (runtime.js setProperty).
-function attrMatches(el, name, value, svg) {
-  const current = el.getAttribute(attrName(name, svg));
+// Whether the server's attribute for the prop `name` is what the server
+// writes for the client's value (server.js attrOf: both sides render the same
+// props, so the same attributes).
+function attrMatches(el, tag, name, value, svg) {
   if (name === 'style') {
     const want = value == null ? '' : typeof value === 'object' ? styleText(value) : String(value);
-    return (current ?? '') === want;
+    return (el.getAttribute('style') ?? '') === want;
   }
-  if (name === 'className' || name === 'class') return (current ?? '') === (value == null || value === false ? '' : String(value));
-  if (value == null) return current === null;
-  const aria = name.startsWith('data-') || name.startsWith('aria-');
-  if (aria) return current === String(value);
-  // A property the element reads as a boolean (disabled, hidden, draggable):
-  // the client writes the property.
-  if (!svg && name !== 'value' && name in el && typeof el[name] === 'boolean') return el[name] === !!value;
-  if (value === true) return current !== null;
-  if (value === false) return current === null;
-  return current === String(value);
+  const want = attrOf(name, value, tag, svg);
+  const current = el.getAttribute(want !== null ? want[0] : attrName(name, svg));
+  if (want === null) return current === null;
+  return want[1] === true ? current !== null : current === want[1];
 }
 
 // Every prop of the claimed element `el` as a client render writes it, where
 // the server's attribute is not already that: handlers attached, refs and the
-// field state left to the caller, a differing attribute reported and written,
-// a server attribute no prop writes reported and removed.
+// field state left to the caller, a differing attribute reported and written.
+// A server attribute no prop writes (one an extension added: data-gramm, a
+// password manager's autocomplete) is reported and kept, as React keeps it.
 function claimAttributes(c, el, tag, props, svg, field, suppress, owner) {
   const custom = !svg && tag.includes('-');
   for (const name in props) {
@@ -557,40 +702,50 @@ function claimAttributes(c, el, tag, props, svg, field, suppress, owner) {
       if (el[name] !== value) setProperty(el, name, value, undefined, svg);
       continue;
     }
-    if (attrMatches(el, name, value, svg)) continue;
+    if (attrMatches(el, tag, name, value, svg)) continue;
     if (!suppress) {
-      const attr = attrName(name, svg);
-      report(c, 'attribute', value == null ? `no ${attr}` : `${attr}="${short(String(name === 'style' && typeof value === 'object' ? styleText(value) : value))}"`, describeAttr(el, attr), el, owner);
+      const want = name === 'style' ? null : attrOf(name, value, tag, svg);
+      const attr = want !== null ? want[0] : attrName(name, svg);
+      const text = name === 'style' ? (typeof value === 'object' && value !== null ? styleText(value) : String(value ?? '')) : want === null ? null : want[1] === true ? '' : want[1];
+      report(c, 'attribute', text === null ? `no ${attr}` : `${attr}="${short(text)}"`, describeAttr(el, attr), el, owner);
       if (value == null) el.removeAttribute(attr);
       else {
         if (name === 'style') el.removeAttribute('style');
         setProperty(el, name, value, undefined, svg);
+        // An enumerated one (spellCheck={false}) is its text, as React writes it.
+        if (want !== null && typeof want[1] === 'string' && el.getAttribute(attr) !== want[1]) el.setAttribute(attr, want[1]);
       }
     }
   }
-  // The server's attributes that no prop writes.
+  // The server's attributes that no prop writes: kept.
   if (!suppress && el.hasAttributes()) {
+    const written = writtenAttrs(props, tag, svg);
     for (const attr of el.getAttributeNames()) {
       // The server marks the option its select's value chose (React's too).
-      if (rendersAttr(props, attr, svg) || (attr === 'selected' && tag === 'option')) continue;
-      report(c, 'attribute', `no ${attr}`, describeAttr(el, attr), el, owner);
-      el.removeAttribute(attr);
+      if (written.has(svg ? attr : attr.toLowerCase()) || (attr === 'selected' && tag === 'option')) continue;
+      report(c, 'attribute', `no ${attr}`, describeAttr(el, attr), el, owner, 'none');
     }
   }
 }
 
-function rendersAttr(props, attr, svg) {
-  const name = svg ? attr : attr.toLowerCase();
+// The attributes the server writes for `props` (lower case for HTML).
+function writtenAttrs(props, tag, svg) {
+  const out = new Set();
   for (const key in props) {
-    if (NOT_ATTRIBUTES.has(key) && key !== 'autoFocus') continue;
     const value = props[key];
-    if (value == null || typeof value === 'function' || typeof value === 'symbol') continue;
-    // false writes no attribute, except data-* and aria-*, where it is the text "false".
-    if (value === false && !key.startsWith('data-') && !key.startsWith('aria-')) continue;
-    const written = key === 'defaultValue' ? 'value' : key === 'defaultChecked' ? 'checked' : attrName(key, svg);
-    if ((svg ? written : written.toLowerCase()) === name) return true;
+    if (value == null || (NOT_ATTRIBUTES.has(key) && key !== 'autoFocus')) continue;
+    /** @type {string | null} */
+    let name = null;
+    if (key === 'style') name = typeof value === 'object' && styleText(value) === '' ? null : 'style';
+    else if (key === 'value' || key === 'defaultValue') name = typeof value === 'function' ? null : 'value';
+    else if (key === 'checked' || key === 'defaultChecked') name = value ? 'checked' : null;
+    else {
+      const attr = attrOf(key, value, tag, svg);
+      if (attr !== null) name = attr[0];
+    }
+    if (name !== null) out.add(svg ? name : name.toLowerCase());
   }
-  return false;
+  return out;
 }
 
 function describeAttr(el, attr) {
@@ -610,7 +765,13 @@ function claimField(c, el, tag, props, suppress, owner) {
   if (value != null) controlField(el);
   if (tag === 'select') return;
   let def = value ?? props.defaultValue;
-  if (tag === 'textarea' && def == null) def = onlyText(props.children);
+  if (tag === 'textarea') {
+    if (def == null) def = onlyText(props.children);
+    // A controlled one shows its value, as React's does once it hydrates;
+    // an uncontrolled one keeps what the user typed (React puts its default
+    // back).
+    else if (value != null && el.value !== String(value)) el.value = String(value);
+  }
   if (def != null || tag === 'textarea') {
     const text = def == null ? '' : String(def);
     if (el.defaultValue !== text) {
@@ -654,20 +815,30 @@ function claimSuspense(c, v, svg, owner, into) {
   if (open.data === '$') {
     c.n = close.nextSibling;
     removeRegion(open, close);
-    return built(() => mountComponent(v, c.p, c.n, svg, owner, into));
+    return built(() => fresh(v, KIND_COMPONENT, c.p, c.n, svg, owner, into));
   }
   if (open.data !== '[]') return null;
   const boundary = { open, close, inst: null, dead: false, waiting: false, s: c.s, session };
+  const marks = queued();
   enter(c.p, open.nextSibling, close, c.s, boundary);
+  let rn;
+  let differed = false;
   try {
-    const rn = mountComponent(v, c.p, close, svg, owner, into);
+    rn = mountComponent(v, c.p, close, svg, owner, into);
+    // It names its ids as the server's did, whatever its content did (server.js useId).
+    boundaryIds(rn.inst);
     if (boundary.dead) dehydrate(boundary, rn.inst);
-    else finish(cur, '', owner);
-    return rn;
+    else {
+      const inner = /** @type {NonNullable<typeof cur>} */ (cur);
+      finish(inner, '', owner);
+      differed = inner.d;
+    }
   } finally {
     leave();
     c.n = close.nextSibling;
   }
+  if (differed) renderAgain(rn.inst, open, close, marks, idsMark(rn.inst, 0));
+  return rn;
 }
 
 // runtime.js handleRenderError, while an island claims: a component under
@@ -707,52 +878,94 @@ function rehydrate(boundary) {
   const savedCur = cur;
   const depth = outer.length;
   session = boundary.session;
-  cur = { p: boundary.close.parentNode, n: boundary.open.nextSibling, e: boundary.close, s: boundary.s, r: boundary };
+  cur = { p: boundary.close.parentNode, n: boundary.open.nextSibling, e: boundary.close, s: boundary.s, r: boundary, d: false, q: null };
   inst.rendered = NO_RNODES;
   inst.start = boundary.open;
   inst.end = boundary.close;
+  // Its content numbers its ids from the start again, as the server's did:
+  // what of it rendered before it suspended has gone (dehydrate).
+  if (inst._ids) inst._ids.n = 0;
   const claiming = claim;
   runInCommit(() => {
+    const marks = queued();
+    let thrown = NOT_THROWN;
     _setClaim(claimNode);
+    let differed = false;
+    const top = /** @type {NonNullable<typeof cur>} */ (cur);
     try {
       renderInstance(inst);
       if (boundary.dead) dehydrate(boundary, inst);
-      else finish(cur, '', inst);
+      else {
+        finish(top, '', inst);
+        differed = top.d;
+      }
+      send(top);
+    } catch (error) {
+      thrown = error;
     } finally {
       _setClaim(claiming);
-      inst.start = null;
-      inst.end = null;
       cur = savedCur;
       outer.length = depth;
       session = saved;
     }
+    // It threw (no error boundary above took it): rendered again in the
+    // browser between its markers, as an island is (recoverIsland).
+    if (thrown !== NOT_THROWN) recoverIsland(inst, boundary.open, boundary.close, thrown, marks, boundary.session.onError, boundary.session.ownerPath);
+    else if (differed) renderAgain(inst, boundary.open, boundary.close, marks, idsMark(inst, 0));
+    inst.start = null;
+    inst.end = null;
   });
+  replaySubmits();
 }
 
 // ---- Reports ----
 
-// One ERR_HYDRATION_MISMATCH per region (an element, or the island's own),
-// with what-core's record: in development as a diagnostic, in every build to
-// hydrate()'s onHydrationError.
-function report(c, kind, expected, found, node, owner) {
+// One ERR_HYDRATION_MISMATCH per element and kind (an element's attributes,
+// its text, its children's structure), with what-core's record: in
+// development as a diagnostic, in every build to hydrate()'s
+// onHydrationError. A report waits in its region's cursor until the island's
+// claim is done (send): what was reported inside a region whose children
+// are rendered again is the attempt's, and goes with it (differs).
+function report(c, kind, expected, found, node, owner, recovery = 'client-render') {
   const s = session;
-  const region = c.e !== null ? c.e : c.p;
-  if (s.reported.has(region)) return;
-  s.reported.add(region);
   if (!__DEV__ && s.onError === null) return;
-  const info = { kind, component: componentName(owner), ownerPath: s.ownerPath, path: domPath(node), expected, found, recovery: 'client-render' };
-  if (__DEV__) {
-    reportDiagnostic('ERR_HYDRATION_MISMATCH', {
-      data: info,
-      subject: { kind: 'hydration', id: `${info.ownerPath ?? 'root'}|${info.path}|${kind}`, name: info.component },
-    });
-  }
-  if (s.onError !== null) s.onError(info);
+  // The element it is about: an attribute's or a text's own, else the region's.
+  const at = kind === 'attribute' ? node : kind === 'text' ? (node.nodeType === 1 ? node : node.parentNode) : c.e !== null ? c.e : c.p;
+  const kinds = s.reported.get(at);
+  if (kinds !== undefined && kinds.includes(kind)) return;
+  s.reported.set(at, kinds === undefined ? [kind] : kinds.concat(kind));
+  const info = { kind, component: componentName(owner, s.island), ownerPath: s.ownerPath, path: domPath(node), expected, found, recovery };
+  (c.q || (c.q = [])).push(info);
 }
 
-function componentName(inst) {
+// A region's reports go to the one around it as its claim ends (leave).
+function pass(inner, c) {
+  if (inner.q !== null) {
+    if (c.q === null) c.q = inner.q;
+    else c.q.push(...inner.q);
+  }
+}
+
+// The island's claim is done: what it reported goes out.
+function send(c) {
+  const list = c.q;
+  c.q = null;
+  if (list === null) return;
+  const s = session;
+  for (const info of list) {
+    if (__DEV__) {
+      reportDiagnostic('ERR_HYDRATION_MISMATCH', {
+        data: info,
+        subject: { kind: 'hydration', id: `${info.ownerPath ?? 'root'}|${info.path}|${info.kind}`, name: info.component },
+      });
+    }
+    if (s.onError !== null) s.onError(info);
+  }
+}
+
+function componentName(inst, island) {
   for (let p = inst; p != null; p = p.parent) {
-    if (p._ids !== undefined) break;
+    if (p === island) break;
     const type = p.type;
     const name = type && (type.displayName || type.name);
     if (name) return name;

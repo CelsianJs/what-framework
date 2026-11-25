@@ -87,15 +87,21 @@ next to What's run-once renderer. what-core is not modified.
   it. `packages/react-compat/test/perf-counts.test.js` pins the counts.
 - **Element content** follows React's rules: changing between text,
   children and `dangerouslySetInnerHTML` clears what was there, and the HTML
-  is written again only when its string changed. A `<textarea>`'s children
+  is written again only when its string changed. What a `<noscript>` holds
+  is never rendered in the browser (React's `shouldSetTextContent`): no
+  component in it renders or runs an effect. A `<textarea>`'s children
   are its default value when it mounts; later children are not rendered, and
   an uncontrolled textarea without `defaultValue` gets the default value ''
   when it renders again, as in React 19.
 - **A commit runs its effects in React's phases**: insertion effects, then
-  refs (the DOM is in place), then layout effects, all before the commit
-  returns, children before parents; passive effects after it and always
-  before the next render. In the layout phase and in the passive phase every
-  cleanup runs before any effect. A subtree that is removed is cleaned up
+  the layout phase (the DOM is in place), where each element's ref attaches
+  and each component's layout effects run in one pass, children before
+  parents (a `<div ref>` after the layout effects of the components inside
+  it, before its own component's), all before the commit returns; passive
+  effects after it and always before the next render. In the layout phase
+  and in the passive phase every cleanup runs before any effect. The same
+  holds when an island hydrates (react-dom 18.3.1 and 19.3.0 measured,
+  `react-semantics.test.js`). A subtree that is removed is cleaned up
   parents first: its layout cleanups while its refs and its DOM are still
   there, its passive cleanups with the commit's other passive effects. Where
   the order still differs from React's is listed under Known limitations.
@@ -129,7 +135,7 @@ fixture runs four ways with the same assertions:
 
 | Column | What runs |
 |---|---|
-| Real React | React 19.3.1 and react-dom. The control: a fixture that fails here is a fixture bug. All 39 pass. |
+| Real React | React 19.3.1 and react-dom. The control: a fixture that fails here is a fixture bug. All 40 pass. |
 | Full compat | `reactCompat()` alone, the whole fixture on what-react. |
 | Mixed, React file | `what()` + `reactCompat()`: a native What app mounts the fixture (a React file) as a React island. |
 | Mixed, native file | `what()` + `reactCompat()`: the same screen written as a native What file, with signals for state and the package's tags as plain JSX. "not written" means no native variant exists for that fixture (see the note under the table). |
@@ -139,9 +145,9 @@ the others cannot see:
 
 | Served as | What it is | Real React | Full compat | Mixed, React file | Mixed, native file |
 |---|---|---|---|---|---|
-| `build` | A production client build, static files | 39 of 39 | 39 of 39 | 39 of 39 | 19 of 19 |
-| `dev` | Vite's dev server: dependencies pre-bundled, modules served one by one | 39 of 39 | 39 of 39 | 39 of 39 | 19 of 19 |
-| `ssr` | A production server build renders the fixture in Node; the production client build hydrates it, then the same steps run | 39 of 39 | not run | 39 of 39 | 19 of 19 |
+| `build` | A production client build, static files | 40 of 40 | 40 of 40 | 40 of 40 | 20 of 20 |
+| `dev` | Vite's dev server: dependencies pre-bundled, modules served one by one | 40 of 40 | 40 of 40 | 40 of 40 | 20 of 20 |
+| `ssr` | A production server build renders the fixture in Node; the production client build hydrates it, then the same steps run | 40 of 40 | not run | 40 of 40 | 20 of 20 |
 
 Full compat has no server renderer (Known limitations), so it has no `ssr`
 run. In the `ssr` run a what-react column fails when real React rendered the
@@ -151,15 +157,18 @@ with real React either (jotai, redux, zustand, react-i18next and the React
 surface fixture read `window` or `localStorage` as they load; the two
 react-router fixtures and react-select read `document` while rendering): that
 is recorded from the control, the page mounts in the browser, and the steps
-run. The other 31 render on the server in every column, and the `ssr` run
+run. The other 32 render on the server in every column, and the `ssr` run
 checks each what-react column against the control's hydration of the same
 fixture: no more element and text nodes created than React's hydration
-creates, and, for the 11 fixtures with a text field, the focus and the text
+creates, and, for the 12 fixtures with a text field, the focus and the text
 a user typed into the server's HTML before the page hydrated (the client
-bundle held back) kept wherever React keeps them. What hydration does to an
+bundle held back) kept wherever React keeps them. A spec can also act on
+the server's HTML before the page hydrates (`beforeHydration`, then
+`afterHydration` once it has): `hydration-edges` submits a form there, and
+what real React does with it what-react has to do. What hydration does to an
 island's HTML is in MIXED.md, "Server rendering".
 
-Results of 2026-11-24, on the 0.15 working tree: 39 fixtures, covering 50
+Results of 2026-11-24, on the 0.15 working tree: 40 fixtures, covering 50
 packages besides React itself. The table below is the `build` run; the `dev`
 and `ssr` runs have the same result in every cell they have.
 `pass` = every step of the fixture passed.
@@ -167,6 +176,7 @@ and `ssr` runs have the same result in every cell they have.
 | Package | Version | Full compat | Mixed, React file | Mixed, native file | What the fixture does |
 |---|---|---|---|---|---|
 | react, react-dom (API surface) | 19.3.1 | pass | pass | not written | Events through portals, ref callbacks with cleanup, `ref` as a prop, `useImperativeHandle`, context as provider with `use`, `use(promise)` and `lazy` under Suspense, a subtree that suspends after mounting keeps its state, `useTransition` with an async action, `useOptimistic`, `useActionState` with a form `action` and `useFormStatus`, class components (context in the constructor, `shouldComponentUpdate`, `PureComponent`, ref to the instance, `setState` callback), child slots and keys, DOM props, synthetic events, controlled fields (a refused edit, a radio group, a multiple select, an `onChange` on the form, a field that stops being controlled), uncontrolled selects, `useSyncExternalStore`, `useEffectEvent`, `flushSync`, effect order, error boundaries for render and effect errors and for a reducer that throws |
+| react, react-dom (hydration edges) | 19.3.1 | pass | pass | pass | `draggable={false}` on an image and a link; a form whose `action` is a `useActionState` function, submitted after mounting and, in the `ssr` run, before the page hydrates (no navigation; the action runs once it has, as in React); in the native file an island that throws while it hydrates, beside two islands and native text that stay live |
 | @radix-ui/react-dialog, react-popover, react-tooltip, react-slot | 1.3.1, 1.3.1, 1.4.1, 1.5.0 | pass | pass | pass | Dialog: `asChild` trigger, portal to `<body>`, focus moved in and trapped, a controlled input inside, a Popover nested in the dialog (its portal counts as inside), Escape closes the top layer only, focus returned. Popover positioned and closed by an outside press. Tooltip on hover. `Slot` merging props and joining the class names of both sides. The page's scroll locked while the dialog is open (react-remove-scroll, switched on by a function component's `defaultProps`) |
 | @radix-ui/react-dropdown-menu, react-select, react-tabs | 2.2.1, 2.4.1, 1.2.1 | pass | pass | pass | Menu in a portal, arrow keys past a disabled item, Enter selects and closes, a checkbox item, a submenu by keyboard. Select by keyboard and by pointer. Tabs by click and arrow keys |
 | @mui/material, @emotion/react, @emotion/styled | 9.6.0, 11.14.0, 11.14.1 | pass | pass | pass | Emotion styles from a custom theme, Button, a controlled TextField, Select (Popover and Modal portal, keyboard and pointer), Dialog (focus trap, `autoFocus`, a Select inside it, fade-out then unmount), Checkbox, Autocomplete, Tabs, Tooltip, Snackbar auto-hide |
@@ -382,13 +392,13 @@ whose fix what-core's error catalogue has); development shows them whole.
     before that component's own DOM changes, but DOM that an earlier part of
     the same commit patched (a parent's attributes, an earlier sibling) is
     already new.
-  - A ref whose callback changed is detached and attached again while its
-    element is patched, before the commit's insertion and layout effects.
-    React attaches it in the layout phase.
-  - Refs of new elements attach before the layout phase's cleanups, and
-    every insertion effect runs before them. React runs a component's
-    insertion effects and layout cleanups together, component by component,
-    and attaches refs with the layout effects.
+  - A ref whose callback changed is detached while its element is patched,
+    before the commit's insertion effects; the new one attaches in the
+    layout phase, as in React. React detaches it in its mutation phase,
+    component by component with the insertion effects and layout cleanups.
+  - Every insertion effect of a commit runs before any layout cleanup.
+    React runs a component's insertion effects and layout cleanups
+    together, component by component.
   - If a descendant throws during a subtree's first commit, effect cleanups
     of partially mounted children may not run before the boundary's fallback
     replaces them. Not re-checked in this pass.
@@ -415,34 +425,94 @@ whose fix what-core's error catalogue has); development shows them whole.
 - **`<Activity mode="hidden">` renders nothing.** React keeps the hidden
   tree's state; here it unmounts.
 - **Server rendering.** Full compat has none: `renderToString` of a compat
-  element is unsupported and `hydrateRoot` replaces the server's HTML with a
-  client render. In mixed mode React islands render on the server and
-  hydrate by adopting the server's elements and text (MIXED.md, Server
-  rendering): focus, typed text and anything else attached to those nodes
-  stay, as with React. Where they differ from React:
-  - A mismatch is mended where it is, not by rendering the whole root
-    again: a text or an attribute that differs takes the client's value in
-    the server's node, an element of another tag or one missing or left
-    over is replaced, added or removed alone, and each is reported as
-    `ERR_HYDRATION_MISMATCH`. React keeps an attribute that differs (and
-    warns), and renders the root again for the rest.
-  - A textarea keeps text typed before hydration where React puts back its
-    default.
+  element is unsupported, and `hydrateRoot` renders the root in the browser
+  in place of the server's HTML. Of its options it honours
+  `identifierPrefix` (`useId` gives `_<prefix>r_<n>_`, React's client ids)
+  and `onRecoverableError` (called once, with React's "Hydration failed
+  because the server rendered HTML didn't match the client" error, when what
+  the client rendered is not the server's HTML, comments aside). In mixed
+  mode React islands render on the server and hydrate by adopting the
+  server's elements and text (MIXED.md, Server rendering): focus, typed text
+  and anything else attached to those nodes stay, as with React. Where they
+  differ from React (react-dom 19.3.0 unless named):
+  - Where an element's children differ from the server's in structure (a
+    node the client does not render, one the server did not, another tag),
+    the client renders that element's children again, all of them; React
+    renders the nearest `<Suspense>` boundary again (the root when there is
+    none). So both lose what the user did to those nodes, and neither gives
+    one item's typed text, focus or scroll position to another. A text or an
+    attribute that differs is mended in the server's node: the client's
+    value is written, where React keeps the server's attribute (and warns in
+    development) and renders the boundary again for a text. Each is reported
+    as `ERR_HYDRATION_MISMATCH`, once per element and kind.
+  - An attribute only the server wrote (one an extension added before
+    hydration: `data-gramm`, a password manager's `autocomplete`) stays, as
+    in React, and is reported (recovery `none`).
+  - Raw HTML (`dangerouslySetInnerHTML`) that differs keeps the server's, as
+    in React; development reports it, as React warns.
+  - An uncontrolled textarea keeps text typed before hydration where React
+    puts back its default; a controlled one shows its value, as in React.
+  - An island that throws while it hydrates (no error boundary above takes
+    it) is rendered again in the browser, as React renders a root again
+    after an error while hydrating; if that throws too, the island is left
+    empty, as React unmounts the root. The error is logged
+    (`console.error`, every build) and handed to `onHydrationError` (kind
+    `error`); the rest of the page and its other islands hydrate as if it
+    were not there.
   - A native component a React tree renders hydrates in place, an island
     inside it included (what-core's `_hydrateRange` walks its bracket). Still
     built again in place of the server's nodes: React elements a native
     component places (its `children`, a slot prop), and a What accessor or
     boundary placed in React elements. Focus and typed text inside those are
     lost.
-  - Separators between texts are two comments (`<!--$--><!--/$-->`) where
-    React writes one, and React's `<!--$-->` markers around a `<Suspense>`
-    are `<!--[]-->…<!--/[]-->` (its fallback, `<!--$-->` around another
-    pair). They stay in the page after hydration, as React's do.
-  - `useId` matches the server's when both sides render the same
-    components in the same order (an island numbers its ids in render
-    order behind its owner path); React's ids name a component's place in
-    the tree.
-  The matrix's `ssr` run exercises it for every fixture.
+  - `useId` numbers ids in render order behind the island's owner path, and
+    behind each `<Suspense>`'s own id inside it; React's ids name a
+    component's place in the tree. They agree wherever both sides render the
+    same components: also when the server gave up on a boundary's content or
+    it suspends while it hydrates, beside a portal's content and a
+    `<noscript>`'s. Different on the two sides (where React's would not be):
+    a component that renders on one side only, with no node and a `useId`,
+    before another that uses one; a component that calls `useId` a different
+    number of times on each side; what follows a part whose structure
+    differs (reported).
+  - A form whose `action` (or a button whose `formAction`) is a function is
+    written with React's guard, `action="javascript:throw new Error('React
+    form unexpectedly submitted.')"`, and a small capture script as the
+    form's last child, once a page: a submit before the island has hydrated
+    neither navigates nor puts the fields in the URL, and runs the action
+    with its data once it has (a `useActionState` action included), as React
+    replays it. With a Content Security Policy that refuses inline scripts
+    the guard still holds (the javascript: URL is refused too); the
+    submission is then lost. what-react writes no nonce on the script.
+  - The server's markup follows React's rules where the browser can tell
+    them apart (attributes, their values, `style`; `test/island-server.test.js`).
+    In the HTML text it differs: booleans are bare (`disabled`) where React
+    writes `disabled=""`, `'` is `&#39;` (React: `&#x27;`), a textarea's
+    content starts with a newline, attribute order, and separators between
+    texts are two comments (`<!--$--><!--/$-->`) where React writes one
+    (hydration needs the pair to find each text). React's `<!--$-->`
+    markers around a `<Suspense>` are `<!--[]-->…<!--/[]-->` (its fallback,
+    `<!--$-->` around another pair). They stay in the page after
+    hydration, as React's do. React 19's resource handling is not done:
+    `<link rel="stylesheet" precedence>`, `<style precedence>`, an async
+    `<script>`, `<title>` and `<meta>` stay where the island renders them
+    (React moves them to the start of the document, `precedence` becoming
+    `data-precedence`), and no `<link rel="preload">` is written for an
+    image.
+  - A portal renders nothing on the server, where React's server renderer
+    throws ("Portals are not currently supported by the server renderer"):
+    an island with an ungated `createPortal` renders on the server here.
+  - What a `<noscript>` holds is rendered on the server and never in the
+    browser, as in React.
+  - `useSyncExternalStore` without `getServerSnapshot` throws React's error
+    on the server ("Missing getServerSnapshot, which is required for
+    server-rendered content. Will revert to client rendering."), and the
+    island renders in the browser. While an island hydrates every reader
+    sees the server snapshot (a portal's content and what is rendered anew
+    included), then the client's.
+  The matrix's `ssr` run exercises it for every fixture (`hydration-edges`:
+  `draggable={false}`, a form submitted before hydration, an island that
+  throws beside two that do not).
 - **Class components.** Legacy context (`contextTypes`, `childContextTypes`)
   and string refs are not supported. `componentDidCatch`'s `componentStack`
   names components only: no host elements, no source locations.

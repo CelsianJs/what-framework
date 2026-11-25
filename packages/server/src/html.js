@@ -379,7 +379,7 @@ function renderAttrs(props) {
       out += info.enumerated ? ` ${key}="true"` : ` ${key}`;
     } else {
       const str = typeof val === 'string' ? val : String(val);
-      if (info.url && isUnsafeUrl(str)) continue;
+      if (info.url && isUnsafeUrl(str) && str !== REACT_FORM_GUARD) continue;
       out += ` ${key}="${escapeHtml(str)}"`;
     }
   }
@@ -388,6 +388,13 @@ function renderAttrs(props) {
 }
 
 const UNRESOLVED = Symbol('unresolved');
+
+// The one javascript: URL written: what a React island's <form> (or submit
+// button) whose action is a function has as its action until it hydrates
+// (what-react src/server.js). Submitted before then, the browser runs it,
+// which only throws, instead of sending the fields to the page's own URL.
+// React 19 writes the same.
+const REACT_FORM_GUARD = "javascript:throw new Error('React form unexpectedly submitted.')";
 
 function resolveAttr(key, val) {
   if (typeof val !== 'function') return val;

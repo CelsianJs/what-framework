@@ -25,10 +25,11 @@
  */
 
 import { h } from 'what-core';
-import { isVNode, _provide, _currentOwnerPath } from 'what-core/internal';
+import { isVNode, _provide, _currentOwnerPath, getServerContext } from 'what-core/internal';
 import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
-import { HOST, SVG_ATTR_MAP, IS_NON_DIMENSIONAL, _serverInstance, _renderOnServer } from './runtime.js';
+import { HOST, _serverInstance, _renderOnServer } from './runtime.js';
+import { idsOf, islandId, boundaryIds, apart, attrOf, styleText } from './markup.js';
 
 /**
  * The vnodes what-server renders for an island's elements `element` (what-react
@@ -49,35 +50,6 @@ export function serverTree(element, parent) {
 }
 
 let namesIds = false;
-
-// ---- useId ----
-// React's ids name a component by its place in the tree, so the server's and
-// the browser's are the same. An island the server rendered numbers the ids
-// of its components in render order, which is the same on the server and in
-// the render that hydrates it (the client render matches the server's or
-// hydration reports it), behind the island's own place among the native
-// components of the page (its owner path, which what-core gives it the same
-// on both sides).
-
-/**
- * The ids of an island at the owner path `path`. A hydrate() root that
- * what-core cannot place in the server's render (no hydration data beside
- * it) numbers its components in the same order under a prefix no server path
- * has (`~`): without it the path is the server's, as long as the two sides
- * render the same components.
- */
-export function idsOf(path) {
-  return { prefix: '_R_' + path.replace(/~/g, '') + '_', n: 0 };
-}
-
-/** The id the next useId of `inst` gets, when it renders in an island that names its own; else ''. */
-export function islandId(inst) {
-  for (let p = inst; p != null; p = p.parent) {
-    const ids = p._ids;
-    if (ids !== undefined) return ids.prefix + (ids.n++).toString(36) + '_';
-  }
-  return '';
-}
 
 /**
  * A vnode's tag as the compat runtime marks it: a compat component's bridge
@@ -114,7 +86,9 @@ function reactComponent(type, props, parent, svg) {
   const inst = _serverInstance(type, props, parent);
   if (type === Suspense) {
     // React's server rules: a <Suspense> whose children suspend shows its
-    // fallback. Each is marked, so the browser knows which it hydrates.
+    // fallback. Each is marked, so the browser knows which it hydrates. It
+    // names its ids first, whatever its content does (useId above).
+    boundaryIds(inst);
     let content;
     try {
       content = childList(expand(props.children, inst, svg));
@@ -197,8 +171,7 @@ function pushChild(kid, out, joined) {
 
 // --- Host elements: React's props as HTML attributes ---
 
-const DROPPED = new Set(['children', 'key', 'ref', 'suppressHydrationWarning', 'suppressContentEditableWarning', 'defaultValue', 'defaultChecked']);
-export const RENAMED = { acceptCharset: 'accept-charset', httpEquiv: 'http-equiv' };
+const DROPPED = new Set(['children', 'key', 'ref', 'suppressHydrationWarning', 'suppressContentEditableWarning', 'defaultValue', 'defaultChecked', 'innerHTML']);
 
 function element(v, parent, svg) {
   const tag = v.tag;
@@ -207,6 +180,14 @@ function element(v, parent, svg) {
   const attrs = {};
   for (const key in props) {
     const value = props[key];
+    if ((key === 'action' || key === 'formAction') && typeof value === 'function') {
+      // A function action runs once the island has hydrated: until then the
+      // guard (React's) keeps a submit from sending the fields to the page's
+      // own URL, and the page's capture script keeps it for then.
+      attrs[key] = FORM_GUARD;
+      if (key === 'formAction') actions = true;
+      continue;
+    }
     if (DROPPED.has(key) || typeof value === 'function') continue; // handlers attach on the client
     if (key === 'dangerouslySetInnerHTML') {
       if (value && value.__html != null) attrs.innerHTML = { __html: String(value.__html) };
@@ -217,30 +198,60 @@ function element(v, parent, svg) {
       if (css) attrs.style = css;
       continue;
     }
-    const name = RENAMED[key] ?? (inSvg ? SVG_ATTR_MAP[key] ?? key : key);
-    attrs[name] = value;
+    // A field's state: what-server writes it as a field shows it.
+    if ((key === 'value' || key === 'checked') && FIELDS.has(tag)) {
+      attrs[key] = value;
+      continue;
+    }
+    const attr = attrOf(key, value, tag, inSvg);
+    if (attr !== null) attrs[attr[0]] = attr[1];
   }
   // An uncontrolled field's initial value is its value in the HTML.
-  if (props.value === undefined && props.defaultValue !== undefined && tag !== 'textarea') attrs.value = props.defaultValue;
-  if (props.checked === undefined && props.defaultChecked !== undefined) attrs.checked = props.defaultChecked;
+  if (props.value === undefined && props.defaultValue !== undefined && (tag === 'input' || tag === 'select')) attrs.value = props.defaultValue;
+  if (props.checked === undefined && props.defaultChecked !== undefined && tag === 'input') attrs.checked = props.defaultChecked;
   let kids = v.children !== undefined ? v.children : props.children;
   if (tag === 'textarea') {
     const text = props.value ?? props.defaultValue;
     delete attrs.value;
     kids = text != null ? [String(text)] : kids;
   }
-  return h(tag, attrs, ...childList(expand(kids, parent, inSvg), RAW_TEXT.has(tag)));
+  if (tag === 'form') {
+    const outer = actions;
+    actions = false;
+    const out = childList(expand(kids, parent, inSvg));
+    // The capture script, once a page: its last child, which hydration
+    // leaves where it is (a form keeps nodes the client does not render).
+    if ((actions || attrs.action === FORM_GUARD) && captureScript()) out.push(h('script', { innerHTML: { __html: CAPTURE } }));
+    actions = outer;
+    return h(tag, attrs, ...out);
+  }
+  // What a <noscript> holds renders on the server only: its ids are apart.
+  const out = tag === 'noscript' ? apart(parent, 'N', () => expand(kids, parent, inSvg)) : expand(kids, parent, inSvg);
+  return h(tag, attrs, ...childList(out, RAW_TEXT.has(tag)));
 }
 
-/** A style object as the text of a `style` attribute: what the server writes and hydration compares. */
-export function styleText(style) {
-  let css = '';
-  for (const key in style) {
-    const value = style[key];
-    if (value == null || value === '' || typeof value === 'boolean') continue;
-    const name = key[0] === '-' ? key : key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()).replace(/^ms-/, '-ms-');
-    const text = typeof value === 'number' && value !== 0 && key[0] !== '-' && !IS_NON_DIMENSIONAL.test(key) ? value + 'px' : String(value);
-    css += (css ? ';' : '') + name + ':' + text;
-  }
-  return css;
+// ---- A form submitted before its island hydrates ----
+// React 19's way: the action is a javascript: URL that only throws, and a
+// small script, once a page, takes a submit of such a form before the page
+// has hydrated (preventDefault) and keeps its form, its submitter and its
+// data. Once the island hydrates, what-react runs the action with that data
+// (hydrate.js replaySubmits), as React replays it into useActionState.
+export const FORM_GUARD = "javascript:throw new Error('React form unexpectedly submitted.')";
+const CAPTURE = `(function(){var d=document;if(d.$$whatForms)return;d.$$whatForms=[];addEventListener("submit",function(e){if(e.defaultPrevented)return;var f=e.target,s=e.submitter,a=f.getAttribute("action"),b;if(s&&s.getAttribute("formaction")!=null)a=s.getAttribute("formaction");if(a!==${JSON.stringify(FORM_GUARD)})return;e.preventDefault();try{b=new FormData(f,s)}catch(x){b=new FormData(f);if(s&&s.name)b.append(s.name,s.value)}d.$$whatForms.push(f,s,b)})})()`;
+
+// Whether a function action was rendered since the enclosing <form> began.
+let actions = false;
+/** @type {WeakSet<object>} the server renders that wrote the capture script */
+const captured = new WeakSet();
+
+// True the first time a render asks (always, outside a request's context:
+// the script does nothing a second time).
+function captureScript() {
+  const context = getServerContext();
+  if (context == null || typeof context !== 'object') return true;
+  if (captured.has(context)) return false;
+  captured.add(context);
+  return true;
 }
+
+const FIELDS = new Set(['input', 'select', 'textarea', 'option']);

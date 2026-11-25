@@ -100,6 +100,10 @@ function Suspending() {
 
 // ---- actions: useTransition, useOptimistic, useActionState, forms ----
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The form action waits for the test to release it (#c-form-release), so the
+// pending state is there for as long as the test looks at it.
+let releaseForm = null;
+const formGate = () => new Promise((resolve) => { releaseForm = resolve; });
 function Submit() {
   const { pending } = useFormStatus();
   return <button id="c-form-submit" type="submit">{pending ? 'sending' : 'send'}</button>;
@@ -110,7 +114,7 @@ function Actions() {
   const [isPending, start] = useTransition();
   const [seen, setSeen] = useState('');
   const [result, formAction, formPending] = useActionState(async (previous, formData) => {
-    await wait(120);
+    await formGate();
     return { count: previous.count + 1, name: formData.get('name') };
   }, { count: 0, name: '' });
   useEffect(() => { setSeen((s) => (s.endsWith(`${optimistic}${isPending ? 'p' : ''}`) ? s : `${s} ${optimistic}${isPending ? 'p' : ''}`)); }, [optimistic, isPending]);
@@ -122,6 +126,7 @@ function Actions() {
         <input id="c-form-name" name="name" defaultValue="" />
         <Submit />
       </form>
+      <button id="c-form-release" type="button" onClick={() => { if (releaseForm) releaseForm(); }}>release</button>
       <Out id="c-form-out">{result.count}:{result.name}:{String(formPending)}</Out>
     </div>
   );

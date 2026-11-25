@@ -9,9 +9,18 @@ export interface Root {
 }
 
 export function createRoot(container: Element | DocumentFragment): Root;
+/** React's hydrateRoot options that what-react honours (it renders the root in the browser, replacing the server's HTML). */
+export interface HydrationOptions {
+  /** useId gives `_<identifierPrefix>r_<n>_`, as React's client ids. */
+  identifierPrefix?: string;
+  /** Called once when what the client rendered is not the server's HTML. */
+  onRecoverableError?: (error: unknown, errorInfo?: { componentStack?: string }) => void;
+}
+
 export function hydrateRoot(
   container: Element | DocumentFragment,
   initialChildren: ReactNode,
+  options?: HydrationOptions,
 ): Root;
 
 export function render(

@@ -168,6 +168,29 @@ test('removing a row removes one node, and clearing removes one per row', () => 
   assert.equal(container.querySelector('tbody').childNodes.length, 0);
 });
 
+// The rows after a change that kept their places (the end of the list) are
+// found from the end and patched where they stand, as the start is: removing
+// or inserting a row near the start reads the DOM as many times whatever the
+// list's length. Without it every later row is looked up and checked, so the
+// reads grow with the list.
+test('removing or inserting a row near the start reads no more DOM for a longer list', () => {
+  const reads = (rows, change) => {
+    mountApp(rows);
+    const c = counted(() => api.setData(change(api.data)));
+    for (const root of roots.splice(0)) act(() => root.unmount());
+    document.body.textContent = '';
+    return c.read;
+  };
+  const remove = (d) => d.filter((_, i) => i !== 3);
+  const insert = (d) => [...d.slice(0, 3), ...build(1), ...d.slice(3)];
+  for (const change of [remove, insert]) {
+    const short = reads(N, change);
+    const long = reads(4 * N, change);
+    assert.equal(long, short, `${change.name}: ${short} reads for ${N} rows, ${long} for ${4 * N}`);
+    assert.ok(short <= 8, `${change.name}: ${short} reads`);
+  }
+});
+
 test('swapping two rows moves one node per row that moves, by React\'s rule', () => {
   const container = mountApp(N);
   const rows = [...container.querySelectorAll('tbody tr')];

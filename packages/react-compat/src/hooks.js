@@ -311,8 +311,12 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
     slot._pending = null;
   }
   // On the server, and in the render that hydrates the server's HTML, React
-  // reads getServerSnapshot when there is one; the subscription below then
-  // renders again with the client's snapshot when it differs.
+  // reads getServerSnapshot; the subscription below then renders again with
+  // the client's snapshot when it differs. On the server there has to be one
+  // (React's error: the island renders in the browser instead, mixed.js).
+  if (inst._server && typeof _getServerSnapshot !== 'function') {
+    throw new Error('Missing getServerSnapshot, which is required for server-rendered content. Will revert to client rendering.');
+  }
   const value = (inst._server || claim !== null) && typeof _getServerSnapshot === 'function' ? _getServerSnapshot() : getSnapshot();
   slot.value = value;
   slot.getSnapshot = getSnapshot;
@@ -601,13 +605,11 @@ let newId = () => ':w' + (++idCounter).toString(36) + ':';
  * islandId); any other component gets a client id.
  */
 export function _islandIds(islandId) {
-  if (namesIslandIds) return;
-  namesIslandIds = true;
+  if (islandId._names === true) return;
+  islandId._names = true;
   const client = newId;
   newId = (inst) => islandId(inst) || client(inst);
 }
-
-let namesIslandIds = false;
 
 export function useId() {
   const inst = _requireInstance('useId');

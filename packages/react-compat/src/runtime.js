@@ -345,6 +345,7 @@ function childEffectsFirst(queue, from, inst) {
   let at = -1;
   for (let i = 0; i < from && at === -1; i++) {
     const other = queue[i].inst;
+    if (other == null) continue; // a ref of an element no component rendered
     for (let p = inst.parent; p != null && p.depth >= other.depth; p = p.parent) {
       if (p === other) { at = i; break; }
     }
@@ -367,10 +368,10 @@ export const EFFECT_PASSIVE = 3;
 let commitDepth = 0;
 /** Effect queues being flushed: an effect is running. */
 let effectDepth = 0;
-export const refQueue = [];
-const insertionQueue = [];
-const layoutQueue = [];
-const passiveQueue = [];
+export const insertionQueue = [];
+/** The layout phase: host elements' refs (and autoFocus) and components' layout effects, child first. */
+export const layoutQueue = [];
+export const passiveQueue = [];
 /** @type {Array<() => void>} The passive cleanups of components this commit removed. */
 const unmountedPassive = [];
 let passiveScheduled = false;
@@ -397,12 +398,12 @@ export function runInCommit(fn) {
 function exitCommit() {
   if (--commitDepth !== 0) return;
   // React's commit order: insertion effects (a CSS-in-JS library writes
-  // its rules before anything reads layout), then refs (the DOM is in
-  // the document), then layout effects, all synchronously; passive
-  // effects later.
+  // its rules before anything reads layout), then the layout phase (the DOM
+  // is in the document): each element's ref and each component's layout
+  // effects in one pass, children first, all synchronously; passive effects
+  // later.
   if (mirrors.size > 0) syncMirrors();
   flushInsertionQueue();
-  flushRefQueue();
   flushEffectQueue(layoutQueue);
   if ((passiveQueue.length > 0 || unmountedPassive.length > 0) && !passiveScheduled) {
     passiveScheduled = true;
@@ -410,28 +411,21 @@ function exitCommit() {
   }
 }
 
-function flushRefQueue() {
-  effectDepth++;
-  try {
-    while (refQueue.length > 0) {
-      const entry = refQueue.shift();
-      if (entry.focus === true) {
-        // autoFocus: React focuses the element when it mounts.
-        if (entry.el.isConnected) {
-          try { entry.el.focus(); } catch { /* not focusable */ }
-        }
-        continue;
-      }
-      // Skip if the element was already unmounted (ref nulled) or ref swapped.
-      if (entry.rn.ref !== entry.ref) continue;
-      try {
-        attachRef(entry.rn, entry.ref, entry.el);
-      } catch (e) {
-        console.error('[what-react] ref error:', e);
-      }
+// A host element's entry in the layout phase: its ref attaches (unless the
+// element was unmounted, ref nulled, or the ref swapped), or, for autoFocus,
+// it takes the focus as React gives it when it mounts.
+function commitRef(entry) {
+  if (entry.focus === true) {
+    if (entry.el.isConnected) {
+      try { entry.el.focus(); } catch { /* not focusable */ }
     }
-  } finally {
-    effectDepth--;
+    return;
+  }
+  if (entry.rn.ref !== entry.ref) return;
+  try {
+    attachRef(entry.rn, entry.ref, entry.el);
+  } catch (e) {
+    console.error('[what-react] ref error:', e);
   }
 }
 
@@ -483,8 +477,8 @@ function flushEffectQueue(queue) {
       const batch = queue.splice(0);
       for (let i = 0; i < batch.length; i++) {
         const entry = batch[i];
-        // An unmounted component's cleanups ran as it unmounted.
-        if (entry.inst.unmounted) continue;
+        // An unmounted component's cleanups ran as it unmounted; a ref has none.
+        if (entry.slot === undefined || entry.inst.unmounted) continue;
         const cleanup = entry.slot.cleanup;
         if (cleanup) {
           entry.slot.cleanup = null;
@@ -493,6 +487,10 @@ function flushEffectQueue(queue) {
       }
       for (let i = 0; i < batch.length; i++) {
         const entry = batch[i];
+        if (entry.slot === undefined) {
+          commitRef(entry);
+          continue;
+        }
         // Cleared here, not above: a render between the two passes (a cleanup
         // that calls flushSync) replaces this entry's function, not queues a second.
         entry.slot._pending = null;
@@ -1415,7 +1413,8 @@ function mountElement(v, parentDom, before, svg, owner) {
   if (text !== null) {
     rn.text = text;
     if (text !== '') el.textContent = text;
-  } else {
+  } else if (tag !== 'noscript') {
+    // (What a <noscript> holds is never rendered in the browser, as in React.)
     const kids = flatten(raw);
     if (kids.length > 0) rn.children = mountChildren(el, kids, flatIds, flatLists, 0, kids.length, new Array(kids.length), null, childSvg, owner, rn);
   }
@@ -1434,8 +1433,8 @@ function mountElement(v, parentDom, before, svg, owner) {
   // Refs attach at commit exit — AFTER the element is inserted into the live
   // DOM — so ref callbacks that measure layout (getBoundingClientRect etc.)
   // see real geometry, like React.
-  if (props.autoFocus === true) refQueue.push({ focus: true, el });
-  if (rn.ref) refQueue.push({ rn, ref: rn.ref, el });
+  if (props.autoFocus === true) layoutQueue.push({ focus: true, el, inst: owner });
+  if (rn.ref) layoutQueue.push({ rn, ref: rn.ref, el, inst: owner });
 
   if (parentDom !== null) parentDom.insertBefore(el, before);
   return rn;
@@ -1517,7 +1516,7 @@ function newInstance(type, props, key, parent, start, end, svg) {
 
 // A portal puts no node where it stands (a comment only at the top of an
 // island, as a hole does): its children are in its container.
-function mountPortal(v, parentDom, before, owner, into) {
+export function mountPortal(v, parentDom, before, owner, into) {
   const target = v.props && v.props.container;
   const rn = { kind: KIND_PORTAL, vnode: v, key: v.key ?? null, dom: topComment(into, 'w:portal', parentDom, before), id: 0, list: null, container: target || null, children: NO_RNODES, _in: into };
   if (!target) {
@@ -1705,8 +1704,9 @@ function patchElement(rn, v, svg, owner) {
     // Refs
     const newRef = newProps.ref || null;
     if (rn.ref !== newRef) {
+      // The old one now, the new one in the layout phase (React's mutation and layout phases).
       if (rn.ref) detachRef(rn, rn.ref);
-      if (newRef) attachRef(rn, newRef, el);
+      if (newRef) layoutQueue.push({ rn, ref: newRef, el, inst: owner });
       rn.ref = newRef;
     }
   } else {
@@ -1745,6 +1745,7 @@ function patchElementChildren(rn, v, props, childSvg, owner) {
     if (rn.text !== '' && props.dangerouslySetInnerHTML == null) el.textContent = '';
     rn.text = null;
   }
+  if (v.tag === 'noscript') return;
   const kids = flatten(raw);
   if (kids.length === 0 && rn.children.length === 0) {
     if (rn.children === TEXTAREA_KIDS) patchTextarea(el, props);
@@ -2824,7 +2825,7 @@ function afterStopped(e) {
 
 let submitsListened = false;
 /** @type {((form: any, action: Function, data: FormData) => void) | null} */
-let formActionRunner = null;
+export let formActionRunner = null;
 
 /** hooks.js installs how an action runs (inside a transition, with the form's status). */
 export function _setFormActionRunner(runner) {

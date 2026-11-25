@@ -437,6 +437,31 @@ async function probeTyping(browser, baseUrl, name, variant) {
   }
 }
 
+// --serve=ssr, a spec with `beforeHydration(t)`: what a user does to the
+// server's HTML before the client entry runs (submit a form), then, once the
+// page has hydrated, `afterHydration(t)` checks what came of it. Real React
+// is the control: what it does, what-react has to do (hydrationChecks).
+async function probeBeforeHydration(browser, baseUrl, name, variant, column) {
+  const spec = specs[name];
+  const context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(TIMEOUT);
+  const t = toolbox(page, column, []);
+  try {
+    await page.goto(`${baseUrl}/?lib=${encodeURIComponent(name)}&variant=${variant}&hold=1`);
+    await spec.beforeHydration(t);
+    // A form that submitted natively has navigated away: no __start here.
+    await page.evaluate(() => { window.__start(); });
+    await page.waitForFunction(() => window.ready === true || window.loadError, null, { timeout: TIMEOUT * 2 });
+    if (spec.afterHydration) await spec.afterHydration(t);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e).split('\n')[0].slice(0, 300) };
+  } finally {
+    await context.close();
+  }
+}
+
 // What hydration has to keep where real React keeps it, for one fixture's
 // run beside the control's: the focus and the text a user typed into the
 // server's HTML before the page hydrated, and the server's nodes (no more
@@ -451,6 +476,9 @@ function hydrationChecks(run, control) {
       if (theirs[what] !== 'kept') continue;
       checks.push({ name: `typed before hydration: the ${what} stays (as in real React)`, ok: ours[what] === 'kept', error: ours[what] === 'kept' ? null : `real React keeps the ${what}; here it is ${ours.error ? `not known: ${ours.error}` : ours[what]}` });
     }
+  }
+  if (control.before && control.before.ok) {
+    checks.push({ name: `before hydration: ${specs[run.name].beforeHydrationName || 'what the user did'} (as in real React)`, ok: Boolean(run.before && run.before.ok), error: run.before && run.before.ok ? null : (run.before ? run.before.error : 'not run') });
   }
   const h = run.server && run.server.hydration;
   const ch = control.server && control.server.hydration;
@@ -574,6 +602,17 @@ try {
             }
           }
           if (serveKind === 'ssr' && run.server && run.server.rendered) run.typing = await probeTyping(browser, server.url, name, variant);
+          run.name = name;
+          if (serveKind === 'ssr' && run.server && run.server.rendered && specs[name].beforeHydration) {
+            run.before = await probeBeforeHydration(browser, server.url, name, variant, column);
+            // The control has to pass it: a fixture that fails it on real React is the fixture's bug.
+            if (column === 'react' && !run.before.ok) {
+              const check = { name: `before hydration: ${specs[name].beforeHydrationName || 'what the user did'}`, ok: false, error: run.before.error };
+              run.checks.push(check);
+              run.failed.push(check);
+              run.ok = false;
+            }
+          }
           // The server-build run is about the server's HTML: an island left
           // empty where real React rendered the fixture is a failure, also
           // when the browser then rendered it and every step passed.

@@ -15,7 +15,7 @@
 
 import { build } from 'esbuild';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const repoRoot = resolve(import.meta.dirname, '..');
@@ -457,6 +457,57 @@ async function reactCompatBundle(name, source) {
   return Buffer.concat(chunks.map((c) => Buffer.from(c.code)));
 }
 
+// Scenario (m): a native What page with one React island, compiled for
+// hydration (what({ hydratable: true }) + reactCompat()): what a server-rendered
+// mixed app's client carries, island adoption (what-react's hydrate.js and
+// markup.js) included. A client-only mixed app carries none of it.
+const mixedIsland = `
+import { useState, useEffect } from 'react';
+export function Counter({ label }) {
+  const [count, setCount] = useState(0);
+  useEffect(() => { document.title = label + ' ' + count; }, [count]);
+  return (<div className="counter"><button onClick={() => setCount(count - 1)}>-</button><output>{label}: {count}</output><button onClick={() => setCount(count + 1)}>+</button></div>);
+}
+`;
+const mixedHydratePage = `
+import { hydrate, signal } from 'what-framework';
+import { Counter } from './mixed-hydrate-counter.jsx';
+const name = signal('clicks');
+function App() {
+  return (<main class="app-shell"><h1>What and React</h1><Counter label={name()} /><p>native text</p></main>);
+}
+hydrate(<App />, document.getElementById('app'));
+`;
+
+async function mixedBundle(name, files) {
+  const { build: viteBuild } = await import('vite');
+  const { default: what } = await import('../packages/compiler/src/vite-plugin.js');
+  const { reactCompat } = await import('../packages/react-compat/src/vite-plugin.js');
+  const sources = new Map(Object.entries(files).map(([file, text]) => [join(repoRoot, file), text]));
+  const entry = join(repoRoot, `${name}.jsx`);
+  const log = console.log;
+  console.log = () => {};
+  let output;
+  try {
+    output = await viteBuild({
+      configFile: false,
+      root: repoRoot,
+      logLevel: 'silent',
+      mode: 'production',
+      plugins: [
+        { name: 'size-entry', enforce: 'pre', resolveId: (id, importer) => { const file = id.startsWith('./') && importer ? join(dirname(importer), id) : id; return sources.has(file) ? file : null; }, load: (id) => sources.get(id) ?? null },
+        what({ hydratable: true }),
+        reactCompat(),
+      ],
+      build: { write: false, minify: true, target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
+    });
+  } finally {
+    console.log = log;
+  }
+  const chunks = (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk');
+  return Buffer.concat(chunks.map((c) => Buffer.from(c.code)));
+}
+
 const scenarios = {
   'core-counter': () => esbuildBundle('core-counter', { source: coreCounter, loader: 'js' }),
   'esbuild-default-counter': () => esbuildDefaultBundle('esbuild-default-counter', coreCounter),
@@ -472,6 +523,7 @@ const scenarios = {
   'data-app': () => viteBundle('data-app', { source: dataApp }),
   'compiled-hydrate': () => viteBundle('compiled-hydrate', { source: hydratingCounter, hydratable: true }),
   'react-counter': () => reactCompatBundle('react-counter', reactCounter),
+  'mixed-hydrate': () => mixedBundle('mixed-hydrate', { 'mixed-hydrate.jsx': mixedHydratePage, 'mixed-hydrate-counter.jsx': mixedIsland }),
 };
 
 const kb = (n) => `${(n / 1024).toFixed(2)} KB`;

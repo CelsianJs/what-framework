@@ -99,6 +99,72 @@ test('a production server build bundles CommonJS-only React packages and what Re
   assert.deepEqual(configOf(root, [reactCompat({ autoDetect: false })]).ssr.noExternal, ['what-react'], 'what-react also when the packages are not looked for');
 });
 
+// @emotion/hash 0.8 (a dependency of @ant-design/cssinjs, which antd
+// uses): no exports map, a CommonJS main that sets __esModule and
+// exports.default, and an ES module build. Node, loading the main, makes
+// the whole exports object the default import, which is not callable; a
+// bundler takes the module build. The dev server bundles such a dependency
+// of a React package, so it renders what a production server build renders.
+const SPLIT = {
+  'node_modules/css-kit/package.json': { name: 'css-kit', type: 'module', main: 'index.js', peerDependencies: { react: '*' }, dependencies: { 'split-hash': '1' } },
+  'node_modules/css-kit/index.js': "import { createElement } from 'react';\nimport hash from 'split-hash';\nexport function Styled() { return createElement('b', { className: 'css-' + hash('x') }, 'styled'); }\n",
+  'node_modules/split-hash/package.json': { name: 'split-hash', main: 'cjs.js', module: 'esm.js' },
+  'node_modules/split-hash/cjs.js': "'use strict';\nObject.defineProperty(exports, '__esModule', { value: true });\nexports.default = function hash(text) { return 'h' + text.length; };\n",
+  'node_modules/split-hash/esm.js': "export default function hash(text) { return 'h' + text.length; }\n",
+};
+
+test('dev server render: a React package\'s dependency that Node and a bundler load differently is bundled, so its default import is the module\'s', async () => {
+  const root = project('ssr-split', {
+    'package.json': { name: 'app', type: 'module', dependencies: { 'css-kit': '1' } },
+    ...SPLIT,
+    'entry.js': "import { renderToString } from 'what-framework/server';\nimport { h } from 'what-framework';\nimport { ReactIsland } from 'what-react/mixed';\nimport { createElement } from 'react';\nimport { Styled } from 'css-kit';\nexport function render() { return renderToString(h(ReactIsland, { view: () => createElement(Styled) })); }\n",
+  });
+  assert.ok(configOf(root).ssr.noExternal.includes('split-hash'), 'bundled in the dev server');
+  const server = await quiet(() => createServer({
+    root, configFile: false, logLevel: 'silent', appType: 'custom', plugins: [reactCompat()],
+    cacheDir: path.join(root, 'node_modules/.vite'),
+    server: { middlewareMode: true, ws: false, hmr: false },
+  }));
+  try {
+    const mod = await server.ssrLoadModule('/entry.js');
+    const html = await quiet(() => mod.render());
+    assert.match(html, /<b class="css-h1">styled<\/b>/);
+  } finally {
+    await server.close();
+  }
+});
+
+// The same with antd itself (the package matrix's install): its Table island
+// rendered empty in the dev server, with "(0 , __vite_ssr_import_0__.default)
+// is not a function" from @ant-design/cssinjs.
+const MATRIX = path.join(HERE, 'fixtures/matrix');
+const hasAntd = fs.existsSync(path.join(MATRIX, 'node_modules/antd/package.json'));
+test('dev server render: an antd Table island renders on the server', { skip: hasAntd ? false : 'the package matrix is not installed (npm ci --prefix packages/react-compat/test/fixtures/matrix)' }, async () => {
+  const dir = path.join(MATRIX, 'src', '__antd_dev_ssr');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'page.jsx'), "import { h } from 'what-framework';\nimport { renderToHydratableString } from 'what-framework/server';\nimport { Table } from 'antd';\nconst columns = [{ title: 'Name', dataIndex: 'name' }];\nfunction Page() { return <section><Table pagination={false} columns={columns} dataSource={[{ key: 1, name: 'Ada' }]} /></section>; }\nexport function render() { return renderToHydratableString(h(Page)); }\n");
+  const warnings = [];
+  const server = await quiet(() => createServer({
+    root: MATRIX, configFile: false, logLevel: 'silent', appType: 'custom', plugins: [what({ hydratable: true }), reactCompat()],
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { middlewareMode: true, ws: false, hmr: false, watch: null },
+  }));
+  const warn = console.warn;
+  try {
+    const mod = await server.ssrLoadModule('/src/__antd_dev_ssr/page.jsx');
+    console.warn = (...a) => warnings.push(a.join(' '));
+    const html = mod.render();
+    console.warn = warn;
+    assert.deepEqual(warnings, []);
+    assert.match(html, /<table[^>]*>/);
+    assert.match(html, />Ada</);
+  } finally {
+    console.warn = warn;
+    await server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // A React library with a CommonJS-only dependency, under a name the old list
 // excluded from pre-bundling (react-router and its `cookie`): its files were
 // served one by one, and the browser cannot import the CommonJS one.

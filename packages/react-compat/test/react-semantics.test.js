@@ -1179,11 +1179,51 @@ test('insertion effects run in the commit, children first, before refs and layou
   // React 19.3.0 and 18.3.1: C insertion > P insertion > (ref) > C layout > P layout. cbbfd764 ran them while rendering, parent first.
   assert.equal(log.splice(0).join(' > '), 'C insertion 0 > P insertion 0 > ref > C layout 0 > P layout 0');
   act(() => bump());
-  assert.equal(log.splice(0, 2).join(' > '), 'ref > C insertion~ 0');
+  // React 19.3.0 and 18.3.1 (the inline ref changes each render): C insertion~
+  // 0 > C insertion 1 > P insertion 1 > ref > C layout 1 > P layout 1: the new
+  // ref attaches in the layout phase, beside its component's layout effects.
+  assert.equal(log.splice(0).join(' > '), 'C insertion~ 0 > C insertion 1 > P insertion 1 > ref > C layout 1 > P layout 1');
   log.length = 0;
   fail = true;
   act(() => bump());
   assert.deepEqual(log.filter((l) => l.startsWith('P insertion')), [], 'the render that threw ran no insertion effect');
+  root.unmount();
+});
+
+test('refs and layout effects run in one pass, children first, as React interleaves them', () => {
+  // React 19.3.0 and 18.3.1, createRoot: mount "C:ins > P:ins > C:ref >
+  // C:layout > K:ref > K:didMount > P:ref > P:layout > C:passive >
+  // P:passive"; update (every ref callback new) "C:ref null > C:ins~ >
+  // C:ins > K:ref null > P:ref null > P:ins > P:layout~ > C:ref > C:layout >
+  // K:ref > K:didUpdate > P:ref > P:layout". The update differs here only in when a ref is
+  // detached: while its element is patched, before the commit's insertion
+  // effects (REACT-COMPAT.md).
+  const log = [];
+  let bump;
+  class Klass extends React.Component {
+    componentDidMount() { log.push('K:didMount'); }
+    componentDidUpdate() { log.push('K:didUpdate'); }
+    render() { return h('u', { ref: (el) => { log.push(el ? 'K:ref' : 'K:ref null'); } }, 'k'); }
+  }
+  function Child({ n }) {
+    React.useInsertionEffect(() => { log.push('C:ins'); return () => log.push('C:ins~'); }, [n]);
+    useLayoutEffect(() => { log.push('C:layout'); }, [n]);
+    useEffect(() => { log.push('C:passive'); }, []);
+    return h('span', { ref: (el) => { log.push(el ? 'C:ref' : 'C:ref null'); } }, n);
+  }
+  function Parent() {
+    const [n, setN] = useState(0);
+    bump = () => setN((x) => x + 1);
+    React.useInsertionEffect(() => { log.push('P:ins'); }, [n]);
+    useLayoutEffect(() => { log.push('P:layout'); return () => log.push('P:layout~'); }, [n]);
+    useEffect(() => { log.push('P:passive'); }, []);
+    return h('div', { ref: (el) => { log.push(el ? 'P:ref' : 'P:ref null'); } }, h(Child, { n }), h(Klass));
+  }
+  const { root } = mount(h(Parent));
+  assert.equal(log.splice(0).join(' > '), 'C:ins > P:ins > C:ref > C:layout > K:ref > K:didMount > P:ref > P:layout > C:passive > P:passive');
+  act(() => bump());
+  const update = log.splice(0);
+  assert.equal(update.filter((x) => !x.endsWith(' null')).join(' > '), 'C:ins~ > C:ins > P:ins > P:layout~ > C:ref > C:layout > K:ref > K:didUpdate > P:ref > P:layout');
   root.unmount();
 });
 

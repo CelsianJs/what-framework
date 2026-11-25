@@ -710,9 +710,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   hydrating, `suppressHydrationWarning` keeps the server's text, a form
   field keeps what the user did before hydration, a portal renders in the
   browser, a `<Suspense>` that suspends while hydrating keeps the server's
-  HTML until it can hydrate. A mismatch is mended where it is (React renders
-  the root again) and reported as `ERR_HYDRATION_MISMATCH`, kind `attribute`
-  for an attribute. The server writes a separator between two texts in a row
+  HTML until it can hydrate. A text or an attribute that differs is mended
+  where it is, children that differ in structure are rendered again for
+  their element (React renders the nearest `<Suspense>` again), and each is
+  reported as `ERR_HYDRATION_MISMATCH`, kind `attribute` for an attribute. The server writes a separator between two texts in a row
   and brackets a `<Suspense>` and native What content inside an island. The
   Vite plugin installs it in the JSX files what-compiler compiles for
   hydration (`_hydrateIslands()` from `what-react/mixed`; off with
@@ -875,6 +876,70 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   after it is measured, so its warm-up measures that operation alone.
 
 ### Fixed
+
+- **what-react: one React island that throws while it hydrates no longer
+  takes the page down.** Before, `hydrate()` threw, every island's server
+  HTML was removed and the native page stopped updating. Now what that
+  island's render did is dropped (no ref or effect of it runs), it renders
+  again in the browser, as React renders a root again, and if that throws
+  too it is left empty, as React unmounts the root; the error is logged and
+  handed to `onHydrationError` (kind `error`). The other islands and the
+  native page hydrate.
+- **what-react: children that differ from the server's in structure are
+  rendered again, not mended by position.** A node the client does not
+  render, one it renders that the server did not, or another tag made the
+  claim skip or replace one node, so text typed into one list item could end
+  up in another's field. The element's children are now rendered again by
+  the client (React renders the nearest `<Suspense>` again); texts and
+  attributes that differ are still mended in place. Mismatch reports are one
+  per element and kind (before: one per region), and those of a region that
+  is rendered again are dropped.
+- **what-react: `useId` keeps the server's ids around `<Suspense>`.** A
+  boundary whose content the server gave up on, or that suspends while it
+  hydrates and hydrates later, shifted the ids after it (and its own), with
+  a spurious attribute mismatch. A `<Suspense>` now takes one id and numbers
+  its content behind it, on both sides; a portal's and a `<noscript>`'s
+  content are numbered apart.
+- **what-react: a form whose `action` is a function, submitted before its
+  island hydrates, no longer navigates with its fields in the URL.** The
+  server writes React's guard (`action="javascript:throw …"`) and a small
+  capture script; once the island hydrates the action runs with what was
+  submitted, as React 19 replays it into `useActionState`. what-server lets
+  that one guard URL through its URL check.
+- **what-react: attributes on the server and at hydration.** An attribute
+  only the server wrote (an extension's `data-gramm`, a password manager's
+  `autocomplete`) is kept and reported instead of removed. `draggable`,
+  `spellCheck` and `contentEditable` set to `false` are written as `"false"`
+  on the server (before: nothing, so an `<img draggable={false}>` stayed
+  draggable after hydration). The server follows react-dom 19.3's rules
+  where the browser sees them: an object, an array or `false` on a custom
+  element writes nothing (before: `[object Object]`), a boolean on an
+  attribute that is not a boolean one writes nothing, `selected` only on an
+  `<option>`, `xlink:href` and `xml:lang` for `xlinkHref` and `xmlLang`,
+  React's unitless CSS properties (`strokeWidth`, `aspectRatio`, `scale`,
+  `columns`) and trimmed values.
+- **what-react: hydration and server render, smaller items.** Nothing inside
+  a `<noscript>` renders in the browser or runs an effect (hydrating or
+  mounting); a differing `dangerouslySetInnerHTML` is reported in
+  development; a controlled `<textarea>` shows its value after hydration;
+  `useSyncExternalStore` without `getServerSnapshot` throws React's error on
+  the server (the island renders in the browser), and while an island
+  hydrates everything it renders, a portal's content included, reads the
+  server snapshot; full-compat `hydrateRoot` honours `identifierPrefix` and
+  `onRecoverableError`.
+- **what-react: refs attach in the layout phase, beside their components'
+  layout effects, children first,** on mount, on update (a ref that
+  changed) and while an island hydrates, as React 18 and 19 order them
+  (before: every ref of a commit, then every layout effect).
+- **what-react: an Ant Design island renders in a dev-server render.** Its
+  `@ant-design/cssinjs` imports `@emotion/hash` 0.8, whose CommonJS main
+  Node loads with the whole exports object as the default
+  (`(0 , __vite_ssr_import_0__.default) is not a function`): the plugin now
+  bundles such a dependency of a React package in the dev server too, as a
+  production build does.
+- **what-react: a client build no longer carries the island server
+  renderer.** The plugin leaves `server.js` out of a client production
+  build; a client-only mixed app is 1.5 KB gzip smaller.
 
 - **A tag held in a binding is created in the namespace it stands in.**
   `as="circle"` in an `<svg>` and `as="mi"` were created as unknown HTML

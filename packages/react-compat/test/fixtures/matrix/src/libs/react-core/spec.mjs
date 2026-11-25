@@ -40,6 +40,7 @@ export default {
       await t.click('#c-form-submit');
       await t.text('#c-form-submit', 'sending');
       await t.text('#c-form-out', '0::true');
+      await t.click('#c-form-release');
       await t.text('#c-form-out', '1:ada:false');
       await t.text('#c-form-submit', 'send');
       await t.value('#c-form-name', '');

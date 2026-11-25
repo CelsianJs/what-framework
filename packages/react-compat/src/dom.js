@@ -16,8 +16,10 @@ import {
   _flushPassive,
   _domNodes,
   _canFlushSynchronously,
+  _getCurrentInstance,
 } from './runtime.js';
-import { useFormStatus, useActionState } from './hooks.js';
+import { useFormStatus, useActionState, _islandIds } from './hooks.js';
+import { createElement } from './index.js';
 
 // ---- createRoot (React 18) ----
 
@@ -56,11 +58,44 @@ export function createRoot(container) {
 }
 
 // ---- hydrateRoot ----
-// No true hydration — replaces server-rendered content with a fresh mount.
+// No hydration in full compat: the server's HTML (React's own server render,
+// which writes what-react's islands' markers nowhere) is replaced by a client
+// render. React's options that apply to that are honoured: identifierPrefix
+// (useId gives React's client ids, `_<prefix>r_<n>_`) and
+// onRecoverableError, called once, as React calls it when it renders a root
+// again, when what the client rendered is not the server's HTML (comments
+// aside).
 
-export function hydrateRoot(container, initialChildren) {
+let clientIds = 0;
+
+function prefixedId(inst) {
+  for (let p = inst; p != null; p = p.parent) {
+    if (p._idPrefix !== undefined) return '_' + p._idPrefix + 'r_' + (clientIds++).toString(32) + '_';
+  }
+  return '';
+}
+
+function IdPrefix(props) {
+  /** @type {any} */ (_getCurrentInstance())._idPrefix = props.prefix;
+  return props.children;
+}
+
+const markup = (container) => container.innerHTML.replace(/<!--[\s\S]*?-->/g, '');
+
+export function hydrateRoot(container, initialChildren, options) {
   const root = createRoot(rootContainer(container, 'hydrateRoot'));
+  const prefix = options != null ? options.identifierPrefix : undefined;
+  if (prefix != null) {
+    _islandIds(prefixedId);
+    const render = root.render;
+    root.render = (element) => render(createElement(IdPrefix, { prefix: String(prefix) }, element));
+  }
+  const server = markup(container);
   root.render(initialChildren);
+  const onRecoverableError = options != null ? options.onRecoverableError : undefined;
+  if (typeof onRecoverableError === 'function' && markup(container) !== server) {
+    onRecoverableError(new Error('Hydration failed because the server rendered HTML didn\'t match the client. As a result this tree will be regenerated on the client.'));
+  }
   return root;
 }
 

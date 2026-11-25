@@ -295,41 +295,48 @@ test('a different attribute: the client\'s value', async () => {
   expectReport(r, 'attribute');
   assert.match(r.records[0].expected, /class="client"|style=/);
   assert.deepEqual(r.created, []);
-  // An attribute only the server wrote goes; one only the client writes comes.
+  // An attribute only the server wrote stays, as React keeps it (H5); one
+  // only the client writes comes.
   const extra = await adopt(() => e('div', side === 'server' ? { id: 'y', title: 't' } : { id: 'y', lang: 'en' }));
-  assert.equal(extra.app.querySelector('#y').hasAttribute('title'), false);
+  assert.equal(extra.app.querySelector('#y').getAttribute('title'), 't');
   assert.equal(extra.app.querySelector('#y').getAttribute('lang'), 'en');
   expectReport(extra, 'attribute');
 });
 
-test('an extra node: removed', async () => {
+// A difference in structure (a node the client does not render, one the
+// server did not, another tag) is not mended by position: the element's
+// children are rendered again by the client, all of them (H4).
+
+test('an extra node: the element\'s children are rendered again by the client', async () => {
   // react-dom 19.3.1: the whole root is rendered again (3 nodes created).
   const r = await adopt(() => e('ul', null, e('li', null, 'a'), side === 'server' ? e('li', null, 'b') : null));
   assert.deepEqual([...r.app.querySelectorAll('li')].map((li) => li.textContent), ['a']);
   expectReport(r, 'extra-nodes');
-  assert.deepEqual(r.created, []);
+  assert.equal(r.created.length, 2, 'the <li> and its text; the <ul> is the server\'s');
+  assert.ok(r.known.has(r.app.querySelector('ul')));
   // In the middle of a list, before the node the client renders.
   const mid = await adopt(() => e('ul', null, e('li', null, 'a'), side === 'server' ? e('b', null, 'x') : null, e('li', null, 'c')));
   assert.deepEqual([...mid.app.querySelector('ul').childNodes].map((n) => n.textContent), ['a', 'c']);
   expectReport(mid, 'extra-nodes');
-  assert.deepEqual(mid.created, []);
+  assert.equal(mid.created.length, 4);
 });
 
-test('a missing node: rendered by the client in its place', async () => {
+test('a missing node: the element\'s children are rendered again by the client', async () => {
   // react-dom 19.3.1: the whole root is rendered again (5 nodes created).
   const r = await adopt(() => e('ul', null, e('li', null, 'a'), side === 'client' ? e('li', null, 'b') : null));
   assert.deepEqual([...r.app.querySelectorAll('li')].map((li) => li.textContent), ['a', 'b']);
   expectReport(r, 'missing');
-  assert.equal(r.created.length, 2, 'the <li> and its text');
+  assert.equal(r.created.length, 4, 'two <li> and their texts');
 });
 
-test('a different tag: the client\'s element in place of the server\'s', async () => {
+test('a different tag: the element\'s children are rendered again by the client', async () => {
   // react-dom 19.3.1: the whole root is rendered again (4 nodes created).
   const r = await adopt(() => e('div', null, e(side === 'server' ? 'span' : 'em', null, 'a'), e('i', null, 'b')));
   const div = r.app.querySelector('main div');
   assert.equal(div.innerHTML, '<em>a</em><i>b</i>');
   expectReport(r, 'tag');
-  assert.equal(r.created.length, 2, 'the <em> and its text; the <i> is the server\'s');
+  assert.equal(r.created.length, 4, 'the <em>, the <i> and their texts');
+  assert.ok(r.known.has(div));
 });
 
 test('a portal renders in the browser; the island around it is adopted', async () => {

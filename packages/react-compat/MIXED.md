@@ -164,8 +164,14 @@ providers around the island.
 
 React islands render on the server with React's server rules: each
 component renders once, hooks give their initial values, effects do not run,
-`useSyncExternalStore` reads its server snapshot, and a `<Suspense>` whose
-children suspend writes its fallback. Native components inside an island
+`useSyncExternalStore` reads its server snapshot (without one it throws
+React's error, and the island renders in the browser), and a `<Suspense>`
+whose children suspend writes its fallback. Host elements' props are
+written as React's server renderer writes them where the browser can tell
+the difference (an object on a custom element writes nothing,
+`draggable={false}` writes `draggable="false"`, `title={true}` nothing,
+`xlinkHref` `xlink:href`, `strokeWidth: 2` is unitless; REACT-COMPAT.md,
+Known limitations, lists what differs only in the HTML text). Native components inside an island
 render on the server too, and React context reaches React components inside
 them. what-server writes each island between `<!--[]-->` markers (its
 hydratable renderers, the stream and `renderToStringAsync`).
@@ -182,22 +188,26 @@ image that has loaded, a CSS transition. What-react's Vite plugin installs
 this in a build what-compiler compiles for hydration (below); without it, an
 island renders in the browser and replaces the server's HTML.
 
-What that looks like, measured on the 39 package fixtures
-(`matrix-browser.mjs --serve=ssr`, Chromium; 31 of them render on the
+What that looks like, measured on the 40 package fixtures
+(`matrix-browser.mjs --serve=ssr`, Chromium; 32 of them render on the
 server with real React, each as a React file and, for 19, as a native file
 too):
 
 - Every element and text node the server wrote for an island is in the page
-  afterwards, as with React, and hydration creates no more nodes than
-  React's does: none in 20 fixtures (React: none in 19); in the other 11 a
+  afterwards wherever React's hydration keeps it (a library that removes
+  nodes in an effect removes them on both; the island of `hydration-edges`
+  that throws while it hydrates is left empty, by design), and hydration
+  creates no more nodes than React's does: none in 21 fixtures (React: none
+  in 20); in the other 11 a
   library builds nodes in an effect once it has mounted (Recharts draws its
   chart, the virtualized lists their rows, TipTap its editor), and the count
   is React's. The matrix checks both against the real React run of each
   fixture.
 - A field of an island that the user focused and typed into before the page
-  hydrated keeps the focus in all 11 fixtures that have one, and the text
-  in the 5 where React keeps it (Ant Design, cmdk, input-otp, react-hook-form,
-  TanStack Table). In the other 6 React itself puts the field's value back
+  hydrated keeps the focus in all 12 fixtures that have one, and the text
+  in the 6 where React keeps it (Ant Design, cmdk, hydration-edges,
+  input-otp, react-hook-form, TanStack Table). In the other 6 React itself
+  puts the field's value back
   (a controlled field that renders again), and so does what-react. The
   matrix checks it against the React run: what React keeps, what-react has
   to keep.
@@ -207,39 +217,83 @@ too):
 Before this, an island's server HTML was replaced: every island element was
 built again, and focus and typed text were lost in all 11.
 
-React's rules, where they can be seen (react-dom 19.3.1, measured in
-`test/island-adopt.test.js`):
+React's rules, where they can be seen (react-dom 19.3.0 and 19.3.1, measured
+in `test/island-adopt.test.js` and `test/island-adopt-faults.test.js`):
 
 - The server writes `<!--$--><!--/$-->` between two texts in a row, where
   React writes `<!-- -->`, so the browser keeps them as two text nodes to
   adopt. An empty string renders nothing, on the server and in the browser,
   as in React.
 - An attribute the server wrote stays as it is when it is the client's: no
-  attribute is written again. One that differs, or that the client does not
-  render, takes the client's value and is reported (React keeps the
-  server's and warns in development).
+  attribute is written again. One that differs takes the client's value and
+  is reported (React keeps the server's and warns in development). One the
+  client does not render (an extension's `data-gramm`, a password manager's
+  `autocomplete`) stays, and is reported, as React keeps it and warns.
 - A text that differs takes the client's text in the server's node and is
-  reported; an element of another tag, a missing node and one the client
-  does not render are rendered by the client in place of the server's, and
-  reported. React renders the whole root again in each case. Each report is
-  one `ERR_HYDRATION_MISMATCH` per element, with what-core's record (kind
-  `text`, `tag`, `missing`, `extra-nodes`, `marker` or `attribute`), as a
-  development diagnostic and to hydrate()'s `onHydrationError` in every
-  build. A form and a button keep nodes the client does not render,
-  unreported, as React keeps them (a password manager's).
+  reported. Where an element's children differ from the server's in
+  structure (a node the client does not render, one the server did not,
+  another tag), the client renders that element's children again, all of
+  them, in place of the server's: one item's typed text, focus, scroll
+  position or open `<details>` never ends up in another's node. React
+  renders the nearest `<Suspense>` boundary again (the root when there is
+  none). At an island's top, or a `<Suspense>`'s, the island or that
+  boundary's content is rendered again. Each report is one
+  `ERR_HYDRATION_MISMATCH` per element and kind, with what-core's record
+  (kind `text`, `tag`, `missing`, `extra-nodes`, `marker` or `attribute`),
+  as a development diagnostic and to hydrate()'s `onHydrationError` in every
+  build. A form and a button keep nodes the client does not render at their
+  end, unreported, as React keeps them (a password manager's). Raw HTML
+  (`dangerouslySetInnerHTML`) that differs keeps the server's; development
+  reports it, as React warns.
 - `suppressHydrationWarning` keeps an element's own attributes and text as
   the server wrote them, unreported (React's rule).
 - A form field keeps what the user did to it before hydration: its value is
   not written, onChange fires at the next edit with the whole text, and a
   controlled field shows its value again when it renders again, as in React.
-  A textarea keeps typed text too, where React puts back a default that is
-  not empty.
-- `useId` gives the ids the server wrote (an island numbers its ids behind
-  its own owner path), and `useSyncExternalStore` reads the server snapshot
-  while the island hydrates, then renders again with the client's when it
-  differs.
-- A portal renders nothing on the server and its children are created in
-  the browser, as in React.
+  An uncontrolled textarea keeps typed text too, where React puts back a
+  default that is not empty; a controlled one shows its value at once, as
+  in React.
+- A form whose `action` is a function (a button's `formAction`, a
+  `useActionState` action) has React's guard as its action on the server
+  (`javascript:throw new Error('React form unexpectedly submitted.')`), and
+  the page a small capture script (the form's last child, once a page): a
+  submit before the island hydrates neither navigates nor puts the fields in
+  the URL, and the action runs with what was submitted once the island has
+  hydrated, as React replays it. A Content Security Policy that refuses
+  inline scripts keeps the guard working (the javascript: URL is refused
+  too), and the submission is lost.
+- An island that throws while it hydrates, with no error boundary above it,
+  takes nothing else down: the walk, the other islands and the native page
+  hydrate. What its render did goes (no ref or effect of it runs), and it
+  renders again in the browser, as React renders a root again after an error
+  while hydrating; if that throws too, the island is left empty, as React
+  unmounts such a root (the server's HTML of a component that cannot render
+  in the browser would look live and do nothing). The error goes to the
+  console in every build and to `onHydrationError` as `{ kind: 'error',
+  recovery: 'client-render' | 'none', error }`. An error boundary inside
+  the island catches it first, as always.
+- `useId` gives the ids the server wrote. An island numbers its ids in
+  render order behind its own owner path, and a `<Suspense>` takes one of
+  them and numbers what renders inside it behind that one, on both sides:
+  content the server gave up on (it wrote the fallback) and content that
+  suspends while it hydrates (which numbers its ids from the start again
+  when it hydrates) change no id after the boundary. A portal's content
+  (browser only) and a `<noscript>`'s (server only) are numbered apart.
+  React's ids name a component's place in the tree; here they differ
+  between the two sides for a component that renders on one side only, with
+  no node and a `useId`, before another that uses one, for a component that
+  calls `useId` a different number of times on each side, and after a part
+  whose structure differs (reported).
+- `useSyncExternalStore` reads the server snapshot in everything the island
+  renders while it hydrates (a portal's content and what is rendered anew
+  included, so two readers of one store agree in that commit), then renders
+  again with the client's when it differs.
+- A portal renders nothing on the server (React's server renderer throws
+  on one) and its children are created in the browser, as in React.
+- What a `<noscript>` holds is rendered on the server; in the browser no
+  component in it renders or runs an effect, as in React.
+- Refs attach and layout effects run in one pass, children first, as React
+  interleaves them; insertion effects before, passive effects after.
 - A `<Suspense>` the server rendered is adopted; one whose fallback the
   server wrote (its children suspended there) renders afresh in the browser,
   as React renders such a boundary. When something inside a boundary
@@ -278,7 +332,7 @@ renders needs `what({ hydratable: true })`, or hydration reports
 
 A library can still need the browser to draw: Recharts 3 measures its chart
 in an effect, so the server writes its sized wrapper and the browser draws
-the SVG into it, as React's own server renderer does. Eight of the 38
+the SVG into it, as React's own server renderer does. Eight of the 40
 fixtures do not render on the server with real React either (a store that
 reads `localStorage` or `window` as it loads, a browser router, a portal
 target read while rendering); an island like that is left to the browser.
@@ -366,14 +420,41 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   `null`, `false` and a portal leave no node, except at an island's top
   (outside every element it renders), where each is one comment so the
   island keeps a node (REACT-COMPAT.md, Known limitations).
-- Hydration adopts what React renders in an island, not what native What
-  renders inside it (a native component in a React tree, React children a
-  native component places, an island inside those): that part is built
+- Hydration adopts what React renders in an island and a native component
+  a React tree renders (with what-core's `_hydrateRange`), not React
+  elements a native component places (its `children`, a slot prop) or a
+  What accessor or boundary placed in React elements: that part is built
   again in place of the server's nodes, and focus or typed text in it is
   lost (Server rendering).
+- Where hydration differs from React's (Server rendering and
+  REACT-COMPAT.md, Known limitations, have each): children that differ in
+  structure are rendered again for their element, where React renders the
+  nearest `<Suspense>` again; an attribute that differs takes the client's
+  value, where React keeps the server's; an uncontrolled textarea keeps
+  what was typed; `useId` is numbered in render order (inside each
+  `<Suspense>`), not by tree position, so a component that renders on one
+  side only with a `useId` and no node shifts the ids after it; a form
+  submitted before hydration is lost where a Content Security Policy refuses
+  inline scripts (the capture script carries no nonce), or when its form is
+  rendered again because its structure differed; a click on an island before
+  the page has hydrated is lost, as in React without a boundary to replay
+  it; the server's HTML differs from React's in its text only (bare
+  booleans, `&#39;`, two comments between texts, attribute order) and React
+  19's resource hoisting (`precedence`, `<title>`, `<meta>` moved to the
+  head, image preloads) is not done; a portal renders nothing on the server,
+  where React throws.
+- A client production build (`vite build` without `--ssr`) does not carry
+  the island server renderer: what-react's plugin leaves it out of the
+  bundle, so a React island cannot be rendered to a string in the browser
+  (it renders empty, with a warning). The dev server and a server build
+  carry it.
 - In the dev server, a React package that ships CommonJS only stays external
   in a server render; an island that uses it renders in the browser. A
-  production server build bundles it.
+  production server build bundles it. A dependency of a React package that
+  Node and a bundler load differently (no `exports`, a CommonJS `main`, an
+  ES `module` build: @emotion/hash 0.8 under antd) is bundled in the dev
+  server too, so its default import is the module's, as in a production
+  build.
 - The dev server needs no list of React packages: every dependency is
   pre-bundled by Vite as in any app, and `react` inside the bundles is the
   page's one what-react. `reactCompat({ exclude: ['pkg'] })` keeps a package
@@ -396,14 +477,17 @@ React files and compiles native files as usual. Tests:
 `test/mixed-ssr.test.js` (server render, the stream, hydration, keyed rows),
 `test/island-adopt.test.js` and `test/island-adopt-compiled.test.js` (an
 island adopting the server's HTML, React's rules beside each, every kind of
-mismatch),
+mismatch), `test/island-adopt-faults.test.js` (an island that throws, ids
+around Suspense, children that differ in structure, attributes only the
+server has, a form submitted before hydration, refs and layout effects in
+order), `test/island-server.test.js` (the server's markup against React's),
 `test/island-hydration.test.js` (islands that native code swaps or removes
 after hydration), `test/vite-plugin.test.js` (the dev server, a dev-server
 render and a production server build of an installed app: one what-react in
 each), `test/mixed-browser.mjs` (a Vite build, the dev server, and a server
 render the browser hydrates, in Chromium, with Recharts, react-hook-form and
-React context) and `test/matrix-browser.mjs` (39 package fixtures driven in
-Chromium as React files inside a native app, 19 of them also written as
+React context) and `test/matrix-browser.mjs` (40 package fixtures driven in
+Chromium as React files inside a native app, 20 of them also written as
 native files: Radix, MUI, Ant Design, Headless UI, Recharts, react-select,
 framer-motion and others; as a production build, in the dev server, and
 rendered by a production server build and hydrated; the table is in
