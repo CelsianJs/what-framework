@@ -2155,51 +2155,76 @@ function spread(el, props, after) {
 export function _$spreads(el, sources, after) {
   if (typeof sources !== 'function') return spread(el, winners(sources), after);
   // Read again: each name's writer is bound under a scope of its own, the
-  // element's owner's, so a run rebinds only the names whose writer or value
-  // changed (an unchanged getter of a source that stays, or the same plain
-  // value, is left as it is), and unbinds and clears a name no source holds.
+  // element's owner's, so a run rebinds only the names whose writer changed
+  // (a getter of a props object What built that stays, which its binding
+  // follows; the same plain value, each read once a run), and unbinds and
+  // clears a name no source holds. A field's value and checked are bound
+  // last, once its other props (`type`, `multiple`) are written.
   const owner = getOwner();
-  /** @type {Map<string, [any, string, any, any, () => void, any]>} */
+  /** @type {Map<string, { key: string, src: any, get: any, value: any, field: any, dispose: () => void }>} */
   const shown = new Map();
+  let retype = false;
+  const bind = (name, src, key) => {
+    const get = Object.getPrototypeOf(src) === null ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
+    const value = get ? undefined : src[key];
+    const was = shown.get(name);
+    if (was !== undefined) {
+      if (get ? was.get === get && was.src === src : !was.get && was.key === key && Object.is(was.value, value)) return;
+      // A field's plain value or checked is state the spread holds: a new
+      // plain value is written to it, and the field, bound to it, shows it
+      // again after its events (render.js fieldSpread), as a binding that
+      // read state does. A writer of another kind is bound anew.
+      if (was.field !== null && !get && was.key === key && typeof value !== 'function') {
+        was.field(was.value = value);
+        return;
+      }
+      was.dispose();
+      // A field's kind changed (an input's type, a select's multiple): its
+      // value is written again below, for what the new kind accepts (`date`
+      // dropped `abc`, `text` keeps it; one option or several).
+      if (name === 'type' || name === 'multiple') retype = true;
+    }
+    // A function (a signal, an accessor) is bound as it is, as `value={v}`.
+    const field = !get && (key === 'value' || key === 'checked') && typeof value !== 'function' ? signal(value) : null;
+    const dispose = untrack(() => runWithOwner(owner, () => createRoot((dispose) => {
+      const one = Object.create(null);
+      if (get) Object.defineProperty(one, key, { get, enumerable: true });
+      else if (field !== null) Object.defineProperty(one, key, { get: field, enumerable: true });
+      else one[key] = value;
+      spread(el, one);
+      // A ref is let go of when its writer changes and when the element goes.
+      if (key === 'ref') {
+        const ref = get ? one.ref : value;
+        onCleanup(() => applyRef(ref, null));
+      }
+      return dispose;
+    })));
+    shown.set(name, { key, src, get, value, field, dispose });
+  };
   effect(() => {
     const next = writers(sources());
     for (const [name, was] of shown) {
       if (next.has(name)) continue;
-      was[4]();
+      was.dispose();
       shown.delete(name);
       // The one writer of the markup is dangerouslySetInnerHTML's.
-      if (!_isEventProp(name)) setProp(el, name === 'innerHTML' ? 'dangerouslySetInnerHTML' : was[1], undefined);
+      if (!_isEventProp(name)) setProp(el, name === 'innerhtml' ? 'dangerouslySetInnerHTML' : was.key, undefined);
     }
     for (const [name, [src, key]] of next) {
-      if (name === 'children' || after?.includes(name)) continue;
-      const get = Object.getPrototypeOf(src) === null && /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get;
-      const value = get ? get : src[key];
-      const was = shown.get(name);
-      if (was !== undefined && was[1] === key && (was[0] === src || (!get && !was[2] && Object.is(was[3], value)))) continue;
-      // A field's value or checked is state the spread holds: a new value is
-      // written to it, and the field, bound to it, shows it again after its
-      // events (render.js fieldSpread), as a binding that read state does.
-      if (was !== undefined && was[5] && was[1] === key && !get && !was[2]) {
-        was[0] = src;
-        was[5](was[3] = value);
-        continue;
-      }
-      if (was !== undefined) was[4]();
-      // (A function, a signal or an accessor, is bound as it is, as `value={v}`.)
-      const field = !get && (key === 'value' || key === 'checked') && typeof value !== 'function' ? signal(value) : null;
-      shown.set(name, [src, key, get, value, untrack(() => runWithOwner(owner, () => createRoot((dispose) => {
-        const one = Object.create(null);
-        if (field !== null) Object.defineProperty(one, key, { get: field, enumerable: true });
-        else _copyProp(one, src, key, get !== false);
-        spread(el, one);
-        // A ref is let go of when its writer changes and when the element goes.
-        if (key === 'ref') {
-          const ref = one.ref;
-          onCleanup(() => applyRef(ref, null));
-        }
-        return dispose;
-      }))), field]);
+      if (name !== 'children' && name !== 'value' && name !== 'checked' && !after?.includes(name)) bind(name, src, key);
     }
+    const field = /** @type {any} */ (el);
+    if (retype && shown.has('value') && !field._$select) {
+      /** @type {any} */ (shown.get('value')).dispose();
+      shown.delete('value');
+      field._$value = undefined;
+    }
+    for (const name of ['value', 'checked']) {
+      const w = next.get(name);
+      if (w !== undefined && !after?.includes(name)) bind(name, w[0], w[1]);
+    }
+    if (retype) field._$select?.(field, field._$value);
+    retype = false;
   });
 }
 
@@ -2223,12 +2248,15 @@ function writers(sources) {
   return names;
 }
 
-// The name a key writes: an event's in lower case (`onClick` and `onclick`
-// are one listener), `class` for `className`, `innerHTML` for
-// `dangerouslySetInnerHTML` (one property), `xlink:href` for `xlinkHref`.
+// The name a key writes, as the element reads it: in lower case (an event's
+// `onClick` and `onclick` are one listener, `tabIndex` and `tabindex` one
+// attribute), with React's names for one property made one: `class` for
+// `className`, `for` for `htmlFor`, `innerhtml` for `dangerouslySetInnerHTML`,
+// `xlink:href` for `xlinkHref` and `xml:lang` for `xmlLang`.
 function writerName(key) {
-  return _isEventProp(key) ? key.toLowerCase() : key === 'className' ? 'class' : key === 'dangerouslySetInnerHTML' ? 'innerHTML'
-    : key.startsWith('xlink') ? 'xlink:' + key.slice(key[5] === ':' ? 6 : 5).toLowerCase() : key;
+  const name = key.toLowerCase();
+  return name === 'classname' ? 'class' : name === 'htmlfor' ? 'for' : name === 'dangerouslysetinnerhtml' ? 'innerhtml'
+    : name.replace(/^(xlink(?!:)|xml(?![:n]))(?=.)/, '$1:');
 }
 
 function listen(el, key, handler) {

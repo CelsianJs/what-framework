@@ -539,3 +539,86 @@ test('an attribute the element is made with (`multiple`) stays in the template b
   assert.deepEqual(runs.S, ['', 'c', 'a,b', '', 'b', ''], 'through a spread');
   assert.deepEqual(runs.S, runs.C, 'as the attribute binds it');
 });
+
+// Spreads read again whose writers change kind, read getters, alias names or
+// change a field's kind (verification 4).
+const mod6 = await loadCompiled(`
+  import { signal } from 'what-framework';
+  export const enabled = signal(false), current = signal('acc-1'), title = signal('t1'), moving = signal('m1');
+  export const multi = signal(true), picked = signal(['a', 'b']), type = signal('date');
+  export const counts = { reads: 0 };
+  const bag = { get title() { counts.reads++; return title(); } };
+  const getBag = () => bag;
+  export const View = () => <div>
+    <input id="kind" {...{ value: enabled() ? current : 'literal' }} />
+    <p id="same" {...getBag()} />
+    <label id="for" {...{ htmlFor: moving() }} {...{ for: 'winner' }} />
+    <i id="tab" {...{ tabIndex: moving() === 'm1' ? 1 : 2 }} {...{ tabindex: '7' }} />
+    <select id="sel" {...{ multiple: multi(), value: picked() }}><option>a</option><option>b</option></select>
+    <select id="sel2" {...{ value: picked(), multiple: multi() }}><option>a</option><option>b</option></select>
+    <input id="type" {...{ type: type(), value: 'abc' }} />
+  </div>;
+`);
+
+async function withView6(check) {
+  const el = document.body.appendChild(document.createElement('div'));
+  const unmount = mount(mod6.View, el);
+  flushSync();
+  try {
+    await check((s) => el.querySelector(s));
+  } finally {
+    unmount();
+    el.remove();
+  }
+}
+
+test('a spread value that turns from a plain value into an accessor follows the accessor', () => withView6((q) => {
+  mod6.enabled(false);
+  flushSync();
+  assert.equal(q('#kind').value, 'literal');
+  mod6.enabled(true);
+  flushSync();
+  assert.equal(q('#kind').value, 'acc-1');
+  mod6.current('acc-2');
+  flushSync();
+  assert.equal(q('#kind').value, 'acc-2');
+  mod6.enabled(false);
+  flushSync();
+  assert.equal(q('#kind').value, 'literal', 'and back');
+}));
+
+test('a factory that hands back the same object: its getter is read once a run, and its new value shown', () => withView6((q) => {
+  assert.equal(q('#same').title, mod6.title());
+  const before = mod6.counts.reads;
+  mod6.title(mod6.title() === 't1' ? 't2' : 't1');
+  flushSync();
+  assert.equal(q('#same').title, mod6.title());
+  assert.equal(mod6.counts.reads - before, 1, 'one read for the update');
+}));
+
+test('htmlFor and for, tabIndex and tabindex are one name: the later writer keeps winning', () => withView6((q) => {
+  assert.equal(q('#for').getAttribute('for'), 'winner');
+  assert.equal(q('#tab').getAttribute('tabindex'), '7');
+  mod6.moving(mod6.moving() === 'm1' ? 'm2' : 'm1');
+  flushSync();
+  assert.equal(q('#for').getAttribute('for'), 'winner');
+  assert.equal(q('#tab').getAttribute('tabindex'), '7');
+}));
+
+test('a select whose multiple changes selects its value again, whichever is written first', () => withView6((q) => {
+  const selected = (s) => [...q(s).options].filter((o) => o.selected).map((o) => o.value).join();
+  for (const s of ['#sel', '#sel2']) assert.equal(selected(s), 'a,b', s);
+  mod6.multi(false);
+  flushSync();
+  mod6.multi(true);
+  flushSync();
+  for (const s of ['#sel', '#sel2']) assert.equal(selected(s), 'a,b', `${s} after multiple went off and on`);
+}));
+
+test('an input whose type changes takes back the value its new type accepts', () => withView6((q) => {
+  mod6.type('date');
+  flushSync();
+  mod6.type('text');
+  flushSync();
+  assert.equal(q('#type').value, 'abc');
+}));
