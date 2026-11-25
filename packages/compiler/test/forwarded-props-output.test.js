@@ -68,6 +68,28 @@ describe('an attribute written after a spread', () => {
     }
   });
 
+  it('a static attribute before a spread read again is one of its sources, and the template\'s from the start', () => {
+    const { code } = quiet(`export const A = () => <div title="fallback" {...attrs()} />;`);
+    assert.match(code, /_\$template\("<div title=fallback>"\)/);
+    // An attribute the element needs as it is made (`multiple` before the options) is in the template.
+    assert.match(quiet(`export const S = () => <select multiple {...{ value: v }}><option>a</option></select>;`).code, /_\$template\("<select multiple><option>a"\)/);
+    assert.match(code, /_\$spreads\(_el\$0, \(\) => \[\{ __proto__: null, title: "fallback" \}, attrs\(\)\]\)/);
+    assert.match(quiet(`export const B = () => <div title="kept" {...rest} />;`).code, /_\$template\("<div title=kept>"\)/, 'a name spread stays as it was');
+  });
+
+  it('an event with modifiers stays out of the merge, and the rest merges', () => {
+    const { code } = quiet(`export const A = () => <button {...{ onClick: a }} {...{ onclick: b }} onblur__preventDefault={f} />;`);
+    assert.match(code, /_\$spreads\(_el\$0, \[\{ onClick: a \}, \{ onclick: b \}\]\); _\$on\(_el\$0, "blur", /);
+  });
+
+  it('a call is read again where its callee or an argument reads state, and once where none does', () => {
+    const { code } = quiet(`export const A = (props) => <div><a {...make(state())} /><a {...pick(props.kind)} /><a {...register('t')} /><a {...build(1, 'x')} /></div>;`);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[make\(state\(\)\)\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[pick\(props\.kind\)\]\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, register\('t'\)\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, build\(1, 'x'\)\)/);
+  });
+
   it('a literal that names children takes part in the children, the last winning', () => {
     const { code } = quiet(`const first = { children: 'first' }; export const A = () => <div {...first} {...{ children: 'last' }} />;`);
     assert.match(code, /_\$place\(_\$merge\(first, \{ children: 'last' \}\), "children"\)/);

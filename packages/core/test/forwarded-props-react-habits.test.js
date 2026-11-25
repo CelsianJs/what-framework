@@ -401,3 +401,141 @@ test('spreads: the last writer of a name wins, its spelling aside; children, res
     flushSync();
   }
 });
+
+// A spread read again (_$spreads with a function of its sources).
+const mod5 = await loadCompiled(`
+    import { signal } from 'what-framework';
+    export const attrs = signal({ title: 'override' });
+    export const field = signal({ value: 'a' });
+    export const box = signal({ checked: true, type: 'checkbox' });
+    export const html = signal('<b>one</b>');
+    export const markup = signal(true);
+    export const state = signal('x');
+    export const refs = { a: { current: null }, b: { current: null } };
+    export const which = signal('a');
+    export const tick = signal(0);
+    export let reads = 0;
+    export const calls = [];
+    const make = (s) => (s === 'x' ? { title: 'tx', 'data-x': '1' } : { title: 'ty', lang: 'en' });
+    const stable = Object.create(null);
+    for (let i = 0; i < 50; i++) Object.defineProperty(stable, 'data-k' + i, { get() { reads++; return 'v'; }, enumerable: true });
+    export function View() {
+      return <div>
+        <p id="fb"><span title="fallback" {...attrs()} /></p>
+        <input id="ctl" {...field()} />
+        <input id="chk" {...box()} />
+        <div id="html" {...(markup() ? { innerHTML: { __html: html() } } : {})} {...{}} />
+        <div id="last-html" {...{ innerHTML: { __html: '<i>first</i>' } }} {...{ dangerouslySetInnerHTML: { __html: '<strong>last</strong>' } }} />
+        <button id="mod" {...{ onClick: () => calls.push('a') }} {...{ onclick: () => calls.push('b') }} onblur__preventDefault={() => calls.push('blur')} />
+        <p id="call"><span {...make(state())} /></p>
+        <p id="ref"><span {...{ ref: refs[which()] }} /></p>
+        <p id="perf"><span {...stable} {...{ 'data-t': String(tick()) }} /></p>
+      </div>;
+    }
+`);
+
+const settle5 = async () => { await Promise.resolve(); flushSync(); await Promise.resolve(); };
+// The view mounted as a component, so what it binds has its owner (and goes on unmount).
+async function withView(check) {
+  const el = document.body.appendChild(document.createElement('div'));
+  const unmount = mount(mod5.View, el);
+  flushSync();
+  let stopped = false;
+  try {
+    await check((s) => el.querySelector(s), () => { unmount(); stopped = true; });
+  } finally {
+    if (!stopped) unmount();
+    el.remove();
+  }
+}
+
+test('a static attribute before a spread read again shows again when the spread drops the name', () => withView((q) => {
+  mod5.attrs({ title: 'override' });
+  flushSync();
+  assert.equal(q('#fb span').title, 'override');
+  mod5.attrs({});
+  flushSync();
+  assert.equal(q('#fb span').title, 'fallback');
+}));
+
+test('value and checked from a spread read again are bound: an edit the state did not take is undone', () => withView(async (q) => {
+  q('#ctl').value = 'typed';
+  q('#ctl').dispatchEvent(new window.Event('input', { bubbles: true }));
+  await settle5();
+  assert.equal(q('#ctl').value, 'a');
+  q('#chk').click();
+  await settle5();
+  assert.equal(q('#chk').checked, true);
+  mod5.field({ value: 'b' });
+  flushSync();
+  assert.equal(q('#ctl').value, 'b', 'a new value is shown');
+}));
+
+test('innerHTML and dangerouslySetInnerHTML are one name, and a spread that drops it clears the markup', () => withView((q) => {
+  mod5.markup(true);
+  flushSync();
+  assert.equal(q('#last-html').innerHTML, '<strong>last</strong>');
+  assert.equal(q('#html').innerHTML, '<b>one</b>');
+  mod5.markup(false);
+  flushSync();
+  assert.equal(q('#html').innerHTML, '');
+}));
+
+test('an event with modifiers on the element leaves the click\'s last writer alone', () => withView((q) => {
+  mod5.calls.length = 0;
+  q('#mod').click();
+  assert.deepEqual(mod5.calls, ['b']);
+}));
+
+test('a spread of a call whose argument reads state is made again with the new keys', () => withView((q) => {
+  mod5.state('x');
+  flushSync();
+  assert.deepEqual([q('#call span').title, q('#call span').getAttribute('data-x')], ['tx', '1']);
+  mod5.state('y');
+  flushSync();
+  assert.deepEqual([q('#call span').title, q('#call span').getAttribute('data-x'), q('#call span').lang], ['ty', null, 'en']);
+}));
+
+test('a ref a spread no longer holds lets the element go, and so does the last one on unmount', () => withView((q, unmount) => {
+  mod5.which('a');
+  flushSync();
+  assert.equal(mod5.refs.a.current, q('#ref span'));
+  mod5.which('b');
+  flushSync();
+  assert.equal(mod5.refs.a.current, null);
+  assert.equal(mod5.refs.b.current, q('#ref span'));
+  unmount();
+  assert.equal(mod5.refs.b.current, null);
+}));
+
+test('another source changing does not rebind a stable spread\'s getters', () => withView((q) => {
+  const before = mod5.reads;
+  for (let i = 1; i <= 20; i++) { mod5.tick(i); flushSync(); }
+  assert.equal(q('#perf span').getAttribute('data-t'), '20');
+  assert.equal(mod5.reads, before, 'no getter of the stable spread ran again');
+}));
+
+test('an attribute the element is made with (`multiple`) stays in the template beside a spread read again', async () => {
+  const sel = await loadCompiled(`
+    import { signal } from 'what-framework';
+    export const v = signal(null);
+    export const S = () => <select name="f" multiple {...{ value: v }}><option>a</option><option>b</option><option>c</option></select>;
+    export const C = () => <select name="f" multiple value={v()}><option>a</option><option>b</option><option>c</option></select>;
+  `);
+  const runs = {};
+  for (const name of ['S', 'C']) {
+    const el = document.body.appendChild(document.createElement('div'));
+    const stop = mount(sel[name], el);
+    flushSync();
+    const selected = () => [...el.querySelectorAll('option')].filter((o) => o.selected).map((o) => o.value).join();
+    const seen = [selected()];
+    for (const w of [['c'], ['a', 'b'], null, 'b', null]) { sel.v(w); flushSync(); seen.push(selected()); }
+    runs[name] = seen;
+    stop();
+    el.remove();
+    sel.v(null);
+    flushSync();
+  }
+  assert.deepEqual(runs.S, ['', 'c', 'a,b', '', 'b', ''], 'through a spread');
+  assert.deepEqual(runs.S, runs.C, 'as the attribute binds it');
+});

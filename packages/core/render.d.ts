@@ -235,6 +235,8 @@ export function _$hcreateFn(component: unknown, props?: unknown, ...args: unknow
 export function _$outside<T>(build: () => T): T;
 /** @internal A value rendered as DOM nodes, appended to `out` (what-react's keyed rows render what is not theirs with it). */
 export function _valuesToNodes(value: unknown, parent: Node | null, out: Node[], isSvg?: boolean): Node[];
+/** @internal The children of `parent` changed: a select among them, or the one it is, writes its value again (what-react's keyed rows). */
+export function _$childrenChanged(parent: Node): void;
 /** @internal Install the vnode renderer and its keyed rows, in a program that has none of what-core's (what-react's mixed mode). */
 export function _installVNodeRuntime(
   render: (vnode: any, parent?: any, isSvg?: boolean, inParent?: 1) => any,

@@ -299,14 +299,20 @@ function isDirective(name) {
 
 // A spread whose object the code may build again with other keys
 // (`{...attrs()}`, `{...props.attrs}`, a keyed row's item, a literal that
-// reads state): the runtime reads its sources again when what they read
-// changes (render.js spread). A name is read once, a props object or a rest
-// of it keeping its own getters live; so is a call handed arguments
-// (`{...register('title')}`), which builds what it returns each time.
+// reads state, a call whose arguments do): the runtime reads its sources
+// again when what they read changes (render.js _$spreads). A name is read
+// once, a props object or a rest of it keeping its own getters live.
 function liveSpread(arg, state) {
   if (t.isIdentifier(arg)) return false;
-  if (t.isCallExpression(arg) && arg.arguments.length > 0 && arg.callee._whatRowItem !== true) return false;
-  return isPotentiallyReactive(arg, state.signalNames, state.importedIdentifiers);
+  const reads = (node) => isPotentiallyReactive(node, state.signalNames, state.importedIdentifiers);
+  // A call handed arguments is made again where its callee or an argument
+  // reads state (`{...make(state())}`, `{...pick(props.kind)}`), as React
+  // calls it again in the render the state change causes; with arguments
+  // that read none (`{...register('title')}`) it is made once.
+  if (t.isCallExpression(arg) && arg.arguments.length > 0 && arg.callee._whatRowItem !== true) {
+    return reads(arg.callee) || arg.arguments.some((a) => reads(t.isSpreadElement(a) ? a.argument : a));
+  }
+  return reads(arg);
 }
 
 // Whether the element's spreads are written as one merge of everything in
@@ -315,8 +321,8 @@ function liveSpread(arg, state) {
 // writer, the last (`<button {...rest} {...{ title: 'last', onClick: b }} />`,
 // `<button onClick={own} {...rest} />`), as the props object React builds.
 // One spread with attributes only after it skips their names instead
-// (writtenAfter). Not when an attribute is not a plain prop (`bind:`, an event
-// modifier), which has no place in a props object; a namespaced attribute
+// (writtenAfter). An attribute that is not a plain prop (`bind:`, an event
+// modifier) stays out of the merge (unmerged); a namespaced attribute
 // (`xlink:href`) is one.
 function mergesSpreads(attributes, tagName, state) {
   const last = attributes.findLastIndex((a) => t.isJSXSpreadAttribute(a));
@@ -329,12 +335,27 @@ function mergesSpreads(attributes, tagName, state) {
       continue;
     }
     const name = getAttrName(attr);
-    if (isDirective(name) || name.includes('|') || (isEventAttrName(name) && hasEventModifiers(name, state))) return false;
+    if (unmerged(name, state)) continue;
     // A ref is applied as it is, beside the spreads' own (`ref={input}
     // {...register('title')}` hands both the element).
-    if (i < last && name !== 'key' && name !== 'ref' && !inTemplate(attributes, i, tagName) && !isShadowedAttr(attributes, i)) contested = true;
+    if (i < last && name !== 'key' && name !== 'ref' && (!inTemplate(attributes, i, tagName) || fallsBack(attributes, i, state)) && !isShadowedAttr(attributes, i)) contested = true;
   }
   return contested;
+}
+
+// An attribute that is not a plain prop (`bind:value`, an event with
+// modifiers): it has no place in a props object, and is applied as it is
+// beside the merge of the others.
+function unmerged(name, state) {
+  return isDirective(name) || name.includes('|') || (isEventAttrName(name) && hasEventModifiers(name, state));
+}
+
+// Whether a spread after `index` is read again (liveSpread): it may drop a
+// name, and the attribute at `index` shows again (`<div title="fallback"
+// {...attrs()} />`), so the attribute is one of its sources too, beside the
+// template that holds it from the start (`multiple` before the options).
+function fallsBack(attributes, index, state) {
+  return attributes.some((a, i) => i > index && t.isJSXSpreadAttribute(a) && liveSpread(a.argument, state));
 }
 
 // Whether the template holds the attribute at `index` (extractStaticHTML).
@@ -694,6 +715,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
     /** @type {any} */
     let literal = null;
     const refs = [];
+    const separate = [];
     const last = attributes.findLastIndex((a) => t.isJSXSpreadAttribute(a));
     for (const [attrIndex, attr] of attributes.entries()) {
       if (t.isJSXSpreadAttribute(attr)) {
@@ -702,8 +724,12 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
         continue;
       }
       const name = getAttrName(attr);
+      if (unmerged(name, state)) {
+        separate.push(attr);
+        continue;
+      }
       // A later attribute of the same name is its only writer (isShadowedAttr).
-      if (name === 'key' || inTemplate(attributes, attrIndex, tagName) || isShadowedAttr(attributes, attrIndex)) continue;
+      if (name === 'key' || (inTemplate(attributes, attrIndex, tagName) && !fallsBack(attributes, attrIndex, state)) || isShadowedAttr(attributes, attrIndex)) continue;
       const value = getAttributeValue(attr.value);
       if (name === 'ref') {
         refs.push([t.expressionStatement(buildRef(value, elId, state)), attrIndex > last]);
@@ -724,6 +750,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       // A ref after the last spread is the element's only one.
       ...(refs.some(([, after]) => after) ? [t.arrayExpression([t.stringLiteral('ref')])] : []),
     ])), ...refs.map(([statement]) => statement));
+    if (separate.length > 0) applyDynamicAttrs(statements, elId, separate, state, tagName, ns);
     return;
   }
 

@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
@@ -656,6 +656,8 @@ let optionsChanged = (parent) => {
 export function _installOptionsChanged(fn) {
   optionsChanged = fn;
 }
+// The same, called by keyed rows of another package (what-react's mixed.js).
+export { optionsChanged as _$childrenChanged };
 
 export function insert(parent, child, marker, devName) {
   const type = typeof child;
@@ -2152,32 +2154,80 @@ function spread(el, props, after) {
  */
 export function _$spreads(el, sources, after) {
   if (typeof sources !== 'function') return spread(el, winners(sources), after);
-  /** @type {Record<string, any> | null} */
-  let shown = null;
+  // Read again: each name's writer is bound under a scope of its own, the
+  // element's owner's, so a run rebinds only the names whose writer or value
+  // changed (an unchanged getter of a source that stays, or the same plain
+  // value, is left as it is), and unbinds and clears a name no source holds.
+  const owner = getOwner();
+  /** @type {Map<string, [any, string, any, any, () => void, any]>} */
+  const shown = new Map();
   effect(() => {
-    const next = winners(sources());
-    if (shown !== null) for (const key in shown) if (!(key in next) && !_isEventProp(key)) setProp(el, key, undefined);
-    spread(el, shown = next, after);
+    const next = writers(sources());
+    for (const [name, was] of shown) {
+      if (next.has(name)) continue;
+      was[4]();
+      shown.delete(name);
+      // The one writer of the markup is dangerouslySetInnerHTML's.
+      if (!_isEventProp(name)) setProp(el, name === 'innerHTML' ? 'dangerouslySetInnerHTML' : was[1], undefined);
+    }
+    for (const [name, [src, key]] of next) {
+      if (name === 'children' || after?.includes(name)) continue;
+      const get = Object.getPrototypeOf(src) === null && /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get;
+      const value = get ? get : src[key];
+      const was = shown.get(name);
+      if (was !== undefined && was[1] === key && (was[0] === src || (!get && !was[2] && Object.is(was[3], value)))) continue;
+      // A field's value or checked is state the spread holds: a new value is
+      // written to it, and the field, bound to it, shows it again after its
+      // events (render.js fieldSpread), as a binding that read state does.
+      if (was !== undefined && was[5] && was[1] === key && !get && !was[2]) {
+        was[0] = src;
+        was[5](was[3] = value);
+        continue;
+      }
+      if (was !== undefined) was[4]();
+      // (A function, a signal or an accessor, is bound as it is, as `value={v}`.)
+      const field = !get && (key === 'value' || key === 'checked') && typeof value !== 'function' ? signal(value) : null;
+      shown.set(name, [src, key, get, value, untrack(() => runWithOwner(owner, () => createRoot((dispose) => {
+        const one = Object.create(null);
+        if (field !== null) Object.defineProperty(one, key, { get: field, enumerable: true });
+        else _copyProp(one, src, key, get !== false);
+        spread(el, one);
+        // A ref is let go of when its writer changes and when the element goes.
+        if (key === 'ref') {
+          const ref = one.ref;
+          onCleanup(() => applyRef(ref, null));
+        }
+        return dispose;
+      }))), field]);
+    }
   });
 }
 
 // The last writer of each name among `sources`, as one props object (getters
 // of a props object What built kept: render.js _$merge).
 function winners(sources) {
+  const out = Object.create(null);
+  for (const [src, key] of writers(sources).values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
+  return out;
+}
+
+// Each name's last writer among `sources`: [source, key], in the order the
+// names first appear.
+function writers(sources) {
+  /** @type {Map<string, [any, string]>} */
   const names = new Map();
   for (let src of sources) {
     src = Object(src);
     for (const key of Object.keys(src)) names.set(writerName(key), [src, key]);
   }
-  const out = Object.create(null);
-  for (const [src, key] of names.values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
-  return out;
+  return names;
 }
 
 // The name a key writes: an event's in lower case (`onClick` and `onclick`
-// are one listener), `class` for `className`, `xlink:href` for `xlinkHref`.
+// are one listener), `class` for `className`, `innerHTML` for
+// `dangerouslySetInnerHTML` (one property), `xlink:href` for `xlinkHref`.
 function writerName(key) {
-  return _isEventProp(key) ? key.toLowerCase() : key === 'className' ? 'class'
+  return _isEventProp(key) ? key.toLowerCase() : key === 'className' ? 'class' : key === 'dangerouslySetInnerHTML' ? 'innerHTML'
     : key.startsWith('xlink') ? 'xlink:' + key.slice(key[5] === ':' ? 6 : 5).toLowerCase() : key;
 }
 

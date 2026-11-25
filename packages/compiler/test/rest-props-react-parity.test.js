@@ -195,6 +195,15 @@ const SHAPES = {
     code: `const Cls = ({ u, ...rest }) => <p {...rest} {...{ className: 'fixed' }} />;`,
     use: (v) => `<Cls u="x" className={${v('cls')}} title={${v('label')}} />`,
   },
+  'an attribute before a spread that drops it': {
+    code: `const F = ({ on }) => <a title="fallback" {...(on ? { title: 'override' } : {})} />;`,
+    use: (v) => `<F on={${v('label')} === 'one'} />`,
+  },
+  'a spread of a call given state': {
+    code: `const make = (s) => (s === 'one' ? { title: 'tx', id: 'x' } : { title: 'ty', lang: 'en' });
+      const C = ({ s }) => <a {...make(s)} />;`,
+    use: (v) => `<C s={${v('label')}} />`,
+  },
   'MathML tags': {
     code: `const Shape = ({ as: Tag, ...rest }) => <Tag {...rest} />;`,
     use: (v) => `<math><Shape as="mi" className={${v('cls')}}>{${v('label')}}</Shape></math>`,
