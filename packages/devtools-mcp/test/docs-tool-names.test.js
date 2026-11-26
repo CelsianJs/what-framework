@@ -103,15 +103,18 @@ describe('agent-facing docs name only registered tools', () => {
 const WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
 // The tool counts a text states, as [kind, number, line]: `all` for "25
-// tools" and "the 25-tool server", `offline` for "the four offline tools",
-// `live` for "the other 21 need a live page". Markup is read as its text. A
+// tools", "25 live debugging tools" and "the 25-tool server", `offline` for
+// "the four offline tools", `live` for "the other 21 need a live page",
+// `others` for "`a`, `b`, `c`, and 22 other tools" (three named, the rest
+// counted). Markup is read as its text. A
 // line about an earlier release (the migration notes' "0.14.0 registered 29
 // tools") is history and is skipped.
 function toolCounts(text) {
   const found = [];
   for (const line of text.replace(/<[^>]+>/g, '').split('\n')) {
     if (/\b0\.1[0-4]\./.test(line)) continue;
-    for (const m of line.matchAll(/\b(\d+)(?: (?:MCP )?tools\b|-tool\b)/g)) found.push(['all', Number(m[1]), line]);
+    for (const m of line.matchAll(/\b(\d+)(?: (?:live )?(?:debugging )?(?:MCP )?tools\b|-tool\b)/g)) found.push(['all', Number(m[1]), line]);
+    for (const m of line.matchAll(/\band (\d+) other tools\b/g)) found.push(['others', Number(m[1]), line]);
     for (const m of line.matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten) offline tools\b/g)) found.push(['offline', WORDS[m[1]] ?? Number(m[1]), line]);
     for (const m of line.matchAll(/\bthe other (\d+) need a live page\b/g)) found.push(['live', Number(m[1]), line]);
   }
@@ -123,8 +126,8 @@ function toolCounts(text) {
 // drifted the same way.
 describe('docs state the number of tools the server registers', () => {
   const count = registeredNames().size;
-  const expected = { all: count, offline: OFFLINE_TOOLS.size, live: count - OFFLINE_TOOLS.size };
-  for (const doc of ['README.md', 'CLAUDE.md', 'docs/ARCHITECTURE.md', 'docs/MCP-DEVTOOLS.md', 'docs/UPGRADING.md', 'packages/devtools-mcp/README.md', 'packages/create-what/agent-instructions.js', ...SITE]) {
+  const expected = { all: count, offline: OFFLINE_TOOLS.size, live: count - OFFLINE_TOOLS.size, others: count - 3 };
+  for (const doc of ['README.md', 'GETTING-STARTED.md', 'docs/QUICKSTART.md', 'CLAUDE.md', 'docs/ARCHITECTURE.md', 'docs/MCP-DEVTOOLS.md', 'docs/UPGRADING.md', 'packages/devtools-mcp/README.md', 'packages/create-what/agent-instructions.js', ...SITE]) {
     it(doc, () => {
       const wrong = toolCounts(readFileSync(join(repo, doc), 'utf8'))
         .filter(([kind, n]) => n !== expected[kind])
@@ -140,9 +143,11 @@ describe('the tool-count reader', () => {
       'A live MCP server (25 tools) and <strong>24</strong> MCP tools.',
       '<p>The 25-tool MCP server.</p>',
       'only the four offline tools answer; the other 21 need a live page.',
+      'It provides 24 live debugging tools.',
+      'Use `what_a`, `what_b`, `what_c`, and 22 other tools.',
       '0.14.0 registered 29 tools.',
     ].join('\n');
-    assert.deepEqual(toolCounts(text).map(([kind, n]) => [kind, n]), [['all', 25], ['all', 24], ['all', 25], ['offline', 4], ['live', 21]]);
+    assert.deepEqual(toolCounts(text).map(([kind, n]) => [kind, n]), [['all', 25], ['all', 24], ['all', 25], ['offline', 4], ['live', 21], ['all', 24], ['others', 22]]);
   });
 });
 

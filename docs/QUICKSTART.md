@@ -2,7 +2,7 @@
 
 Get a WhatFW app running in under 2 minutes. This guide covers both human developers and AI agents.
 
-> **Want to skip setup?** [Try What Framework in the online playground →](https://playground-lilac-five.vercel.app)
+> **Want to skip setup?** [Try What Framework in the online playground →](https://playground.whatfw.com)
 
 ## 1. Scaffold and Run
 
@@ -36,9 +36,11 @@ If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for docu
 }
 ```
 
-This gives you 24 live debugging tools for inspecting signals, effects, components, DOM, and more.
+This gives you 25 tools for inspecting signals, effects, components, DOM, and more.
 
-And add the Vite plugin to your app:
+A scaffolded app already connects to it: its `vite.config.js` has the
+what-devtools-mcp Vite plugin. In an app you set up by hand, install
+`what-devtools` and `what-devtools-mcp` as dev dependencies and add the plugin:
 
 ```js
 // vite.config.js
