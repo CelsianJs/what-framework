@@ -43,7 +43,7 @@ import { useSignal } from 'what-framework';
 
 function App() {
   const count = useSignal<number>(0);
-  return <button onclick={() => count.set(c => c + 1)}>{count()}</button>;
+  return <button onClick={() => count.set(c => c + 1)}>{count()}</button>;
 }
 ```
 
@@ -132,12 +132,12 @@ interface ButtonProps {
   label: string;
   /** Changes over time: the parent passes a signal or accessor. */
   variant?: () => 'primary' | 'secondary';
-  onclick?: () => void;
+  onClick?: (e: MouseEvent) => void;
 }
 
 function Button(props: ButtonProps) {
   return (
-    <button class={() => `btn btn-${props.variant?.() ?? 'primary'}`} onclick={props.onclick}>
+    <button class={`btn btn-${props.variant?.() ?? 'primary'}`} onClick={(e) => props.onClick?.(e)}>
       {props.label}
     </button>
   );
@@ -149,7 +149,9 @@ passed live, as a getter, so its type is the value's type (`label: string`)
 and `props.label`, or a destructured `{ label }`, shows the current value
 where it renders. A prop can also be typed and passed as an accessor
 (`variant={variant}`), which the component calls where it renders
-(`props.variant()`).
+(`props.variant()`). A handler is called through the props
+(`onClick={(e) => props.onClick?.(e)}`), so it follows the parent's current
+one; `onClick={props.onClick}` is read once.
 
 ### Typed Events
 
@@ -200,6 +202,39 @@ const requireLogin: RouteMiddleware = ({ url }) =>
   isLoggedIn() || `/login?next=${encodeURIComponent(url)}`;
 ```
 
+A route list typed as `RouteConfig[]` types each route's `preload` context
+(`params`, `query`, `url`). A page gets what its `preload` returned as `data`,
+which `RouteComponentProps` types as optional (a route without `preload` has
+none), so a page names its own type for it:
+
+```tsx
+import { Router, type RouteComponentProps, type RouteConfig } from 'what-framework/router';
+import { query } from 'what-framework/data';
+
+interface User {
+  id: number;
+  name: string;
+}
+
+const loadUser = (id: string) =>
+  query(['user', id], (key, { signal }) => fetch(`/api/users/${key[1]}`, { signal }).then((r) => r.json() as Promise<User>));
+
+function UserPage({ data }: RouteComponentProps & { data?: ReturnType<typeof loadUser> }) {
+  return <h1>{data?.()?.name}</h1>;
+}
+
+const routes: RouteConfig[] = [
+  { path: '/users/:id', preload: ({ params }) => loadUser(params.id), component: UserPage },
+];
+
+export function App() {
+  return <Router routes={routes} />;
+}
+```
+
+Without the `RouteConfig[]` annotation, `({ params })` in `preload` is an
+implicit `any` under `strict`.
+
 ### Typed Context
 
 ```tsx
@@ -241,6 +276,28 @@ export default [
   what.configs.compiler,  // Use 'compiler' preset when using what-compiler
 ];
 ```
+
+The presets parse JavaScript and JSX. A `.ts` or `.tsx` file, the scaffold's
+included, stops `npm run lint` with `Parsing error: Unexpected token` at the
+first piece of TypeScript syntax until a TypeScript parser is layered on top:
+
+```bash
+npm install -D typescript-eslint
+```
+
+```js
+// eslint.config.js
+import what from 'eslint-plugin-what';
+import tseslint from 'typescript-eslint';
+
+export default [
+  { ignores: ['dist', 'node_modules'] },
+  what.configs.compiler,
+  { files: ['**/*.{ts,tsx}'], languageOptions: { parser: tseslint.parser } },
+];
+```
+
+The What rules then check `.tsx` files as they check `.jsx`.
 
 ## Troubleshooting
 

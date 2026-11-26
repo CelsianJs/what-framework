@@ -238,7 +238,7 @@ function Counter() {
 }
 ```
 
-Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`.
+Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`. `npm run typecheck` runs `tsc --noEmit`. `npm run lint` needs a TypeScript parser for `.tsx` files ([TYPESCRIPT.md, ESLint](./TYPESCRIPT.md#eslint)), or it stops at the first type annotation.
 
 See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
