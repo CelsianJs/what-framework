@@ -117,6 +117,9 @@ const STAGED = 1048576;    // async computed: landed inside a transition that ha
 // An owner record's own flag: it, or an owner linked below it, holds a
 // useEffect or onMount (_userEffect), whose cleanups an unmount runs first.
 const OWNS_USER = 2097152;
+// An owner record's flag while a round of useEffect and onMount runs is
+// ordered (orderUserRound): it holds a re-run of that round.
+const RERUN_OWNER = 4194304;
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -2783,6 +2786,7 @@ export function _userEffect(fn) {
     owner: o,
     parent: runningEffect,
     owned: null,
+    queued: 0,
   };
   if (__DEV__) {
     if (arguments[1]) e.devName = arguments[1];
@@ -2795,7 +2799,7 @@ export function _userEffect(fn) {
 
 function queueUser(e) {
   if (e.flags & DISPOSED) return;
-  firstQueued.set(e, ++queuedCount);
+  e.queued = ++queuedCount;
   // Under a <Suspense> that has not shown its content yet, the first run waits
   // until it does (see components.js).
   if (userEffectGate !== null && userEffectGate(e)) return;
@@ -2833,10 +2837,9 @@ function releaseHeld(mark) {
 // first one installs it (_userEffect), and nothing else reaches it.
 /** @type {{ order: (round: WhatEffectNode[], len: number) => void, release: (mark: number) => void, clean: (o: any) => void } | null} */
 let userOps = null;
-// When each useEffect and onMount was first queued: children first, siblings
-// in order (_holdUser), which is the order React's tree gives its effects.
-/** @type {WeakMap<WhatEffectNode, number>} */
-const firstQueued = new WeakMap();
+// When each useEffect and onMount was first queued (its `queued`): children
+// first, siblings in order (_holdUser), which is the order React's tree gives
+// its effects.
 let queuedCount = 0;
 
 // A round of useEffect and onMount runs, in React's order for a commit's
@@ -2850,35 +2853,60 @@ let queuedCount = 0;
 // effect (one a useEffect's callback made) keeps the queue's order, which
 // runs an effect's parent first.
 function orderUserRound(round, len) {
-  // The owner of each re-run: the latest first-queued number below it.
-  /** @type {Map<any, number>} */
-  const last = new Map();
+  let reruns = 0;
   for (let i = 0; i < len; i++) {
     const e = round[i];
-    if (!firstQueued.has(e)) return;
-    if (e.depHead !== null) last.set(e.owner, 0);
+    if (!(e.queued > 0)) return;
+    if (e.depHead !== null) reruns++;
   }
-  if (last.size === 0) return;
-  /** @type {[WhatEffectNode, number, number][]} */
-  const rows = [];
+  if (reruns === 0) return;
+  // Unless a re-run's owner holds another effect of the round below it, each
+  // effect keeps its first-queued place.
   for (let i = 0; i < len; i++) {
     const e = round[i];
-    const at = /** @type {number} */ (firstQueued.get(e));
-    let depth = 0;
-    for (let a = e.owner; a != null; a = a.owner) if (++depth > 1 && /** @type {number} */ (last.get(a)) < at) last.set(a, at);
-    rows.push([e, at, depth]);
+    if (e.depHead !== null && e.owner !== null) e.owner.flags |= RERUN_OWNER;
   }
-  /** @param {[WhatEffectNode, number, number]} row */
-  const key = ([e, at]) => (e.depHead !== null ? Math.max(at, /** @type {number} */ (last.get(e.owner))) : at);
-  rows.sort((p, q) => key(p) - key(q) || q[2] - p[2] || p[1] - q[1]);
+  let below = false;
+  for (let i = 0; i < len && !below; i++) {
+    for (let a = round[i].owner?.owner; a != null && !below; a = a.owner) below = (a.flags & RERUN_OWNER) !== 0;
+  }
   for (let i = 0; i < len; i++) {
-    const e = round[i] = rows[i][0];
+    const o = round[i].owner;
+    if (o !== null) o.flags &= ~RERUN_OWNER;
+  }
+  const order = below ? orderNested(round, len) : round.slice(0, len).sort((p, q) => p.queued - q.queued);
+  for (let i = 0; i < len; i++) {
+    const e = round[i] = order[i];
     let f = e.flags;
     if ((f & (DIRTY | DISPOSED)) === 0 && (f & PENDING) && /** @type {any} */ (pullOps).check(e)) e.flags = f = e.flags | DIRTY;
     if ((f & (DIRTY | DISPOSED)) !== DIRTY) continue;
     if (e.owned !== null) disposeRun(e);
     if (e.cleanup !== null && (e.flags & DISPOSED) === 0) runCleanup(e);
   }
+}
+
+// orderUserRound's order for a round where a re-run's owner holds another of
+// its effects below it.
+function orderNested(round, len) {
+  // The owner of each re-run: the latest first-queued number below it.
+  /** @type {Map<any, number>} */
+  const last = new Map();
+  for (let i = 0; i < len; i++) {
+    const e = round[i];
+    if (e.depHead !== null) last.set(e.owner, 0);
+  }
+  /** @type {[WhatEffectNode, number, number][]} */
+  const rows = [];
+  for (let i = 0; i < len; i++) {
+    const e = round[i];
+    const at = /** @type {number} */ (e.queued);
+    let depth = 0;
+    for (let a = e.owner; a != null; a = a.owner) if (++depth > 1 && /** @type {number} */ (last.get(a)) < at) last.set(a, at);
+    rows.push([e, at, depth]);
+  }
+  /** @param {[WhatEffectNode, number, number]} row */
+  const key = ([e, at]) => (e.depHead !== null ? Math.max(at, /** @type {number} */ (last.get(e.owner))) : at);
+  return rows.sort((p, q) => key(p) - key(q) || q[2] - p[2] || p[1] - q[1]).map((row) => row[0]);
 }
 
 // React's order for useEffect cleanups on unmount: a parent's before its

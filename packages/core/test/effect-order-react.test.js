@@ -189,6 +189,40 @@ describe('useEffect runs in React\'s order', () => {
     assert.equal(actual.hide, 'cleanup Q, cleanup Q1');
   });
 
+  it('siblings written in the reverse of their order run again in their order', async () => {
+    const { createElement: h, useEffect, useState } = React;
+    function C({ name, dep, log }) {
+      useEffect(() => { log.push(`effect ${name}`); return () => log.push(`cleanup ${name}`); }, [dep]);
+      return h('i');
+    }
+    function App({ log, api }) {
+      const [x, setX] = useState(0);
+      const [y, setY] = useState(0);
+      Object.assign(api, { setX, setY });
+      return h('div', null, h(C, { name: 'A', dep: x, log }), h(C, { name: 'B', dep: y, log }), h(C, { name: 'C', dep: x, log }));
+    }
+    const expected = await reactLog(App, { both: (api) => { api.setY(1); api.setX(1); } });
+
+    const mod = await loadCompiled(`
+      import { signal, batch, useEffect, mount } from 'what-framework';
+      export const log = [];
+      export const x = signal(0), y = signal(0);
+      function C(props) {
+        const name = props.name;
+        useEffect(() => { log.push('effect ' + name); return () => log.push('cleanup ' + name); }, [props.dep]);
+        return <i />;
+      }
+      function App() {
+        return <div><C name="A" dep={x} /><C name="B" dep={y} /><C name="C" dep={x} /></div>;
+      }
+      export const run = (el) => mount(App, el);
+      export const both = () => batch(() => { y(1); x(1); });
+    `);
+    const actual = await whatLog(mod, { both: (m) => m.both() });
+    assert.deepEqual(actual, expected);
+    assert.equal(actual.both, 'cleanup A, cleanup B, cleanup C, effect A, effect B, effect C');
+  });
+
   it('rows a list added later run again before the parent that renders them; between rows, in the order they were built', async () => {
     const { createElement: h, useEffect, useState } = React;
     function C({ name, dep, log, children }) {

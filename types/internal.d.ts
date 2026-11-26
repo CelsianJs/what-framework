@@ -210,6 +210,8 @@ declare global {
     owner: WhatOwner | WhatEffectNode | WhatComputedNode | null;
     parent: WhatEffectNode | null;
     owned: WhatOwner | null;
+    /** A useEffect's or onMount's (_userEffect): the order it was first queued in, 0 until then. */
+    queued?: number;
     /** Dev: what-compiler's "name@path:line:column". */
     devName?: string;
     devBinding?: Node;
