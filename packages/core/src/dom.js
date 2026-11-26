@@ -769,7 +769,12 @@ export function _setFieldProp(el, key, value) {
     el.defaultValue = value == null ? '' : String(value);
   } else {
     const str = value == null ? undefined : String(value);
-    if (el._$value !== str) writeValue(el, (el._$value = str) ?? '');
+    if (el._$value !== str) {
+      el._$value = str;
+      // A number field that shows the number already ("04" typed for 4,
+      // "1.0" for 1) keeps what the user typed, as React's does.
+      if (str === undefined || el.type !== 'number' || el.validity.badInput || (el.value || NaN) != +str) writeValue(el, str ?? '');
+    }
   }
   return true;
 }

@@ -391,6 +391,25 @@ describe('a field a prop controls shows what the prop holds after each of its ev
     stop();
   });
 
+  it('a number field keeps the zero the user typed before a digit while its state takes the number', async () => {
+    reset();
+    const { host, stop } = mounted(h(mod.Amount, {}));
+    const field = host.querySelector('.amount');
+    mod.take(true);
+    mod.amount(0);
+    await settle();
+    assert.equal(field.value, '0');
+    field.value = '04';
+    fire(field, 'input');
+    await settle();
+    assert.equal(mod.amount(), 4);
+    assert.equal(field.value, '04', 'what the user typed, as React keeps it');
+    mod.amount(5);
+    await settle();
+    assert.equal(field.value, '5', 'another number from the state is written');
+    stop();
+  });
+
   it('the field is left alone while an input method composes, and checked when it is done', async () => {
     reset();
     const { host, stop } = mounted(h(mod.Text, {}));
