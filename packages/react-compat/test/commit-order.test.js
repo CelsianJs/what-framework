@@ -12,6 +12,18 @@
 // - a keyed move gives the focus back to the element that had it, and an
 //   autoFocus that mounts with it still takes it;
 // - a component its parent removes in the same batch is not rendered again.
+// The sixth review's probe (verify-wave6 commit-edge.jsx), traced against
+// the same React, adds (its Row and scenes, as `edge()` below):
+// - a list update that throws (a memo's comparison) under an error boundary
+//   or Suspense unmounts what the list showed: every cleanup runs once, and
+//   a row the failed render built is never set up;
+// - a controlled select takes its value once the option that held it left;
+//   a class's snapshot reads a field's value as it was;
+// - a root rendered from a commit's callback renders once that commit is
+//   done, after its passive effects, once for every render asked for then;
+// - render() on a root whose unmount waits for its commit is rejected;
+// - new nodes go in left to right;
+// - an unmount asked for from the first commit's ref releases everything.
 // Run: node --test packages/react-compat/test/commit-order.test.js
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +36,7 @@ for (const k of ['HTMLElement', 'Element', 'Node', 'SVGElement', 'Event', 'Focus
 
 const React = await import('../src/index.js');
 const ReactDOM = await import('../src/dom.js');
-const { createElement: h, useState, useLayoutEffect, useEffect, useInsertionEffect, Component, act } = React;
+const { createElement: h, useState, useLayoutEffect, useEffect, useInsertionEffect, Component, memo, Suspense, act } = React;
 const { createRoot, flushSync } = ReactDOM;
 
 const roots = [];
@@ -250,4 +262,294 @@ test('a component that set its state and that its parent removes in the same bat
   });
   assert.equal(renders.x, 1);
   assert.equal(container.textContent, 'y0');
+});
+
+// ---- The sixth review's scenes (verify-wave6 commit-edge.jsx) ----
+// React 19.3.1's traces are the matrix fixture's react-dom, built for
+// production and run in Chromium by that probe; each scene here runs the
+// probe's own steps, and compares the whole trace.
+
+/**
+ * The probe's Row and its run: `body(ctx)` renders and updates; then, as the
+ * probe does, a turn, the listener event, root.unmount(), a turn and the
+ * event again. Returns the trace and the container's text at the end.
+ * @param {(ctx: any) => Promise<void> | void} body
+ */
+async function edge(body) {
+  /** @type {any[]} */
+  const events = [];
+  const note = (...v) => events.push(v);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const put = (/** @type {any} */ el) => flushSync(() => root.render(el));
+  const ref = (/** @type {any} */ el) => {
+    if (el) { note('ref+', el.id, el.isConnected); return () => note('ref-', el.id, el.isConnected); }
+    note('null');
+    return undefined;
+  };
+  function Row({ id, quit }) {
+    note('render', id, 0);
+    useLayoutEffect(() => {
+      const el = document.getElementById(id);
+      note('layout+', id, !!el?.isConnected);
+      return () => {
+        note('layout-', id, !!el?.isConnected);
+        if (quit) quit();
+      };
+    }, []);
+    useEffect(() => {
+      const listener = () => note('listener', id);
+      window.addEventListener('wave6', listener);
+      note('passive+', id, !!document.getElementById(id)?.isConnected);
+      return () => {
+        note('passive-', id);
+        window.removeEventListener('wave6', listener);
+      };
+    }, []);
+    return h('span', { id, ref }, id + 0);
+  }
+  const ctx = { events, note, container, root, put, Row, tree: (/** @type {any[]} */ ...kids) => h('main', null, ...kids), extra: () => {} };
+  await body(ctx);
+  await settle();
+  window.dispatchEvent(new window.Event('wave6'));
+  root.unmount();
+  await settle();
+  window.dispatchEvent(new window.Event('wave6'));
+  ctx.extra();
+  container.remove();
+  return { events, end: container.innerHTML };
+}
+
+class Boundary extends Component {
+  constructor(props) { super(props); this.state = { bad: false }; }
+  static getDerivedStateFromError() { return { bad: true }; }
+  render() { return this.state.bad ? h('b', { id: 'fallback' }, 'fallback') : this.props.children; }
+}
+
+/** A list whose kept memo row's comparison throws `thrown` on the update; `fresh` comes before or after it. */
+function throwingList(ctx, thrown, freshFirst) {
+  const Kept = memo(function Kept({ n }) { return h('b', null, n); }, () => { throw thrown; });
+  let change = (/** @type {number} */ _n) => {};
+  function List() {
+    const [n, set] = useState(0);
+    change = set;
+    if (!n) return [h(ctx.Row, { key: 'deleted', id: 'deleted' }), h(Kept, { key: 'kept', n })];
+    return freshFirst
+      ? [h(ctx.Row, { key: 'fresh', id: 'fresh' }), h(Kept, { key: 'kept', n })]
+      : [h(Kept, { key: 'kept', n }), h(ctx.Row, { key: 'fresh', id: 'fresh' })];
+  }
+  return { List, update: () => flushSync(() => change(1)) };
+}
+
+const quietly = async (/** @type {() => any} */ fn) => {
+  const { error } = console;
+  console.error = () => {};
+  try { return await fn(); } finally { console.error = error; }
+};
+
+test('a list update whose memo comparison throws, caught by an error boundary, unmounts the row it removed: ref, layout and passive cleanups, no listener left (React 19.3.1 boundary-memo)', async () => {
+  const { events, end } = await quietly(() => edge(async (ctx) => {
+    const { List, update } = throwingList(ctx, new Error('memo comparison failed'), false);
+    ctx.put(h(Boundary, null, h(List)));
+    await settle();
+    ctx.events.length = 0;
+    update();
+    assert.equal(ctx.container.innerHTML, '<b id="fallback">fallback</b>');
+  }));
+  assert.deepEqual(events, [['layout-', 'deleted', true], ['ref-', 'deleted', true], ['passive-', 'deleted']]);
+  assert.equal(end, '');
+});
+
+test('a row the failed list render built before the memo threw is never set up (React 19.3.1: rendered, not committed)', async () => {
+  const { events } = await quietly(() => edge(async (ctx) => {
+    const { List, update } = throwingList(ctx, new Error('memo comparison failed'), true);
+    ctx.put(h(Boundary, null, h('main', null, h(List))));
+    await settle();
+    ctx.events.length = 0;
+    update();
+  }));
+  // React renders `fresh` (twice: it retries the render) and commits none of it.
+  assert.deepEqual(events.filter((e) => e[0] !== 'render'), [['layout-', 'deleted', true], ['ref-', 'deleted', true], ['passive-', 'deleted']]);
+});
+
+test('a memo comparison that suspends under Suspense: the removed row is cleaned up once and its listener is gone after unmount (React 19.3.1 suspense-memo keeps it hidden, its listener until the unmount)', async () => {
+  const { events, end } = await edge(async (ctx) => {
+    const { List, update } = throwingList(ctx, new Promise(() => {}), false);
+    ctx.put(h(Suspense, { fallback: h('b', { id: 'fallback' }, 'fallback') }, h(List)));
+    await settle();
+    ctx.events.length = 0;
+    update();
+    await settle();
+    assert.match(ctx.container.innerHTML, /<b id="fallback">fallback<\/b>$/);
+  });
+  // React: layout- deleted, ref- deleted, the hidden row's listener, then
+  // passive- deleted at the unmount. what-react unmounts what the list
+  // showed (MIXED.md): all three cleanups, once.
+  assert.deepEqual(events.filter((e) => e[0] !== 'render'), [['layout-', 'deleted', true], ['ref-', 'deleted', true], ['passive-', 'deleted']]);
+  assert.equal(end, '');
+});
+
+test('a controlled select takes its value from the option that arrives, once the option that held it left (React 19.3.1 select-removed: new selected)', async () => {
+  await edge((ctx) => {
+    const view = (/** @type {number} */ n) => h('select', { value: 'x', onChange: () => {} }, n
+      ? [h('option', { key: 'y', value: 'y' }, 'y'), h('option', { key: 'new', value: 'x' }, 'new')]
+      : [h('option', { key: 'old', value: 'x' }, 'old'), h('option', { key: 'y', value: 'y' }, 'y')]);
+    ctx.put(view(0));
+    ctx.put(view(1));
+    const select = ctx.container.querySelector('select');
+    assert.deepEqual([...select.options].map((el) => [el.textContent, el.selected]), [['y', false], ['new', true]]);
+    assert.equal(select.value, 'x');
+  });
+});
+
+test('a class\'s getSnapshotBeforeUpdate reads a field\'s value before the commit writes it (React 19.3.1: snapshot a a, did update b)', async () => {
+  const { events } = await edge((ctx) => {
+    class Snap extends Component {
+      getSnapshotBeforeUpdate() { ctx.note('snapshot', document.getElementById('field').value, document.getElementById('opt').value); return null; }
+      componentDidUpdate() { ctx.note('did update', document.getElementById('field').value); }
+      render() { return h('i', null, this.props.v); }
+    }
+    const view = (/** @type {string} */ v) => ctx.tree(h('input', { id: 'field', value: v, onChange() {} }), h('option', { id: 'opt', value: v }), h(Snap, { v }));
+    ctx.put(view('a'));
+    ctx.put(view('b'));
+  });
+  assert.deepEqual(events, [['snapshot', 'a', 'a'], ['did update', 'b']]);
+});
+
+for (const stopToo of [false, true]) {
+  test(`another root rendered from a removed row's layout cleanup${stopToo ? ', which also unmounts its own root,' : ''} renders once the commit is done: the incoming row's ref and layout effect first, then its passive effect (React 19.3.1 ${stopToo ? 'nested-render-stop' : 'nested-render'})`, async () => {
+    let other = '';
+    const { events } = await edge(async (ctx) => {
+      const otherHost = document.body.appendChild(document.createElement('div'));
+      const otherRoot = createRoot(otherHost);
+      flushSync(() => otherRoot.render(h('i', null, 0)));
+      const quit = () => {
+        if (stopToo) ctx.root.unmount();
+        ctx.note('before nested render');
+        otherRoot.render(h('i', null, 1));
+        ctx.note('after nested render', otherHost.textContent);
+      };
+      ctx.put(ctx.tree(h(ctx.Row, { id: 'deleted', key: 'd', quit }), h(ctx.Row, { id: 'a', key: 'a' })));
+      await settle();
+      ctx.events.length = 0;
+      ctx.put(ctx.tree(h(ctx.Row, { id: 'a', key: 'a' }), h(ctx.Row, { id: 'fresh', key: 'f' })));
+      other = otherHost.textContent;
+      otherRoot.unmount();
+      otherHost.remove();
+    });
+    assert.equal(other, '1');
+    const commit = [
+      ['render', 'a', 0], ['render', 'fresh', 0], ['layout-', 'deleted', true], ['before nested render'], ['after nested render', '0'],
+      ['ref-', 'deleted', true], ['ref+', 'fresh', true], ['layout+', 'fresh', true], ['passive-', 'deleted'], ['passive+', 'fresh', true],
+    ];
+    const teardown = [['layout-', 'a', true], ['ref-', 'a', true], ['layout-', 'fresh', true], ['ref-', 'fresh', true], ['passive-', 'a'], ['passive-', 'fresh']];
+    assert.deepEqual(events, stopToo ? [...commit, ...teardown] : [...commit, ['listener', 'a'], ['listener', 'fresh'], ...teardown]);
+  });
+}
+
+test('the renders a commit\'s cleanup asks of another root are one: a callback ref the last one gives attaches once and is cleaned up once (React 19.3.1 ref-coalesce)', async () => {
+  let number = 0;
+  const { events } = await edge(async (ctx) => {
+    const otherHost = document.body.appendChild(document.createElement('div'));
+    const other = createRoot(otherHost);
+    const obj = { current: null };
+    const callback = (/** @type {any} */ el) => {
+      if (!el) { ctx.note('callback null'); return undefined; }
+      const id = ++number;
+      const listener = () => ctx.note('coalesce listener', id);
+      window.addEventListener('wave6', listener);
+      ctx.note('callback+', id, el.isConnected);
+      return () => { window.removeEventListener('wave6', listener); ctx.note('callback-', id, el.isConnected); };
+    };
+    const view = (/** @type {any} */ r) => h('input', { id: 'other-input', ref: r });
+    flushSync(() => other.render(view(obj)));
+    const quit = () => {
+      other.render(view(callback));
+      other.render(view(obj));
+      other.render(view(callback));
+    };
+    ctx.put(ctx.tree(h(ctx.Row, { id: 'deleted', key: 'd', quit })));
+    await settle();
+    ctx.events.length = 0;
+    ctx.put(ctx.tree(h('i', { key: 'replacement' }, 'replacement')));
+    ctx.note('object', obj.current?.id ?? null);
+    other.unmount();
+    otherHost.remove();
+  });
+  assert.deepEqual(events, [
+    ['layout-', 'deleted', true], ['ref-', 'deleted', true], ['passive-', 'deleted'],
+    ['callback+', 1, true], ['object', null], ['callback-', 1, true],
+  ]);
+});
+
+test('render() on a root whose unmount waits for the commit is rejected, and the commit finishes before the unmount (React 19.3.1 pending-render: error #409)', async () => {
+  let afterFlush = '';
+  const { events } = await edge(async (ctx) => {
+    const quit = () => {
+      ctx.root.unmount();
+      try { ctx.root.render(h(ctx.Row, { id: 'replacement' })); ctx.note('render returned'); } catch (e) { ctx.note('render rejected', /** @type {Error} */ (e).message); }
+    };
+    ctx.put(ctx.tree(h(ctx.Row, { id: 'deleted', key: 'deleted', quit })));
+    await settle();
+    ctx.events.length = 0;
+    ctx.put(ctx.tree(h(ctx.Row, { id: 'fresh', key: 'fresh' })));
+    afterFlush = ctx.container.textContent;
+  });
+  assert.equal(afterFlush, '');
+  assert.deepEqual(events, [
+    ['render', 'fresh', 0], ['layout-', 'deleted', true], ['render rejected', 'Cannot update an unmounted root.'],
+    ['ref-', 'deleted', true], ['ref+', 'fresh', true], ['layout+', 'fresh', true], ['passive-', 'deleted'], ['passive+', 'fresh', true],
+    ['layout-', 'fresh', true], ['ref-', 'fresh', true], ['passive-', 'fresh'],
+  ]);
+});
+
+test('render() after unmount() is rejected outside a commit too, and a second unmount() does nothing (React 19.3.1: error #409)', () => {
+  const container = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(container);
+  flushSync(() => root.render(h('b', null, 'x')));
+  root.unmount();
+  assert.throws(() => root.render(h('b', null, 'y')), { message: 'Cannot update an unmounted root.' });
+  root.unmount();
+  assert.equal(container.innerHTML, '');
+  container.remove();
+});
+
+test('an unmount asked for by a ref of the first commit runs once the commit is done, with everything it mounted (React 19.3.1 mount-ref-stop)', async () => {
+  const { events } = await edge(async (ctx) => {
+    const quit = () => {
+      ctx.note('before unmount', ctx.container.textContent);
+      ctx.root.unmount();
+      ctx.note('after unmount', ctx.container.textContent);
+    };
+    function Kill() {
+      useEffect(() => () => ctx.note('kill passive cleanup'), []);
+      return h('i', { id: 'kill', ref: (/** @type {any} */ el) => {
+        if (!el) { ctx.note('kill ref null'); return undefined; }
+        quit();
+        ctx.note('returned');
+        return () => ctx.note('kill ref cleanup', el.isConnected);
+      } }, 'kill');
+    }
+    ctx.put(ctx.tree(h(Kill), h(ctx.Row, { id: 'fresh' })));
+    assert.equal(ctx.container.textContent, '');
+  });
+  assert.deepEqual(events, [
+    ['render', 'fresh', 0], ['before unmount', 'killfresh0'], ['after unmount', 'killfresh0'], ['returned'],
+    ['ref+', 'fresh', true], ['layout+', 'fresh', true], ['passive+', 'fresh', true],
+    ['kill ref cleanup', true], ['layout-', 'fresh', true], ['ref-', 'fresh', true], ['kill passive cleanup'], ['passive-', 'fresh'],
+  ]);
+});
+
+test('new nodes before an end that stayed go in left to right: each custom element\'s connectedCallback sees the ones before it (React 19.3.1 insert-before-tail)', async () => {
+  const { events } = await edge((ctx) => {
+    window.customElements.define('x-lane-row', class extends window.HTMLElement {
+      connectedCallback() { ctx.note('connected', this.id, [...this.parentNode.children].map((e) => e.id)); }
+    });
+    const row = (/** @type {string} */ id) => h('x-lane-row', { id, key: id });
+    ctx.put(ctx.tree(row('tail')));
+    ctx.events.length = 0;
+    ctx.put(ctx.tree(row('first'), row('second'), row('tail')));
+  });
+  assert.deepEqual(events, [['connected', 'first', ['first', 'tail']], ['connected', 'second', ['first', 'second', 'tail']]]);
 });

@@ -26,7 +26,7 @@ import { _$createComponent, _installVNodeRuntime, _$childrenChanged } from 'what
 import { createElement as element, Fragment } from './index.js';
 import {
   HOST, _island, _claimIsland, _setIslandClaim, _getCurrentInstance, _outsideRender, runInCommit, patchChildren, normalizeChildren, unmountRNode, _flushUnmounted, _nativeBuilder,
-  _vnodeIsland, renderInstance, _flushPendingPassive, _mountMarked, _flushWithin, unmountIsland, _hostInstance, _commitPlaced, _canFlushSynchronously, _whenCommitted,
+  _vnodeIsland, renderInstance, _flushPendingPassive, _mountMarked, _flushWithin, unmountIsland, _hostInstance, _commitPlaced, _whenCommitted,
 } from './runtime.js';
 import { serverIsland } from './server.js';
 import { installIslandHydration } from './hydrate.js';
@@ -155,7 +155,7 @@ function holeRows(svg, scope) {
   // up yet is never set up on nodes out of the page, and what it did is
   // cleaned up now. Outside one, the last commit's passive effects run first.
   if (scope != null) runWithOwner(scope, () => onCleanup(() => {
-    if (_canFlushSynchronously()) _flushPendingPassive();
+    _flushPendingPassive();
     unmount();
   }));
   return {

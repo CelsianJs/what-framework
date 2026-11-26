@@ -17,7 +17,10 @@
 // - a hole's first rows run their refs and layout effects on nodes in the
 //   page;
 // - unmounting runs every layout cleanup, then the passive ones, on nodes out
-//   of the page.
+//   of the page;
+// - a row that a layout effect queued state for, and that its list removes
+//   in the same update, is not rendered again (the sixth review's hole-edge
+//   dirty scene, against React 19.3.1's hole-control).
 // A production build with no what-core vnode renderer, through Vite (what()
 // and reactCompat()), run in jsdom.
 // Run: node --test packages/react-compat/test/native-keyed-commit.test.js
@@ -108,7 +111,27 @@ function Retained({ n }) {
   useLayoutEffect(() => { note('retained setup', n); return () => note('retained cleanup', n); }, [n]);
   return <i id="retained">{n}</i>;
 }
+// The sixth review's dirty scene (verify-wave6 hole-edge-rows.jsx).
+let setList, setOld;
+function DirtyRow({ id }) {
+  const [n, set] = useState(0);
+  if (id === 'old') setOld = set;
+  note('render', id, n);
+  useLayoutEffect(() => () => note('layout-', id, connected(id)), []);
+  return <i id={id}>{id}{n}</i>;
+}
+function DirtyList() {
+  const [n, set] = useState(0);
+  setList = set;
+  return n ? [<DirtyRow id="new" key="new" />, <DirtyRow id="tail" key="tail" />]
+    : [<DirtyRow id="old" key="old" />, <DirtyRow id="tail" key="tail" />];
+}
+function Kick({ n }) {
+  useLayoutEffect(() => { if (n) { setOld(1); setList(1); } }, [n]);
+  return <i>kick</i>;
+}
 export function rows(scene, n) {
+  if (scene === 'dirty') return [<DirtyList key="list" />, <Kick key="kick" n={n} />];
   if (scene === 'kill') return n ? [<Kill key="kill" phase={window.killPhase} />, <Label key="peer" id="peer" />] : [<Label key="old" id="old" />];
   if (scene === 'tracked') { note('factory', n); return [<Read key={n} id={'r' + n} />]; }
   if (scene === 'crash') return n ? [<Crash key="bad" id="bad" />, <Label key="good" id="good" />] : [<Label key="good" id="good" />];
@@ -320,4 +343,19 @@ test('unmounting the page runs every row\'s layout cleanup, then the passive cle
   const events = take().filter((e) => !e.startsWith('ref'));
   assert.deepEqual(events.slice(0, 2).map((e) => e.split(' ').slice(0, 2).join(' ')), ['layout- x', 'layout- y']);
   assert.deepEqual(events.slice(2), ['passive- x false', 'passive- y false']);
+});
+
+test('a row a layout effect queued state for, and that its list removes in the same update, is not rendered again (React 19.3.1 hole-control dirty)', async () => {
+  window.start('dirty', false);
+  await settle();
+  take();
+  window.put(1);
+  await settle();
+  // React 19.3.1: the hole's update renders the list (old 0, tail 0); Kick's
+  // layout effect queues old 1 and the list's new state; the list renders
+  // (new 0, tail 0), and old, which it removed, is not rendered.
+  assert.deepEqual(take(), ['render old 0', 'render tail 0', 'render new 0', 'render tail 0', 'layout- old true']);
+  assert.equal(document.getElementById('page').textContent, 'new0tail0kick');
+  window.stopPage();
+  await settle();
 });

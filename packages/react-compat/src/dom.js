@@ -17,6 +17,7 @@ import {
   _domNodes,
   _canFlushSynchronously,
   _getCurrentInstance,
+  _whenCommitted,
 } from './runtime.js';
 import { useFormStatus, useActionState, _islandIds } from './hooks.js';
 import { createElement } from './index.js';
@@ -37,9 +38,12 @@ export function createRoot(container) {
   rootContainer(container, 'createRoot');
   /** @type {{ container: any, rns: any } | null} */
   let root = null;
+  let unmounted = false;
 
   return {
     render(element) {
+      // React's error #409, also while the unmount waits for a commit.
+      if (unmounted) throw new Error('Cannot update an unmounted root.');
       if (root) {
         patchRoot(root, element);
       } else {
@@ -48,10 +52,15 @@ export function createRoot(container) {
       }
     },
     // Asked for while a render, a commit or its effects run (a cleanup or
-    // a ref that unmounts its own root): once they are done, as React does.
+    // a ref that unmounts its own root, the first commit's included): once
+    // they are done, as React does, with what the root holds then.
     unmount() {
-      unmountRoot(root, container);
-      root = null;
+      unmounted = true;
+      _whenCommitted(() => {
+        if (root) unmountRoot(root);
+        root = null;
+        container.textContent = '';
+      });
     },
   };
 }

@@ -361,27 +361,27 @@ export function flushUpdates() {
     } else {
       batch = [...dirtyQueue].sort((a, b) => a.depth - b.depth);
     }
-    commitDepth++;
-    try {
-      for (let i = 0; i < batch.length; i++) {
-        const inst = batch[i];
-        // What the renders before it removed goes first: a component they
-        // removed is not rendered.
-        runAll(mutations);
-        if (dirtyQueue.has(inst) && !inst.unmounted) {
-          const insertionFrom = insertionQueue.length;
-          const layoutFrom = layoutQueue.length;
-          const passiveFrom = passiveQueue.length;
-          renderInstance(inst);
-          childEffectsFirst(insertionQueue, insertionFrom, inst);
-          childEffectsFirst(layoutQueue, layoutFrom, inst);
-          childEffectsFirst(passiveQueue, passiveFrom, inst);
-        }
-      }
-    } finally {
-      exitCommit();
-    }
+    runInCommit(() => renderBatch(batch));
     // Layout effects ran on commit exit — they may have queued more updates.
+  }
+}
+
+// Render the components of `batch` (parents first) that are still queued.
+function renderBatch(batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const inst = batch[i];
+    // What the renders before it removed goes first: a component they
+    // removed is not rendered.
+    runAll(mutations);
+    if (dirtyQueue.has(inst) && !inst.unmounted) {
+      const insertionFrom = insertionQueue.length;
+      const layoutFrom = layoutQueue.length;
+      const passiveFrom = passiveQueue.length;
+      renderInstance(inst);
+      childEffectsFirst(insertionQueue, insertionFrom, inst);
+      childEffectsFirst(layoutQueue, layoutFrom, inst);
+      childEffectsFirst(passiveQueue, passiveFrom, inst);
+    }
   }
 }
 
@@ -481,7 +481,7 @@ function exitCommit() {
  * callback has returned its cleanup, and then the unmount runs them.
  */
 export function _whenCommitted(fn) {
-  if (currentInstance === null && commitDepth === 0 && effectDepth === 0) fn();
+  if (_canFlushSynchronously()) fn();
   else {
     // An entry of no component's (flushEffectQueue runs its fn). The commit
     // or the passive phase running now schedules or runs it.
@@ -507,30 +507,23 @@ function commitRef(entry) {
   }
 }
 
+// The passive phase a commit scheduled (a microtask, or flushSync).
 export function _flushPassive() {
   passiveScheduled = false;
-  flushPassiveEffects();
-}
-
-// The passive effects still waiting from earlier commits, run before a new
-// render starts. Not from inside an effect (an effect that calls flushSync):
-// the effects queued after it wait for it to return.
-let flushingPassive = false;
-export function _flushPendingPassive() {
-  if (flushingPassive || (passiveQueue.length === 0 && unmountedPassive.length === 0)) return;
-  flushingPassive = true;
-  try { flushPassiveEffects(); } finally { flushingPassive = false; }
+  _flushPendingPassive();
 }
 
 // React's passive phase: the cleanups of the components the commit removed,
-// then the cleanups of the effects that run again, then the effects.
-function flushPassiveEffects() {
-  flushUnmountedPassive();
-  flushEffectQueue(passiveQueue);
-}
-
-function flushUnmountedPassive() {
-  runAll(unmountedPassive);
+// then the cleanups of the effects that run again, then the effects. Also
+// what still waits from earlier commits, before a new render starts. Not
+// from inside a render, a commit or an effect (a cleanup that renders a
+// root, an effect that calls flushSync): the commit running then has not
+// finished, and the effects queued after it wait for it.
+export function _flushPendingPassive() {
+  if (_canFlushSynchronously()) {
+    runAll(unmountedPassive);
+    flushEffectQueue(passiveQueue);
+  }
 }
 
 // Run the cleanups queued in `queue` (and those they queue), each one's
@@ -1027,27 +1020,35 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
     if (!byPlace.has(place)) byPlace.set(place, rn);
   }
   let lastPlaced = -1; // the highest old index among the kept nodes so far
-  for (let i = start; i < newEnd; i++) {
-    const v = kids[i];
-    const kind = kindOf(v);
-    const id = ids !== null ? ids[i] : idOf(v, kind, i);
-    const list = lists !== null ? lists[i] : null;
-    const match = byPlace.get(slotOf(list, id));
-    if (match !== undefined && match._kept !== kept && canPatch(match, v, kind)) {
-      match._kept = kept;
-      if (match._i < lastPlaced) match._move = true;
-      else lastPlaced = match._i;
-      result[i] = patchRNode(match, v, kind, svg, owner);
-    } else {
-      // Built whole, outside the document; placed below.
-      const rn = mountRNode(v, kind, null, null, svg, owner, into);
-      rn.id = id;
-      rn.list = list;
-      rn._i = -1;
-      result[i] = rn;
+  try {
+    for (let i = start; i < newEnd; i++) {
+      const v = kids[i];
+      const kind = kindOf(v);
+      const id = ids !== null ? ids[i] : idOf(v, kind, i);
+      const list = lists !== null ? lists[i] : null;
+      const match = byPlace.get(slotOf(list, id));
+      if (match !== undefined && match._kept !== kept && canPatch(match, v, kind)) {
+        match._kept = kept;
+        if (match._i < lastPlaced) match._move = true;
+        else lastPlaced = match._i;
+        result[i] = patchRNode(match, v, kind, svg, owner);
+      } else {
+        // Built whole, outside the document; placed below.
+        const rn = mountRNode(v, kind, null, null, svg, owner, into);
+        rn.id = id;
+        rn.list = list;
+        rn._i = -1;
+        result[i] = rn;
+      }
     }
+    patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
+  } catch (err) {
+    // A child threw (a memo's comparison): what this list built for the
+    // render is never set up (the component above resets its output, and
+    // what was there before leaves with it).
+    for (let i = start; i < newEnd; i++) if (result[i]?._i === -1) teardown(result[i]);
+    throw err;
   }
-  patchTail(old, oldEnd, kids, newEnd, result, svg, owner);
 
   // Where the middle ends: at the first node of the end that stayed, or
   // where the list ends.
@@ -1066,20 +1067,24 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
 
   if (parentDom === null) return result; // not in a document (its own nodes were taken out)
 
+  // What goes in (a new node, a moved one) goes before the first node of
+  // the next one that stays, left to right, as React places it: found right
+  // to left, placed in turn (a custom element's connectedCallback sees its
+  // place as React's does).
+  const places = [];
+  for (let i = newEnd - 1; i >= start; i--) {
+    const rn = result[i];
+    const first = firstDomNode(rn);
+    if (rn._i === -1 || rn._move === true || (first !== null && first.parentNode !== parentDom)) {
+      rn._move = false;
+      places.push(ref, rn);
+    } else if (first !== null) ref = first;
+  }
   // Moving a kept node takes the focus from the element in it: it gets it
   // back once the list is in place, as React gives it back after its
   // mutations (restoreSelection), before an autoFocus or a layout effect.
   const had = /** @type {HTMLElement | null} */ (document.activeElement);
-  for (let i = newEnd - 1; i >= start; i--) {
-    const rn = result[i];
-    let first = firstDomNode(rn);
-    if (rn._i === -1 || rn._move === true || (first !== null && first.parentNode !== parentDom)) {
-      rn._move = false;
-      placeRNode(rn, parentDom, ref);
-      first = firstDomNode(rn);
-    }
-    if (first !== null) ref = first;
-  }
+  while (places.length > 0) placeRNode(places.pop(), parentDom, places.pop());
   if (had !== document.activeElement) had?.focus({ preventScroll: true });
   return result;
 }
@@ -1126,11 +1131,10 @@ export function mountChildren(parentDom, kids, ids, lists, from, to, result, bef
       result[i] = rn;
     }
   } catch (err) {
-    // A child threw as it mounted: what this list placed before it leaves
-    // with it (the component above resets its output, renderOutput).
-    if (parentDom !== null) {
-      for (let j = from; j < i; j++) removeNodes(domNodesOf(result[j]));
-    }
+    // A child threw as it mounted: what this list mounted before it leaves
+    // with it, never set up (the component above resets its output,
+    // renderOutput).
+    for (let j = from; j < i; j++) unmountRNode(result[j], true);
     throw err;
   }
   return result;
@@ -1797,7 +1801,9 @@ function patchElement(rn, v, svg, owner) {
 
     patchElementChildren(rn, v, newProps, childSvg, owner);
 
-    if (hasValue) setProperty(el, 'value', value, oldProps.value, isSvgEl);
+    // With the commit's mutations, as React writes it: once the children
+    // that leave are gone (a select's option that held the value).
+    if (hasValue) mutations.push(() => setProperty(el, 'value', value, oldProps.value, isSvgEl));
     if (hasChecked) setProperty(el, 'checked', checked, oldProps.checked, isSvgEl);
     if (emptySelect && el.options.length > 0) resetSelect(el, null);
 
@@ -2038,7 +2044,7 @@ function teardownInstance(inst) {
  * runs them.
  */
 export function _flushUnmounted() {
-  if (commitDepth === 0 && effectDepth === 0) flushUnmountedPassive();
+  if (commitDepth === 0 && effectDepth === 0) runAll(unmountedPassive);
 }
 
 function removeRange(start, end) {
@@ -2120,7 +2126,7 @@ function renderOutput(inst, parentDom, before, mounting) {
     // Subtree commit failed (a descendant threw). Reset this instance's output
     // and route the error/suspension. Cleanups of partially-mounted children
     // may not run — documented limitation.
-    resetOutput(inst, parentDom, before, mounting);
+    resetOutput(inst, parentDom, before);
     dropPending(inst);
     handleRenderError(inst, err, true);
     return;
@@ -2144,30 +2150,27 @@ function renderOutput(inst, parentDom, before, mounting) {
   }
 }
 
-// What `inst` rendered goes, and a hole stands where it stood, so the
-// component keeps its entry for the render that follows (a boundary's
-// fallback, the content once it has loaded).
-function resetOutput(inst, parentDom, before, mounting) {
-  if (inst.end !== null) {
-    removeRangeContents(inst.start, inst.end);
-    inst.rendered = NO_RNODES;
-    return;
-  }
-  if (mounting) {
-    // What the failed mount had placed went with it (mountChildren).
-    inst.rendered = [mountHole(null, parentDom, before, inst)];
-    return;
-  }
+// What `inst` rendered goes, and a hole stands where it stood (where its
+// first node is, or where a failed mount was to go), so the component keeps
+// its entry for the render that follows (a boundary's fallback, the content
+// once it has loaded); an island with markers keeps them. What it showed is
+// unmounted with the commit's mutations, as React deletes it: its cleanups
+// run and its refs detach on nodes still in the page, then its nodes go. (A
+// failed mount showed nothing: what it had placed went with it,
+// mountChildren.)
+function resetOutput(inst, parentDom, before) {
+  const old = inst.rendered;
   const nodes = _domNodes(inst);
-  const hole = mountHole(null, null, null, inst);
-  if (hole.dom !== null) {
-    for (let i = 0; i < nodes.length; i++) {
-      const parent = nodes[i].parentNode;
-      if (parent !== null) { parent.insertBefore(hole.dom, nodes[i]); break; }
-    }
+  const at = nodes.find((n) => n.parentNode !== null);
+  if (at !== undefined) {
+    parentDom = at.parentNode;
+    before = at;
   }
-  removeNodes(nodes);
-  inst.rendered = [hole];
+  inst.rendered = inst.end !== null ? NO_RNODES : [mountHole(null, parentDom, before, inst)];
+  mutations.push(() => {
+    for (let i = 0; i < old.length; i++) teardown(old[i]);
+    removeNodes(nodes);
+  });
 }
 
 // A render reads What signals under a tracker of its own, never an enclosing
@@ -2316,32 +2319,37 @@ export function _setRangeHidden(inst, hidden) {
 // =====================================================================
 
 export function mountRoot(element, container) {
-  const isSvg = typeof SVGElement !== 'undefined' && container instanceof SVGElement;
   // The root holds its list: a component at its top finds its place in it.
-  const root = { container, rns: NO_RNODES };
-  root.rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, isSvg, null, root));
+  const root = { container, rns: NO_RNODES, svg: typeof SVGElement !== 'undefined' && container instanceof SVGElement };
+  root.rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, root.svg, null, root));
   return root;
 }
 
+/**
+ * Render `element` into a mounted root. Asked for while a render, a commit or
+ * its effects run (a removed row's cleanup that renders another root), it is
+ * an update React renders once that commit is done, after its passive
+ * effects (_whenCommitted); the renders asked for until then are one, the
+ * last element's.
+ */
 export function patchRoot(root, element) {
-  _flushPendingPassive();
-  const isSvg = typeof SVGElement !== 'undefined' && root.container instanceof SVGElement;
-  root.rns = runInCommit(() => patchChildren(root.container, root.rns, element, null, isSvg, null, root));
-  return root;
+  root.next = element;
+  if (root.queued) return;
+  root.queued = true;
+  _whenCommitted(() => {
+    root.queued = false;
+    _flushPendingPassive();
+    root.rns = runInCommit(() => patchChildren(root.container, root.rns, root.next, null, root.svg, null, root));
+  });
 }
 
-/** Unmount `root` (null: none rendered) and empty its container, once a commit running now is done (_whenCommitted). */
-export function unmountRoot(root, container) {
-  _whenCommitted(() => {
-    if (root !== null) {
-      runInCommit(() => {
-        for (const rn of root.rns) unmountRNode(rn, true);
-        root.rns = NO_RNODES;
-      });
-      _flushUnmounted();
-    }
-    container.textContent = '';
+/** Unmount `root`: its cleanups run and its nodes leave. */
+export function unmountRoot(root) {
+  runInCommit(() => {
+    for (const rn of root.rns) unmountRNode(rn, true);
+    root.rns = NO_RNODES;
   });
+  _flushUnmounted();
 }
 
 // =====================================================================
@@ -2446,9 +2454,8 @@ export function _flushWithin(root) {
     }
     if (batch.length === 0) return;
     batch.sort((a, b) => a.depth - b.depth);
-    runInCommit(() => {
-      for (const inst of batch) if (dirtyQueue.has(inst) && !inst.unmounted) renderInstance(inst);
-    });
+    // As a flush renders it: a row its list removed is not rendered.
+    runInCommit(() => renderBatch(batch));
   }
 }
 
