@@ -1,0 +1,21 @@
+{
+  "name": "smoke-workspace-ssr",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Workspace, server-rendered and hydrated: a guarded deep link redirected on the server, nested layouts that hydrate onto the server's DOM, a wizard whose draft survives a reload because the server renders it.",
+  "scripts": {
+    "build": "vite build && vite build --ssr src/entry-server.jsx --outDir dist/server",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "what-framework": "0.15.0",
+    "what-router": "0.15.0",
+    "what-server": "0.15.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^7.0.0",
+    "what-compiler": "0.15.0"
+  }
+}

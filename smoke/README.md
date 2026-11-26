@@ -78,6 +78,7 @@ dirties the demo.
 | `live-feed` | compiled SPA fed 200 updates a second | a keyed tape with no dropped or repeated rows, SVG sparklines, store counters, pause/resume, panels mounting and unmounting under load with nothing left behind, a level heap, no long tasks |
 | `workspace` | compiled SPA chaining a product's workflows | a guarded deep link, nested layouts, a queried list, an optimistic edit and its rollback, a three-step wizard across back/forward and a reload, a focus-trapped portal dialog, a toast live region |
 | `newsroom` | buildless server-rendered news site under load | a streamed front page whose first byte beats its slow query, out-of-order Suspense boundaries, query-string pagination, 3,000-word ISR articles that hydrate without creating a node, all five island modes on one page, text typed before hydration surviving it, comments as server actions with and without JavaScript and their tag revalidation, 100 concurrent renders each with only its own content, a level server heap over 2,000 requests |
+| `workspace-ssr` | the workspace's routes, server-rendered (Vite client and `--ssr` builds) and hydrated | middleware redirects that are real 3xx responses, a deep link to a nested route rendered on the server, a layout chain that hydrates onto the server's nodes and stays through client navigation, a wizard reload rendered from the visitor's cookies, 40 concurrent visitors each with their own state |
 
 ## Writing a new app
 

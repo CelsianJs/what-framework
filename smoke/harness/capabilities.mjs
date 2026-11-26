@@ -32,6 +32,8 @@ export const CAPABILITIES = {
   'route:404': { area: 'routing', desc: 'an unknown path renders the not-found fallback' },
   'route:link-active': { area: 'routing', desc: 'Link/NavLink applies active classes for the current route' },
   'route:programmatic': { area: 'routing', desc: 'navigate() moves between routes from code' },
+  'route:server-redirect': { area: 'routing', desc: 'a route middleware redirect rendered on the server is a real 3xx with its Location' },
+  'route:layout-hydrates': { area: 'routing', desc: "a server-rendered layout chain hydrates onto the server's DOM and stays through client navigation" },
   'route:history': { area: 'routing', desc: 'browser back/forward walk a session of routes, each showing the state it had' },
 
   // --- State --------------------------------------------------------------
