@@ -67,10 +67,19 @@ export function _setTextInsertHook(fn) {
 // Dynamic text was written in `parent`: the text engine hears it, and a
 // select follows an option whose text is its value, one with no `value`
 // attribute (dom.js _optionsChanged, which passes over the text of an option
-// with a value: its label, which changes nothing the select shows).
-function textWritten(parent, text) {
+// with a value: its label, which changes nothing the select shows). `options`
+// is inOptions(parent), which a binding whose parent stays the same asks once.
+function textWritten(parent, text, options = inOptions(parent)) {
   if (_onTextInsert !== null) _onTextInsert(parent, text);
-  optionsChanged(parent, 1);
+  if (options) optionsChanged(parent, 1);
+}
+
+// Whether text written in `parent` can change what a select shows: text in
+// an option, or directly in an optgroup or a select. Text anywhere else
+// changes no option, and is not reported.
+function inOptions(parent) {
+  const tag = parent.localName;
+  return tag === 'option' || tag === 'optgroup' || tag === 'select';
 }
 
 // --- Vnodes ---
@@ -731,13 +740,19 @@ function insertReactive(parent, child, marker, devName) {
 
 export { insertReactive as _$reactive };
 
-// The function a region's effect runs.
+// The function a region's effect runs. While its value is text, a run writes
+// its text node when the text differs from the text the region wrote last,
+// which it keeps (`text`), not from the node's: text something else wrote
+// into the node stays until the value changes. Technique credit: Solid's
+// insertExpression compares with the value it last inserted.
 function region(parent, child, marker, scope) {
   const m = marker || null;
   /** @type {any} */
   let current = null;
   /** @type {Text | null} */
   let textNode = null;
+  let text = '';
+  let options = false;
   let mounted = false;
   /** @type {any} */
   let rows = null;
@@ -755,14 +770,15 @@ function region(parent, child, marker, scope) {
         } else {
           textNode = parent.insertBefore(document.createTextNode(str), m);
         }
-        textWritten(parent, str);
+        text = str;
+        textWritten(parent, str, options = inOptions(parent));
         current = textNode;
         return;
       }
     } else if (textNode !== null && (vt === 'string' || vt === 'number')) {
       const str = String(val);
-      if (textNode.data !== str) textNode.data = str;
-      textWritten(parent, str);
+      if (str !== text) textNode.data = text = str;
+      textWritten(parent, str, options);
       return;
     }
     // Not text (or no longer text): this region holds content of its own.
@@ -4213,7 +4229,10 @@ function adoptOutput(result) {
 // per run, the first included. Without markers (markup the server wrote as
 // plain text, as h() writes a text child), a region whose value is text is the
 // text node it claimed, updated in place, until its value is anything but
-// text: only then does it take the markers a region needs.
+// text: only then does it take the markers a region needs. Its text is
+// compared with the text the node held when it was claimed, then with what
+// the region wrote last (region()), so a first write corrects server text
+// that differs.
 function adoptRegion(fn, devName) {
   const c = cur;
   const parent = c.p;
@@ -4243,6 +4262,7 @@ function adoptRegion(fn, devName) {
   let text = false;
   /** @type {Text | null} */
   let textNode = null;
+  let written = '';
   try {
     effect(() => {
       if (first) {
@@ -4279,7 +4299,7 @@ function adoptRegion(fn, devName) {
       if (textNode !== null) {
         if (typeof value === 'string' || typeof value === 'number') {
           const data = String(value);
-          if (textNode.data !== data) textNode.data = data;
+          if (data !== written) textNode.data = written = data;
           if (textNode.parentNode !== null) textWritten(textNode.parentNode, data);
           return;
         }
@@ -4321,6 +4341,7 @@ function adoptRegion(fn, devName) {
     const node = afterAnchor(c, anchor);
     if (text && rows === null && node !== c.n && node.nodeType === 3 && node.nextSibling === c.n) {
       textNode = /** @type {Text} */ (node);
+      written = textNode.data;
       return;
     }
     start = parent.insertBefore(document.createComment(REGION_OPEN), node);
