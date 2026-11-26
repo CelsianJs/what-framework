@@ -299,6 +299,38 @@ function Counter() {
 - No need for `useMemo` dependency arrays -- `useMemo(fn)` and `useComputed(fn)` both track the signals `fn` reads, and `useMemo` ignores the array
 - `signal()`, `computed()` and `effect()` work anywhere, module scope included; the `use*` hooks and `onMount` still run only in a component body (outside one they throw `ERR_HOOK_OUTSIDE_COMPONENT`)
 
+**Two React habits that read state once.** State read in the component body,
+outside JSX and outside a function, is read when the component runs, and
+never again:
+
+```jsx
+import { useState, useMemo, useEffect } from 'what-framework';
+
+function Users({ load }) {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { load().then(() => setLoading(false)); }, []);
+  // React: `if (loading) return <p>Loading…</p>;` Here that branch is taken
+  // once and kept. Branch where it renders:
+  return <>{() => (loading() ? <p>Loading…</p> : <ul />)}</>;
+}
+
+function Signup() {
+  const [name, setName] = useState('');
+  // React: `const valid = name.length > 0;` Here a plain const keeps its
+  // first value. Derive it, and call it where it is shown:
+  const valid = useMemo(() => name().length > 0);
+  return (
+    <form>
+      <input value={name()} onChange={(e) => setName(e.target.value)} />
+      <button disabled={!valid()}>Sign up</button>
+    </form>
+  );
+}
+```
+
+A development build reports both shapes when they read state (`ERR_STATE_READ_ONCE`)
+and when they read a prop (`ERR_PROP_READ_ONCE`).
+
 ### useMemo / useComputed
 
 **React:**

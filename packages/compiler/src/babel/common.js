@@ -1079,6 +1079,103 @@ function warnBranchedReturn(fnPath, state) {
   }
 }
 
+// --- State a component reads once ---
+// A component runs once, so state it reads in its body, outside JSX and
+// outside a function, is read once: React re-renders and reads it again.
+// Two shapes do something else than they would in React, silently:
+// - its return decided by the state (`if (loading()) return <Spinner />`,
+//   `return open() ? <Dialog /> : null`) keeps the branch it took first;
+// - a value derived from it in the body and shown in JSX (`const valid =
+//   name().length > 0; … <button disabled={!valid}>`) keeps its first value.
+// Both are reported at build time in development as ERR_STATE_READ_ONCE.
+// State is what a What hook or primitive returns, declared in the body: the
+// accessor `const x = signal()`, or the first element of `const [x, setX] =
+// useState()`. A read inside a function written there (`untrack(() => x())`,
+// a handler) is not one.
+
+const STATE_SOURCES = new Set(['signal', 'computed', 'useState', 'useReducer', 'useSignal', 'useComputed', 'useMemo', 'useTransition', 'useOptimistic', 'useActionState', 'createResource']);
+
+function stateAccessors(fnPath) {
+  const names = new Set();
+  const body = fnPath.node.body;
+  if (!t.isBlockStatement(body)) return names;
+  for (const stmt of body.body) {
+    if (!t.isVariableDeclaration(stmt)) continue;
+    for (const decl of stmt.declarations) {
+      if (!isStateSource(fnPath, decl.init)) continue;
+      const id = t.isArrayPattern(decl.id) ? decl.id.elements[0] : decl.id;
+      if (t.isIdentifier(id)) names.add(id.name);
+    }
+  }
+  return names;
+}
+
+function isStateSource(fnPath, init) {
+  if (!t.isCallExpression(init) || !t.isIdentifier(init.callee)) return false;
+  const binding = fnPath.scope.getBinding(init.callee.name);
+  if (!binding || binding.kind !== 'module' || !t.isImportSpecifier(binding.path.node)) return false;
+  const imported = binding.path.node.imported;
+  const name = t.isIdentifier(imported) ? imported.name : imported.value;
+  return STATE_SOURCES.has(name) && importedFrom(binding, t.isImportSpecifier, name);
+}
+
+// The first state accessor `node` calls (`x()`), outside a function written in it.
+function stateReadIn(node, names) {
+  return propReadIn(node, (n) => (t.isCallExpression(n) && n.arguments.length === 0 && t.isIdentifier(n.callee) && names.has(n.callee.name) ? `${n.callee.name}()` : null));
+}
+
+export function warnStateReadOnce(fnPath, state) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || state.frameworkFile || !isComponentFunction(fnPath) || isRowFunction(fnPath, state)) return;
+  const body = fnPath.node.body;
+  if (!t.isBlockStatement(body) || !(containsJsx(fnPath.node) || componentWithoutJsx(fnPath, state) !== null)) return;
+  const names = stateAccessors(fnPath);
+  if (names.size === 0) return;
+  const tests = [];
+  const branch = (expr) => {
+    while (t.isParenthesizedExpression(expr) || t.isTSAsExpression(expr) || t.isTSNonNullExpression(expr)) expr = expr.expression;
+    if (t.isConditionalExpression(expr)) tests.push(expr.test);
+    else if (t.isLogicalExpression(expr)) tests.push(expr.left);
+  };
+  for (const stmt of body.body) {
+    if (t.isReturnStatement(stmt)) branch(stmt.argument);
+    else if (t.isIfStatement(stmt) && containsReturn(stmt)) tests.push(stmt.test);
+  }
+  for (const test of tests) {
+    const read = stateReadIn(test, names);
+    if (read === null) continue;
+    const code = state.file?.code;
+    const text = typeof code === 'string' && test.start != null && test.end - test.start <= 60 ? code.slice(test.start, test.end) : read;
+    warnStateOnce(fnPath, state, test, read, 'it decides what the component returns',
+      `branch where it renders, \`<>{() => (${text} ? <A /> : <B />)}</>\` or \`<Show when={${text}}>\``);
+    break;
+  }
+  for (const stmt of body.body) {
+    if (!t.isVariableDeclaration(stmt)) continue;
+    for (const decl of stmt.declarations) {
+      if (!t.isIdentifier(decl.id) || !decl.init || isStateSource(fnPath, decl.init)) continue;
+      const read = stateReadIn(decl.init, names);
+      if (read === null) continue;
+      const binding = fnPath.scope.getBinding(decl.id.name);
+      const shown = binding && binding.referencePaths.some((ref) => ref.findParent((p) => p.isJSXExpressionContainer() || p.isJSXSpreadAttribute() || p === fnPath) !== fnPath);
+      if (!shown) continue;
+      warnStateOnce(fnPath, state, decl, read, `\`${decl.id.name}\` is computed from it in the component body and shown in JSX, so it keeps its first value`,
+        `write the expression in the JSX where it is shown, or derive it with \`computed(() => …)\` (\`useMemo\`) and call it there (\`${decl.id.name}()\`); \`untrack(() => ${read})\` keeps the first value on purpose`);
+    }
+  }
+}
+
+function warnStateOnce(fnPath, state, node, read, why, fix) {
+  const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+  const at = `${fileName}${node.loc ? `:${node.loc.start.line}:${node.loc.start.column + 1}` : ''}`;
+  if (warnedReadOnce.has(`${at}::${read}`)) return;
+  warnedReadOnce.add(`${at}::${read}`);
+  console.warn(
+    `[what-compiler] ERR_STATE_READ_ONCE: \`${read}\`, state of <${componentName(fnPath)}> at ${at}, is read once, when the component runs, ` +
+    `because ${why}; the component runs once, so it does not follow the state as a React render would. ` +
+    `Fix: ${fix}. Run what_fix({ error: 'ERR_STATE_READ_ONCE' }) for the worked example.`
+  );
+}
+
 function containsReturn(stmt) {
   let found = false;
   t.traverseFast(stmt, (node) => { if (node.type === 'ReturnStatement') found = true; });

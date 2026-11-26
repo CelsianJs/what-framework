@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 76 of them: 44 errors and 32 warnings.
+Every code in What's error catalogue, all 77 of them: 44 errors and 33 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -110,6 +110,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_SSR_LATE_HEAD`](#err-ssr-late-head) | warning | [what-server] <Head> inside a streamed <Suspense> (boundary `boundaryId`) set head tags after the shell was sent. |
 | [`ERR_SSR_SUSPENSE_TIMEOUT`](#err-ssr-suspense-timeout) | error | [what-server] A resource was still pending after 12 attempts during streaming SSR. |
 | [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] `method`: refusing unsafe redirect target `target`; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT) |
+| [`ERR_STATE_READ_ONCE`](#err-state-read-once) | warning | State ``name`` is read once in <`component`>: `reason`. |
 | [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path` |
 | [`ERR_STORAGE_FAILED`](#err-storage-failed) | warning | useLocalStorage("`key`") could not `operation` localStorage: `reason`. |
 | [`ERR_SUSPEND_IN_TRANSITION`](#err-suspend-in-transition) | warning | Component "`component`" suspended while a transition committed: its fallback shows. |
@@ -1523,6 +1524,49 @@ export function loader({ query, response }) {
 export function loader({ query, response }) {
   if (query.billing) response.redirectExternal('https://billing.example.com/portal');
   else response.redirect(query.next ?? '/');   // "/account" is kept
+}
+```
+
+## ERR_STATE_READ_ONCE
+
+**Severity:** warning
+  ·  **Raised by:** `what-compiler`
+  ·  **Detected:** compile
+
+> State `{{name}}` is read once in <{{component}}>: {{reason}}.
+
+A component runs once, so state it reads in its body, outside JSX and outside a function, is read once, where React reads it again on every render. Two shapes ported from React do something else, with no error: a component that decides what it returns from its state (`if (loading()) return <Spinner />`, `return open() ? <Dialog /> : null`) keeps the branch it took first, so branch where it renders (`<>{() => (loading() ? <Spinner /> : <List />)}</>` or `<Show when={…}>`); and a value derived from state in the body and shown in JSX (`const valid = name().length > 0` with `disabled={!valid}`) keeps its first value, so write the expression in the JSX (`disabled={name().length === 0}`) or derive it with `computed()` or `useMemo()` and call it there (`valid()`). State is the accessor a What hook or primitive returns (`useState`, `useReducer`, `useSignal`, `signal`, `computed`, `useMemo`, …). what-compiler reports both at build time (development builds). A read inside a function is not reported: `untrack(() => count())` keeps the first value on purpose.
+
+```jsx
+import { useState, useEffect, useMemo } from 'what-framework';
+
+// Bad - "Loading…" forever: the branch is decided once:
+function Users() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { load().then(() => setLoading(false)); }, []);
+  if (loading()) return <p>Loading…</p>;
+  return <ul>…</ul>;
+}
+
+// Bad - the button never enables: valid is computed once:
+function Signup() {
+  const [name, setName] = useState('');
+  const valid = name().length > 0;
+  return <button disabled={!valid}>Sign up</button>;
+}
+
+// Good - the branch is a reactive child:
+function Users() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { load().then(() => setLoading(false)); }, []);
+  return <>{() => (loading() ? <p>Loading…</p> : <ul>…</ul>)}</>;
+}
+
+// Good - derived with useMemo, read where it is shown:
+function Signup() {
+  const [name, setName] = useState('');
+  const valid = useMemo(() => name().length > 0);
+  return <button disabled={!valid()}>Sign up</button>;
 }
 ```
 

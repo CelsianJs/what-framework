@@ -48,7 +48,7 @@
  */
 
 import { t, setTypes } from './babel/types.js';
-import { deferPlacedProps, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
+import { deferPlacedProps, warnStateReadOnce, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
 import { initDomState, finishDomProgram, transformJsxRoot, mayBuildTag } from './babel/dom.js';
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
@@ -196,6 +196,7 @@ export default function whatBabelPlugin({ types }) {
           path.traverse({
             Function(fnPath) {
               deferPlacedProps(fnPath, state);
+              warnStateReadOnce(fnPath, state);
             },
             CallExpression(callPath) {
               if (!state.frameworkFile) {
