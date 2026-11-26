@@ -3640,25 +3640,37 @@ function dropDiffering(c, text) {
 }
 
 // A claimed element's attributes become its template node's: the server's
-// that the template does not write are stale (the bindings write the dynamic
-// ones again), and a static one the server left out or wrote otherwise takes
-// the template's value.
-function keepTemplateAttrs(el, t) {
+// that the template does not write are stale, and a static one the server
+// left out or wrote otherwise takes the template's value. `owned` names the
+// attributes the element's bindings write in full on their first run
+// (what-compiler, separated by spaces): the server's stay for them to write.
+// Every other attribute the server wrote goes, the bindings writing the
+// dynamic ones again.
+function keepTemplateAttrs(el, t, owned) {
   const want = templateAttrs(t);
   // Names, not el.attributes: the attribute map is an object per element.
   const names = el.hasAttributes() ? el.getAttributeNames() : null;
-  let same = (names === null ? 0 : names.length) * 3 === want.length;
+  let left = names === null ? 0 : names.length;
+  if (owned !== undefined && names !== null) {
+    for (let i = 0; i < names.length; i++) if (owns(owned, names[i])) left--;
+  }
+  let same = left * 3 === want.length;
   for (let i = 0; same && i < want.length; i += 3) same = el.getAttribute(want[i]) === want[i + 1];
   if (same) return;
   if (names !== null) {
     for (let i = 0; i < names.length; i++) {
-      if (!t.hasAttribute(names[i])) el.removeAttribute(names[i]);
+      if (!t.hasAttribute(names[i]) && (owned === undefined || !owns(owned, names[i]))) el.removeAttribute(names[i]);
     }
   }
   for (let i = 0; i < want.length; i += 3) {
     if (el.getAttribute(want[i]) !== want[i + 1]) el.setAttributeNS(want[i + 2], want[i], want[i + 1]);
   }
   if (_selectionKeeper !== null && el.localName === 'option') _selectionKeeper(el);
+}
+
+// Whether attribute `name` is one of `owned` (keepTemplateAttrs).
+function owns(owned, name) {
+  return owned === name || (owned.length > name.length && (' ' + owned + ' ').includes(' ' + name + ' '));
 }
 
 // A template node's attributes as [name, value, namespace, ...], read from
@@ -5153,8 +5165,8 @@ function enterNode(el, t) {
   cur = c;
 }
 
-/** A template's root: the server's element while hydrating, a clone otherwise. `flags` 1: enter it; 2: a binding writes its content. */
-export function _$claim(tmpl, flags) {
+/** A template's root: the server's element while hydrating, a clone otherwise. `flags` 1: enter it; 2: a binding writes its content. `owned`: the attributes its bindings write (keepTemplateAttrs). */
+export function _$claim(tmpl, flags, owned) {
   const c = cur;
   const t = c === null || !c.h ? null : tmpl.root();
   if (t === null || (headDepth > 0 && HEAD_TAGS.has(t.localName) && next(c)?.localName !== t.localName)) {
@@ -5168,7 +5180,7 @@ export function _$claim(tmpl, flags) {
     if (flags & 1) enterNode(built, undefined);
     return built;
   }
-  claimNode(el, t, flags);
+  claimNode(el, t, flags, owned);
   return el;
 }
 
@@ -5200,13 +5212,14 @@ function claimStatic(c, t) {
 // default, which showed the server's value and which its props write again
 // (dom.js Form fields), and a <noscript>'s: the compiler leaves its content
 // out of a client template, and the browser keeps what the server wrote
-// there as text.
-function claimNode(el, t, flags) {
+// there as text. `owned`: the attributes its bindings write
+// (keepTemplateAttrs).
+function claimNode(el, t, flags, owned) {
   if (flags & 1) {
-    keepTemplateAttrs(el, t);
+    keepTemplateAttrs(el, t, owned);
     enterNode(el, t.firstChild);
   } else if (!el.isEqualNode(t) || hasShadowRoot(el)) {
-    keepTemplateAttrs(el, t);
+    keepTemplateAttrs(el, t, owned);
     if (t.localName === 'noscript') return;
     if (t.firstChild === null && t.localName === 'textarea') {
       /** @type {HTMLTextAreaElement} */ (el).defaultValue = '';
@@ -5238,8 +5251,8 @@ export function _$skip(k) {
   c.n = n;
 }
 
-/** The next child after `k` static ones: an element with bindings. `flags` 1: enter it; 2: a binding writes its content. */
-export function _$next(k, flags) {
+/** The next child after `k` static ones: an element with bindings. `flags` 1: enter it; 2: a binding writes its content. `owned`: the attributes its bindings write (keepTemplateAttrs). */
+export function _$next(k, flags, owned) {
   const c = cur;
   if (c.h) {
     while (k-- > 0) stepStatic(c);
@@ -5251,7 +5264,7 @@ export function _$next(k, flags) {
       if (flags & 1) enterNode(built, undefined);
       return built;
     }
-    claimNode(el, t, flags);
+    claimNode(el, t, flags, owned);
     return el;
   }
   let n = c.n;

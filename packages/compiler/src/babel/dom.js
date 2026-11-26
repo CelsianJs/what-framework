@@ -535,13 +535,44 @@ export function transformElementFineGrained(path, state) {
 
   // Handle dynamic children
   const rootFlags = (applyDynamicChildren(statements, elId, children, node, state, node._whatRowCell) ? 1 : 0) | (writesContent(attributes) ? 2 : 0);
-  if (state.hydratable && rootFlags !== 0) acquire.arguments.push(t.numericLiteral(rootFlags));
+  if (state.hydratable) claimArguments(acquire, rootFlags, FORM_CONTROLS.has(tagName) ? null : ownedAttrs(attributes, tagName, node._whatNs));
 
   // Instead of wrapping in an IIFE, store setup statements for hoisting.
   // The JSXElement visitor will insert them before the enclosing statement.
   if (!state._pendingSetup) state._pendingSetup = [];
   state._pendingSetup.push(...statements);
   return t.identifier(elId);
+}
+
+// A hydratable claim's arguments after the template or the count of static
+// children it steps over: its flags (what-core render.js _$claim, _$next),
+// then the attributes its bindings own (ownedAttrs), when there are any.
+function claimArguments(call, flags, owned) {
+  if (flags !== 0 || owned !== null) call.arguments.push(t.numericLiteral(flags));
+  if (owned !== null) call.arguments.push(t.stringLiteral(owned));
+}
+
+// The attributes of a claimed element whose bindings write them in full on
+// their first run, whatever the server wrote: a class (_$className,
+// _$setClass), a data-* or aria-* attribute (_$setAttr), and an id or a title
+// (_$setProp, through a property the attribute reflects, or the attribute).
+// Hydration leaves the server's to them (what-core render.js
+// keepTemplateAttrs) instead of removing it for the binding to write again.
+// Their names separated by spaces, or null: none on an element with a spread
+// or a classList, a custom element, a select or an option, or outside HTML
+// and SVG.
+function ownedAttrs(attributes, tagName, ns) {
+  if ((ns !== 'html' && ns !== 'svg') || tagName.includes('-') || SELECT_TAGS.has(tagName)) return null;
+  const names = [];
+  for (const [index, attr] of attributes.entries()) {
+    if (t.isJSXSpreadAttribute(attr)) return null;
+    const name = getAttrName(attr);
+    if (name === 'classList') return null;
+    if (!t.isJSXExpressionContainer(attr.value) || isShadowedAttr(attributes, index) || isBindingAttribute(name)) continue;
+    const written = attributeName(name);
+    if ((written === 'class' || written === 'id' || written === 'title' || isEnumeratedAttr(written)) && !names.includes(written)) names.push(written);
+  }
+  return names.length > 0 ? names.join(' ') : null;
 }
 
 // Fallback: transform element using h() when template extraction fails
@@ -1449,7 +1480,7 @@ function applyDynamicChildren(statements, elId, children, parentNode, state, row
       statements.push(t.variableDeclaration('const', [t.variableDeclarator(t.identifier(childElRef), next)]));
       applyDynamicAttrs(statements, childElRef, childEl.attributes, state, childEl.name.name, entry.node._whatNs);
       const flags = (applyDynamicChildren(statements, childElRef, entry.node.children, entry.node, state, rowCell) ? 1 : 0) | (writesContent(childEl.attributes) ? 2 : 0);
-      if (flags !== 0) next.arguments.push(t.numericLiteral(flags));
+      claimArguments(next, flags, FORM_CONTROLS.has(childEl.name.name) ? null : ownedAttrs(childEl.attributes, childEl.name.name, entry.node._whatNs));
       continue;
     }
 
