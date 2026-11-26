@@ -955,21 +955,18 @@ export function _onChange(e, handler) {
 // A script's write to a text field it has heard (`el.value = ''` once a chat
 // box has sent, while the field keeps the focus) makes the field forget what
 // onChange saw, so the next edit is heard, one that types what the field held
-// before the write included. The field's own `value` setter is wrapped for
-// it, as React's value tracker wraps it; What's writes (writeValue) keep what
+// before the write included. The `value` setter of the field's prototype
+// (HTMLInputElement's, HTMLTextAreaElement's) is wrapped on the field, as
+// React's value tracker wraps it; What's writes (writeValue) keep what
 // onChange saw. A field that already has its own `value` (a copy of
-// what-core, or React's tracker, wrapped it) is left as it is.
+// what-core, or a library, wrapped it) is left as it is.
 function hearScriptWrites(el) {
-  if (Object.prototype.hasOwnProperty.call(el, 'value')) return;
-  let proto = Object.getPrototypeOf(el);
-  let desc;
-  while (proto !== null && (desc = Object.getOwnPropertyDescriptor(proto, 'value')) === undefined) proto = Object.getPrototypeOf(proto);
-  if (desc === undefined || desc.set === undefined || desc.get === undefined) return;
-  const { get, set } = desc;
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+  const set = desc?.set;
+  if (set === undefined || Object.hasOwn(el, 'value')) return;
   Object.defineProperty(el, 'value', {
     configurable: true,
-    enumerable: desc.enumerable,
-    get() { return get.call(this); },
+    get: /** @type {PropertyDescriptor} */ (desc).get,
     set(next) {
       set.call(this, next);
       this._$seen = undefined;
