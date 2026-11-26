@@ -409,8 +409,8 @@ describe('register() change handler called without an event (#22c)', () => {
     try {
       // Both shapes a caller can get wrong: no event at all, and an event object
       // with no target. Neither may reach setValue().
-      registered.oninput();
-      registered.oninput({});
+      registered.onchange();
+      registered.onchange({});
     } finally {
       warn.restore();
     }

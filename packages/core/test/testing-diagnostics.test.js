@@ -63,7 +63,7 @@ describe('captureDiagnostics', () => {
   it('awaits an async callback', async () => {
     const cap = await captureDiagnostics(async () => {
       await Promise.resolve();
-      useForm({ defaultValues: { nick: 'a' } }).register('nick').oninput();
+      useForm({ defaultValues: { nick: 'a' } }).register('nick').onchange();
       return 'done';
     });
     assert.equal(cap.result, 'done');

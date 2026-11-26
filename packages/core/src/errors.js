@@ -648,7 +648,7 @@ const useCounter = createStore({ count: 0, doubled: derived(state => state.count
     suggestion: 'The handler register() returns reads the new value from event.target. Pass the DOM event through, or set the value directly with form.setValue(name, value).',
     codeExample: `// Bad - calls the handler with a value instead of an event:
 const field = register('email');
-field.oninput('a@b.co');
+field.onchange('a@b.co');
 
 // Good:
 <input {...register('email')} />

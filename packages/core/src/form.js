@@ -348,13 +348,14 @@ function createFormController(options = {}) {
       });
       result.onchange = handler;
     } else {
-      // Text/select/textarea: use value prop + oninput event, and onchange,
-      // which a listbox fires alone for a key typed (the handler above).
+      // Text/select/textarea: use value prop + onchange, React's change event,
+      // which a text field fires as the user types and a select when its
+      // choice changes (render.js listen).
       Object.defineProperty(result, 'value', {
         get() { return fieldSig(); },
         enumerable: true,
       });
-      result.oninput = result.onchange = handler;
+      result.onchange = handler;
       result.ref = (el) => {
         _applyRef(options.ref, el);
         // An UNTYPED registration spread onto a radio cannot be rescued, and it

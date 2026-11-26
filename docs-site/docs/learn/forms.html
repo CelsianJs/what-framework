@@ -302,10 +302,10 @@
           <p>The <code>register</code> function connects a form field to the reactive state. Call it with a field name and spread the returned props onto your input element.</p>
 
 <pre><code><span class="keyword">const</span> emailProps = <span class="function">register</span>(<span class="string">'email'</span>);
-<span class="comment">// Returns: { name, value, oninput, onBlur, onFocus, ref }</span>
-<span class="comment">// The event key is lowercase 'oninput'. There is no 'onInput'.</span>
+<span class="comment">// Returns: { name, value, onchange, onBlur, onFocus, ref }</span>
+<span class="comment">// The event key is lowercase 'onchange': React's change event, which a text field fires on each key.</span>
 
-<span class="comment">// register(name, { type: 'checkbox' }) swaps value/oninput for:</span>
+<span class="comment">// register(name, { type: 'checkbox' }) swaps value for checked:</span>
 <span class="comment">//   { name, checked, onchange, onBlur, onFocus, ref }</span>
 
 <span class="comment">// register(name, { type: 'radio', value }) returns:</span>
@@ -328,7 +328,7 @@
 <pre><code>&lt;<span class="tag">input</span>
   <span class="attr">name</span>=<span class="string">"email"</span>
   <span class="attr">value</span>={() =&gt; <span class="function">getValue</span>(<span class="string">'email'</span>)}
-  <span class="attr">oninput</span>={<span class="function">register</span>(<span class="string">'email'</span>).oninput}
+  <span class="attr">onChange</span>={<span class="function">register</span>(<span class="string">'email'</span>).onchange}
 /&gt;</code></pre>
 
           <p>A registered radio is the exception: its <code>checked</code> comes back as a thunk rather than a getter, so the renderer keeps it live and a spread radio does follow <code>setValue</code> and <code>reset</code>.</p>

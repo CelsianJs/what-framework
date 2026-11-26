@@ -234,7 +234,7 @@ describe('form utilities', () => {
 
       assert.equal(props.name, 'username');
       assert.equal(props.value, 'user123');
-      assert.ok(typeof props.oninput === 'function');
+      assert.ok(typeof props.onchange === 'function');
       assert.ok(typeof props.onBlur === 'function');
     });
 

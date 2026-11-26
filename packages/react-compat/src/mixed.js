@@ -288,9 +288,10 @@ function createLeaf(inst, Comp, first) {
   const lists = new Map();
   /** @type {Map<string, Function>} */
   const callbacks = new Map();
-  // No prototype: what-core takes such a props object as the component's own
-  // and keeps its getters (render.js ownProps), as it does compiled JSX's.
-  const live = Object.create(null);
+  // A plain object marked as what-core's props (dom.js _newProps): what-core
+  // takes it as the component's own and keeps its getters (render.js
+  // ownProps), and the component sees an ordinary object, as React's props are.
+  const live = Object.defineProperty({}, Symbol.for('what-core.props.v1'), { value: true });
 
   const shown = (key, value) => {
     if (isRich(value)) return Array.isArray(value) ? listFor(key, value).array : slotFor(key, value).vnode;

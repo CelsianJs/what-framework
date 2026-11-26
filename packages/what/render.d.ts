@@ -33,6 +33,7 @@ export {
   _$lazyMemo,
   _$Island,
   delegateEvents,
+  _$changes,
   _$own,
   on,
   classList,
@@ -60,6 +61,7 @@ export {
   _$slots,
   _$merge,
   _$omit,
+  _$props,
   _$place,
   _$inNs,
 } from 'what-core/render';

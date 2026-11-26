@@ -387,9 +387,9 @@ Agent: what_events { after: 120, types: ["write", "run"] }
 
 Code a React developer writes by habit, with the hooks that keep React's names. Each of these compiles and runs.
 
-### 22. `useEffect` Runs a Parent's Effect Before Its Child's
+### 22. `useEffect` Runs in React's Order, `onCleanup` in the Owner's
 
-React runs effects children first on mount, so a parent's effect can count on its children's effects having run. What runs `useEffect` and `onMount` callbacks in the order the components were built: the parent's first, then each child's. (Cleanups on unmount run children first, as in React.) The pattern this breaks is a child that registers with its parent in an effect:
+`useEffect` and `onMount` run in React's order. On mount a component's effects run after its children's, so a parent's effect can count on its children's having run, and siblings run in order. When state changes, every cleanup of the effects due runs first, then every run, children first. On unmount a parent's cleanups run before its children's, siblings first to last. Within a component, effects keep the order they are written in. So a child that registers with its parent in an effect has registered by the time the parent's effect runs:
 
 ```jsx
 import { createContext, useContext, useEffect } from 'what-framework';
@@ -398,7 +398,7 @@ const TabsContext = createContext(null);
 
 function TabList(props) {
   const tabs = [];
-  // Runs before any Tab's effect: `tabs` is still empty here.
+  // Runs after every Tab's effect: `tabs` holds their ids.
   useEffect(() => { props.onReady(tabs); }, []);
   return <TabsContext value={tabs}>{props.children}</TabsContext>;
 }
@@ -410,31 +410,10 @@ function Tab(props) {
 }
 ```
 
-Register in the child's body instead. A component runs once, so its body is the place for one-time setup, and every body has run before the first effect does; `onCleanup` takes the registration back when the child goes:
+Two orders are What's own:
 
-```jsx
-import { onCleanup, useContext } from 'what-framework';
-
-function Tab(props) {
-  const tabs = useContext(TabsContext);
-  tabs.push(props.id);
-  onCleanup(() => tabs.splice(tabs.indexOf(props.id), 1));
-  return <button>{props.children}</button>;
-}
-```
-
-When children can also arrive later (behind a `<Show>`, a list, a `lazy()` component), keep the registry in a signal, so the parent's effect runs again for each one:
-
-```jsx
-import { signal, useEffect } from 'what-framework';
-
-function TabList(props) {
-  const tabs = signal([]);
-  useEffect(() => { props.onReady(tabs()); });
-  return <TabsContext value={tabs}>{props.children}</TabsContext>;
-}
-// In Tab: const tabs = useContext(TabsContext); tabs.set((list) => [...list, props.id]);
-```
+- **Order follows the build.** What builds a reactive child (`{open() ? <Panel /> : null}`, a `<Show>`, a `lazy()` component, the children of an `<ErrorBoundary>` or `<Suspense>`) after the components written beside it. So a component inside one runs its effects after those siblings' on mount, and cleans up after them on unmount. Either way it still runs after its parent's cleanups and before its parent's effect. Effects that run again keep the order they first ran in, so a row added before the rows a list had runs again after them, and a component that mounts while another updates in the same flush runs after it, unless it is inside it. Either way, rows run before the effect of the component that renders the list.
+- **`onCleanup` follows the owner.** `onCleanup`, and the cleanup an `effect()` returns, run children first, newest first (docs/ARCHITECTURE.md, owners). On unmount a component's `useEffect` cleanups run before its own `onCleanup` callbacks, and before anything below it is disposed.
 
 ### 23. A Field Whose `value` or `checked` Is Bound to State Is Controlled
 
@@ -460,7 +439,8 @@ function NameFields() {
 
 - This covers `<input>`, `<textarea>`, checkboxes, radios (the whole group goes back when a click in it was refused) and `<select>`, `multiple` included.
 - The field is put back once every event of the user's action has been handled. A click or Space on a checkbox or radio, and a pick in a `<select>`, fire `input` and then `change`: the field is checked after the `change`, so `onChange={(e) => setOn(e.target.checked)}` reads the new state.
-- `onChange` is the DOM's `change` event, which a text field fires when the user commits the edit (blur, Enter), not on each key. A field whose handlers listen for `change` and none for `input` (on the field, through a spread in a wrapper, or on a `<form>` above it) is the user's while they type; after the `change`, it is put back if the handlers did not take the edit. For the state to follow each key, as React's `onChange` does, use `onInput`.
+- `onChange` is React's change event, on the field or above it (a `<form onChange>` hears its fields). A text field or a `<textarea>` fires it on each edit: each key, a paste, an undo, each step of an input method's composition; and not again when the field loses focus. A checkbox, radio, `<select>` or file field fires it when its value changes. So a text field is put back after each edit its handlers did not take, as in React. An `onInput` on the same field fires too, before it. An edit that leaves the value as it was fires nothing (`1.` typed on the way to `1.5` in a number field, which still holds `1`).
+- For the commit only (blur or Enter, what `onChange` was in 0.14), use `onBlur`, or the DOM's `change` event, `ref={(el) => on(el, 'change', commit)}` (`on` is in `what-framework/render`), on a field the user owns (`defaultValue`): a field whose `value` is bound to state is put back as the user types unless an `onChange` or `onInput` takes the edit.
 - "Bound to state" means the binding read a signal, a computed, a store or a live prop when it wrote the value: `value={name()}`, `value={props.name}` in a component handed `name={name()}`, a signal given as it is (`value={name}`), or any of those reaching the field through a spread in a wrapper (`<input {...props} />`).
 - A value that read no state is only where the field starts, and the user's edit stands: a constant (`value="draft"`), and what a spread reads once from a plain object. The forms kit's `{...register('title')}` is such a spread, so a registered field is the user's.
 - A field that already shows the value is not written, so the caret stays where it is. Nothing is written while an input method (IME) is composing; the field is checked when the composition ends.
@@ -539,6 +519,8 @@ Read once, as in any What component:
 
 - The tag itself: `as` is read when the component runs, so `<Box as={isLink() ? 'a' : 'button'} />` keeps its first tag. To switch elements with state, branch where you render: `{() => (isLink() ? <a {...rest} /> : <button {...rest} />)}`.
 - An event handler written directly (`onClick={props.onClick}`, `onClick={open() ? close : show}`): it is bound once. Read the state when it runs: `onClick={(e) => props.onClick?.(e)}`, `onClick={() => (open() ? close() : show())}`.
+
+The props, a rest element and a spread's merge are plain objects, as React's are: `rest.hasOwnProperty('open')`, `String(props)`, `props.valueOf()`, `Object.keys`, `JSON.stringify`, `{ ...rest }`, `structuredClone`, clsx, classnames and lodash's `isPlainObject` all take them. A key written onto Object.prototype is never taken for a prop by What's copies and spreads, which read own keys only, and a prop named `__proto__` is a property like any other: no copy sets a prototype with it, and no element is written one.
 
 A spreading component costs one props object for the rest (`_$omit`, a copy that keeps the getters), and one binding per live prop it spreads (re-run when that prop's value changes, as a reactive attribute is). A component that does not spread pays nothing for any of this.
 

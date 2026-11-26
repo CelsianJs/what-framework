@@ -4,7 +4,7 @@
 import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, ATTRIBUTE_ALIASES, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
-  EVENT_OPTION_MODIFIERS, compileError, componentCallee, createEventHandler,
+  EVENT_OPTION_MODIFIERS, captureEventName, compileError, componentCallee, createEventHandler,
   getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, controlFlowTag,
   isBindingAttribute, isComponentElement, isConditionallyEvaluated, isDynamicAttr,
   isEventAttrName, isFieldProp, isHydrateRootArgument, isShadowedAttr, isSlotAttribute, isStaticChild,
@@ -25,6 +25,9 @@ import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 // Events that use document-level delegation for performance.
 // The compiler emits `el.$$click = handler` instead of addEventListener.
 // A one-time document listener walks event.target upward to find the handler.
+// `$$change` is onChange, React's change event: a module that sets one
+// installs it (`_$changes()`, what-core render.js), and a text field's
+// `input` reaches it too.
 const DELEGATED_EVENTS = new Set([
   'click', 'input', 'change', 'keydown', 'keyup', 'submit',
   'focusin', 'focusout', 'mousedown', 'mouseup',
@@ -802,7 +805,10 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
 
     // Event handlers
     if (attrName.startsWith('on') && !attrName.includes('|') && !hasEventModifiers(attrName, state)) {
-      const event = attrName.slice(2).toLowerCase();
+      // `onClickCapture` is a listener in the capture phase, which delegation
+      // (the bubble phase, at the document) cannot give.
+      const captured = captureEventName(attrName);
+      const event = (captured ?? attrName).slice(2).toLowerCase();
       const handler = getAttributeValue(attr.value);
       const metadata = bindingMetadata(tagName, attrName, attr, state);
       if (metadata) {
@@ -812,7 +818,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
         )));
       }
 
-      if (DELEGATED_EVENTS.has(event)) {
+      if (captured === null && DELEGATED_EVENTS.has(event)) {
         // Use event delegation: el.$$click = handler (matches runtime lookup)
         if (!state.delegatedEvents) state.delegatedEvents = new Set();
         state.delegatedEvents.add(event);
@@ -832,7 +838,8 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
         // Non-delegated: a listener per element, which its owner removes.
         statements.push(
           t.expressionStatement(
-            t.callExpression(helper(state, '_$on'), [t.identifier(elId), t.stringLiteral(event), handler])
+            t.callExpression(helper(state, '_$on'), [t.identifier(elId), t.stringLiteral(event), handler,
+              ...(captured === null ? [] : [t.booleanLiteral(true)])])
           )
         );
       }
@@ -844,15 +851,38 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       const { eventName, modifiers } = parseEventModifiers(attrName);
       const handler = getAttributeValue(attr.value);
       const wrappedHandler = createEventHandler(handler, modifiers);
-      const event = eventName.slice(2).toLowerCase();
+      const captured = captureEventName(eventName);
+      const event = (captured ?? eventName).slice(2).toLowerCase();
 
       const optionMods = modifiers.filter(m => EVENT_OPTION_MODIFIERS.has(m));
+      if (captured !== null && !optionMods.includes('capture')) optionMods.push('capture');
       const addEventArgs = [t.stringLiteral(event), wrappedHandler];
       if (optionMods.length > 0) {
         const optsProps = optionMods.map(m =>
           t.objectProperty(t.identifier(m), t.booleanLiteral(true))
         );
         addEventArgs.push(t.objectExpression(optsProps));
+      }
+
+      // onChange is React's change event, which a spread's listener is
+      // (what-core render.js listen): `_$spread(el, { onchange }, null,
+      // options)`. It listens for two events, so `once` is the handler's: it
+      // runs for the first change, whichever event brings it.
+      if (event === 'change') {
+        const options = optionMods.filter(m => m !== 'once').map(m => t.objectProperty(t.identifier(m), t.booleanLiteral(true)));
+        let changeHandler = wrappedHandler;
+        if (optionMods.includes('once')) {
+          // ((h, done) => (e) => done || (done = true, h(e)))(handler)
+          const [h, done, e] = [t.identifier('h'), t.identifier('done'), t.identifier('e')];
+          changeHandler = t.callExpression(t.arrowFunctionExpression([h, done], t.arrowFunctionExpression([e],
+            t.logicalExpression('||', done, t.sequenceExpression([t.assignmentExpression('=', t.cloneNode(done), t.booleanLiteral(true)), t.callExpression(t.cloneNode(h), [e])])))), [wrappedHandler]);
+        }
+        statements.push(t.expressionStatement(t.callExpression(helper(state, '_$spread'), [
+          t.identifier(elId),
+          t.objectExpression([t.objectProperty(t.identifier('onchange'), changeHandler)]),
+          ...(options.length > 0 ? [t.nullLiteral(), t.objectExpression(options)] : []),
+        ])));
+        continue;
       }
 
       statements.push(
@@ -1813,8 +1843,10 @@ function transformComponentFineGrained(path, state) {
     // fresh props object. A lone identifier/member/call spread is the
     // CALLER'S object and goes through the merge below. One holding a getter
     // is the component's own (no prototype), taken as it is so its getters
-    // stay live (render.js ownProps).
-    propsExpr = live ? withoutPrototype(parts[0]) : parts[0];
+    // stay live (render.js ownProps). It is marked (`[_$props]: true`) rather
+    // than built with no prototype: setting a prototype in place gives each
+    // object a hidden class of its own in V8 (prop reads about 13x slower).
+    propsExpr = live ? markedProps(parts[0], state) : parts[0];
   } else {
     // Merged in source order, getters kept: a wrapper's `{...props}` stays
     // live (render.js _$merge).
@@ -1949,6 +1981,14 @@ function isLivePropValue(name, value, state) {
 // runtime takes as the component's own (render.js ownProps, _$merge).
 function withoutPrototype(literal) {
   literal.properties.unshift(t.objectProperty(t.identifier('__proto__'), t.nullLiteral()));
+  return literal;
+}
+
+// `{ [_$props]: true, ... }`: the component's own props object, a plain one
+// What's runtime recognises by its mark (render.js ownProps), so its getters
+// stay live props.
+function markedProps(literal, state) {
+  literal.properties.unshift(t.objectProperty(helper(state, '_$props'), t.booleanLiteral(true), true));
   return literal;
 }
 
@@ -3005,6 +3045,7 @@ const RENDER_IMPORTS = [
   ['_$createComponent', null],
   ['_$componentVNode', '_$componentVNode'],
   ['_$delegateEvents', 'delegateEvents'],
+  ['_$changes', '_$changes'],
   ['_$own', '_$own'],
   ['_$on', 'on'],
   ['_$claim', '_$claim'],
@@ -3020,6 +3061,7 @@ const RENDER_IMPORTS = [
   ['_$slots', '_$slots'],
   ['_$place', '_$place'],
   ['_$merge', '_$merge'],
+  ['_$props', '_$props'],
   ['_$omit', '_$omit'],
   ['_$inNs', '_$inNs'],
   ['_$selects', '_$selects'],
@@ -3087,10 +3129,20 @@ export function finishDomProgram(path, state) {
   /** @type {any[] | null} */
   let delegation = null;
   if (state.delegatedEvents.size > 0) {
-    const eventArray = t.arrayExpression(
-      [...state.delegatedEvents].map(e => t.stringLiteral(e))
-    );
-    // function _$delegate$(el) { _$own(el); if (_$delegated$) return; _$delegated$ = true; _$delegateEvents([...]); }
+    // onChange (`$$change`) is React's change event, which its own install
+    // delegates (what-core render.js _$changes): a module without one carries
+    // none of its code.
+    const events = [...state.delegatedEvents].filter(e => e !== 'change');
+    const install = [];
+    if (events.length > 0) {
+      install.push(t.expressionStatement(
+        t.callExpression(helper(state, '_$delegateEvents'), [t.arrayExpression(events.map(e => t.stringLiteral(e)))])
+      ));
+    }
+    if (state.delegatedEvents.has('change')) {
+      install.push(t.expressionStatement(t.callExpression(helper(state, '_$changes'), [])));
+    }
+    // function _$delegate$(el) { _$own(el); if (_$delegated$) return; _$delegated$ = true; _$delegateEvents([...]); _$changes(); }
     const helperFn = t.functionDeclaration(
       helper(state, '_$delegate$'),
       [t.identifier('el')],
@@ -3103,9 +3155,7 @@ export function finishDomProgram(path, state) {
         t.expressionStatement(
           t.assignmentExpression('=', helper(state, '_$delegated$'), t.booleanLiteral(true))
         ),
-        t.expressionStatement(
-          t.callExpression(helper(state, '_$delegateEvents'), [eventArray])
-        ),
+        ...install,
       ])
     );
     delegation = [

@@ -138,7 +138,8 @@ const columns = [{ key: 'name', render: (row) => <EditableName row={row} /> }];
 ```
 
 `view.name` reads `name` of what `source` returns now. Its properties are
-getters on an object with no prototype, which What reads as live props:
+getters on an object with no prototype, which What reads as live props, as it
+reads the props objects it builds:
 `{row.name}` placed in JSX is a reactive child and `<EditableName row={row} />`
 hands the view on. A replaced item updates the cell's bindings in place.
 
@@ -195,7 +196,7 @@ written without JSX.
 | `mapArray(source, mapper, options?)` | Keyed (`options.key`) or unkeyed list mapping of an accessor, or of an array for a list that never changes; a repeated key or item gets a row per occurrence |
 | `spread(el, props)` | Direct prop spreading |
 | `delegateEvents(names, root?)` | Event delegation on `root` (the document by default) |
-| `on(el, event, handler, options?)` | Add a DOM listener, removed when the current owner (the component, list row or root being built) is disposed; returns the function that removes it sooner. In components, write `onClick={...}` in JSX |
+| `on(el, event, handler, options?)` | Add a DOM listener, removed when the current owner (the component, list row or root being built) is disposed; returns the function that removes it sooner. In components, write `onClick={...}` in JSX. `event` is the DOM's: `on(el, 'change', fn)` hears a text field's commit (blur, Enter), where `onChange` is React's change event, which fires as the user types |
 | `classList(el, classes)` | Reactive class toggles |
 | `isHydrating()` | True while a hydration pass walks existing DOM |
 | `_$Island` | What `<Counter client:idle />` compiles to: `h(_$Island, { component: Counter, mode: 'idle' })`, an island that hydrates itself when its trigger fires (`load`, `idle`, `visible`, `interaction`, `media` with `mediaQuery`, `static`). `interaction` listens in the capture phase for a click, focus (keyboard focus on a control inside it too), mouseenter or touchstart, and hydrates before the event reaches its target, so the handler the island sets runs for that first interaction. The registry-based island component is what-framework/server's `Island` |
@@ -281,7 +282,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Users /></Suspense>, '#app');
 | `useState(initial)` | `[accessor, setter]`: read with `count()`, write with `setCount(v)` or `setCount(fn)` |
 | `useSignal(initial)` | The signal itself, scoped to the component |
 | `useComputed(fn)` | A computed accessor scoped to the component |
-| `useEffect(fn, deps?)` | Runs after mount; re-runs when a signal it reads changes, or with `deps` only for the accessors listed; `[]` runs once. Runs in the user phase, after the DOM bindings of the same flush; the first run on the microtask after the component (docs/EFFECT-TIMING.md). Disposed with the component; does nothing during a server render |
+| `useEffect(fn, deps?)` | Runs after mount; re-runs when a signal it reads changes, or with `deps` only for the accessors listed; `[]` runs once. Runs in the user phase, after the DOM bindings of the same flush; the first run on the microtask after the component (docs/EFFECT-TIMING.md). Runs in React's order: children first on mount and on update, every cleanup before every run, a parent's cleanup first on unmount. Disposed with the component; does nothing during a server render |
 | `useMemo(fn, deps?)` | A computed accessor (`total()`); `deps` is ignored. A promise it returns stays a promise (`ERR_ASYNC_MEMO` in development): fetch with `useComputed` or `computed()` |
 | `useCallback(fn, deps?)` | Returns `fn` unchanged; `deps` is ignored |
 | `useRef(initial)` | Mutable ref (`ref.current`) |
@@ -827,7 +828,7 @@ subject and one report on each of two subjects both count 2.
 
 ```js
 const field = useForm().register('email');
-const cap = captureDiagnostics(() => field.oninput('a@b.co'));
+const cap = captureDiagnostics(() => field.onchange('a@b.co'));
 expectDiagnostic(cap, { code: 'ERR_FORM_HANDLER_WITHOUT_EVENT', exact: 1 });
 ```
 

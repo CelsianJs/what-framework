@@ -3,13 +3,14 @@
 // the handlers a field's path holds decide when it is put back, and a form's
 // reset and the form kit see what the user did.
 //
-// - A listener render.js on() added is counted while it is there: removing the
-//   last change listener of a text field, by its function or with its owner,
-//   leaves the field as one with no handler (put back as the user types), and
-//   removing one of two leaves it the user's until the commit.
-// - A handler an h() element's props added (dom.js setProp, `_events`) is on
-//   the path as a compiled one is: an h() form's onChange (either phase) over
-//   a compiled field, and its onInput.
+// - A listener render.js on() added hears the DOM's event: `on(el, 'change')`
+//   is the native change event, which a text field fires when the user
+//   commits an edit, not onChange. A controlled field with only such a
+//   listener is put back as the user types, as one with no handler; an
+//   uncontrolled one hears the commit, until its owner goes.
+// - A handler an h() element's props added (dom.js setProp) is on the path as
+//   a compiled one is: an h() form's onChange (either phase) over a compiled
+//   field hears each key, as React's does, and its onInput too.
 // - A form's native reset gives each field its default; a field a prop
 //   controls shows the prop again, whether a script resets the form or the
 //   user presses its reset button (React keeps a controlled field's value).
@@ -62,7 +63,7 @@ const source = `
     return <div>
       <input id="off" value={s.off()} ref={(el) => { fields.off = el; }} />
       <input id="offOne" value={s.offOne()} ref={(el) => { fields.offOne = el; }} />
-      <input id="owned" value={s.owned()} ref={(el) => { fields.owned = el; }} />
+      <input id="owned" defaultValue="a" ref={(el) => { fields.owned = el; }} />
       <div id="hosts" />
       <form id="resetForm">
         <input id="accepted" value={s.accepted()} onInput={(e) => s.accepted(e.target.value)} />
@@ -81,13 +82,10 @@ const source = `
     mount(App, document.getElementById('app'));
     // The last change listener goes: the field has no handler.
     on(fields.off, 'change', () => saw('off'))();
-    // One of two goes: the field still has one.
-    on(fields.offOne, 'change', () => saw('offOne kept'));
-    const stop = on(fields.offOne, 'change', () => saw('offOne removed'));
-    stop();
-    stop();
-    // A listener that goes with its owner.
-    createRoot((dispose) => { on(fields.owned, 'change', () => saw('owned')); disposeOwned = dispose; });
+    // A native change listener is not onChange: the field has no handler.
+    on(fields.offOne, 'change', () => saw('offOne'));
+    // A native change listener on a field nothing controls, which goes with its owner.
+    createRoot((dispose) => { on(fields.owned, 'change', (e) => saw('owned ' + e.target.value)); disposeOwned = dispose; });
     // An h() form above a compiled field, its handler in each phase, and one for input.
     const hosts = document.getElementById('hosts');
     mount(h('form', { onChange: (e) => saw('hChild ' + e.target.value) }, h(Child, { id: 'hChild' })), hosts.appendChild(document.createElement('div')));
@@ -160,35 +158,36 @@ for (const [engine, type] of engines) {
         assert.equal(await value('#off'), 'a');
       });
 
-      it('one of two change listeners removed (twice): the field is still the user\'s until the commit', async () => {
+      it('a native change listener is not onChange: a controlled field with only one is put back as the user types', async () => {
         await typeAtEnd('#offOne', 'bc');
-        assert.equal(await value('#offOne'), 'abc');
+        assert.equal(await value('#offOne'), 'a');
         await page.keyboard.press('Tab');
         await settled();
-        assert.deepEqual(await seen(), ['offOne kept']);
-        assert.equal(await value('#offOne'), 'a', 'the handler did not take the edit');
+        assert.deepEqual(await seen(), [], 'the field holds what it held when it got focus: no commit');
       });
 
-      it('a change listener that goes with its owner', async () => {
+      it('a native change listener hears the commit of a field nothing controls, until its owner goes', async () => {
         await typeAtEnd('#owned', 'bc');
-        assert.equal(await value('#owned'), 'abc', 'while it is there, the field is the user\'s');
+        assert.deepEqual(await seen(), [], 'nothing while the user types');
         await page.keyboard.press('Tab');
         await settled();
-        assert.deepEqual(await seen(), ['owned']);
-        assert.equal(await value('#owned'), 'a');
+        assert.deepEqual(await seen(), ['owned abc'], 'the commit, on blur');
         await page.evaluate(() => globalThis.M.disposeOwned());
-        await typeAtEnd('#owned', 'bc');
-        assert.equal(await value('#owned'), 'a', 'once it is gone, the field has no handler');
+        await typeAtEnd('#owned', 'd');
+        await page.keyboard.press('Tab');
+        await settled();
+        assert.deepEqual(await seen(), [], 'once it is gone, nothing');
+        assert.equal(await value('#owned'), 'abcd');
       });
 
-      it('an h() form\'s onChange over a compiled field, in the bubble and the capture phase', async () => {
+      it('an h() form\'s onChange over a compiled field hears each key, in the bubble and the capture phase', async () => {
         for (const id of ['hChild', 'hCapture']) {
           await typeAtEnd('#' + id, 'bc');
-          assert.equal(await value('#' + id), 'abc', `${id}: the field is the user's while they type`);
+          assert.deepEqual(await seen(), [`${id} ab`, `${id} ac`], `${id}: each key, the field put back after each, as the handler did not take it`);
+          assert.equal(await value('#' + id), 'a');
           await page.keyboard.press('Tab');
           await settled();
-          assert.deepEqual(await seen(), [`${id} abc`], `${id}: the handler sees the edit`);
-          assert.equal(await value('#' + id), 'a', `${id}: and the field goes back, as the handler did not take it`);
+          assert.deepEqual(await seen(), [], `${id}: nothing at the blur`);
         }
       });
 

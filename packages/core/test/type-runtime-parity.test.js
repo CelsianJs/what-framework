@@ -170,7 +170,7 @@ export const applied: Promise<void> = cssTransition(document.createElement('div'
 // Forms: lowercase handler keys, and isValidating.
 const form = useForm({ defaultValues: { email: '' } });
 const registration = form.register('email');
-registration.oninput?.({});
+registration.onchange?.({});
 export const validating: boolean = form.formState.isValidating();
 export const input = h('input', registration);
 
@@ -402,10 +402,11 @@ describe('runtime shape: forms', () => {
     const form = inComponent(() => W.useForm({ defaultValues: { email: '', agree: true } }));
     const text = form.register('email');
     assert.equal(text.onInput, undefined, 'register() has never defined onInput');
-    assert.equal(typeof text.oninput, 'function');
-    // onchange too: a select takes its pick from `change`, which a listbox
-    // fires alone for a key typed (form.js register).
-    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'onchange', 'oninput', 'ref', 'value']);
+    // One handler, onchange: React's change event, which a text field fires
+    // as the user types and a select when its pick changes (form.js register).
+    assert.equal(text.oninput, undefined);
+    assert.equal(typeof text.onchange, 'function');
+    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'onchange', 'ref', 'value']);
 
     const checkbox = form.register('agree', { type: 'checkbox' });
     assert.deepEqual(keys(checkbox), ['checked', 'name', 'onBlur', 'onFocus', 'onchange', 'ref']);

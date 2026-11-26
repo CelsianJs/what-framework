@@ -46,10 +46,14 @@ export function _$selects(): void;
  * the event's path.
  */
 export function delegateEvents(eventNames: string[], root?: Document | ShadowRoot | Element): void;
+/** @internal Compiler output from a module that binds onChange: the `$$change` handlers under `root` are React's change event, which a text field fires as the user types. */
+export function _$changes(root?: Document | ShadowRoot | Element): void;
 /**
  * Add a DOM listener, removed when the current owner (the component, list row
  * or root being built) is disposed; returns the function that removes it
- * sooner. In components, write onClick={...} in JSX.
+ * sooner. In components, write onClick={...} in JSX. `event` is the DOM's:
+ * `on(el, 'change', fn)` hears a text field's commit (blur, Enter), where the
+ * onChange prop is React's change event, which fires as the user types.
  */
 export function on(el: Element, event: string, handler: (e: Event) => void, options?: boolean | AddEventListenerOptions): () => void;
 /** @internal Compiler output: marks the element's delegated `$$event` handlers as the current owner's. */
@@ -252,8 +256,10 @@ export function _$members<T>(build: () => T, nested?: number): T;
 export function _$member<T>(value: T, index: number): T;
 /** @internal Compiled JSX: `props` carrying `slots`, the factories of the props its JSX passed as JSX or forwarded, which the component reads as lazy getters. */
 export function _$slots<P extends object>(props: P, slots: Record<string, () => unknown>): P;
-/** @internal Compiled JSX's spread props, merged in order into one props object with no prototype; getters of props objects What built stay getters (live props). */
+/** @internal Compiled JSX's spread props, merged in order into one plain props object of What's; getters of props objects What built stay getters (live props). */
 export function _$merge(...sources: unknown[]): Record<string, unknown>;
+/** @internal The key compiled JSX marks a props object with (`{ [_$props]: true, ... }`): its getters are live props, and its component gets it as a plain object with the mark hidden. `Symbol.for('what-core.props.v1')`. */
+export const _$props: unique symbol;
 /** @internal Compiled JSX's rest element of destructured props: `props` without `keys`, getters kept. */
 export function _$omit(props: unknown, keys: readonly string[]): Record<string, unknown>;
 /** @internal Compiled JSX: a component call placed in SVG (`ns` 1), MathML (2) or HTML inside one of them (0), so a tag held in a binding below it that SVG and HTML both name is created in that namespace. */

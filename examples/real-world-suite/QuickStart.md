@@ -320,7 +320,7 @@ mount(<App />, '#app');
 | `setCount(5)` | `count.set(5)` | `.set()` or updater `.set(c => c+1)` |
 | `useMemo(() => x, [deps])` | `useComputed(() => x)` | No deps array needed |
 | `useContext` | `createStore` | Global stores replace context |
-| `onChange` (text input) | `onInput` | `onChange` = blur only in What |
+| `onChange` (text input) | `onChange` | Fires on each key, as in React (0.15; 0.14 fired it on blur) |
 | `ReactDOM.render` | `mount(<App />, '#app')` | Selector string |
 | `swr.data` | `swr.data()` | All SWR returns are getters |
 

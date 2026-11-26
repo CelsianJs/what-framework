@@ -643,9 +643,28 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /_\$delegateEvents\(/, 'should emit delegateEvents call');
-    assert.match(code, /["']click["']/, 'should include click in delegated events');
-    assert.match(code, /["']change["']/, 'should include change in delegated events');
+    assert.match(code, /_\$delegateEvents\(\["click"\]\)/, 'should delegate click');
+    // onChange is React's change event, which its own install delegates.
+    assert.match(code, /_\$changes\(\)/, 'should install onChange');
+    assert.match(code, /\.\$\$change = /);
+  });
+
+  it('a module with onChange alone installs it and delegates nothing else', () => {
+    const code = compileJSX(`const a = <form onChange={() => {}}><input /></form>;`);
+    assert.match(code, /_\$changes\(\)/);
+    assert.doesNotMatch(code, /_\$delegateEvents/);
+  });
+
+  it('a module without onChange carries no install', () => {
+    const code = compileJSX(`const a = <button onClick={() => {}} onInput={() => {}}>A</button>;`);
+    assert.doesNotMatch(code, /_\$changes/);
+  });
+
+  it('onChange with modifiers is React\'s change event too: a spread\'s listener, with its options', () => {
+    const code = compileJSX(`const a = <input onChange__once__capture={h} onClick__once={k} />;`);
+    // It listens for two events, so `once` is the handler's: the first change.
+    assert.match(code, /_\$spread\(_el\$\d+, \{\s*onchange: \(\(h, done\) => e => done \|\| \(done = true, h\(e\)\)\)\(h\)\s*\}, null, \{\s*capture: true\s*\}\)/);
+    assert.match(code, /_\$on\(_el\$\d+, "click", k, \{\s*once: true\s*\}\)/, 'any other event keeps its DOM listener');
   });
 });
 

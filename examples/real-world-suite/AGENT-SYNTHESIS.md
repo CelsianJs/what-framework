@@ -28,6 +28,8 @@ The `createStore` API has a clean but initially confusing split: derived fields 
 ### 4. `onChange` vs `onInput` for text inputs
 React normalizes `onChange` to fire on every keystroke. What Framework uses native DOM semantics where `onChange` only fires on blur. Use `onInput` for per-keystroke updates on text inputs.
 
+*Since 0.15, `onChange` is React's: it fires on every keystroke.*
+
 **Agents affected:** App-01, App-03
 **Severity:** Low — functional but confusing behavior difference
 

@@ -120,7 +120,7 @@ const page = <>
 </>;
 ```
 
-The rest element keeps the props live wherever it goes (spread, handed on, destructured again, read by key, merged into an object literal that is spread onto JSX), a spread's `children` render as the element's children, and a tag held in a binding (`<Tag />` with `Tag` a string) is created in the namespace it stands in and hydrates in place. An attribute written after a spread wins over it (`<a {...rest} href="/x" />` keeps `/x`), a handler that comes through a spread follows the parent's current one, `children` written as an attribute stays live, and an accessor callback over a prop (`read={() => props.project}`) returns the prop's current value. Two things are read once, as everything outside JSX is in a component that runs once: the tag (`as={isLink() ? 'a' : 'button'}` keeps its first element; branch in JSX to switch) and a handler written directly (`onClick={props.onClick}`; write `onClick={(e) => props.onClick?.(e)}`). Shapes the compiler cannot read where you use them are reported at build time as `ERR_PROP_READ_ONCE`: a destructured prop you assign again, a component that picks what it returns from a prop (`return on ? <A /> : <B />`; branch in JSX with `{() => …}` or `<Show>`), and props handed to a JSX helper as a value (`mk({ value })`; write `mk(props)` or `<Mk value={value} />`). A plain function that only destructures its argument, such as a reducer or a factory, is not taken for a component and keeps its destructuring as written. See [GOTCHAS.md](./GOTCHAS.md#26-rest-props-and-polymorphic-components-stay-live).
+The rest element keeps the props live wherever it goes (spread, handed on, destructured again, read by key, merged into an object literal that is spread onto JSX), a spread's `children` render as the element's children, and a tag held in a binding (`<Tag />` with `Tag` a string) is created in the namespace it stands in and hydrates in place. An attribute written after a spread wins over it (`<a {...rest} href="/x" />` keeps `/x`), a handler that comes through a spread follows the parent's current one, `children` written as an attribute stays live, and an accessor callback over a prop (`read={() => props.project}`) returns the prop's current value. Two things are read once, as everything outside JSX is in a component that runs once: the tag (`as={isLink() ? 'a' : 'button'}` keeps its first element; branch in JSX to switch) and a handler written directly (`onClick={props.onClick}`; write `onClick={(e) => props.onClick?.(e)}`). Shapes the compiler cannot read where you use them are reported at build time as `ERR_PROP_READ_ONCE`: a destructured prop you assign again, a component that picks what it returns from a prop (`return on ? <A /> : <B />`; branch in JSX with `{() => …}` or `<Show>`), and props handed to a JSX helper as a value (`mk({ value })`; write `mk(props)` or `<Mk value={value} />`). The props and a rest element are plain objects, as React's are (`rest.hasOwnProperty(k)`, `String(props)`, `Object.keys`, a spread). A plain function that only destructures its argument, such as a reducer or a factory, is not taken for a component and keeps its destructuring as written. See [GOTCHAS.md](./GOTCHAS.md#26-rest-props-and-polymorphic-components-stay-live).
 
 ### Event Handling
 
@@ -143,11 +143,12 @@ undone, and such a field with no handler cannot be changed. Use `defaultValue`
 for a field the user owns. A value that reads no state (a constant, the
 forms kit's `{...register('name')}`) is only where the field starts
 ([GOTCHAS 23](GOTCHAS.md#23-a-field-whose-value-or-checked-is-bound-to-state-is-controlled)).
-One difference: `onChange` is the DOM's `change` event. On a checkbox, radio
-or select it fires on each click or pick, as in React. On a text field it
-fires when the user commits the edit (blur, Enter): the field is theirs while
-they type, and `name` takes the text then. Use `onInput` for the state to
-follow each key.
+`onChange` is React's: on a text field or a textarea it fires on each edit
+as the user types, on a checkbox, radio or select on each click or pick, and
+a `<form onChange>` hears its fields. The handler is handed the DOM event
+(`e.type` is `input` while the user types). For the commit only, on blur or
+Enter, use `onBlur`, or the DOM's `change` event with `on(el, 'change', fn)`
+from `what-framework/render`.
 
 ```jsx
 function Name() {
@@ -381,31 +382,7 @@ A value in the array (`[count()]`) is read once and never changes, so the effect
 
 Only signals and computeds in the array are read. Any other function is never called, because a ported array holds setters and callbacks (`[setCount]`, `[load]`): an arrow written as a getter, `[() => props.count]`, does not re-run the effect, and development reports `ERR_EFFECT_DEP_NOT_SIGNAL`. List a computed (`useMemo(() => props.count)`) or drop the array. Callbacks can be left out: a component runs once, so they never change.
 
-**Effects run parent first.** React runs a child's effect before its parent's on mount. What runs `useEffect` and `onMount` callbacks in the order the components were built: the parent's, then each child's (cleanups on unmount run children first, as in React). A child that registers with its parent in an effect therefore registers after the parent's effect ran:
-
-```jsx
-function TabList(props) {
-  const tabs = [];
-  useEffect(() => { props.onReady(tabs); }, []);   // runs first: tabs is empty
-  return <TabsContext value={tabs}>{props.children}</TabsContext>;
-}
-function Tab(props) {
-  const tabs = useContext(TabsContext);
-  useEffect(() => { tabs.push(props.id); }, []);   // runs after TabList's effect
-  return <button>{props.children}</button>;
-}
-```
-
-Register in the child's body, which runs once and before every effect, and take the registration back with `onCleanup`; or keep the registry in a signal the parent's effect reads ([GOTCHAS 22](GOTCHAS.md#22-useeffect-runs-a-parents-effect-before-its-childs)):
-
-```jsx
-function Tab(props) {
-  const tabs = useContext(TabsContext);
-  tabs.push(props.id);
-  onCleanup(() => tabs.splice(tabs.indexOf(props.id), 1));
-  return <button>{props.children}</button>;
-}
-```
+**Effects run in React's order.** On mount a child's `useEffect` and `onMount` run before its parent's. When state changes, every cleanup runs first, then every run, children first. On unmount a parent's cleanups run before its children's. A child that registers with its parent in an effect has registered by the time the parent's effect runs, as in React. What's own `onCleanup` runs children first, and a component inside a reactive child (`{open() ? <Panel /> : null}`) runs after the components written beside it ([GOTCHAS 22](GOTCHAS.md#22-useeffect-runs-in-reacts-order-oncleanup-in-the-owners)).
 
 ### Conditional Rendering
 
@@ -643,7 +620,7 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 ## Migration Checklist
 
 1. Keep `useState` and `useReducer` destructuring: `const [val, setVal]` --> `val` is now an accessor, call `val()` to read
-2. `useEffect`: drop the dependency array and let the effect re-run on the signals it reads, or keep one that lists accessors (`[count]`, never `[count()]`, which reports `ERR_EFFECT_DEP_NOT_FUNCTION`, and never a getter arrow, which reports `ERR_EFFECT_DEP_NOT_SIGNAL`); `[]` still runs once after mount. A parent's effect runs before its children's: move a child's registration with its parent from an effect to the child's body
+2. `useEffect`: drop the dependency array and let the effect re-run on the signals it reads, or keep one that lists accessors (`[count]`, never `[count()]`, which reports `ERR_EFFECT_DEP_NOT_FUNCTION`, and never a getter arrow, which reports `ERR_EFFECT_DEP_NOT_SIGNAL`); `[]` still runs once after mount. Effects run in React's order, children first
 3. `useMemo` and `useCallback` ignore their dependency arrays: delete them. `useMemo` returns an accessor, so read `total()`
 4. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 5. Call accessors where they render (`{count()}`, `class={active() ? 'on' : ''}`); the compiler makes those reactive. Write `() =>` yourself only when the read hides inside a call whose arguments call nothing

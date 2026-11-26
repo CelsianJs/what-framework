@@ -268,9 +268,36 @@ are the differences from 0.14.
   affects code that called `flushSync()` right after mounting and expected
   them not to have run yet, and code that relied on the previous DOM. An
   error they throw now reaches the nearest `<ErrorBoundary>`.
+- **`useEffect` and `onMount` run in React's order.** A parent's effect now
+  runs after its children's on mount, every cleanup of a flush runs before
+  every run, children first, and a parent's cleanups run before its
+  children's on unmount. Within a component, effects keep the order they are
+  written in. `onCleanup` and `effect()` keep the owner's order. A 0.14
+  workaround that registered children in their bodies keeps working; one
+  that relied on the parent's effect running first (to set up something its
+  children's effects read) moves that setup into the parent's body, which
+  runs before every child ([GOTCHAS.md, 22](GOTCHAS.md)).
 
 ### Hooks, context and components
 
+- **Props objects are plain objects.** A component's props, a rest element
+  of them and a spread's merge inherit from Object.prototype, as React's do:
+  `props.hasOwnProperty(k)`, `String(props)`, `props.valueOf()`, classnames
+  and lodash's `isPlainObject` work, where they threw or answered false on
+  0.14's objects with no prototype, and `props.constructor` is `Object`. This
+  affects code that tests `Object.getPrototypeOf(props) === null`.
+- **`onChange` fires on each keystroke, as React's does.** On a text
+  `<input>` or a `<textarea>` it fires on each edit (keys, paste, undo,
+  autofill) and not again on blur; on a checkbox, radio, select or file
+  field, when the value changes. Work that ran when the user committed an
+  edit (validation, saving, formatting) now runs on every key. Move it to
+  `onBlur`, or listen for the DOM's change event on a field the user owns:
+  `<input defaultValue={x} ref={(el) => on(el, 'change', commit)} />` (`on`
+  from `what-framework/render`). A field whose `value` is bound to state and
+  whose only handler was `onChange` now follows the state on each key: write
+  the state in `onChange`, or use `defaultValue`. Handlers get the native
+  event, so `e.type` is `'input'` while the user types.
+  `register('x').oninput` is now `.onchange`.
 - **A tag held in a binding is created in the namespace it stands in, and
   hydrates in place.** `<Tag {...rest} />` with `Tag` a string the compiler
   cannot read (`props.as`) rendered every element as HTML, so `as="circle"` in
@@ -333,11 +360,10 @@ are the differences from 0.14.
   disagreed with the state. The check comes once every event of the user's
   action is handled: after the `change` of a click on a checkbox or radio or
   a pick in a select (which fire `input` first), so an `onChange` handler
-  reads the new state. A field whose handlers listen for `change` and none
-  for `input` (`onChange` on a text field) is the user's while they type,
-  and is put back after the commit's `change` (blur, Enter) if the handlers
-  did not take it; a handler counts while it is there (one `on()` added and
-  removed does not), on the field or above it, compiled or made with `h()`.
+  reads the new state. A text field is put back after each `input` its
+  handlers didn't take; a handler counts while it is there (one `on()` added
+  and removed does not), on the field or above it, compiled or made with
+  `h()`.
   After its form's reset the field shows the bound value again, as React's
   does. A field that already shows the value is not
   written, so the caret stays; nothing is written while an input method
@@ -925,7 +951,8 @@ options.
   list (renamed, with a literal default or a rest element) or from props in
   the body, compiles each read as `props.children` where it stands. Its body
   now runs before its children are built, as with `props.children` and
-  `h()`: a log or an `onMount` in the component comes before its children's.
+  `h()`: a log in the component comes before its children's (its `onMount`
+  runs after theirs, in React's order).
   Children a condition shows again are built again, as `props.children` does
   (a child component in them used to come back empty). A component that never
   places its children no longer builds them. This affects code that relied on the

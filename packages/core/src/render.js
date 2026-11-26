@@ -7,10 +7,11 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _newProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
+import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
@@ -245,31 +246,36 @@ export function _$inNs(ns, build) {
   });
 }
 
-// The props object a compiled component runs with. Compiled JSX builds a
-// fresh object with no prototype when it passes live props (getters, dom.js
-// _isLiveProp) or merges spreads (_$merge): that object is the component's
-// own, taken as it is so its getters stay live. Any other object is copied:
-// it may be the caller's (a hand-written call), and the copy has no
-// prototype, so `props.__proto__` / `props.constructor` cannot lead a write
-// keyed by user data onto Object.prototype.
+// The props object a compiled component runs with, a plain object as React's
+// props are (dom.js _newProps). Compiled JSX builds a fresh object when it
+// passes live props (getters, dom.js _isLiveProp), marked (`[_$props]: true`)
+// or with no prototype: that object is the component's own, made a plain one
+// in place so its getters stay live (dom.js _ownProps). A props object What
+// built (a merge of spreads, _$merge; what-react's) is taken as it is. Any
+// other object is copied: it may be the caller's (a hand-written call).
 function ownProps(props) {
-  return props != null && Object.getPrototypeOf(props) === null ? props : Object.assign(Object.create(null), props);
+  // A spread defines `__proto__` as a key, where Object.assign would set the prototype.
+  if (props == null || !_isOwnProps(props)) return _markProps({ ...props });
+  return Object.isExtensible(props) ? _ownProps(props) : props;
 }
+
+// The key compiled JSX marks its props objects with (`{ [_$props]: true, … }`).
+export { PROPS as _$props };
 
 /**
  * Compiled JSX's spread props (`<Box a {...s} b />`): the sources merged in
- * order into one props object with no prototype. A getter of a props object
- * What built (a forwarded `{...props}`, a live prop) stays a getter, so a
- * wrapper that forwards its props keeps them live; any other object's
- * properties are copied by value, as Object.assign copies them.
+ * order into one props object of What's (dom.js _newProps). A getter of a
+ * props object What built (a forwarded `{...props}`, a live prop) stays a
+ * getter, so a wrapper that forwards its props keeps them live; any other
+ * object's properties are copied by value, as Object.assign copies them.
  */
 export function _$merge() {
-  const out = Object.create(null);
+  const out = _newProps();
   for (let i = 0; i < arguments.length; i++) {
     // As object spread takes a source: null, undefined, a boolean or a
     // number gives nothing, a string its characters (`{ ...(on && x) }`).
     const src = Object(arguments[i]);
-    const own = Object.getPrototypeOf(src) === null;
+    const own = _isOwnProps(src);
     // Every own enumerable key, symbols too, as Object.assign copies them.
     for (const key of Reflect.ownKeys(src)) if (Object.prototype.propertyIsEnumerable.call(src, key)) _copyProp(out, src, key, own);
   }
@@ -320,6 +326,9 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
   let out;
   /** @type {any} */
   let first;
+  // Its useEffect and onMount first runs wait for its output, so its
+  // children's come first, as in React (reactive.js _holdUser).
+  const held = _holdUser();
   try {
     const result = _runOwned(owner, Component, props);
     if (__DEV__ && result != null && typeof result.then === 'function') devAsyncComponent(Component);
@@ -343,6 +352,8 @@ export function _renderComponent(Component, props, endChildrenPass, isSvg, devLo
       throw left;
     }
     return container;
+  } finally {
+    _releaseUser(held);
   }
   if (__DEV__) devOutput(owner, first);
   // Built under no owner: compiled `mount(<App />, el)` builds App before
@@ -2096,17 +2107,20 @@ function _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newLen) {
 // Fine-grained prop effects. Function props create individual effects.
 // Event props use direct assignment.
 
-function spread(el, props, after) {
+function spread(el, props, after, options) {
   // A props object What built (forwarded props, a rest element) may hold live
   // props (dom.js _isLiveProp): each is bound like a reactive attribute,
   // reading the getter again when what it read changes.
-  const live = props != null && Object.getPrototypeOf(props) === null;
+  const live = props != null && _isOwnProps(props);
+  // Own keys only, as React spreads props: a key written onto Object.prototype
+  // is no prop. A key named `__proto__` is never written (setProp).
+  const keys = Object.keys(Object(props));
   // An event is one whatever the case of its name (`onClick`, `onclick`):
   // the last name the props hold for it is its handler (`last`, by each
   // key's name: an event's in lower case).
   const last = {};
-  for (const key in props) last[_isEventProp(key) ? key.toLowerCase() : key] = key;
-  for (const key in props) {
+  for (const key of keys) last[_isEventProp(key) ? key.toLowerCase() : key] = key;
+  for (const key of keys) {
     const event = _isEventProp(key);
     const name = event ? key.toLowerCase() : key;
     // Children are never an attribute: compiled JSX places a spread's
@@ -2130,8 +2144,8 @@ function spread(el, props, after) {
     // current handler, bound again when the parent hands another, as React
     // calls the handler of its last render.
     else if (event) {
-      if (get) effect(() => listen(el, name, value()));
-      else listen(el, name, value);
+      if (get) effect(() => listen(el, name, value(), options));
+      else listen(el, name, value, options);
     }
     // Anything else is written as setProp writes a prop: a ref is handed the
     // element (a function ref is a callback, never an accessor: a
@@ -2196,7 +2210,7 @@ export function _$spreads(el, sources, after) {
   // are compared (`tabIndex` after `{...{ tabindex }}` on an HTML element).
   after = after?.map((key) => writerName(key, el));
   const bind = (name, src, key) => {
-    const get = Object.getPrototypeOf(src) === null ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
+    const get = _isOwnProps(src) ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
     const value = get ? undefined : src[key];
     const was = shown.get(name);
     if (was !== undefined) {
@@ -2253,7 +2267,7 @@ export function _$spreads(el, sources, after) {
 // of a props object What built kept: render.js _$merge).
 function winners(sources, el) {
   const out = Object.create(null);
-  for (const [src, key] of writers(sources, el).values()) _copyProp(out, src, key, Object.getPrototypeOf(src) === null);
+  for (const [src, key] of writers(sources, el).values()) _copyProp(out, src, key, _isOwnProps(src));
   return out;
 }
 
@@ -2291,9 +2305,17 @@ function writerName(key, el) {
 // a prefix and a local name; `xmlns` is neither.
 const XML_NAME = /^(xlink|xml(?!ns)):?(.+)/;
 
-// `name`: an event prop's name in lower case (`onclick`).
-function listen(el, name, handler) {
-  if (typeof handler === 'function') on(el, name.slice(2), handler);
+// `name`: an event prop's name in lower case (`onclick`). onChange is React's
+// change event (dom.js _onChange): it hears a text field's `input` too.
+// `options`: compiled JSX's for an onChange with modifiers (`onChange__once`).
+function listen(el, name, handler, options) {
+  if (typeof handler !== 'function') return;
+  name = name.slice(2);
+  if (name === 'change') {
+    const change = handler;
+    on(el, 'input', handler = (e) => _onChange(e, change), options);
+  }
+  on(el, name, handler, options);
 }
 
 /** @type {((el: Element, key: string, value: any) => boolean) | null} */
@@ -2333,8 +2355,9 @@ function setProp(el, key, value) {
   }
 
   // `key` identifies a list row and is never an attribute (defense in depth),
-  // and an event is the compiler's (delegation, addEventListener).
-  if (key === 'key' || _isEventProp(key)) return;
+  // `__proto__` would set the element's prototype, and an event is the
+  // compiler's (delegation, addEventListener).
+  if (key === 'key' || key === '__proto__' || _isEventProp(key)) return;
 
   // A function classList, or an object with function entries, is reactive in
   // setClassList itself.
@@ -2678,6 +2701,13 @@ export function _$controlled(el) {
 //     already run those handlers.
 //   - e.currentTarget reads as the element whose handler is running. Both
 //     properties are handed back afterwards, also when a handler throws.
+//   - A stop ends the walk when a handler made it: one made before the walk
+//     began (onInput's, before onChange's walk) leaves it.
+//   - `$$change` is the DOM's change event, and onChange, React's change
+//     event, once a module of compiled JSX that binds one installs it
+//     (_$changes): a text field's `input` then reaches the `$$change`
+//     handlers on its path too, after the `$$input` ones, as React dispatches
+//     onInput and then onChange.
 // Technique credit: dom-expressions' delegated eventHandler (MIT, Ryan Carniato).
 
 const delegatedRoots = new WeakMap();
@@ -2692,17 +2722,42 @@ export function delegateEvents(eventNames, root = document) {
   }
 }
 
+/**
+ * @internal Compiler output, from a module that binds onChange: the `$$change`
+ * handlers under `root` are React's change event (dom.js _onChange), which a
+ * text field's `input` events reach, after the `$$input` handlers, as well as
+ * its `change`.
+ */
+export function _$changes(root = document) {
+  delegateEvents(['input'], root);
+  const names = /** @type {Set<string>} */ (delegatedRoots.get(root));
+  if (names.has('onchange')) return;
+  names.add('onchange').add('change');
+  root.removeEventListener('change', dispatchDelegated);
+  root.addEventListener('input', dispatchChange);
+  root.addEventListener('change', dispatchChange);
+}
+
 /** @this {EventTarget} */
-function dispatchDelegated(e) {
+function dispatchChange(e) {
+  dispatchDelegated.call(this, e, '$$change', _onChange);
+}
+
+/**
+ * @this {EventTarget}
+ * @param {any} e
+ * @param {string} [key] the handlers' property: `$$` and the name delegated
+ * @param {(e: any, handler: Function) => void} [call] what calls each handler (dispatchChange: dom.js _onChange)
+ */
+function dispatchDelegated(e, key = '$$' + e.type, call) {
   const root = this;
-  const type = e.type;
-  const key = '$$' + type;
+  const name = key.slice(2);
   const path = e.composedPath();
   let first = 0;
   let last = 0;
   for (; last < path.length && path[last] !== root; last++) {
     const names = delegatedRoots.get(path[last]);
-    if (names !== undefined && names.has(type)) first = last + 1;
+    if (names !== undefined && names.has(name)) first = last + 1;
   }
   let node = null;
   Object.defineProperty(e, 'currentTarget', {
@@ -2711,6 +2766,7 @@ function dispatchDelegated(e) {
   });
   let target = path[0];
   let retargeted = false;
+  const stopped = e.cancelBubble;
   try {
     for (let i = 0; i <= last && i < path.length; i++) {
       const n = path[i];
@@ -2732,8 +2788,9 @@ function dispatchDelegated(e) {
         Object.defineProperty(e, 'target', { configurable: true, value: target });
         retargeted = true;
       }
-      handler(e);
-      if (e.cancelBubble) break;
+      if (call) call(e, handler);
+      else handler(e);
+      if (e.cancelBubble && !stopped) break;
     }
   } finally {
     // Hand the native properties back to later listeners.
@@ -2749,19 +2806,12 @@ export function _$own(el) {
 
 // --- addEventListener helper for non-delegated events ---
 // The listener goes with the current owner, and the returned function removes
-// it sooner. The listeners for a field's input and change are counted on its
-// element while they are there (`_$input`, `_$change`), as a delegated
-// handler is seen on it (`$$input`): a controlled field is put back after the
-// event its handlers listen for (dom.js takenOnChange). A listener leaves the
-// count once, however often it is removed.
+// it sooner. `event` is the DOM's: `on(el, 'change', fn)` hears the native
+// change event, which a text field fires when the user commits an edit (on
+// blur or Enter), where the onChange prop is React's (dom.js _onChange).
 export function on(el, event, handler, options) {
-  let count = event === 'input' || event === 'change' ? '_$' + event : '';
-  if (count) el[count] = (el[count] | 0) + 1;
   el.addEventListener(event, handler, options);
-  const off = () => {
-    if (count) el[count]--, count = '';
-    el.removeEventListener(event, handler, options);
-  };
+  const off = () => el.removeEventListener(event, handler, options);
   onCleanup(off);
   return off;
 }
@@ -4018,6 +4068,7 @@ function adoptComponent(Component, props, endChildrenPass, site, devLoc) {
   }
   splitHere(c);
   const anchor = anchorOf(c);
+  const held = _holdUser();
   try {
     const result = _runOwned(owner, Component, props);
     if (endChildrenPass !== null) endChildrenPass(owner);
@@ -4031,6 +4082,8 @@ function adoptComponent(Component, props, endChildrenPass, site, devLoc) {
     const left = error != null && typeof error.then === 'function' && _handlePending(owner.owner, error) ? HANDLED : componentFailed(error, owner.owner);
     if (left !== HANDLED) console.error('[what] Error in component during hydration:', Component.name || 'Anonymous', left);
     return [];
+  } finally {
+    _releaseUser(held);
   }
   if (stepped !== 0 && pendingKey === key) pendingKey = outerKey;
   const nodes = [];

@@ -92,9 +92,21 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   *Migration:* an effect that reads DOM a binding writes uses
   `{ phase: 'user' }`. A value another effect computes belongs in a signal or
   a `computed()`.
-<!-- lane: effect order. Native `useEffect`/`onMount` now run child before
-     parent, as React's do (owner decision 2026-11-26). Its Breaking bullet
-     goes here. -->
+- **`useEffect` and `onMount` run in React's order.** On mount a
+  component's effects run after its children's (0.14 ran the parent's
+  first). When state changes, the effects due run every cleanup first, then
+  every run, children first (0.14 ran each effect's cleanup right before its
+  own run, parent first). On unmount a component's `useEffect` cleanups run
+  before its children's, siblings first to last (0.14 ran children first).
+  Within a component, effects keep the order they are written in, in every
+  phase. `onCleanup` and `effect()` keep the owner's order (children first,
+  newest first). A component inside a reactive child
+  (`{open() ? <Panel /> : null}`) is built after the components written
+  beside it, and its effects follow that build order (GOTCHAS 22). An app
+  with no `useEffect` and no `onMount` carries none of the ordering code.
+  *Migration:* code that relied on a parent's effect running before its
+  children's (to set up something its children's effects read) moves that
+  setup into the parent's body, which runs before every child.
 - **A field whose `value` or `checked` is bound to state shows the state.**
   After each `input` or `change` event of an `<input>`, `<textarea>` or
   `<select>` whose `value` or `checked` compiled JSX binds to state
@@ -108,11 +120,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   event of the user's action has been handled: a click or Space on a
   checkbox or radio and a pick in a `<select>` fire `input` and then
   `change`, and the field is checked after the `change`, so
-  `onChange={(e) => setOn(e.target.checked)}` reads the new state. A field
-  whose handlers listen for `change` and none for `input` (`onChange` on a
-  text field, on the field, through a spread or on a form above it) is the
-  user's while they type and is put back after the `change` of a commit
-  (blur, Enter) its handlers did not take. The handlers counted are the ones
+  `onChange={(e) => setOn(e.target.checked)}` reads the new state. A text
+  field is put back after each `input` its handlers did not take, `onChange`
+  ones included (it fires on each edit, see "`onChange` is React's change
+  event"). The handlers counted are the ones
   there now: a listener `on()` added and then removed (by its function or
   with its owner) no longer counts, and an `h()` element's `onChange` or
   `onInput` (either phase) over a compiled field counts as a compiled one
@@ -631,15 +642,28 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   computed key, or has a default that reads the component or calls something,
   each reported as `ERR_PROP_READ_ONCE`), a read of props in JSX is a
   binding, and `{...props}` spreads and rest elements keep the getters
-  (what-core `_$merge`, `_$omit`). Props objects What builds have no
-  prototype; `_$createComponent` takes one as the component's own, and h()
-  keeps the getters of one. Code that relied on a prop staying at its first
+  (what-core `_$merge`, `_$omit`). Props objects What builds are marked as
+  What's (next bullet); `_$createComponent` takes one as the component's
+  own, and h() keeps the getters of one. Code that relied on a prop staying at its first
   value reads it once in the body instead (`const first = props.value`).
-<!-- lane: plain-object props. Props, rest and merged objects get
-     Object.prototype, so `rest.hasOwnProperty()`, `String(rest)` and
-     `classnames(rest)` work as with React's (owner decision 2026-11-26). Its
-     bullet goes here, and the bullet above ("Props objects What builds have
-     no prototype") changes with it. -->
+- **Props objects are plain objects.** A component's props, a rest element
+  of them (`_$omit`) and a spread's merge (`_$merge`) have Object.prototype
+  as their prototype, as React's props do: `props.hasOwnProperty(k)`,
+  `String(props)`, `props.valueOf()`, classnames and lodash's
+  `isPlainObject` work, where they threw or answered false on 0.14's objects
+  with no prototype. What tells its props objects apart, and keeps their
+  getters live, by a `Symbol.for('what-core.props.v1')` property that no
+  listing shows, which another copy of what-core on the page reads too.
+  Compiled JSX writes that mark into a props object with a live prop
+  (`{ [_$props]: true, get on() { … } }`) where it wrote one with no
+  prototype, and the component gets the object with the mark hidden: setting
+  a prototype in place would give each object a hidden class of its own in
+  V8, and make prop reads about 13 times slower. What's copies and spreads
+  take own keys only (a key written onto Object.prototype is never a prop or
+  an attribute), a key named `__proto__` is defined as a property and never
+  sets a prototype, and no element is written a `__proto__`.
+  *Migration:* code that tests `Object.getPrototypeOf(props) === null`, or
+  relied on `props.constructor` or `props.__proto__` being undefined.
 - **Props forwarded the React way stay live.** Each shape has a test
   (packages/core/test/forwarded-props-react-habits.test.js), and five new
   rest-prop shapes are compared with React
@@ -706,12 +730,24 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Development output carries names and locations** (`devMetadata`, on in
   the Vite dev server, never in `vite build`). *Migration:* update snapshots
   of development output.
-<!-- lane: onChange. `onChange` on a text field fires per keystroke, as in
-     React, not at the commit (blur, Enter); breaking for code that validates
-     on blur (owner decision 2026-11-26). Its bullet goes here, and the field
-     bullet under "Breaking: reactivity, effects and hooks" ("A field whose
-     handlers listen for `change` and none for `input` ... is the user's
-     while they type") changes with it. -->
+- **`onChange` is React's change event.** On a text `<input>` or a
+  `<textarea>` it fires on each edit: keys, paste, undo, each step of an
+  input method's composition, autofill. It does not fire again on blur or
+  Enter, and an edit that leaves the value as it was fires nothing. On a
+  checkbox, radio, select or file field it fires when the value changes. An
+  ancestor's `onChange` (a `<form>`) hears its fields, and `onInput` on the
+  same field fires first. This holds in compiled JSX (delegated, through a
+  spread, forwarded, with modifiers), in `h()` props and in `register()`.
+  0.14 fired it at the DOM's `change`, when the user committed an edit.
+  `register()` returns `onchange` and no longer `oninput`, and
+  `on(el, 'change', fn)` is still the DOM's change event. A module with no
+  `onChange` carries none of this code. Handlers get the native event, so
+  `e.type` is `'input'` while the user types.
+  *Migration:* work that ran when the user committed an edit (validation,
+  saving, formatting) now runs on every key: move it to `onBlur`, or listen
+  for the DOM's change event on a field the user owns
+  (`<input defaultValue={x} ref={(el) => on(el, 'change', commit)} />`, `on`
+  from `what-framework/render`). `register('x').oninput` is now `.onchange`.
 
 ### Breaking: tools
 
@@ -1030,6 +1066,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Fixed
 
+- **Capture-phase handlers in compiled JSX fire.** `onClickCapture`,
+  `onKeyDownCapture` and the rest listen for their event in the capture
+  phase, with modifiers too (`onClickCapture__once`), as `h()` and spreads
+  already did; the compiler lowered them to a listener for an event named
+  `clickcapture`, which never fires. `onGotPointerCapture` and
+  `onLostPointerCapture` are events of their own, in compiled JSX and in
+  `h()` (which heard `gotpointer`). `packages/compiler/test/capture-events.test.js`.
+- **The Vite plugin's default `exclude` is a `node_modules` directory**
+  (`/\/node_modules\//`), not a path that holds the word: an app's own
+  `my_node_modules_backup/Card.jsx` was skipped, and its build failed with the
+  bundler's "Unexpected JSX expression".
 - **what-react: island hydration, as a verification in real browsers found
   it.** Each item has a test that fails at 90c91c40, with React 19.3.1's
   result beside it.

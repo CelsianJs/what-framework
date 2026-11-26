@@ -56,6 +56,8 @@ export {
   // What `<C client:idle />` compiles to: an island that hydrates itself.
   _$Island,
   delegateEvents,
+  // Compiled output from a module that binds onChange: React's change event.
+  _$changes,
   // Compiled output: an element's delegated handlers belong to its owner.
   _$own,
   on,
@@ -99,6 +101,7 @@ export {
   // destructured props (live props: what-core dom.js _isLiveProp).
   _$merge,
   _$omit,
+  _$props,
   _$place,
   // A component call placed in SVG or MathML, for the tags held in bindings it builds.
   _$inNs,

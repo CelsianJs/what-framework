@@ -53,7 +53,7 @@ const browserCases = {
     return h('ul', {}, () => items().map((item) => h('li', { key: item.id }, 'item')));
   })(),
   EFFECT_DEP_NOT_FUNCTION: () => triggerComponent(function Example() { W.useEffect(() => {}, [1]); return null; })(),
-  FORM_HANDLER_WITHOUT_EVENT: () => triggerComponent(function Example() { F.useForm().register('email').oninput(); return null; })(),
+  FORM_HANDLER_WITHOUT_EVENT: () => triggerComponent(function Example() { F.useForm().register('email').onchange(); return null; })(),
   FORM_RADIO_UNTYPED: () => triggerComponent(function Example() {
     return h('input', { type: 'radio', value: 'x', ...F.useForm().register('item') });
   })(),

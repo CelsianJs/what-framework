@@ -391,34 +391,80 @@ export function _place(props, key, inPlace, fallback) {
 // object with no prototype (`{ __proto__: null, get on() { … } }`), so the
 // component sees the current value wherever it reads `props.on`: a JSX
 // binding that reads it re-runs when `count` changes, as it would for
-// `count()` written there. Every props object What builds has no prototype:
-// the copy a component runs with, a spread's merge (render.js _$merge) and a
-// rest element (_$omit). A getter on one of them is kept by every copy and
-// merge; a getter on any other object (a user's object spread into props) is
-// read once, as Object.assign reads it. The lazy getters _installLazyChildren
-// defines for children and slots are not live props: a read of one builds
-// JSX (they carry _lazy).
+// `count()` written there. Every props object What builds is one of its own:
+// the props a component runs with (render.js ownProps, which gives compiled
+// JSX's object Object.prototype in place), a spread's merge (render.js
+// _$merge) and a rest element (_$omit). A getter on one of them is kept by
+// every copy and merge; a getter on any other object (a user's object spread
+// into props) is read once, as Object.assign reads it. The lazy getters
+// _installLazyChildren defines for children and slots are not live props: a
+// read of one builds JSX (they carry _lazy).
+//
+// The props a component sees, a rest element and a merge are plain objects,
+// as React's props are (`props.hasOwnProperty(k)`, `String(props)`,
+// classnames and lodash's isPlainObject take them), marked as What's by a
+// property no listing shows (PROPS: not enumerable, a symbol; Symbol.for, so
+// another copy of what-core on the page takes them as its own too). An object
+// with no prototype counts as one as well: compiled JSX's, before the
+// component gets it, what-react's for a native component, and a live() view.
+// Only own keys are copied or spread, so a key written onto Object.prototype
+// never reaches a component or an element, and a key named `__proto__` is
+// defined as a property like any other (_setOwnProp): no copy sets a
+// prototype with it.
+//
+// Compiled JSX may write the mark into its literal (`{ [_$props]: true, get
+// on() { … } }`, render.js _$props): the component gets that object with the
+// mark hidden (_ownProps). Its object with no prototype is given
+// Object.prototype in place instead, which V8 serves more slowly: each such
+// object gets a hidden class of its own, so every read of it is a lookup.
+export const PROPS = Symbol.for('what-core.props.v1');
+const MARK = { value: true };
+const HIDE = { enumerable: false };
+
+/** `props`, a plain object, marked as a props object of What's (PROPS). */
+export function _markProps(props) {
+  return Object.defineProperty(props, PROPS, MARK);
+}
+
+/** A new props object of What's: a plain object, marked. */
+export function _newProps() {
+  return _markProps({});
+}
+
+/** Compiled JSX's props object made the one its component sees, in place: Object.prototype, the mark hidden. */
+export function _ownProps(props) {
+  if (Object.getPrototypeOf(props) === null) return Object.defineProperty(Object.setPrototypeOf(props, Object.prototype), PROPS, MARK);
+  if (Object.prototype.propertyIsEnumerable.call(props, PROPS)) Object.defineProperty(props, PROPS, HIDE);
+  return props;
+}
+
+/** Whether the object `x` is a props object What built, whose getters are live props: marked, or with no prototype. */
+export function _isOwnProps(x) {
+  return x[PROPS] === true || Object.getPrototypeOf(x) === null;
+}
 
 /** Whether `props[key]` is a live prop: a getter, not a lazy JSX one, of a props object What built. */
 export function _isLiveProp(props, key) {
-  if (props == null || typeof props !== 'object' || Object.getPrototypeOf(props) !== null) return false;
+  if (props == null || typeof props !== 'object' || !_isOwnProps(props)) return false;
   const d = Object.getOwnPropertyDescriptor(props, key);
   return d !== undefined && d.get !== undefined && /** @type {any} */ (d.get)._lazy !== true;
 }
 
 /**
- * A copy of `props` with no prototype, without the keys in `omit` (a rest
- * element, render.js _$omit). A props object What built keeps its getters
- * (live props, lazy children); any other object is copied by value, as
- * Object.assign copies it.
+ * A props object of What's (_newProps) with the own enumerable properties of
+ * `props`, without the keys in `omit` (a rest element, render.js _$omit). A
+ * props object What built keeps its getters (live props, lazy children); any
+ * other object is copied by value, as a spread copies it.
  */
 export function _copyProps(props, omit) {
-  const out = Object.create(null);
-  if (props == null) return out;
-  const own = Object.getPrototypeOf(props) === null;
-  if (!own && !omit) return Object.assign(out, props);
+  if (props == null) return _newProps();
+  const own = _isOwnProps(props);
+  // A spread defines each key, `__proto__` too, where Object.assign would set
+  // the prototype with it.
+  if (!own && !omit) return _markProps({ ...props });
+  const out = _newProps();
   for (const key in props) {
-    if ((own || Object.hasOwn(props, key)) && !(omit && omit.includes(key))) _copyProp(out, props, key, own);
+    if (Object.hasOwn(props, key) && !(omit && omit.includes(key))) _copyProp(out, props, key, own);
   }
   return out;
 }
@@ -430,7 +476,12 @@ export function _copyProp(out, src, key, own) {
   else _setOwnProp(out, key, src[key]);
 }
 
-/** `props[key] = value` on a props object that may hold a getter under `key` (a forwarded live prop, lazy children). */
+/**
+ * `props[key] = value` on a props object that may hold a getter under `key`
+ * (a forwarded live prop, lazy children), or inherit one: `__proto__` and
+ * Object.prototype's other names are defined as own properties, so a key
+ * named `__proto__` never sets the prototype.
+ */
 export function _setOwnProp(props, key, value) {
   if (key in props) Object.defineProperty(props, key, { value, writable: true, enumerable: true, configurable: true });
   else props[key] = value;
@@ -718,9 +769,20 @@ export function _setFieldProp(el, key, value) {
     el.defaultValue = value == null ? '' : String(value);
   } else {
     const str = value == null ? undefined : String(value);
-    if (el._$value !== str) el.value = (el._$value = str) ?? '';
+    if (el._$value !== str) writeValue(el, (el._$value = str) ?? '');
   }
   return true;
+}
+
+// What writes a text field's value: what its onChange has seen (_onChange)
+// when the field showed what onChange saw last. A field that holds an edit
+// no onChange has heard yet (an onInput handler's state, written before the
+// onChange handlers of the same `input` run) keeps it for onChange to hear,
+// and one whose onChange saw nothing yet hears whatever comes next.
+function writeValue(el, value) {
+  const seen = el._$seen === el.value;
+  el.value = value;
+  if (seen) el._$seen = el.value;
 }
 
 // The props of a <select> and its <option>s: their value, their default and
@@ -785,12 +847,9 @@ function selectProp(el, tag, key, value) {
 // (e.target.checked false on the click that checked it). Clicking or
 // pressing a checkbox or radio, and picking in a select, fire `input` and then
 // `change` in one task (the HTML standard's activation behaviour and select
-// update notifications): their field is checked after the `change`. A field
-// whose handlers listen for `change` and none for `input` (on the field or
-// above it, `onChange={(e) => setName(e.target.value)}` on a text field) takes
-// its edit when the user commits it, on blur or Enter: it is the user's while
-// they type, and put back after that `change` when the handlers did not take
-// it.
+// update notifications): their field is checked after the `change`. A text
+// field is checked after each `input`, which its onChange handlers hear
+// (_onChange below), and after a `change`.
 //
 // A form's reset gives each of its fields its default once the `reset` event
 // is over: a field a prop controls shows what the prop holds again after it,
@@ -833,31 +892,55 @@ export function _controlFields(el) {
 }
 
 function controlledChanged(e) {
-  const path = e.composedPath();
-  const el = path[0];
+  const el = e.composedPath()[0];
   // A form, on its reset (showControlled shows its fields, and passes over
   // anything else a script dispatched one at); else a field, and before a
-  // change only a text field its handlers do not take as the user types (not
-  // a select, the one field with options, a checkbox or a radio).
+  // change only a text field (not a select, the one field with options, a
+  // checkbox or a radio).
   if (e.type !== 'reset' && (e.isComposing || !el?._$kept
-    || (e.type !== 'change' && (el.options || el.type === 'checkbox' || el.type === 'radio' || takenOnChange(path))))) return;
+    || (e.type !== 'change' && (el.options || el.type === 'checkbox' || el.type === 'radio')))) return;
   if (e.eventPhase === 1) setTimeout(showControlled, 0, el);
   else queueMicrotask(() => showControlled(el));
 }
 
-// Whether the handlers on the event's path listen for `change` and not for
-// `input`: a delegated handler (`$$change`), a listener render.js on() added
-// (a spread's, an event with modifiers), which it counts while it is there
-// (`_$change`), or one an h() element's props added (setProp below:
-// `_events`, in either phase).
-function takenOnChange(path) {
-  let change = false;
-  for (const node of path) {
-    const events = node._events || 0;
-    if (node.$$input || node._$input || events.input || events.input_capture) return false;
-    if (node.$$change || node._$change || events.change || events.change_capture) change = true;
-  }
-  return change;
+// --- onChange ---
+//
+// `onChange` is React's change event in every path that binds one: compiled
+// JSX's delegated `$$change` (render.js _$changes) and its listener for an
+// event with modifiers, a spread's (render.js listen), an h() element's props
+// (setProp below). On a field or above one (a form's hears its
+// fields), it fires for a text field (a <textarea>, an <input> of a type the
+// user types in, the types React lists) as the user edits it, from its
+// `input` events and from a `change` that reports an edit no `input` did; for
+// a checkbox, a radio, a select and a file field on their `change`, as the
+// DOM's does. A text field's event is an edit when the field holds what it
+// did not when its onChange handlers last ran or What last wrote it
+// (`_$seen`): the `change` it sends when it loses focus is none after the
+// `input` that reported the edit, and an `input` that left its value as it
+// was (`1.` typed on the way to `1.5`, which a number field holds as `1`)
+// none, as React's value tracker decides. What a handler writes
+// (`e.target.value = e.target.value.toUpperCase()`) is what it saw. A field
+// forgets what it held at the user's `change` (not one a script dispatched),
+// so a value a script wrote while the user was elsewhere (a button that
+// clears it, a form reset) is changed by the user's next edit, whatever it
+// holds. React sees a script's write itself
+// (it shadows the field's `value`), so an event that follows one is no edit
+// there; here it is one when the value differs, as in what-react. Decided once
+// per event, for every handler on its path, with what it reads kept on the
+// event and the field, so two copies of what-core on a page decide alike.
+// `on(el, 'change', fn)` (render.js) is the DOM's change event, unchanged.
+
+/** @internal Call `handler` with `e`, an `input` or `change` event, when it is React's change event. */
+export function _onChange(e, handler) {
+  const el = e.target;
+  const change = e.type === 'change';
+  // An <input> or a <textarea> (`selectionStart` is theirs alone), of a type
+  // whose value is the user's: not a file field (`files`), a checkbox, a
+  // radio or a button.
+  const text = 'selectionStart' in el && !el.files && !ATTRIBUTE_VALUE_TYPES.has(el.type);
+  e._$change ??= text ? el.value !== el._$seen : change;
+  if (e._$change) handler(e);
+  if (text) el._$seen = change && e.isTrusted ? undefined : el.value;
 }
 
 // Show what the props of `el` hold, where the field shows something else.
@@ -882,7 +965,7 @@ function showControlled(el) {
     // A select's value was written by the select code it carries (above).
     if (el._$select) el._$select(el, value);
     // `files` is a file field's alone (null on any other input).
-    else if (!el.files && el.value !== value && (el.type !== 'number' || (!el.validity.badInput && (el.value || NaN) != +value))) el.value = value;
+    else if (!el.files && el.value !== value && (el.type !== 'number' || (!el.validity.badInput && (el.value || NaN) != +value))) writeValue(el, value);
   }
   if (el._$checked === undefined) return;
   const group = el.type !== 'radio' || !el.name ? [el]
@@ -1178,6 +1261,9 @@ export function _writableProp(el, key) {
 export { setProp as _setVNodeProp };
 
 function setProp(el, key, value, isSvg) {
+  // A prop named `__proto__` (a user object's own key) would set the
+  // element's prototype: it is never written.
+  if (key === '__proto__') return;
   // A function classList, or an object with function entries, is reactive in
   // setClassList itself.
   if (key === 'classList') {
@@ -1197,15 +1283,18 @@ function setProp(el, key, value, isSvg) {
     if (typeof value !== 'function' && value != null) return;
     let eventName = key.slice(2);
     let useCapture = false;
-    if (eventName.endsWith('Capture')) {
+    // onGotPointerCapture and onLostPointerCapture are events of their own.
+    if (eventName.endsWith('Capture') && !eventName.endsWith('PointerCapture')) {
       eventName = eventName.slice(0, -7);
       useCapture = true;
     }
     const event = eventName.toLowerCase();
     const storageKey = useCapture ? event + '_capture' : event;
+    // onChange is React's change event (_onChange): it hears `input` too.
+    const types = event === 'change' ? ['input', event] : [event];
     const old = el._events?.[storageKey];
     if (old && old._original === value) return;
-    if (old) el.removeEventListener(event, old, useCapture);
+    if (old) for (const type of types) el.removeEventListener(type, old, useCapture);
     if (value == null) return;
     if (!el._events) el._events = {};
     // Single closure per event listener. Uses untrack to prevent accidental
@@ -1217,18 +1306,18 @@ function setProp(el, key, value, isSvg) {
     const owner = getOwner();
     const wrappedHandler = (e) => {
       if (owner !== null && _isDisposed(owner)) {
-        el.removeEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
+        for (const type of types) el.removeEventListener(type, wrappedHandler, eventOpts || useCapture || undefined);
         if (el._events[storageKey] === wrappedHandler) delete el._events[storageKey];
         return;
       }
       if (!e.nativeEvent) e.nativeEvent = e;
-      return untrack(() => wrappedHandler._handler(e));
+      return untrack(() => event === 'change' ? _onChange(e, wrappedHandler._handler) : wrappedHandler._handler(e));
     };
     wrappedHandler._handler = value;
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
     const eventOpts = value._eventOpts;
-    el.addEventListener(event, wrappedHandler, eventOpts || useCapture || undefined);
+    for (const type of types) el.addEventListener(type, wrappedHandler, eventOpts || useCapture || undefined);
     return;
   }
 

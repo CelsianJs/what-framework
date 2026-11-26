@@ -159,7 +159,8 @@ describe('a compiled wrapper that destructures its children behaves as props.chi
       const stop = mount(h(mod.Page), host);
       try {
         await settle();
-        assert.deepEqual(mod.seen, ['Box', 'Child', 'Box mount', 'Child mount']);
+        // The bodies run parent first; onMount runs children first, as React's effects do.
+        assert.deepEqual(mod.seen, ['Box', 'Child', 'Child mount', 'Box mount']);
         mod.open(false);
         flushSync();
         mod.open(true);

@@ -169,6 +169,14 @@ export function parseEventModifiers(name) {
   return { eventName, modifiers };
 }
 
+// React's capture-phase names: `onClickCapture` listens for `click` in the
+// capture phase (what-core dom.js does the same for h() and spreads), so the
+// name without `Capture` is returned. `onGotPointerCapture` and
+// `onLostPointerCapture` are events of their own, and return null.
+export function captureEventName(name) {
+  return name.endsWith('Capture') && !name.endsWith('PointerCapture') ? name.slice(0, -7) : null;
+}
+
 export function isBindingAttribute(name) {
   return name.startsWith('bind:');
 }

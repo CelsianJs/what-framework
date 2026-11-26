@@ -11,10 +11,11 @@ export interface FieldError {
 
 /**
  * What register() actually hands back, which varies by control type. The event
- * handlers are LOWERCASE (`oninput`, `onchange`), because that is the key the
- * DOM binding and the merge in <Input>/<Radio> look for; `onInput` was declared
- * here and register() has never defined it, so `register('email').onInput(e)`
- * type-checked and threw at the first keystroke.
+ * handler is LOWERCASE (`onchange`), because that is the key the DOM binding
+ * and the merge in <Input>/<Radio> look for; `onInput` was declared here and
+ * register() has never defined it, so `register('email').onInput(e)`
+ * type-checked and threw at the first keystroke. `onchange` is React's change
+ * event, as every onChange is: a text field fires it as the user types.
  *
  * `value` and `checked` are reactive rather than snapshots: `value` and the
  * checkbox `checked` are getters, and the radio `checked` is a thunk, so that a
@@ -37,9 +38,7 @@ export type RegisterProps = {
   value?: any;
   /** checkbox/radio only. */
   checked?: boolean | (() => boolean);
-  /** text/select/textarea only. */
-  oninput?: (e: any) => void;
-  /** Every control: a checkbox's or a radio's pick, and a value a `change` brings that `input` did not (a listbox fires only `change` for a key typed). */
+  /** Every control: each edit of a text field or a textarea, as the user types, a select's pick and a checkbox's or a radio's. */
   onchange?: (e: any) => void;
 };
 

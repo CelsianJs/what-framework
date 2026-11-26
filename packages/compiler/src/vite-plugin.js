@@ -208,8 +208,9 @@ export default function whatVitePlugin(options = {}) {
   const {
     // File extensions to process
     include = /\.[jt]sx$/,
-    // Files to exclude
-    exclude = /node_modules/,
+    // Files to exclude: a node_modules directory, not a name that holds the
+    // word (`my_node_modules_backup/`)
+    exclude = /\/node_modules\//,
     // A dependency's files to compile as the app's: under node_modules, or of
     // one of What's own packages. See "What it compiles".
     compileDependencies = null,

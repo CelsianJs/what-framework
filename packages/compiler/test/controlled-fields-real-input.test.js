@@ -6,6 +6,7 @@
 // never check it. Script-dispatched events (react-habits.test.js) run every
 // listener before any microtask and cannot show this. A field is put back once
 // every event of the user's action has been handled (dom.js controlledChanged).
+// A text field's onChange is React's: it hears each key (dom.js _onChange).
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -185,30 +186,30 @@ for (const dev of [true, false]) {
       assert.equal(await sig('digits'), 'abc');
     });
 
-    it('a text field with only onChange is the user\'s while they type, and the state takes it on commit', async () => {
+    it('a text field with only onChange: the state takes each key, as React\'s onChange does', async () => {
       await typeAtEnd('#committed', 'bc');
-      assert.equal(await value('#committed'), 'abc');
-      assert.equal(await sig('committed'), 'a', 'onChange is the DOM change event: it has not fired');
-      await page.keyboard.press('Tab');
-      await settled();
-      assert.deepEqual(await seen(), ['committed abc']);
+      assert.deepEqual(await seen(), ['committed ab', 'committed abc']);
       assert.equal(await sig('committed'), 'abc');
       assert.equal(await value('#committed'), 'abc');
-
-      await typeAtEnd('#commitRefused', 'bc');
-      assert.equal(await value('#commitRefused'), 'abc');
-      await page.keyboard.press('Enter');
-      await settled();
-      assert.deepEqual(await seen(), ['commitRefused abc']);
-      assert.equal(await value('#commitRefused'), 'a', 'a commit the handler refused is undone');
-    });
-
-    it('a text field with onInput and onChange', async () => {
-      await typeAtEnd('#both', 'bc');
-      assert.equal(await sig('both'), 'abc');
       await page.keyboard.press('Tab');
       await settled();
-      assert.deepEqual(await seen(), ['both abc']);
+      assert.deepEqual(await seen(), [], 'the change on blur reports nothing new');
+
+      await typeAtEnd('#commitRefused', 'bc');
+      assert.deepEqual(await seen(), ['commitRefused ab', 'commitRefused ac'], 'each key, the field put back after each');
+      assert.equal(await value('#commitRefused'), 'a', 'an edit the handler refused is undone');
+      await page.keyboard.press('Enter');
+      await settled();
+      assert.deepEqual(await seen(), []);
+    });
+
+    it('a text field with onInput and onChange: both hear each key', async () => {
+      await typeAtEnd('#both', 'bc');
+      assert.equal(await sig('both'), 'abc');
+      assert.deepEqual(await seen(), ['both ab', 'both abc']);
+      await page.keyboard.press('Tab');
+      await settled();
+      assert.deepEqual(await seen(), []);
       assert.equal(await value('#both'), 'abc');
     });
 
@@ -217,20 +218,21 @@ for (const dev of [true, false]) {
       assert.equal(await value('#locked'), 'a');
     });
 
-    it('onChange through a spread in a wrapper, and on a form above the field', async () => {
+    it('onChange through a spread in a wrapper, and on a form above the field: each key', async () => {
       await typeAtEnd('#wrapped', 'bc');
+      assert.deepEqual(await seen(), ['wrapped ab', 'wrapped abc']);
+      assert.equal(await sig('wrapped'), 'abc');
       assert.equal(await value('#wrapped'), 'abc');
       await page.keyboard.press('Tab');
       await settled();
-      assert.deepEqual(await seen(), ['wrapped abc']);
-      assert.equal(await sig('wrapped'), 'abc');
+      assert.deepEqual(await seen(), []);
 
       await typeAtEnd('#inForm', 'bc');
-      assert.equal(await value('#inForm'), 'abc');
+      assert.deepEqual(await seen(), ['form ab', 'form abc']);
+      assert.equal(await sig('inForm'), 'abc');
       await page.click('#elsewhere');
       await settled();
-      assert.deepEqual(await seen(), ['form abc']);
-      assert.equal(await sig('inForm'), 'abc');
+      assert.deepEqual(await seen(), []);
       assert.equal(await value('#inForm'), 'abc');
     });
   });

@@ -304,7 +304,7 @@
       ],
       "trigger": "register(\"{{name}}\") change handler was called without an event; the field was left unchanged.",
       "fix": "The handler register() returns reads the new value from event.target. Pass the DOM event through, or set the value directly with form.setValue(name, value).",
-      "example": "// Bad - calls the handler with a value instead of an event:\nconst field = register('email');\nfield.oninput('a@b.co');\n\n// Good:\n<input {...register('email')} />\nform.setValue('email', 'a@b.co');"
+      "example": "// Bad - calls the handler with a value instead of an event:\nconst field = register('email');\nfield.onchange('a@b.co');\n\n// Good:\n<input {...register('email')} />\nform.setValue('email', 'a@b.co');"
     },
     {
       "code": "ERR_FORM_RADIO_UNTYPED",

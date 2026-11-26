@@ -34,7 +34,7 @@ export default defineConfig({
 ```js
 what({
   include: /\.[jt]sx$/,       // File extensions to process (default: .jsx/.tsx)
-  exclude: /node_modules/,    // Files to exclude (default: node_modules)
+  exclude: /\/node_modules\//, // Files to exclude (default: a node_modules directory)
   compileDependencies: null,  // A dependency's files to compile as the app's (default: none)
   sourceMaps: true,           // Enable source maps (default: true)
   production: false,          // Enable production optimizations (default: auto)

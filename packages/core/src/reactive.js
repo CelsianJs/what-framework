@@ -114,6 +114,9 @@ const CAPABLE = 131072;    // computed: made by computed(); what its function re
 const ASKS = 262144;       // capable computed: its function takes `{ signal }`
 const HELD = 524288;       // effect: a <Suspense> counts it as waiting until a run of it completes
 const STAGED = 1048576;    // async computed: landed inside a transition that has not committed
+// An owner record's own flag: it, or an owner linked below it, holds a
+// useEffect or onMount (_userEffect), whose cleanups an unmount runs first.
+const OWNS_USER = 2097152;
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -2757,13 +2760,20 @@ export function _effectWhenNeeded(read, bind, a, b, opts) {
  * A user-phase effect whose first run waits for the flush: on the microtask
  * after the code that creates it, at the end of the outermost batch(), or in
  * the user round of the flush that is running, after the render-phase effects
- * of that flush. useEffect and onMount are built on it.
+ * of that flush. useEffect and onMount are built on it, and run in React's
+ * order: children first on mount and on update, a parent's cleanups first on
+ * unmount (see _holdUser, orderUserRound, userCleanups).
  * @param {() => any} fn
  */
 export function _userEffect(fn) {
   const now = ownerNow();
   const o = now === null ? null : scopeOf(now);
   if (o !== null && (o.flags & DISPOSED)) return;
+  userOps = USER_OPS;
+  // The owners above it learn they hold one, up to the first that knew.
+  for (let a = o; a != null && (a.flags & OWNS_USER) === 0; a = a.owner) {
+    if ((a.flags & (EFFECT | COMPUTED)) === 0) a.flags |= OWNS_USER;
+  }
   /** @type {WhatEffectNode} */
   const e = {
     fn,
@@ -2779,12 +2789,121 @@ export function _userEffect(fn) {
     devCreated('effects', e);
   }
   if (o !== null) o.disposals.push(e);
+  if (building > 0) held.push(e);
+  else queueUser(e);
+}
+
+function queueUser(e) {
+  if (e.flags & DISPOSED) return;
+  firstQueued.set(e, ++queuedCount);
   // Under a <Suspense> that has not shown its content yet, the first run waits
   // until it does (see components.js).
   if (userEffectGate !== null && userEffectGate(e)) return;
   enqueue(e);
   if (batchDepth === 0 && !flushing) scheduleFlush();
 }
+
+// React runs a parent's effects after its children's on mount. A component's
+// output is built inside its build (its body, then the JSX it returns), so
+// the first runs made while a component is built are held, and queued once
+// its build is over: a child's before its parent's, siblings in the order
+// they were built.
+let building = 0;
+/** @type {WhatEffectNode[]} */
+const held = [];
+
+/** @internal A component's build starts (render.js): hold the first runs of user-phase effects made in it until _releaseUser. */
+export function _holdUser() {
+  building++;
+  return held.length;
+}
+
+/** @internal The component's build that _holdUser returned `mark` for is over: queue the first runs made in it. */
+export function _releaseUser(mark) {
+  building--;
+  if (held.length > mark) /** @type {any} */ (userOps).release(mark);
+}
+
+function releaseHeld(mark) {
+  for (let i = mark; i < held.length; i++) queueUser(held[i]);
+  held.length = mark;
+}
+
+// React's order costs only an app that makes a useEffect or an onMount: the
+// first one installs it (_userEffect), and nothing else reaches it.
+/** @type {{ order: (round: WhatEffectNode[], len: number) => void, release: (mark: number) => void, clean: (o: any) => void } | null} */
+let userOps = null;
+// When each useEffect and onMount was first queued: children first, siblings
+// in order (_holdUser), which is the order React's tree gives its effects.
+/** @type {WeakMap<WhatEffectNode, number>} */
+const firstQueued = new WeakMap();
+let queuedCount = 0;
+
+// A round of useEffect and onMount runs, in React's order for a commit's
+// passive effects: every cleanup, then every run, children first. A round of
+// first runs only is in that order already (_holdUser). With re-runs
+// (effects that have run, and read what changed) the round is sorted by when
+// each effect was first queued, a re-run moved after the round's effects
+// below its component (a child that mounts in this flush, or runs again),
+// the deeper first. Then the effects that will run have their cleanups run,
+// in that order, and the flush runs them. A round holding another user-phase
+// effect (one a useEffect's callback made) keeps the queue's order, which
+// runs an effect's parent first.
+function orderUserRound(round, len) {
+  // The owner of each re-run: the latest first-queued number below it.
+  /** @type {Map<any, number>} */
+  const last = new Map();
+  for (let i = 0; i < len; i++) {
+    const e = round[i];
+    if (!firstQueued.has(e)) return;
+    if (e.depHead !== null) last.set(e.owner, 0);
+  }
+  if (last.size === 0) return;
+  /** @type {[WhatEffectNode, number, number][]} */
+  const rows = [];
+  for (let i = 0; i < len; i++) {
+    const e = round[i];
+    const at = /** @type {number} */ (firstQueued.get(e));
+    let depth = 0;
+    for (let a = e.owner; a != null; a = a.owner) if (++depth > 1 && /** @type {number} */ (last.get(a)) < at) last.set(a, at);
+    rows.push([e, at, depth]);
+  }
+  /** @param {[WhatEffectNode, number, number]} row */
+  const key = ([e, at]) => (e.depHead !== null ? Math.max(at, /** @type {number} */ (last.get(e.owner))) : at);
+  rows.sort((p, q) => key(p) - key(q) || q[2] - p[2] || p[1] - q[1]);
+  for (let i = 0; i < len; i++) {
+    const e = round[i] = rows[i][0];
+    let f = e.flags;
+    if ((f & (DIRTY | DISPOSED)) === 0 && (f & PENDING) && /** @type {any} */ (pullOps).check(e)) e.flags = f = e.flags | DIRTY;
+    if ((f & (DIRTY | DISPOSED)) !== DIRTY) continue;
+    if (e.owned !== null) disposeRun(e);
+    if (e.cleanup !== null && (e.flags & DISPOSED) === 0) runCleanup(e);
+  }
+}
+
+// React's order for useEffect cleanups on unmount: a parent's before its
+// children's, a component's in the order its effects were made, sibling
+// components first to last. An unmount runs them before it disposes the rest
+// of the owner (children newest first, then its registrations in reverse):
+// those of the owner, then of the owners linked below it. An owner below a
+// render-phase effect (a region, a list row) is reached when its own disposal
+// comes, which is still after its parent's. The owners on the way are marked
+// disposed meanwhile, so a cleanup's error goes past them, as it would during
+// the rest of the unmount.
+function userCleanups(o) {
+  o.flags &= ~OWNS_USER;
+  // A cleanup function has no flags, and no computed is user-phase.
+  for (const d of o.disposals) if (d.flags & USER) disposeEffect(d);
+  for (let c = o.firstChild; c !== null; c = c.nextSibling) {
+    if (c.flags & OWNS_USER) {
+      c.flags |= DISPOSED;
+      userCleanups(c);
+      c.flags &= ~DISPOSED;
+    }
+  }
+}
+
+const USER_OPS = { order: orderUserRound, release: releaseHeld, clean: userCleanups };
 
 /** @type {((e: WhatEffectNode) => boolean) | null} */
 let userEffectGate = null;
@@ -3008,6 +3127,7 @@ function flush() {
       } else {
         round = userQueue; len = userQueueLen;
         userQueue = []; userQueueLen = 0;
+        if (userOps !== null) userOps.order(round, len);
       }
       for (i = 0; i < len; i++) {
         const e = round[i];
@@ -3481,6 +3601,7 @@ function unlinkChild(parent, child) {
 function disposeOwner(root, runNode) {
   if (root.flags & DISPOSED) return;
   root.flags |= DISPOSED;
+  if (root.flags & OWNS_USER) /** @type {any} */ (userOps).clean(root);
   let failed = false;
   let firstError;
   // Cleanups run untracked, whoever's run is disposing the owner.

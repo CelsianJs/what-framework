@@ -216,15 +216,15 @@ describe('applyRef', () => {
 });
 
 describe('component props', () => {
-  it('are a plain object with no prototype to write through', () => {
+  it('are a plain object, as React\'s props are', () => {
     let seen;
     function Probe(props) { seen = props; return null; }
     _$createComponent(Probe, { a: 1 }, ['kid']);
     assert.equal(seen.a, 1);
     assert.equal(seen.children, 'kid');
-    assert.equal(seen.__proto__, undefined);
-    assert.equal(seen.constructor, undefined);
-    assert.equal(Object.getPrototypeOf(seen), null);
+    assert.equal(Object.getPrototypeOf(seen), Object.prototype);
+    assert.equal(seen.hasOwnProperty('a'), true); // eslint-disable-line no-prototype-builtins
+    assert.deepEqual(Object.keys(seen), ['a', 'children']);
   });
 
   it('reject writes in development', () => {

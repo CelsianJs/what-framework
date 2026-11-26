@@ -47,11 +47,12 @@ export const busy = signal(true);
 `;
 
 describe('live props: compiled output', () => {
-  it('passes a prop that reads a signal as a getter, in an object with no prototype', () => {
+  it('passes a prop that reads a signal as a getter, in an object marked as What\'s props', () => {
     const out = compileJSX(`${PRELUDE}
       function Badge(props) { return <b>{props.on ? 'on' : 'off'}</b>; }
       export function App() { return <Badge on={count() > 0} />; }`);
-    assert.match(out, /_\$createComponent\(Badge, \{\s*__proto__: null,\s*get on\(\) \{\s*return count\(\) > 0;\s*\}\s*\}/);
+    assert.match(out, /_\$createComponent\(Badge, \{\s*\[_\$props\]: true,\s*get on\(\) \{\s*return count\(\) > 0;\s*\}\s*\}/);
+    assert.match(out, /import \{[^}]*\b_\$props\b[^}]*\} from/);
   });
 
   it('keeps names, literals, functions, ref and children as they are written', () => {
