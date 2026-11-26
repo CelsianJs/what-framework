@@ -302,6 +302,20 @@ describe('useEffect dep validation', () => {
     assert.ok(reports[0].fix.includes('Pass the signal'), reports[0].fix);
   });
 
+  it('reports the same mistake in two components as two diagnostics, each naming its component', async () => {
+    const { getDiagnostics, clearDiagnostics } = await import('../src/diagnostics.js');
+    clearDiagnostics();
+    const cap = capture({ quiet: true });
+    try {
+      function Alpha({ id }) { useEffect(() => {}, [id]); return h('i', null, 'a'); }
+      function Beta({ id }) { useEffect(() => {}, [id]); return h('b', null, 'b'); }
+      mount(h('div', null, h(Alpha, { id: 1 }), h(Alpha, { id: 2 }), h(Beta, { id: 3 })), getContainer());
+    } finally { cap.stop(); }
+    const events = getDiagnostics().events.filter((e) => e.code === 'ERR_EFFECT_DEP_NOT_FUNCTION');
+    assert.deepEqual(events.map((e) => [e.subject.name, e.count]), [['Alpha', 2], ['Beta', 1]]);
+    assert.ok(events[0].owner.join(' ').includes('Alpha') && events[1].owner.join(' ').includes('Beta'), JSON.stringify(events.map((e) => e.owner)));
+  });
+
   it('does not report when deps are signal functions', () => {
     const reports = depReports(() => {
       function TestComponent() {

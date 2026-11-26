@@ -132,12 +132,16 @@ export function useComputed(fn) {
 // the effect never re-runs for it. One that takes arguments cannot be a
 // getter, and listing it is harmless (a component runs once, so a callback
 // never changes).
-function reportPlainDeps(deps) {
+// The component is the report's subject, so the same mistake in two
+// components is two reports, each with its own owner and location, and the
+// rows of one component's list are one.
+function reportPlainDeps(deps, ctx) {
+  const subject = { kind: 'component', name: ctx.Component?.displayName || ctx.Component?.name || 'anonymous' };
   for (let i = 0; i < deps.length; i++) {
     const dep = deps[i];
     if (dep == null) continue;
-    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i } });
-    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i } });
+    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` } });
+    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` } });
   }
 }
 
@@ -159,7 +163,7 @@ function cleanupOf(result, ctx, mounting) {
 export function useEffect(fn, deps) {
   const ctx = getCtx('useEffect');
   getHook(ctx);
-  if (__DEV__ && Array.isArray(deps)) reportPlainDeps(deps);
+  if (__DEV__ && Array.isArray(deps)) reportPlainDeps(deps, ctx);
   // A server render never mounts.
   if (isServerRender()) return;
 
