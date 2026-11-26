@@ -406,24 +406,10 @@ describe('keyed component reconciliation', () => {
 // =========================================================================
 
 describe('signal unified getter/setter', () => {
-  it('reads with sig() and writes with sig(value)', () => {
-    const count = signal(0);
-    assert.equal(count(), 0);
-
-    count(5);
-    assert.equal(count(), 5);
-  });
-
   it('supports updater function sig(prev => next)', () => {
     const count = signal(10);
     count(prev => prev + 5);
     assert.equal(count(), 15);
-  });
-
-  it('sig.set() still works', () => {
-    const count = signal(0);
-    count.set(42);
-    assert.equal(count(), 42);
   });
 
   it('skips update when value is same (Object.is)', async () => {

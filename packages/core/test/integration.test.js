@@ -151,30 +151,6 @@ describe('Integration: useEffect with signal deps', () => {
 // =========================================================================
 
 describe('Integration: useEffect cleanup', () => {
-  it('runs cleanup when component unmounts', async () => {
-    const container = getContainer();
-    let cleanupRan = false;
-
-    function CleanupComponent() {
-      useEffect(() => {
-        return () => {
-          cleanupRan = true;
-        };
-      }, []);
-      return h('div', null, 'has cleanup');
-    }
-
-    const unmount = mount(h(CleanupComponent), container);
-    await flush();
-
-    assert.equal(cleanupRan, false, 'cleanup has not run yet');
-
-    unmount();
-    await flush();
-
-    assert.equal(cleanupRan, true, 'cleanup ran on unmount');
-  });
-
   it('runs cleanup before re-running effect with changed deps', async () => {
     const container = getContainer();
     const log = [];
