@@ -40,6 +40,12 @@ export type RegisterProps = {
   checked?: boolean | (() => boolean);
   /** Every control: each edit of a text field or a textarea, as the user types, a select's pick and a checkbox's or a radio's. */
   onchange?: (e: any) => void;
+  /**
+   * @deprecated text/select/textarea only: the `onchange` handler, kept for
+   * 0.14 code that wires `oninput: register('x').oninput`. Not enumerable, so
+   * a spread attaches only `onchange`.
+   */
+  oninput?: (e: any) => void;
 };
 
 export interface FormState {

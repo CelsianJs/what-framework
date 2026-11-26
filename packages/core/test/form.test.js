@@ -238,6 +238,16 @@ describe('form utilities', () => {
       assert.ok(typeof props.onBlur === 'function');
     });
 
+    it("keeps 0.14's register('x').oninput, which a spread does not carry", () => {
+      const form = useForm({ defaultValues: { service: '' } });
+      const props = form.register('service');
+      assert.equal(props.oninput, props.onchange);
+      assert.ok(!Object.keys(props).includes('oninput'));
+      assert.ok(!('oninput' in { ...props }));
+      props.oninput({ target: { value: 'payments', type: 'search' } });
+      assert.equal(form.getValue('service'), 'payments');
+    });
+
     it('should watch field values', () => {
       const form = useForm({ defaultValues: { count: 0 } });
 

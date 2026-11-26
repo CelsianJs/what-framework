@@ -356,6 +356,10 @@ function createFormController(options = {}) {
         enumerable: true,
       });
       result.onchange = handler;
+      // 0.14 code wires `oninput: register('x').oninput` by hand: it keeps the
+      // handler, not enumerable, so a spread attaches only `onchange` and
+      // the field is not handled twice per keystroke.
+      Object.defineProperty(result, 'oninput', { value: handler });
       result.ref = (el) => {
         _applyRef(options.ref, el);
         // An UNTYPED registration spread onto a radio cannot be rescued, and it

@@ -739,15 +739,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   same field fires first. This holds in compiled JSX (delegated, through a
   spread, forwarded, with modifiers), in `h()` props and in `register()`.
   0.14 fired it at the DOM's `change`, when the user committed an edit.
-  `register()` returns `onchange` and no longer `oninput`, and
-  `on(el, 'change', fn)` is still the DOM's change event. A module with no
+  A text field's `register()` puts its handler under `onchange`; `oninput`
+  still holds it for 0.14 code (`oninput: register('x').oninput`), but not
+  enumerable, so `{...register('x')}` attaches one handler. `on(el, 'change',
+  fn)` is still the DOM's change event. A module with no
   `onChange` carries none of this code. Handlers get the native event, so
   `e.type` is `'input'` while the user types.
   *Migration:* work that ran when the user committed an edit (validation,
   saving, formatting) now runs on every key: move it to `onBlur`, or listen
   for the DOM's change event on a field the user owns
   (`<input defaultValue={x} ref={(el) => on(el, 'change', commit)} />`, `on`
-  from `what-framework/render`). `register('x').oninput` is now `.onchange`.
+  from `what-framework/render`). New code wires `register('x').onchange`.
 
 ### Breaking: tools
 

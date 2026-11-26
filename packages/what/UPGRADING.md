@@ -298,7 +298,8 @@ are the differences from 0.14.
   whose only handler was `onChange` now follows the state on each key: write
   the state in `onChange`, or use `defaultValue`. Handlers get the native
   event, so `e.type` is `'input'` while the user types.
-  `register('x').oninput` is now `.onchange`.
+  `register('x').oninput` still works; new code wires `.onchange`, which a
+  spread of `register('x')` carries.
 - **A tag held in a binding is created in the namespace it stands in, and
   hydrates in place.** `<Tag {...rest} />` with `Tag` a string the compiler
   cannot read (`props.as`) rendered every element as HTML, so `as="circle"` in

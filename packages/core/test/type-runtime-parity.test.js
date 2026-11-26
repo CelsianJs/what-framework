@@ -404,7 +404,8 @@ describe('runtime shape: forms', () => {
     assert.equal(text.onInput, undefined, 'register() has never defined onInput');
     // One handler, onchange: React's change event, which a text field fires
     // as the user types and a select when its pick changes (form.js register).
-    assert.equal(text.oninput, undefined);
+    // `oninput` keeps it for 0.14 code, not enumerable, so keys() leaves it out.
+    assert.equal(text.oninput, text.onchange);
     assert.equal(typeof text.onchange, 'function');
     assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'onchange', 'ref', 'value']);
 

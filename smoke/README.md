@@ -71,12 +71,9 @@ dirties the demo.
 | app | shape | proves |
 |---|---|---|
 | `storefront` | buildless full-stack ecommerce | static/hybrid/server render modes, ISR MISS/HIT and tag revalidation, a global cart store with localStorage persistence, cookie auth read in a loader, server actions with and without JavaScript, CSRF rejection, `useQuery` + prefix invalidation, `Show`/`For`, batching |
-
-Three more are planned and not yet built: an admin dashboard (client SPA router,
-nested layouts, guards, loading/error routes, Portal, context), a scrollytelling
-page (all five island hydration modes, scroll-driven animation), and an ops
-console (Suspense/lazy, ErrorBoundary, infinite + optimistic queries, forms,
-focus management). The uncovered rows in the coverage report are theirs.
+| `admin-dashboard` | compiled JSX single-page app | a persistent shell, nested layouts, a sign-in guard, loading and error routes, context, a Portal dialog, a keyed table |
+| `ops-console` | server-rendered console that hydrates | Suspense and lazy panes, ErrorBoundary, infinite and optimistic queries, validated forms, a focus-trapped dialog, `useId` across hydration |
+| `scrollytelling` | server-rendered essay with islands | all five island hydration modes, scroll progress, intersect reveals, spring and tween, an enter/leave transition |
 
 ## Writing a new app
 
