@@ -142,6 +142,8 @@ export interface IslandProps {
  * hydrates through the island registry, is what-framework/server's Island.
  */
 export function _$Island(props: IslandProps): VNode;
+/** @internal What what-compiler found while compiling a module (development builds), reported when it loads. */
+export function _$buildDiagnostics(records: Array<{ code: string; data: Record<string, unknown>; loc: string }>): void;
 
 // --- Hydration ---
 // hydrate() adopts server-rendered DOM instead of recreating it: the tree's

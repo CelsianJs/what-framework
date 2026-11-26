@@ -33,6 +33,17 @@ export { computed as _$lazyMemo } from './reactive.js';
 export { _place as _$place };
 // What `<Counter client:idle />` compiles to: an island that hydrates itself.
 export { _$Island } from './components.js';
+
+/**
+ * @internal What what-compiler found while it compiled a module, in a
+ * development build (ERR_PROP_READ_ONCE, ERR_STATE_READ_ONCE): reported on
+ * the diagnostics channel when the module loads, so the console, the MCP
+ * tools and getDiagnostics() show it beside what the runtime reports.
+ * @param {Array<{ code: string, data: Record<string, any>, loc: string }>} records
+ */
+export function _$buildDiagnostics(records) {
+  if (__DEV__) for (const { code, data, loc } of records) report(code, { data, loc, owner: [] });
+}
 // The compiler rewrites `sig() === row.key` in keyed .map() rows to a selector.
 export { createSelector } from './selector.js';
 // A compiled `.map()` row reads its item with _$item (mapArray's follow mode).

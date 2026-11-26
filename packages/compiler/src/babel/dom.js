@@ -3034,6 +3034,7 @@ const RENDER_IMPORTS = [
   ['_$memo', '_$memo'],
   ['_$lazyMemo', '_$lazyMemo'],
   ['_$Island', '_$Island'],
+  ['_$buildDiagnostics', '_$buildDiagnostics'],
   ['_$setClass', 'setClass'],
   ['_$className', 'className'],
   ['_$setClassList', 'setClassList'],
@@ -3189,6 +3190,15 @@ export function finishDomProgram(path, state) {
         t.variableDeclarator(t.identifier(tmpl.id), tmplCall)
       ])
     );
+  }
+
+  if (state._buildDiagnostics?.length) {
+    const records = state._buildDiagnostics.map(({ code, data, loc }) => t.objectExpression([
+      t.objectProperty(t.identifier('code'), t.stringLiteral(code)),
+      t.objectProperty(t.identifier('data'), t.objectExpression(Object.entries(data).map(([k, v]) => t.objectProperty(t.identifier(k), t.stringLiteral(String(v)))))),
+      t.objectProperty(t.identifier('loc'), t.stringLiteral(loc)),
+    ]));
+    path.pushContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$buildDiagnostics'), [t.arrayExpression(records)])));
   }
 
   const used = helperLocals(state);

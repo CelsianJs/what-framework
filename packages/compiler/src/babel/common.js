@@ -1167,6 +1167,7 @@ export function warnStateReadOnce(fnPath, state) {
 function warnStateOnce(fnPath, state, node, read, why, fix) {
   const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
   const at = `${fileName}${node.loc ? `:${node.loc.start.line}:${node.loc.start.column + 1}` : ''}`;
+  recordBuildDiagnostic(state, 'ERR_STATE_READ_ONCE', { name: read, component: componentName(fnPath), reason: why }, node);
   if (warnedReadOnce.has(`${at}::${read}`)) return;
   warnedReadOnce.add(`${at}::${read}`);
   console.warn(
@@ -1223,6 +1224,7 @@ function warnReadOnce(fnPath, state, node, name, why, fix) {
   const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
   const loc = node.loc ? `:${node.loc.start.line}:${node.loc.start.column + 1}` : '';
   const at = `${fileName}${loc}`;
+  recordBuildDiagnostic(state, 'ERR_PROP_READ_ONCE', { name, component: componentName(fnPath), reason: why }, node);
   if (warnedReadOnce.has(`${at}::${name}`)) return;
   warnedReadOnce.add(`${at}::${name}`);
   console.warn(
@@ -1230,6 +1232,21 @@ function warnReadOnce(fnPath, state, node, name, why, fix) {
     `is read once, when the component runs, because ${why}: it keeps that value when the parent's state changes. ` +
     `Fix: ${fix}. Run what_fix({ error: 'ERR_PROP_READ_ONCE' }) for the worked example.`
   );
+}
+
+// A development DOM build also hands what it warns about to the page
+// (dom.js finishDomProgram emits `_$buildDiagnostics([...])`), with the
+// location in the project's terms ("src/App.jsx:12:5", the source as
+// written), on every compile of the module: the console warning above is
+// printed once per process.
+function recordBuildDiagnostic(state, code, data, node) {
+  if (state.opts?.devMetadata !== true || state.opts?.production === true || !node.loc) return;
+  const file = String(state.file?.opts?.filename || '').replace(/\\/g, '/').replace(/[?#].*$/, '');
+  const root = String(state.opts?.projectRoot || state.file?.opts?.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const path = root && file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
+  const start = node.loc.start;
+  const at = typeof state.opts?.sourceLoc === 'function' ? state.opts.sourceLoc(start.line, start.column) ?? start : start;
+  (state._buildDiagnostics ??= []).push({ code, data, loc: `${path}:${at.line}:${at.column + 1}` });
 }
 
 // A function named as a component is (`function Card`, `const Card = …`).

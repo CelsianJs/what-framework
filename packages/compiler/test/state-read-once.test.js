@@ -91,3 +91,46 @@ describe('ERR_STATE_READ_ONCE: what is not reported', () => {
     }
   });
 });
+
+describe('the page hears what the compiler found (development builds)', () => {
+  const SOURCE = `${HOOKS}export function Users() { const [loading] = useState(true); if (loading()) return <p>Loading</p>; return <ul />; }
+export function Dialog({ open }) { if (!open) return null; return <dialog />; }
+`;
+  const dev = { filename: '/proj/src/Users.jsx', pluginOptions: { devMetadata: true, projectRoot: '/proj' } };
+
+  it('reports each on the diagnostics channel when the module loads, at its place in the source', async () => {
+    const { installDOM } = await import('../../../test-utils/dom.js');
+    const { loadCompiled } = await import('../../../test-utils/load-compiled.js');
+    const env = installDOM();
+    try {
+      const { clearDiagnostics, getDiagnostics } = await import('what-framework');
+      clearDiagnostics();
+      const warn = console.warn;
+      console.warn = () => {};
+      try {
+        await loadCompiled(SOURCE, dev);
+      } finally {
+        console.warn = warn;
+      }
+      const found = getDiagnostics().events.map((e) => [e.code, e.loc, e.message]);
+      assert.deepEqual(found.map(([code, loc]) => [code, loc]), [
+        ['ERR_STATE_READ_ONCE', 'src/Users.jsx:2:65'],
+        ['ERR_PROP_READ_ONCE', 'src/Users.jsx:3:40'],
+      ]);
+      assert.ok(found[0][2].includes('`loading()`') && found[0][2].includes('<Users>'), found[0][2]);
+      assert.ok(found[1][2].includes('`open`') && found[1][2].includes('<Dialog>'), found[1][2]);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it('a production build and a build without development metadata carry none of it', () => {
+    const quiet = (options) => {
+      const warn = console.warn;
+      console.warn = () => {};
+      try { return compileJSX(SOURCE, options); } finally { console.warn = warn; }
+    };
+    assert.doesNotMatch(quiet({ filename: '/proj/src/Users.jsx' }), /_\$buildDiagnostics/);
+    assert.doesNotMatch(quiet({ ...dev, production: true }), /_\$buildDiagnostics/);
+  });
+});

@@ -55,6 +55,8 @@ export {
   _$lazyMemo,
   // What `<C client:idle />` compiles to: an island that hydrates itself.
   _$Island,
+  // What what-compiler found while compiling a module (development builds).
+  _$buildDiagnostics,
   delegateEvents,
   // Compiled output from a module that binds onChange: React's change event.
   _$changes,

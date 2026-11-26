@@ -32,6 +32,7 @@ export {
   _$memo,
   _$lazyMemo,
   _$Island,
+  _$buildDiagnostics,
   delegateEvents,
   _$changes,
   _$own,
