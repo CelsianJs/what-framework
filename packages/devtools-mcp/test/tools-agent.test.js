@@ -63,6 +63,24 @@ function App() {
       assert.ok(parsed.issues.some(i => i.code === 'ERR_MISSING_SIGNAL_READ'));
     });
 
+    it('detects state stored or sent as data without its value', async () => {
+      ({ client, server } = await setupMcp());
+      const code = `
+import { useState } from 'what-framework';
+function Signup() {
+  const [name] = useState('');
+  const [submitted, setSubmitted] = useState(null);
+  const save = () => { setSubmitted({ name }); fetch('/api', { body: JSON.stringify(submitted) }); };
+  return <button onClick={save}>Save</button>;
+}`;
+      const { parsed } = await callTool(client, 'what_lint', { code });
+      const found = parsed.issues.filter((i) => i.rule === 'no-uncalled-signals').map((i) => i.message);
+      assert.equal(found.length, 2, JSON.stringify(parsed.issues));
+      assert.match(found[0], /"name" is What state, a function: the object written to setSubmitted\(\) holds the function/);
+      assert.match(found[1], /"submitted" is What state, a function: JSON\.stringify\(\) is given the function/);
+      assert.ok(parsed.issues.filter((i) => i.rule === 'no-uncalled-signals').every((i) => i.code === 'ERR_MISSING_SIGNAL_READ'));
+    });
+
     it('detects effect read-write cycle', async () => {
       ({ client, server } = await setupMcp());
       const code = `

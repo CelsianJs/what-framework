@@ -19,6 +19,16 @@
  *       that is the whole JSX child or attribute value is a live binding, with
  *       or without the compiler
  *
+ * Also warns when What state is stored or passed as data where its value is
+ * what is used (accessorAsData): a property or element of an object or array
+ * literal handed to a state setter (`setSubmitted({ name, age })`), an
+ * argument of a function that reads values (`JSON.stringify(submitted)`,
+ * `String(name)`, `console.log(name)`), anything nested in such an argument
+ * (`fetch(url, { body: JSON.stringify({ name }) })`), and an array literal
+ * read as text (`[a, b].join()`). Only state made by a What hook or primitive
+ * imported from what-framework or what-core, resolved through the scope, is
+ * reported there: React's useState in a what-react file returns a value.
+ *
  * Does NOT warn when:
  * - Signal is passed as a callback argument: fn(count)
  * - Signal method is accessed: count.set(5), count.peek()
@@ -27,7 +37,118 @@
  * - The name is being declared or exported: const [count] = useState(0), export { count }
  */
 
-import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
+import { createSignalTracker, SIGNAL_METHODS, SIGNAL_CREATORS, ACCESSOR_PAIR_HOOKS } from '../utils/signal-tracking.js';
+
+const WHAT_SOURCES = /^what-(framework|core)(\/|$)/;
+
+// Functions that read the values of their arguments: an accessor handed to one
+// is turned into its source text, `undefined` or `{}`.
+const VALUE_FUNCTIONS = new Set(['String', 'Number', 'Boolean', 'parseInt', 'parseFloat', 'encodeURIComponent', 'encodeURI', 'structuredClone', 'alert']);
+const VALUE_METHODS = {
+  JSON: new Set(['stringify']),
+  console: new Set(['log', 'info', 'warn', 'error', 'debug', 'table']),
+  Math: null,
+  localStorage: new Set(['setItem']),
+  sessionStorage: new Set(['setItem']),
+};
+// Methods of an array literal that read its elements as values.
+const ARRAY_VALUE_METHODS = new Set(['join', 'toString', 'toLocaleString']);
+
+/** The variable `node` (an identifier) resolves to, or null. */
+function resolve(sourceCode, node) {
+  if (!sourceCode?.getScope) return null;
+  for (let scope = sourceCode.getScope(node); scope; scope = scope.upper) {
+    const v = scope.set.get(node.name);
+    if (v) return v;
+  }
+  return null;
+}
+
+/** The name `callee` imports from what-framework or what-core, or null. */
+function whatImport(sourceCode, callee) {
+  if (callee?.type !== 'Identifier') return null;
+  const def = resolve(sourceCode, callee)?.defs[0];
+  if (def?.type !== 'ImportBinding' || def.node.type !== 'ImportSpecifier') return null;
+  if (!WHAT_SOURCES.test(String(def.parent?.source?.value))) return null;
+  return def.node.imported.name ?? def.node.imported.value;
+}
+
+/**
+ * What the identifier `node` is, when What made it: 'accessor' for the state a
+ * What hook or primitive returns (`const x = signal()`, the first element of
+ * `const [x, setX] = useState()`), 'setter' for the second element of such a
+ * pair, else null.
+ */
+function whatState(sourceCode, node) {
+  const def = resolve(sourceCode, node)?.defs[0];
+  if (def?.type !== 'Variable' || def.node.init?.type !== 'CallExpression') return null;
+  const hook = whatImport(sourceCode, def.node.init.callee);
+  if (hook === null) return null;
+  const id = def.node.id;
+  if (id.type === 'Identifier' && id === def.name) return SIGNAL_CREATORS.includes(hook) ? 'accessor' : null;
+  if (id.type === 'ArrayPattern' && ACCESSOR_PAIR_HOOKS.includes(hook)) {
+    if (id.elements[0] === def.name) return 'accessor';
+    if (id.elements[1] === def.name && hook !== 'useTransition' && hook !== 'createResource') return 'setter';
+  }
+  return null;
+}
+
+/** Whether the call `call` reads the values of its arguments. */
+function readsValues(call) {
+  const callee = call.callee;
+  if (callee.type === 'Identifier') return VALUE_FUNCTIONS.has(callee.name);
+  if (callee.type !== 'MemberExpression' || callee.computed || callee.object.type !== 'Identifier' || callee.property.type !== 'Identifier') return false;
+  if (!Object.hasOwn(VALUE_METHODS, callee.object.name)) return false;
+  const methods = VALUE_METHODS[callee.object.name];
+  return methods === null || methods.has(callee.property.name);
+}
+
+/** Whether the call `call` writes What state with its argument: `setX(v)`, `x.set(v)`, `x(v)`. */
+function writesState(sourceCode, call) {
+  if (call.arguments.length === 0) return false;
+  const callee = call.callee;
+  if (callee.type === 'Identifier') {
+    const kind = whatState(sourceCode, callee);
+    return kind === 'setter' || kind === 'accessor';
+  }
+  return callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier' &&
+    callee.property.name === 'set' && callee.object.type === 'Identifier' && whatState(sourceCode, callee.object) === 'accessor';
+}
+
+/**
+ * Where the identifier `node` is used as data whose value is read, described
+ * for the message, or null. `node` sits in a call argument, an object
+ * property's value or an array element.
+ */
+function valueSink(sourceCode, node) {
+  let n = node;
+  let nested = false;
+  for (;;) {
+    const parent = n.parent;
+    if (!parent) return null;
+    if (parent.type === 'Property' && parent.value === n && parent.parent?.type === 'ObjectExpression') {
+      n = parent.parent;
+      nested = true;
+      continue;
+    }
+    if (parent.type === 'ArrayExpression' || (parent.type === 'SpreadElement' && parent.parent?.type === 'ArrayExpression' && nested)) {
+      n = parent.type === 'SpreadElement' ? parent.parent : parent;
+      nested = true;
+      continue;
+    }
+    if (parent.type === 'CallExpression' && parent.arguments.includes(n)) {
+      if (readsValues(parent)) return `${sourceCode.getText(parent.callee)}() is given the function, not its value`;
+      // An accessor in a literal written to state: the state holds the function.
+      if (nested && writesState(sourceCode, parent)) return `the ${n.type === 'ArrayExpression' ? 'array' : 'object'} written to ${sourceCode.getText(parent.callee)}() holds the function, not its value`;
+      return null;
+    }
+    if (parent.type === 'MemberExpression' && parent.object === n && n.type === 'ArrayExpression' &&
+        !parent.computed && parent.property.type === 'Identifier' && ARRAY_VALUE_METHODS.has(parent.property.name)) {
+      return `.${parent.property.name}() reads the function, not its value`;
+    }
+    return null;
+  }
+}
 
 export default {
   meta: {
@@ -44,12 +165,29 @@ export default {
         '"{{obj}}.{{prop}}" is a signal getter — call it to read the value: {{obj}}.{{prop}}()',
       uncalledDestructuredGetter:
         '"{{name}}" is a signal getter from a data hook — call it to read the value: {{name}}()',
+      accessorAsData:
+        '"{{name}}" is What state, a function: {{sink}}. Call it to use the value: {{name}}()',
+      callIt: 'Call it: {{name}}()',
     },
+    hasSuggestions: true,
     schema: [],
   },
 
   create(context) {
     const tracker = createSignalTracker();
+    const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+
+    /** The suggestion that calls the identifier `node`: `{ name }` becomes `{ name: name() }`. */
+    function callSuggestion(node) {
+      const name = node.name;
+      return [{
+        messageId: 'callIt',
+        data: { name },
+        fix: (fixer) => (node.parent.type === 'Property' && node.parent.shorthand
+          ? fixer.replaceText(node.parent, `${name}: ${name}()`)
+          : fixer.insertTextAfter(node, '()')),
+      }];
+    }
 
     /**
      * Check if a node is in a "pass-through" position where the signal
@@ -164,8 +302,15 @@ export default {
       // Skip method access: count.set(...), count.peek()
       if (isMethodAccess(node)) return;
 
-      // Skip pass-through positions
-      if (isPassThrough(node)) return;
+      // A pass-through position, unless the data it is in is read as a value
+      if (isPassThrough(node)) {
+        if (node.parent.type === 'ReturnStatement' || node.parent.type === 'AssignmentExpression' || node.parent.type === 'VariableDeclarator' || node.parent.type === 'UnaryExpression') return;
+        const sink = valueSink(sourceCode, node);
+        if (sink !== null && whatState(sourceCode, node) === 'accessor') {
+          context.report({ node, messageId: 'accessorAsData', data: { name, sink }, suggest: callSuggestion(node) });
+        }
+        return;
+      }
 
       // Skip a live binding or a handler: {count}, value={count}, onClick={handler}
       if (isWholeJSXExpression(node)) return;
@@ -176,6 +321,7 @@ export default {
           node,
           messageId: tracker.isSignal(name) ? 'uncalledSignal' : 'uncalledDestructuredGetter',
           data: { name },
+          suggest: callSuggestion(node),
         });
       }
     }

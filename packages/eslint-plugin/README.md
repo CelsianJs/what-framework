@@ -217,6 +217,35 @@ exported is not a read and is not reported. `what/signal-call-in-jsx` reports th
 in JSX (`{isLoading && …}`, `{open ? … : …}`) with the same code; the `compiler`
 preset turns it off and keeps this rule.
 
+State stored or sent as data is reported too, where its value is what is used:
+in an object or array literal written to a state setter, as an argument of a
+function that reads values (`JSON.stringify`, `String`, `console.log`,
+`localStorage.setItem`), nested anywhere in such an argument, and in an array
+literal joined into text. The object holds the function, and `JSON.stringify`
+drops it:
+
+<!-- snippet: bad lint=ERR_MISSING_SIGNAL_READ -->
+```jsx
+import { useState } from 'what-framework';
+
+function Signup() {
+  const [name, setName] = useState('');
+  const [submitted, setSubmitted] = useState(null);
+  const save = () => {
+    setSubmitted({ name });
+    fetch('/api/signup', { method: 'POST', body: JSON.stringify({ name }) });
+  };
+  return <form onSubmit={save}><input value={name} onInput={(e) => setName(e.target.value)} /></form>;
+}
+```
+
+Each report carries a suggestion that adds the call (`{ name: name() }`). Only
+state a What hook or primitive made, imported from what-framework or
+what-core, is reported in these places (React's `useState` in a what-react file
+returns a value), and handing the accessor on is left alone: a prop
+(`<Field value={name} />`), a dependency array, `untrack(name)`,
+`computed(name)`, a custom hook, or an object you keep.
+
 ### `what/no-async-component`
 
 A component written as an `async function` (React Server Components' habit)
