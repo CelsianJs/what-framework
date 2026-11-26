@@ -1011,11 +1011,11 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9061 B |
-| The create-what counter, runtime JSX | 6702 B | 9097 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5242 B |
+| A counter written with `h()` | 6601 B | 9323 B |
+| The create-what counter, runtime JSX | 6702 B | 9362 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5456 B |
 
-The compiled counter, what the scaffold ships, is 2489 B (32%) smaller in
+The compiled counter, what the scaffold ships, is 2275 B (29%) smaller in
 0.15: compiled output no longer carries the vnode reconciler, an app that
 makes no computed no longer carries the engine's pull phase, and a compiled
 module imports only the runtime its JSX uses (no lazy children when no
@@ -1023,7 +1023,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3288 B, for the new engine, the engine hooks async
+counter still grows by 3550 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1035,15 +1035,16 @@ same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out.
 Loading the dist straight into a browser without a bundler fetches more,
 smaller files. This affects an app written with `h()` that has a size budget:
-compiled with what-compiler, the same counter is 5242 B.
+compiled with what-compiler, the same counter is 5456 B.
 
 Three kinds of app grow more than the counters:
 
 - **An app that calls `computed()`** brings the async core with it
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
-  9172 B, against 7979 B in 0.14 (+1193 B).
+  9379 B, against 7979 B in 0.14 (+1400 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 20224 B, the same app mounted without hydration 8436 B.
+  hydrating counter is 20407 B, more than twice the same app mounted without
+  hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
   export of what-core, what-router and what-server has three: `production`
@@ -1055,7 +1056,7 @@ Three kinds of app grow more than the counters:
   `bun build --production` select `module`, and each defines
   `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with
   `--production`), `"development"` otherwise. So `esbuild app.js --bundle
-  --minify` builds the `h()` counter at 9061 B, and an unminified esbuild or
+  --minify` builds the `h()` counter at 9341 B, and an unminified esbuild or
   rolldown build with no `NODE_ENV` of your own is a development build, with
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`

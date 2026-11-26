@@ -1803,12 +1803,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `Component` imports `what-react/class` once. In an app with no
   native What code, a React element that reaches what-core (a function child
   that returns one) renders as an island, by React's rules.
-<!-- release: the end sizes in this bullet (16,175 B, 23,672 B, 42,788 B)
-     and the hooks app's 14,131 B in "A compiled app carries only the runtime
-     its JSX uses" predate d8003b93..9dd22eda and the three lanes still open.
-     At 9dd22eda the commits report react-counter 16,248 B, mixed-recharts
-     23,907 B, mixed-hydrate 43,016 B and hooks-app 14,205 B gzip.
-     Re-measure with `npm run check:size` at the release commit. -->
+  At the release, after the React commit-order fixes and the three React
+  habits in native What (plain-object props, React's effect order, `onChange`
+  per keystroke), the three measure 16,327 B, 24,223 B and 43,479 B.
 
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
@@ -1826,7 +1823,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   scaffold builds it, the create-what counter is 5,242 B gzip (6,041 B
   before this change; 0.14: 7,731 B), the counter with one `computed()`
   9,172 B (9,873 B), and an app on hooks, a store and a form 14,131 B
-  (15,378 B); every app `npm run check:size` builds is smaller. A compiled
+  (15,378 B); every app `npm run check:size` builds is smaller. At the
+  release, with plain-object props, React's effect order and `onChange` per
+  keystroke in, the three are 5,456 B, 9,379 B and 14,845 B. A compiled
   module imports the component call it needs: with no component handed
   children or JSX in a prop it leaves out the lazy getters, and when every
   component is a function the module defines (or one of what-framework's or
