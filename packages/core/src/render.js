@@ -2920,31 +2920,99 @@ const DIGEST_LENGTH = 11;
  */
 export function _rowKeyDigest(key, salt) {
   if (typeof key !== 'string' && !(typeof key === 'number' && Number.isFinite(key))) return null;
-  const text = salt + (typeof key === 'string' ? 's' : 'n') + key;
-  // HalfSipHash-2-4 with a zero key and a 64-bit output; a word is two UTF-16
-  // code units.
-  let v0 = 0, v1 = 0xee, v2 = 0x6c796765, v3 = 0x74656462;
-  const round = () => {
+  SIP.set(SIP_START);
+  sipWords(salt + (typeof key === 'string' ? 's' : 'n') + key, 0, true);
+  return digits(sipHi, sipLo);
+}
+
+// HalfSipHash-2-4 with a zero key and a 64-bit output, a word being two UTF-16
+// code units, its state in SIP. sipWords absorbs the words of `text`, `lead`
+// code units after the start; with `finish`, also the last word (the whole
+// length and the odd unit) and the finalization, leaving the digest's two
+// halves in sipHi and sipLo. A state saved after words every key of a list
+// shares (the salt and the key's type) is where each key's digest goes on from
+// (_rowKeysInOrder), as what-server's rowKeys (compiled.js) does on its side.
+const SIP_START = /* @__PURE__ */ new Int32Array([0, 0xee, 0x6c796765, 0x74656462]);
+const SIP = /* @__PURE__ */ new Int32Array(4);
+let sipHi = 0;
+let sipLo = 0;
+
+function sipRounds(n) {
+  let v0 = SIP[0], v1 = SIP[1], v2 = SIP[2], v3 = SIP[3];
+  for (let r = 0; r < n; r++) {
     v0 = (v0 + v1) | 0; v1 = (v1 << 5) | (v1 >>> 27); v1 ^= v0; v0 = (v0 << 16) | (v0 >>> 16);
     v2 = (v2 + v3) | 0; v3 = (v3 << 8) | (v3 >>> 24); v3 ^= v2;
     v0 = (v0 + v3) | 0; v3 = (v3 << 7) | (v3 >>> 25); v3 ^= v0;
     v2 = (v2 + v1) | 0; v1 = (v1 << 13) | (v1 >>> 19); v1 ^= v2; v2 = (v2 << 16) | (v2 >>> 16);
-  };
-  const absorb = (m) => {
-    v3 ^= m;
-    round();
-    round();
-    v0 ^= m;
-  };
-  const end = text.length & ~1;
-  for (let i = 0; i < end; i += 2) absorb(text.charCodeAt(i) | (text.charCodeAt(i + 1) << 16));
-  absorb((text.length << 16) | (end < text.length ? text.charCodeAt(end) : 0));
-  v2 ^= 0xee;
-  round(); round(); round(); round();
-  const hi = v1 ^ v3;
-  v1 ^= 0xdd;
-  round(); round(); round(); round();
-  return digits(hi, v1 ^ v3);
+  }
+  SIP[0] = v0; SIP[1] = v1; SIP[2] = v2; SIP[3] = v3;
+}
+
+function sipWord(m) {
+  SIP[3] ^= m;
+  sipRounds(2);
+  SIP[0] ^= m;
+}
+
+function sipWords(text, lead, finish) {
+  const length = text.length;
+  const end = length & ~1;
+  for (let i = 0; i < end; i += 2) sipWord(text.charCodeAt(i) | (text.charCodeAt(i + 1) << 16));
+  if (!finish) return;
+  sipWord(((lead + length) << 16) | (end < length ? text.charCodeAt(end) : 0));
+  SIP[2] ^= 0xee;
+  sipRounds(4);
+  sipHi = SIP[1] ^ SIP[3];
+  SIP[1] ^= 0xdd;
+  sipRounds(4);
+  sipLo = SIP[1] ^ SIP[3];
+}
+
+// The state after the words of `text` (of even length), from the start.
+function sipPrefix(text) {
+  SIP.set(SIP_START);
+  sipWords(text, 0, false);
+  return SIP.slice();
+}
+
+/**
+ * @internal Whether `written` (a keyed list's digests, as the server writes
+ * them after its salt) is, in order, the digest of each of `keys` under
+ * `salt`, with no two of them equal: what inServerOrder needs to adopt the
+ * server's rows as the client's in its order, read without making a string
+ * for any digest. False leaves the question to the comparison of each digest.
+ */
+export function _rowKeysInOrder(keys, salt, written) {
+  const count = keys.length;
+  if (salt.length !== DIGEST_LENGTH || written.length !== count * DIGEST_LENGTH) return false;
+  const lead = DIGEST_LENGTH + 1;
+  /** @type {Int32Array | null} */
+  let strings = null;
+  /** @type {Int32Array | null} */
+  let numbers = null;
+  // The digests' high halves seen so far: two equal ones (two keys of one
+  // digest, or the same key twice) leave the list to the full comparison.
+  const seen = new Set();
+  for (let i = 0; i < count; i++) {
+    const key = keys[i];
+    let state;
+    if (typeof key === 'string') state = strings ??= sipPrefix(salt + 's');
+    else if (typeof key === 'number' && Number.isFinite(key)) state = numbers ??= sipPrefix(salt + 'n');
+    else return false;
+    SIP.set(state);
+    sipWords('' + key, lead, true);
+    const at = i * DIGEST_LENGTH;
+    if (!digitsOf(written, at, sipHi >>> 8, 4) || !digitsOf(written, at + 4, ((sipHi & 0xff) << 16) | (sipLo >>> 16), 4)
+      || !digitsOf(written, at + 8, sipLo & 0xffff, 3) || seen.has(sipHi)) return false;
+    seen.add(sipHi);
+  }
+  return true;
+}
+
+// Whether `text` holds at `at` the `count` digits of `n`, as digits() writes them.
+function digitsOf(text, at, n, count) {
+  for (let i = count - 1; i >= 0; i--, n >>>= 6) if (text.charCodeAt(at + i) !== DIGITS.charCodeAt(n & 63)) return false;
+  return true;
 }
 
 /**
@@ -4319,6 +4387,7 @@ function inServerOrder(open, close, items, keyFn) {
   // k:<salt>:<digests>, each DIGEST_LENGTH digits.
   const salt = n.data.slice(2, 2 + DIGEST_LENGTH);
   const written = n.data.slice(3 + DIGEST_LENGTH);
+  if (n.data[2 + DIGEST_LENGTH] === ':' && _rowKeysInOrder(keys, salt, written)) return null;
   const mine = keys.map((key) => _rowKeyDigest(key, salt));
   const theirs = n.data === 'k!' || n.data[2 + DIGEST_LENGTH] !== ':' || written.length % DIGEST_LENGTH !== 0 ? null
     : Array.from({ length: written.length / DIGEST_LENGTH }, (_, i) => written.slice(i * DIGEST_LENGTH, (i + 1) * DIGEST_LENGTH));
