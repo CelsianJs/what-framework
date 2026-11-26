@@ -567,3 +567,74 @@ SERVER console at render time, which is not where the developer is looking.
 The storefront works around it by putting the review form on `/review`, a
 `mode: 'server'` page. Worth either documenting loudly or having `<Form>` detect
 a cached render and say so.
+
+### E. A route layout is built again on every navigation
+`packages/router/src/index.js`, `Router` (`renderMatch`)
+
+Found by the `workspace` app. The wizard's three steps share one layout through
+`nestedRoutes('/new', [...], { layout: WizardLayout })`. Moving from one step to
+the next disposes the layout and builds a new one: its state (a tips panel the
+visitor closed) is back to its default, its DOM nodes are new, and anything typed
+into it is gone. The router README's own nested-layout example does the same:
+
+```jsx
+function DashboardLayout({ children }) {
+  const [clicks, setClicks] = useState(0);
+  return <div><button onClick={() => setClicks((c) => c + 1)}>clicks {clicks()}</button><main>{children}</main></div>;
+}
+const routes = nestedRoutes('/dashboard', [
+  { path: '/', component: Home },
+  { path: '/settings', component: Settings },
+], { layout: DashboardLayout });
+// click twice, then follow the Settings link: the button says "clicks 0" again
+```
+
+React Router's `<Outlet>` layouts and Next.js layouts stay mounted while the
+child route changes, so code ported from either loses state here. The
+`globalLayout` does persist, by design (the comment above `Router`'s return says
+so); route layouts are wrapped around the page inside the reactive `content`
+region, so they rebuild whenever the page does.
+
+Development makes it harder to see: it reports `ERR_REBUILT_COMPONENT` against
+the code that renders the region, which is the router's internal `content` or
+the app's own `<main>{children}</main>` in its `globalLayout`, neither of which
+the developer can change to fix it.
+
+The fix is to render the layout chain once per chain of layout identities and
+hand each layout its inner content as a reactive child, with `params` and
+`query` as live props. It touches the server render and hydration of every
+routed page, so it is left for a deliberate change. A failing unit test is
+ready for it (`nested-layout-persists.test.js`, router package), and the
+`workspace` check "the wizard layout stays mounted, with its state, while the
+steps change under it" fails until it lands.
+
+## The load apps: what they measured
+
+`data-grid`, `live-feed` and `workspace` were added to find what only shows
+under volume and rate. Apart from E, the framework met every bound they set, in
+headless Chromium on an M-series Mac:
+
+| measure | bound | measured (median) |
+|---|---|---|
+| sort 10,000 rows (virtualized) | 100 ms | 4 ms |
+| filter keystroke over 10,000 rows | 50 ms | 1 ms |
+| select-all / deselect-all, 10,000 rows | 100 ms | 1.4 ms |
+| bulk update of 1,000 rows | 100 ms | 2 to 3 ms |
+| scroll step | 50 ms | 2.5 ms |
+| longest main-thread task at 200 updates/s | 100 ms | none over 50 ms |
+| heap after GC over 15 s of streaming and mount churn | +1 MiB | +68 KB |
+
+Two things that looked like defects and were not:
+
+- **Sorting 10,000 fully rendered keyed rows takes 300 ms or more.** Measured
+  without virtualization in a separate probe. The reconciler makes 9,784
+  `insertBefore` calls (10,000 minus the longest increasing subsequence) taking
+  38 ms in total; the rest is Chromium restyling and laying out a 10,000-row
+  table, and a hand-written DOM permutation of the same table costs the same.
+  It is the reason to virtualize, not a framework cost.
+- **A store field read bare (`value={grid.query}`, `{f.n}`) stays live**,
+  though API.md says the compiler cannot tell a store field is reactive and a
+  bare read is evaluated once. what-compiler reads the imported module, sees
+  `createStore`, and wraps the read; only when it cannot see the module (a
+  store from a package it does not analyse) is the read once. The thunk form
+  the docs recommend works in both cases, so code written either way is right.
