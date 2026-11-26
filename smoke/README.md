@@ -8,6 +8,7 @@ npm run smoke:apps                              # workspace source (pre-release)
 npm run smoke:apps:npm                          # published `latest`
 node smoke/run.mjs --source=npm --version=0.12.2 # a specific release
 node smoke/run.mjs --apps=storefront --keep      # one app, keep the workdir
+WHAT_SMOKE_BROWSER=webkit npm run smoke:apps     # every app in WebKit (or firefox)
 
 npm run smoke:ports                             # what is still holding a smoke port
 npm run smoke:clean                             # stop the ones that are ours
@@ -90,8 +91,9 @@ dirties the demo.
 export default {
   description: 'one line',
   covers: ['render:static', 'state:signal'],       // capability ids
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
     // check(capability, condition, name, detail) -> tags a capability
+    // skip(capability, name, reason)             -> this browser cannot run it
     // reporter.assert(condition, name, detail)   -> untagged supporting check
   },
 };
@@ -102,6 +104,17 @@ export default {
 Ports start at 4700 (`WHAT_SMOKE_APP_PORT_BASE` moves them) and increment per app. The runner refuses to start if the
 port is already answering, because a stale process serving a DIFFERENT app makes
 every downstream assertion lie.
+
+## Browsers
+
+`WHAT_SMOKE_BROWSER` picks Playwright's `chromium` (the default), `webkit` or
+`firefox`; the run prints it and `artifacts/smoke-apps.json` records it. Every
+app runs in each. A check that needs what only one browser has (forcing a GC
+and reading the heap through the devtools protocol) calls
+`skip(capability, name, reason)` elsewhere: the skip is printed with its
+reason, counted apart from the passes, and satisfies the capability audit
+without claiming a pass. Where the behaviour is the same in every browser, a
+check measures it in a way every browser supports rather than skipping.
 
 ## Reading a failure
 

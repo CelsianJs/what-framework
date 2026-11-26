@@ -13,6 +13,11 @@ Three waves, in this order.
   hand-written and uncompiled; the admin dashboard is a compiled Vite SPA, and
   putting the compiler in the loop exposed a whole second set. Three of these
   five exist only on the compiled path, which is the recommended one.
+- **23** came from the load apps (data-grid, live-feed, workspace).
+- **24 to 27** came from running every app in WebKit and from the two
+  server-rendered load apps, `newsroom` and `workspace-ssr`. One (24) exists
+  only in Safari, and one (26) only showed because a hydrated page compared
+  the two compile targets.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -551,6 +556,60 @@ the developer could change to fix it.
   `workspace` check "the wizard layout stays mounted, with its state, while the
   steps change under it".
 
+### 24. FocusTrap let Tab carry focus out of the dialog in Safari
+`packages/core/src/a11y.js`
+
+The first WebKit run failed both focus-trap checks: ops-console
+`escaped=2`, workspace `inside=0010011`. The trap stepped in only at its
+first and last element and left every other Tab to the browser. Safari's
+default Tab reaches form fields only, not buttons or links, so from the last
+field the browser's next stop was outside the dialog. Chromium tabs through
+buttons, which is why every earlier run was green.
+
+- The trap now makes every Tab and Shift+Tab move itself, through its own
+  list in document order, wrapping at both ends.
+- Test: `packages/core/test/a11y.test.js`, "useFocusTrap makes every Tab move
+  itself…".
+
+### 25. A form post's `_redirect` dropped its fragment
+`packages/server/src/action-handler.js`
+
+newsroom's comment form posts without JavaScript with
+`_redirect=/article/<slug>#comments`, and the visitor landed at the top of the
+article. The README says `redirect()` keeps the fragment by the same rule as
+`_redirect`; `redirect()` kept it and `_redirect` did not. The fragment is now
+kept after the same safety check (it never reaches a server, so it cannot
+leave the origin).
+
+- Test: `packages/server/test/csrf-form-actions.test.js`, "keeps the fragment
+  of _redirect…".
+
+### 26. A valueless `aria-*` or `data-*` attribute differed between the two compile targets
+`packages/compiler/src/babel/dom.js`
+
+workspace-ssr's `<span data-user>` arrived from the server as
+`data-user="true"` and was `data-user=""` after hydration. The DOM target's
+template wrote a valueless attribute as empty; the SSR target and both runtimes
+write `aria-*` and `data-*` `true` as `"true"`, as React does. The serious
+half is `aria-hidden`: `aria-hidden=""` is no value in ARIA, so a compiled
+client render of `<span aria-hidden>` stayed visible to assistive technology.
+Hydration took the client's value without a report (G below), which is why
+nothing caught it.
+
+- The DOM template writes a valueless `aria-*`/`data-*` attribute as `"true"`.
+  A client-only app that compared `dataset.x === ''` now sees `'true'`;
+  `[data-x]` selectors match as before.
+- Test: `packages/compiler/test/valueless-enumerated-attr.test.js`.
+
+### 27. Following the README's ISR wiring turned streaming off
+`packages/server/README.md`
+
+The example passed `createRouteRenderer(document)` to `createRequestHandler`
+as well as to the ISR engine. A handler given any `render` renders
+`mode: 'server'` routes buffered: newsroom's first byte went from 26 ms to
+1,204 ms, the time of its slow query. The example now gives the renderer to
+the engine only and says why.
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -609,6 +668,33 @@ The storefront works around it by putting the review form on `/review`, a
 `mode: 'server'` page. Worth either documenting loudly or having `<Form>` detect
 a cached render and say so.
 
+### E. A guard's re-check redirect replaces a navigation the app started after it
+`packages/router/src/index.js` (`navigate`, `handleRedirect`)
+
+A route's middleware runs again when a signal it read changes. An app that
+writes that signal and then navigates away in the same tick (reset the draft,
+then go to the created project; sign out, then go to sign-in) loses its
+navigation: the re-check of the page being left redirects, and the redirect
+supersedes it. workspace-ssr's wizard landed on step one instead of the new
+project. The fix (hold that redirect while a navigation to another URL is in
+flight, and make it only if that one never commits) changes router semantics
+in a file another change is reworking, so it is left with a failing test (in
+the round-2 smoke report). workspace-ssr navigates first and resets after.
+
+### F. ISR tags are per route
+
+`page.tags` is static and the built-in renderer stores it as is, so a loader
+cannot tag one entry (`article:<slug>`): a comment on one article revalidates
+every article. A per-entry tag needs a custom `render`, which turns off
+streaming for the handler's server routes (27).
+
+### G. Hydration takes the client's attribute without a report
+
+Where the server's attribute differs from the client's, hydration keeps the
+client's, as SECURITY.md says, and `onHydrationError` hears nothing. 26 went
+unseen because of it. A development-only report would have shown it the first
+time a compiled app with `<x aria-hidden>` hydrated.
+
 ## The load apps: what they measured
 
 `data-grid`, `live-feed` and `workspace` were added to find what only shows
@@ -639,3 +725,31 @@ Two things that looked like defects and were not:
   `createStore`, and wraps the read; only when it cannot see the module (a
   store from a package it does not analyse) is the read once. The thunk form
   the docs recommend works in both cases, so code written either way is right.
+
+### The server-rendered load apps
+
+`newsroom` and `workspace-ssr` (Chromium and WebKit, same results):
+
+| measure | bound | measured |
+|---|---|---|
+| first byte of the streamed front page | before the 1,200 ms query | 23–30 ms |
+| fast boundary (later in the page) vs slow boundary | fast first | 144 ms vs 1,223 ms |
+| 3,282-word article hydration | 0 nodes created, added or rewritten; 0 reports | 0 / 0 / 0; 0 |
+| the article and its five islands, woken and used | 0 nodes created | 0 |
+| 50 cold ISR articles + 50 streamed front pages at once | each only its own content | 100 / 100 |
+| 40 workspace visitors at once, own cookies | each only their own user, draft, step | 40 / 40 |
+| server heap after GC over 2,000 requests | under 4 MiB growth, not rising every sample | +320 KB (18.02 → 18.33 MB) |
+
+## Browsers
+
+`WHAT_SMOKE_BROWSER=webkit npm run smoke:apps` runs every app in WebKit. The
+heap check is Chromium's alone (it forces a GC through the devtools
+protocol) and is skipped elsewhere with that reason; the long-task check uses
+the Long Tasks API in Chromium and a timer's lateness elsewhere. Two real
+browser differences an app has to allow for showed up:
+
+- Safari's default Tab reaches form fields only, not buttons or links (24).
+- Safari does not focus a button when it is clicked, so a keydown handler on
+  a menu's container never hears Escape after a click. newsroom's share menu
+  listens on the document while it is open.
+

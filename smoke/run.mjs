@@ -13,6 +13,7 @@
 //   node smoke/run.mjs --source=npm --version=0.12.2
 //   node smoke/run.mjs --apps=storefront        # one app, while iterating
 //   node smoke/run.mjs --keep                   # keep the workdir to inspect
+//   WHAT_SMOKE_BROWSER=webkit node smoke/run.mjs  # webkit or firefox; chromium by default
 //
 // Exits non-zero if any check fails, any capability is uncovered, or any
 // declared capability never reported a passing check.
