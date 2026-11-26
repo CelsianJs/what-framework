@@ -58,7 +58,10 @@ export const h = /* @__PURE__ */ vnodeProducer(function h(tag, props) {
   const argLen = arguments.length;
   let flat;
   if (argLen <= 2) {
-    flat = EMPTY_ARR;
+    // An element given its children as a prop (`h('button', { ...props })`,
+    // React's createElement form) renders them, as React's does; children
+    // passed as arguments win over the prop.
+    flat = typeof tag === 'string' && props.children != null ? _flattenSingle(props.children) : EMPTY_ARR;
   } else if (argLen === 3) {
     flat = _flattenSingle(arguments[2]);
   } else {
