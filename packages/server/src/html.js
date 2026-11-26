@@ -97,8 +97,22 @@ const SERVER_SKIPPED_TAGS = new Set(['__portal']);
 // (render.js componentArgs): a component that returns its children (a
 // context provider, a pass-through wrapper) returns the same value on both
 // sides, so the server writes no array markers the client does not adopt.
+//
+// A component compiled JSX calls with no children and props it wrote as an
+// object literal of its own (ssr-runtime.js ssrLeaf) carries OWN_PROPS as its
+// children: its props object was made for this call and nothing else holds
+// it, so its first render is handed that object, and any later render of the
+// same vnode (a stream retrying a component that suspended, markup placed
+// twice) a copy of it.
+const OWN_PROPS = [];
+const NO_CHILDREN = [];
+
 function _componentProps(vnode) {
   const children = vnode.children;
+  if (children === OWN_PROPS) {
+    vnode.children = NO_CHILDREN;
+    return vnode.props;
+  }
   if (!children || children.length === 0) return { ...vnode.props };
   return { ...vnode.props, children: children.length === 1 ? children[0] : children };
 }
@@ -789,6 +803,7 @@ export {
   VOID_ELEMENTS,
   RAW_TEXT_ELEMENTS,
   _componentProps,
+  OWN_PROPS,
   _boundaryFallback,
   _isDevMode,
   _exposesErrorDetails,

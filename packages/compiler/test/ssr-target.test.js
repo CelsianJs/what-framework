@@ -86,6 +86,12 @@ const a = _$ssrComponent(Card, {
   title: "x",
   n: n()
 }, ["body ", _$ssr(_tmpl$0, _$ssrText(x))], 10);`],
+  ["component with no children", String.raw`const a = <Card title="x" n={n()} />;`, String.raw`
+import { ssrLeaf as _$ssrLeaf } from "what-framework/ssr-runtime";
+const a = _$ssrLeaf(Card, {
+  title: "x",
+  n: n()
+}, 10);`],
   ["component spread", String.raw`const a = <C {...p} a={1} />;`, String.raw`
 import { ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
 const a = _$ssrComponent(C, {
@@ -98,21 +104,21 @@ const _tmpl$0 = ["<ul>", "</ul>"];
 const _tmpl$1 = ["<li>", "</li>"];
 const a = _$ssr(_tmpl$0, () => _$ssrList(items(), it => _$ssrRow(_tmpl$1, _$ssrText(it.n)), true, it => it.id, 15));`],
   ["conditional", String.raw`const a = <p>{ok() ? <A /> : <b>no</b>}{x && <A />}</p>;`, String.raw`
-import { ssr as _$ssr, ssrText as _$ssrText, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
+import { ssr as _$ssr, ssrText as _$ssrText, ssrLeaf as _$ssrLeaf } from "what-framework/ssr-runtime";
 const _tmpl$0 = ["<p>", "", "</p>"];
 const _tmpl$1 = /* @__PURE__ */_$ssr(["<b>no</b>"]);
-const a = _$ssr(_tmpl$0, () => ok() ? _$ssrComponent(A, null, [], 21) : _tmpl$1, _$ssrText(x && _$ssrComponent(A, null, [], 45)));`],
+const a = _$ssr(_tmpl$0, () => ok() ? _$ssrLeaf(A, null, 21) : _tmpl$1, _$ssrText(x && _$ssrLeaf(A, null, 45)));`],
   ["fragment", String.raw`const a = <>a{b()}<i /></>;`, String.raw`
 import { ssr as _$ssr, ssrFragment as _$ssrFragment } from "what-framework/ssr-runtime";
 const _tmpl$0 = /* @__PURE__ */_$ssr(["<i></i>"]);
 const a = _$ssrFragment(["a", () => b(), _tmpl$0]);`],
   ["suspense", String.raw`import { Suspense } from 'what-framework'; const a = <Suspense fallback={<p>wait</p>}><Rows /></Suspense>;`, String.raw`
-import { ssr as _$ssr, ssrComponent as _$ssrComponent } from "what-framework/ssr-runtime";
+import { ssr as _$ssr, ssrComponent as _$ssrComponent, ssrLeaf as _$ssrLeaf } from "what-framework/ssr-runtime";
 const _tmpl$0 = /* @__PURE__ */_$ssr(["<p>wait</p>"]);
 import { Suspense } from 'what-framework';
 const a = _$ssrComponent(Suspense, {
   fallback: _tmpl$0
-}, [_$ssrComponent(Rows, null, [], 86)], 53);`],
+}, [_$ssrLeaf(Rows, null, 86)], 53);`],
   ["island", String.raw`const a = <Counter client:idle start={1} />;`, String.raw`
 import { ssrIsland as _$ssrIsland } from "what-framework/ssr-runtime";
 const a = _$ssrIsland({

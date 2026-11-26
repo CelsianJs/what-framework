@@ -41,7 +41,7 @@ import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
 import { _enterRow, _leaveRow, getServerContext, isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
-import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
+import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, OWN_PROPS, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
@@ -511,6 +511,22 @@ function emptyList(slot, fallback) {
  */
 export function ssrComponent(Comp, props, children, site) {
   const vnode = h(Comp, props, ...children);
+  /** @type {any} */ (vnode)._site = site === undefined ? null : site;
+  return vnode;
+}
+
+/**
+ * `<Comp a={x} />`: ssrComponent() for a component with no children whose
+ * props the compiler wrote as an object literal with no spread, so the object
+ * is this call's own and holds no `key`. The renderer hands it to the
+ * component as it is (html.js OWN_PROPS) instead of a copy. A tag name held
+ * in a binding (`<Tag />` with `Tag = 'a'`) is an element, whose children a
+ * `children` prop gives: ssrComponent().
+ */
+export function ssrLeaf(Comp, props, site) {
+  if (typeof Comp !== 'function') return ssrComponent(Comp, props, [], site);
+  const vnode = h(Comp, props === null ? {} : props);
+  /** @type {any} */ (vnode).children = OWN_PROPS;
   /** @type {any} */ (vnode)._site = site === undefined ? null : site;
   return vnode;
 }

@@ -58,7 +58,7 @@ const EXPECTED_EXPORTS = {
   // The helpers what-compiler's server target imports (generate: "ssr").
   './ssr-runtime': [
     'ssr', 'ssrForeign', 'ssrRow', 'ssrTemplate', 'ssrText', 'ssrList', 'ssrFor', 'ssrComponent',
-    'ssrFragment', 'ssrIsland', 'ssrElement', 'ssrRawText',
+    'ssrLeaf', 'ssrFragment', 'ssrIsland', 'ssrElement', 'ssrRawText',
   ],
   './testing': [],
   './a11y': ['useFocusTrap', 'FocusTrap', 'announce', 'SkipLink', 'useRovingTabIndex', 'VisuallyHidden'],

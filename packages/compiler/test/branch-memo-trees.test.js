@@ -91,7 +91,7 @@ test('a ternary handed to a component as JSX is a reactive child with its own la
   const dom = body(compileJSX(`export function A(p) { return <div><Card header={p.b() ? <X /> : <Y />} /></div>; }`));
   assert.match(dom, /header: \(\) => \{\s*const (_c\$\d+) = _\$lazyMemo\(\(\) => p\.b\(\) \? 0 : 1\);\s*return \(\) => \1\(\) === 0 \?/);
   const ssr = body(compileJSX(`export function A(p) { return <div><Card header={p.b() ? <X /> : <Y />} /></div>; }`, { pluginOptions: { generate: 'ssr' } }));
-  assert.match(ssr, /header: \(\) => p\.b\(\) \? _\$ssrComponent\(X/, 'the server hands the same function');
+  assert.match(ssr, /header: \(\) => p\.b\(\) \? _\$ssrLeaf\(X/, 'the server hands the same function');
   const plain = body(compileJSX(`const wide = true; export function A() { return <div><Card header={wide ? <X /> : <Y />} /></div>; }`));
   assert.match(plain, /header: \(\) => wide \? _\$createComponent/, 'a test that reads nothing reactive stays as it was');
   const nullable = body(compileJSX(`export function A(p) { return <div><Card icon={p.b() ? null : <X />} /></div>; }`));
@@ -119,7 +119,7 @@ test("What's control flow lowers under the name it was imported as; a third part
 
   const ssr = body(compileJSX(`import { Switch as Branch, Match as When } from 'what-framework';
     export function A(p) { return <div><Branch fallback={<i />}><When when={p.a()}><X /></When></Branch></div>; }`, { pluginOptions: { generate: 'ssr' } }));
-  assert.doesNotMatch(ssr, /_\$ssrComponent\((Branch|When)/, 'the server target lowers the aliases too');
+  assert.doesNotMatch(ssr, /_\$ssr(Component|Leaf)\((Branch|When)/, 'the server target lowers the aliases too');
 });
 
 test('`&&` and `||` pick their arm by a lazy memo of the left side\'s truthiness', () => {
@@ -129,7 +129,7 @@ test('`&&` and `||` pick their arm by a lazy memo of the left side\'s truthiness
   const jsxLeft = body(compileJSX(`export function A(p) { return <div>{(p.a() && <i />) || <Fallback />}</div>; }`));
   assert.doesNotMatch(jsxLeft, /_\$lazyMemo\(\(\) => !!\(p\.a\(\) &&/, 'an `||` whose left side builds DOM keeps its value memo');
   const ssr = body(compileJSX(`export function A(p) { return <div>{p.user() && <Profile user={p.user()} />}</div>; }`, { pluginOptions: { generate: 'ssr' } }));
-  assert.match(ssr, /\(\) => p\.user\(\) && _\$ssrComponent\(Profile/, 'the server renders `&&` itself: the same output');
+  assert.match(ssr, /\(\) => p\.user\(\) && _\$ssrLeaf\(Profile/, 'the server renders `&&` itself: the same output');
 });
 
 // --- Behaviour ---

@@ -102,7 +102,7 @@ describe('what-compiler: server transforms use the server target', () => {
   it('compiles a module whose JSX is only a component tag to a vnode', () => {
     const plugin = whatVitePlugin();
     const out = transform(plugin, COMPONENT_ONLY_JSX, '/proj/src/Page.jsx', { ssr: true });
-    assert.match(out.code, /_\$ssrComponent\(Card,/);
+    assert.match(out.code, /_\$ssrLeaf\(Card,/);
   });
 
   it('detects the SSR environment through the Environment API, not only the ssr flag', () => {

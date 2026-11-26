@@ -88,6 +88,13 @@ export declare function ssrComponent<P = any>(
   site?: number,
   devLocation?: string,
 ): VNode<any>;
+/** `<Comp a={x} />` with no children and props written as a literal with no spread: ssrComponent() handing the component that object itself. */
+export declare function ssrLeaf<P = any>(
+  component: (props: P) => any,
+  props: P | null,
+  site?: number,
+  devLocation?: string,
+): VNode<any>;
 export declare function ssrFragment(children: unknown[]): VNode<any>;
 export declare function ssrIsland(props: Record<string, unknown>, children: unknown[], devLocation?: string): VNode<any>;
 

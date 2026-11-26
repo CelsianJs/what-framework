@@ -716,13 +716,17 @@ function componentValue(node, state) {
     return call(state, '_$ssrIsland', args);
   }
 
-  const args = [componentCallee(opening.name), properties.length ? t.objectExpression(properties) : t.nullLiteral(), children];
+  // No children and no spread: the props literal is the call's own object
+  // and holds no `key` (skipped above), so ssrLeaf hands it over uncopied.
+  const leaf = children.elements.length === 0 && properties.every((prop) => t.isObjectProperty(prop));
+  const args = [componentCallee(opening.name), properties.length ? t.objectExpression(properties) : t.nullLiteral()];
+  if (!leaf) args.push(children);
   // The number of the JSX, the DOM target's too (lists.js listSlot): the
   // component's place among the keyed rows (what-core hydration-data.js).
   const site = listSlot(node);
   if (site !== null || meta) args.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) args.push(meta);
-  return call(state, '_$ssrComponent', args);
+  return call(state, leaf ? '_$ssrLeaf' : '_$ssrComponent', args);
 }
 
 // A ternary with a reactive test handed to a component as JSX
@@ -841,6 +845,7 @@ const SSR_IMPORTS = [
   ['_$ssrElement', 'ssrElement'],
   ['_$ssrRawText', 'ssrRawText'],
   ['_$ssrComponent', 'ssrComponent'],
+  ['_$ssrLeaf', 'ssrLeaf'],
   ['_$ssrFragment', 'ssrFragment'],
   ['_$ssrIsland', 'ssrIsland'],
 ];
