@@ -92,6 +92,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   *Migration:* an effect that reads DOM a binding writes uses
   `{ phase: 'user' }`. A value another effect computes belongs in a signal or
   a `computed()`.
+<!-- lane: effect order. Native `useEffect`/`onMount` now run child before
+     parent, as React's do (owner decision 2026-11-26). Its Breaking bullet
+     goes here. -->
 - **A field whose `value` or `checked` is bound to state shows the state.**
   After each `input` or `change` event of an `<input>`, `<textarea>` or
   `<select>` whose `value` or `checked` compiled JSX binds to state
@@ -277,6 +280,28 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   parents first. *Migration:* read `element.props.className`; compare a
   fragment's type with `Fragment` from `react`; clear a controlled field
   with `''`; catch a reducer's error in an error boundary.
+- **what-react roots follow React's lifetime rules.** `root.render()` after
+  `root.unmount()` throws React's error 409, "Cannot update an unmounted
+  root.", also while the unmount waits for a commit to finish; 0.14 mounted
+  a new tree into the container. `root.unmount()` called from a callback of
+  the root's own commit (a removed row's cleanup, a ref, an effect, the
+  first commit's included) waits until that commit is done and its passive
+  effects have run, then runs every cleanup of what the root held; before,
+  it unmounted in the middle of the commit, the incoming rows were set up
+  on nodes out of the page, and their cleanups never ran, so their
+  listeners kept firing. `root.render()` on a mounted root, called while a
+  render, a commit or its effects run (a layout effect, a removed row's
+  cleanup, another root's commit), renders once that commit is done, and
+  the renders asked for until then are one, the last element's, as React
+  batches them. A root's first `render()` still renders at once. A
+  controlled field's `value` is written with the commit's removals, after
+  them, as React writes it: a `<select>` whose option for the value came
+  back under another key selects the new one, and a class's
+  `getSnapshotBeforeUpdate` reads the old value. *Migration:* call
+  `createRoot(container)` again to render into a container you unmounted;
+  code that read a root's DOM straight after calling its `render()` from an
+  effect reads it in a later effect, or after the outer `flushSync()`
+  returns.
 - **JSX passed in any prop is built where the component places it**, inside
   the component's run, as `children` are: its components run after the
   receiving component's body, are owned by it and see its context, and while
@@ -610,6 +635,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   prototype; `_$createComponent` takes one as the component's own, and h()
   keeps the getters of one. Code that relied on a prop staying at its first
   value reads it once in the body instead (`const first = props.value`).
+<!-- lane: plain-object props. Props, rest and merged objects get
+     Object.prototype, so `rest.hasOwnProperty()`, `String(rest)` and
+     `classnames(rest)` work as with React's (owner decision 2026-11-26). Its
+     bullet goes here, and the bullet above ("Props objects What builds have
+     no prototype") changes with it. -->
 - **Props forwarded the React way stay live.** Each shape has a test
   (packages/core/test/forwarded-props-react-habits.test.js), and five new
   rest-prop shapes are compared with React
@@ -676,6 +706,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Development output carries names and locations** (`devMetadata`, on in
   the Vite dev server, never in `vite build`). *Migration:* update snapshots
   of development output.
+<!-- lane: onChange. `onChange` on a text field fires per keystroke, as in
+     React, not at the commit (blur, Enter); breaking for code that validates
+     on blur (owner decision 2026-11-26). Its bullet goes here, and the field
+     bullet under "Breaking: reactivity, effects and hooks" ("A field whose
+     handlers listen for `change` and none for `input` ... is the user's
+     while they type") changes with it. -->
 
 ### Breaking: tools
 
@@ -1105,19 +1141,90 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering nothing. Tested in
   esbuild and Vite production builds (`packages/react-compat/test/bundle.test.js`).
 - **what-react: a keyed list of React elements placed by native What code
-  keeps its rows.** A row was built again when an item was inserted ahead of
-  it, losing its node, its React state, the text typed in it and the focus.
-  In a mixed app with no vnode renderer of what-core's, what-react installs
-  its own (what-core's `_installVNodeRuntime`, now exported from
-  `what-core/render`; a native-only app carries none of it), and a hole's
-  value that holds a React element is reconciled as React reconciles
-  children: a row is kept by its key within its own array and its type, as
-  React keeps it. Two arrays of one hole never take each other's rows, and a
-  key that moves to another array mounts again. A row whose key goes
-  unmounts before the update returns. A moved row that had the focus gets it
-  back unless something else took it (MIXED.md, Limits;
+  keeps its rows, and commits as React does.** A row was built again when an
+  item was inserted ahead of it, losing its node, its React state, the text
+  typed in it and the focus. In a mixed app with no vnode renderer of
+  what-core's, what-react installs its own (what-core's
+  `_installVNodeRuntime`, now exported from `what-core/render`; a
+  native-only app carries none of it), and a hole whose value holds React
+  elements becomes a React container that what-react's reconciler renders,
+  as a component renders what it returns. A row is kept by its key within
+  its own array and its type, as React keeps it. Two arrays of one hole
+  never take each other's rows, a key that moves to another array mounts
+  again, and a top-level unkeyed fragment stands for its children
+  (`[<Row key="a" />]` and `<><Row key="a" /></>` keep one row). Each run of
+  the hole is one commit in React's order: a leaving row's ref and layout
+  cleanups run while its nodes are still in the page, then nodes are
+  placed, then a new row's ref, layout effect and `autoFocus` run on nodes
+  in the page (before, its ref saw `isConnected` false and `autoFocus`
+  focused nothing), and passive effects run on the microtask after it.
+  Rows inside an `<svg>` are SVG. A controlled native `<select>` follows
+  options placed as keyed React elements. An error boundary's or Suspense's
+  fallback is in the page when `flushSync()` returns. An error no boundary
+  catches unmounts the hole's rows and is reported, as React unmounts a
+  root. A moved row that had the focus gets it back unless something else
+  took it (MIXED.md, Limits;
   `packages/react-compat/test/native-keyed-list.test.js`,
-  `native-keyed-scenes.test.js`).
+  `native-keyed-scenes.test.js`, `native-keyed-commit.test.js`).
+- **what-react: every root removes what leaves as React does.** A commit's
+  removals (cleanups, ref detaches, nodes taken out of the page) run once
+  its whole render is done, a list's leavers first, and before any ref that
+  stays is detached or any layout effect runs, so a class's
+  `getSnapshotBeforeUpdate` still sees the rows being removed. A list whose
+  render throws or suspends after it began (a `memo` comparison that
+  throws) unmounts what it showed with those removals: every ref, layout
+  and passive cleanup runs once, and the rows the failed render built are
+  never set up. A cleanup that a ref or an effect returns after its own
+  callback unmounted the root runs at once (it was lost, and its listener
+  kept firing), `root.unmount()` from a ref of the first render releases
+  everything the root mounted, and a callback ref that a render from inside
+  a commit changes and changes back attaches once. A keyed move gives the
+  focus back, with its selection, to the field that had it, before layout
+  effects, as React does: React Hook Form's `useFieldArray().swap()` keeps
+  the edited field focused (it lost the focus). MIXED.md, Limits, lists
+  what still differs (`packages/react-compat/test/commit-order.test.js`).
+<!-- lane: root-ownership. The what-react fix for a root re-rendered or
+     unmounted during its own first commit, a second unmount() from an old
+     handle after a remount, and a controlled value write that throws.
+     Its Fixed bullet goes here; drop the matching entries under "Known
+     issues" in docs/releases/v0.15.0.md when it lands. -->
+- **Spreads on one element resolve as React's props do.** Across any number
+  of spreads and attributes each name has one writer, the last in source
+  order, and it stays live:
+  `<button {...rest} {...{ title: 'last', onClick: b }} />` shows `last` and
+  fires only `b`, where 0.14 wrote each spread's keys in turn and both
+  handlers fired. Names compare as React spells them:
+  an event name in any case (`onClick`, `onclick`), `class` and
+  `className`, `for` and `htmlFor`, `innerHTML` and
+  `dangerouslySetInnerHTML`, `xlinkHref` and `xlink:href`, and `xmlLang`
+  and `xml:lang` are one name each, an HTML attribute is one name in any
+  case, and on SVG any other name keeps its case (`viewBox` and `viewbox`
+  are two attributes). A spread whose object can come out different
+  (`{...attrs()}`, `{...props.attrs}`, a keyed row's item, a literal that
+  reads state, a call whose function or arguments read state such as
+  `{...pick(props.kind)}`) is read again when it changes: a changed name is
+  written, a new one added and one that went away removed, so an attribute
+  written before the spread comes back
+  (`<div title="fallback" {...attrs()} />` shows `fallback` once `attrs()`
+  drops `title`), and dropping `dangerouslySetInnerHTML` clears the markup. A call with constant
+  arguments (`{...register('title')}`) is read once, as before. Only a name
+  whose writer or value changed is written again, and a getter is read once
+  each time the spread runs. `value` and `checked` from such a spread are
+  controlled as `value={v()}` is, a ref in it is released when its writer
+  changes or the element goes, and on SVG `xlinkHref` and `xmlLang` are
+  written in the XLink and XML namespaces
+  (`packages/core/test/forwarded-props-react-habits.test.js`,
+  `spread-svg-case-and-retype.test.js`).
+- **An input whose `type`, or a `<select>` whose `multiple`, changes keeps
+  its bound value**, however it changes (`type={t()}`, `multiple={m()}`, or
+  through a spread): an input switched from `date` to `text` shows its value
+  again, a controlled `0` survives `date` to `number`, and a select toggled
+  between single and multiple keeps every option it had selected. Before,
+  the browser's clean-up of the old kind emptied the field, or left the
+  select one option, and the value was not written again. `TYPE` in capitals
+  counts on HTML elements, and the held value is never written into a file
+  field. Elements made with `h()` do not do this yet
+  (`packages/compiler/test/field-kind-attributes.test.js`).
 - **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
   as in TanStack Query, not the spelling that created the cache entry they
   share (`'q:alpha'`), and a reactive key that changes only its spelling
@@ -1636,6 +1743,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `Component` imports `what-react/class` once. In an app with no
   native What code, a React element that reaches what-core (a function child
   that returns one) renders as an island, by React's rules.
+<!-- release: the end sizes in this bullet (16,175 B, 23,672 B, 42,788 B)
+     and the hooks app's 14,131 B in "A compiled app carries only the runtime
+     its JSX uses" predate d8003b93..9dd22eda and the three lanes still open.
+     At 9dd22eda the commits report react-counter 16,248 B, mixed-recharts
+     23,907 B, mixed-hydrate 43,016 B and hooks-app 14,205 B gzip.
+     Re-measure with `npm run check:size` at the release commit. -->
 
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
