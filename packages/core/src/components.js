@@ -301,6 +301,10 @@ function mountSuspense(vnode, parent) {
   const owner = getOwner();
   const start = document.createComment('sb:start');
   const end = document.createComment('sb:end');
+  // The boundary swaps the fallback and the children between its markers
+  // after it is placed, so a region that embeds it removes the live range
+  // (dom.js _liveRegionNodes).
+  /** @type {any} */ (start)._rangeEnd = end;
   const container = document.createDocumentFragment();
   container.appendChild(start);
   container.appendChild(end);
@@ -388,6 +392,9 @@ function createErrorBoundary(vnode, parent) {
   const children = vnode.children;
   const start = document.createComment('eb:start');
   const end = document.createComment('eb:end');
+  // The arm between the markers is rebuilt after the boundary is placed, so a
+  // region that embeds it removes the live range (dom.js _liveRegionNodes).
+  /** @type {any} */ (start)._rangeEnd = end;
   const container = document.createDocumentFragment();
   container.appendChild(start);
   container.appendChild(end);
