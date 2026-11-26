@@ -239,7 +239,10 @@ export function registerExtendedTools(server, bridge) {
           for (const step of data.graph || []) {
             if (step.origin?.targetId) step.origin.targetId = pageText(step.origin.targetId, 120);
           }
-          return ok({ ...data, note: UNTRUSTED_NOTE }, seq);
+          const hint = data.reason === 'no-live-bindings-or-effects-for-target'
+            ? 'Nothing on this target reads state reactively, so no write can update it. A value computed in the component body, outside JSX (`const valid = name().length > 0`), or a return decided there (`if (loading()) return …`), is read once: write it in the JSX, or derive it with computed()/useMemo and call it there. what_errors lists ERR_STATE_READ_ONCE or ERR_PROP_READ_ONCE where the build found one.'
+            : null;
+          return ok({ ...data, ...(hint ? { hint } : {}), note: UNTRUSTED_NOTE }, seq);
         },
       });
     }

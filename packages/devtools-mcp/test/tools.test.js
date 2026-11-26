@@ -472,3 +472,22 @@ describe('cache, components and visual tools', () => {
     assert.equal(parsed.headings[0].text, '«My App»');
   });
 });
+
+describe('what_why on a target nothing reactive reads', () => {
+  it('says why nothing updates it and where the build reports it', async () => {
+    const handle = (command) => (command === 'why'
+      ? { target: { kind: 'dom', selector: '#submit', name: 'button' }, targets: [], graph: [], reason: 'no-live-bindings-or-effects-for-target' }
+      : undefined);
+    const { call } = await setup({ pages: [{ handle }] });
+    const { parsed } = await call('what_why', { selector: '#submit' });
+    assert.equal(parsed.reason, 'no-live-bindings-or-effects-for-target');
+    assert.ok(parsed.hint.includes('read once') && parsed.hint.includes('ERR_STATE_READ_ONCE'), parsed.hint);
+  });
+
+  it('a target with live readers gets no hint', async () => {
+    const handle = (command) => (command === 'why' ? { targets: [{ kind: 'binding', id: 1, name: 'p.children', runs: 2, reads: [] }], graph: [] } : undefined);
+    const { call } = await setup({ pages: [{ handle }] });
+    const { parsed } = await call('what_why', { bindingId: 1 });
+    assert.equal(parsed.hint, undefined);
+  });
+});

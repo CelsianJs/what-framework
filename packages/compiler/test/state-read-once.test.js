@@ -119,6 +119,8 @@ export function Dialog({ open }) { if (!open) return null; return <dialog />; }
       ]);
       assert.ok(found[0][2].includes('`loading()`') && found[0][2].includes('<Users>'), found[0][2]);
       assert.ok(found[1][2].includes('`open`') && found[1][2].includes('<Dialog>'), found[1][2]);
+      assert.deepEqual(getDiagnostics().events.map((e) => [e.subject.kind, e.subject.name]), [['component', 'Users'], ['component', 'Dialog']],
+        'the component is the subject, so what_explain lists it under the component');
     } finally {
       env.cleanup();
     }

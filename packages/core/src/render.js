@@ -38,11 +38,14 @@ export { _$Island } from './components.js';
  * @internal What what-compiler found while it compiled a module, in a
  * development build (ERR_PROP_READ_ONCE, ERR_STATE_READ_ONCE): reported on
  * the diagnostics channel when the module loads, so the console, the MCP
- * tools and getDiagnostics() show it beside what the runtime reports.
+ * tools and getDiagnostics() show it beside what the runtime reports. The
+ * component is the subject, so what_explain lists it under the component.
  * @param {Array<{ code: string, data: Record<string, any>, loc: string }>} records
  */
 export function _$buildDiagnostics(records) {
-  if (__DEV__) for (const { code, data, loc } of records) report(code, { data, loc, owner: [] });
+  if (__DEV__) {
+    for (const { code, data, loc } of records) report(code, { data, loc, owner: [], subject: { kind: 'component', name: data.component, id: loc } });
+  }
 }
 // The compiler rewrites `sig() === row.key` in keyed .map() rows to a selector.
 export { createSelector } from './selector.js';
