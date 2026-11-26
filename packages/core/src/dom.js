@@ -3,7 +3,7 @@ import { report, setNextBinding } from './diagnostics.js';
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _componentOwner, _enterOwner, _exitOwner, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
+import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _serverComponentOwner, _enterFrame, _exitFrame, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode, SVG_TAG } from './vnode-renderer.js';
@@ -257,16 +257,9 @@ export function getCurrentComponent() {
  * Always pair begin and end in a try/finally.
  */
 export function _beginComponentSSR(Component, parent) {
-  let frame;
-  if (parent != null) {
-    const saved = _enterOwner(parent);
-    frame = _componentOwner(Component);
-    _exitOwner(saved);
-  } else {
-    frame = _componentOwner(Component);
-  }
+  const frame = _serverComponentOwner(Component, parent);
   frame._parentCtx = parent !== undefined ? parent : parentFrame(frame);
-  frame._outer = _enterOwner(frame);
+  _enterFrame(frame);
   return frame;
 }
 
@@ -279,8 +272,7 @@ function parentFrame(frame) {
 
 // Restores the owner that was current before the frame began.
 export function _endComponentSSR(frame) {
-  _exitOwner(frame._outer);
-  frame._outer = null;
+  _exitFrame(frame);
 }
 
 /** Run `fn` with an existing SSR frame as the current owner. */

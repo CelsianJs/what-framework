@@ -3512,6 +3512,64 @@ export function _componentOwner(Component, props) {
 }
 
 /**
+ * @internal The owner of a component a server renderer runs (dom.js
+ * _beginComponentSSR), made under `under` or else under the current owner,
+ * as _componentOwner makes one. The fields every server render gives its
+ * frames are declared here, with the value each reads as while unset, so
+ * that those frames have one shape: the frame it renders in (`_parentCtx`),
+ * what _enterFrame saves (`_outerOwner`, `_outerRun`), its owner path, and
+ * what a frame that renders components or a keyed list counts them with
+ * (hydration-data.js). The rest (a lowered built-in's holder, resource and
+ * action counters, places among keyed rows once an app has server actions,
+ * an island's host, development's `_inBody`) are added by the few frames
+ * that take them.
+ * @param {any} Component
+ * @param {any} [under]
+ */
+export function _serverComponentOwner(Component, under) {
+  const now = under != null ? under : ownerNow();
+  const parent = now === null ? null : scopeOf(now);
+  const owner = {
+    flags: parent !== null ? parent.flags & DISPOSED : 0,
+    owner: parent,
+    disposals: [],
+    firstChild: null, lastChild: null,
+    prevSibling: null, nextSibling: null,
+    dropped: 0,
+    Component,
+    props: undefined,
+    hooks: null,
+    hookIndex: 0,
+    context: null,
+    _parentCtx: null,
+    _outerOwner: null,
+    _outerRun: null,
+    _ownerPath: undefined,
+    _ownerChildren: undefined,
+    _row: undefined,
+    _places: undefined,
+  };
+  if (parent !== null && (parent.flags & DISPOSED) === 0) linkChild(parent, owner);
+  return /** @type {any} */ (owner);
+}
+
+/** @internal Make a server frame (_serverComponentOwner) current, saving on it what _exitFrame restores. */
+export function _enterFrame(frame) {
+  frame._outerOwner = currentOwner;
+  frame._outerRun = ownerRun;
+  currentOwner = frame;
+  ownerRun = runNow();
+}
+
+/** @internal Restore what _enterFrame replaced. */
+export function _exitFrame(frame) {
+  currentOwner = frame._outerOwner;
+  ownerRun = frame._outerRun;
+  frame._outerOwner = null;
+  frame._outerRun = null;
+}
+
+/**
  * Run `fn(a, b, c)` under `owner`, untracked: what it creates belongs to
  * `owner` and what it reads subscribes nothing. Returns what `fn` returns.
  */
