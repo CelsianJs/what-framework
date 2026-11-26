@@ -74,6 +74,9 @@ dirties the demo.
 | `admin-dashboard` | compiled JSX single-page app | a persistent shell, nested layouts, a sign-in guard, loading and error routes, context, a Portal dialog, a keyed table |
 | `ops-console` | server-rendered console that hydrates | Suspense and lazy panes, ErrorBoundary, infinite and optimistic queries, validated forms, a focus-trapped dialog, `useId` across hydration |
 | `scrollytelling` | server-rendered essay with islands | all five island hydration modes, scroll progress, intersect reveals, spring and tween, an enter/leave transition |
+| `data-grid` | compiled SPA over 10,000 rows | virtual scrolling with a bounded DOM, sort, filter, select-all, inline cell editing, a summary derived over every row, a 1,000-row bulk update, each with a time budget |
+| `live-feed` | compiled SPA fed 200 updates a second | a keyed tape with no dropped or repeated rows, SVG sparklines, store counters, pause/resume, panels mounting and unmounting under load with nothing left behind, a level heap, no long tasks |
+| `workspace` | compiled SPA chaining a product's workflows | a guarded deep link, nested layouts, a queried list, an optimistic edit and its rollback, a three-step wizard across back/forward and a reload, a focus-trapped portal dialog, a toast live region |
 
 ## Writing a new app
 
@@ -94,7 +97,7 @@ export default {
 
 3. Run `node smoke/run.mjs --apps=<name> --keep` until green.
 
-Ports start at 4700 and increment per app. The runner refuses to start if the
+Ports start at 4700 (`WHAT_SMOKE_APP_PORT_BASE` moves them) and increment per app. The runner refuses to start if the
 port is already answering, because a stale process serving a DIFFERENT app makes
 every downstream assertion lie.
 

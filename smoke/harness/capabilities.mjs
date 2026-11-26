@@ -32,6 +32,7 @@ export const CAPABILITIES = {
   'route:404': { area: 'routing', desc: 'an unknown path renders the not-found fallback' },
   'route:link-active': { area: 'routing', desc: 'Link/NavLink applies active classes for the current route' },
   'route:programmatic': { area: 'routing', desc: 'navigate() moves between routes from code' },
+  'route:history': { area: 'routing', desc: 'browser back/forward walk a session of routes, each showing the state it had' },
 
   // --- State --------------------------------------------------------------
   'state:signal': { area: 'state', desc: 'local signal state updates the DOM' },
@@ -48,6 +49,7 @@ export const CAPABILITIES = {
   'data:invalidate': { area: 'data', desc: 'invalidateQueries with an array prefix refetches matching keys' },
   'data:infinite': { area: 'data', desc: 'useInfiniteQuery appends the next page' },
   'data:optimistic': { area: 'data', desc: 'an optimistic update applies immediately and reconciles' },
+  'data:optimistic-rollback': { area: 'data', desc: 'an optimistic edit the server refuses rolls back to the committed value' },
   'data:resource-suspense': { area: 'data', desc: 'createResource suspends and resolves under Suspense' },
 
   // --- Server -------------------------------------------------------------
@@ -75,6 +77,8 @@ export const CAPABILITIES = {
   'cmp:suspense-lazy': { area: 'components', desc: 'a lazy component shows its boundary\'s fallback where nothing is revealed yet; a navigation to one keeps the revealed content until it resolves' },
   'cmp:portal': { area: 'components', desc: 'Portal renders a modal outside its parent DOM position' },
   'cmp:head': { area: 'components', desc: 'Head sets document title and meta tags, server-rendered' },
+  'cmp:inline-edit': { area: 'components', desc: 'a double-clicked cell edits in place: Enter commits, Escape cancels, derived values follow' },
+  'cmp:svg': { area: 'components', desc: 'SVG elements created by compiled JSX are in the SVG namespace and follow their data' },
 
   // --- Animation ----------------------------------------------------------
   'anim:scroll-progress': { area: 'animation', desc: 'scroll position drives an animated value' },
@@ -85,9 +89,20 @@ export const CAPABILITIES = {
   // --- Forms & a11y -------------------------------------------------------
   'form:validation': { area: 'forms', desc: 'useForm rejects invalid input and surfaces field errors' },
   'form:submit': { area: 'forms', desc: 'a valid form submits and produces the expected result' },
+  'form:wizard': { area: 'forms', desc: 'a multi-step form validates per step and keeps its answers across back/forward and a reload' },
   'a11y:ids': { area: 'a11y', desc: 'useId pairs a label with its input, stable across SSR and hydration' },
   'a11y:focus-trap': { area: 'a11y', desc: 'focus stays inside an open dialog' },
   'a11y:live-region': { area: 'a11y', desc: 'an announcement reaches a live region' },
+  // --- Load: data volume, update rate, lifetime -------------------------
+  'list:large': { area: 'load', desc: 'a summary derived over 10,000 rows is exact and follows sorts, filters and edits' },
+  'list:virtual-scroll': { area: 'load', desc: 'scrolling 10,000 virtualized rows keeps the DOM bounded and shows the slice for the position' },
+  'perf:budget': { area: 'load', desc: 'sort, filter keystroke, select-all, a 1,000-row bulk update and a scroll step over 10,000 rows each settle within a stated budget' },
+  'stream:update-rate': { area: 'load', desc: 'the page takes 50 to 200 updates a second into signals and a store' },
+  'stream:no-loss': { area: 'load', desc: 'every streamed update reaches the store, the derived views and a keyed list exactly once' },
+  'lifecycle:unmount-cleanup': { area: 'load', desc: 'components unmounted while updates arrive release their subscriptions, timers, effects and bindings' },
+  'perf:memory': { area: 'load', desc: 'the heap after a forced GC stays level over a long run of streaming and mount churn' },
+  'perf:long-tasks': { area: 'load', desc: 'no main-thread task exceeds a stated bound while 200 updates a second arrive' },
+
   'a11y:aria-enumerated': { area: 'a11y', desc: 'aria-* booleans serialize as "true"/"false", never empty or absent' },
 };
 
