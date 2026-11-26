@@ -24,6 +24,12 @@
 // - render() on a root whose unmount waits for its commit is rejected;
 // - new nodes go in left to right;
 // - an unmount asked for from the first commit's ref releases everything.
+// The seventh review's probe (verify-wave7 wave7.jsx, wave7-extra.jsx) adds:
+// - a field's new value is written before an element of the commit goes
+//   into the page (a custom element's connectedCallback reads it), still
+//   after a class's snapshot;
+// - a value the browser refuses goes to the field's error boundary.
+// (Roots: root-lifecycle.test.js.)
 // Run: node --test packages/react-compat/test/commit-order.test.js
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -415,6 +421,51 @@ test('a class\'s getSnapshotBeforeUpdate reads a field\'s value before the commi
     ctx.put(view('b'));
   });
   assert.deepEqual(events, [['snapshot', 'a', 'a'], ['did update', 'b']]);
+});
+
+// The seventh review's scenes (verify-wave7 wave7.jsx value-order and
+// wave7-extra.jsx file-boundary; lane-r7 lane7.jsx value-connected-row).
+
+test('a custom element placed by the commit reads the new values of the fields patched before it, in its list or in an earlier one; a class\'s snapshot still reads them as they were (React 19.3.1 value-order, value-connected-row)', async () => {
+  let changed = false;
+  const { events } = await edge((ctx) => {
+    window.customElements.define('x-lane-reader', class extends window.HTMLElement {
+      connectedCallback() { if (changed) ctx.note('connected', this.id, document.getElementById('f1').value, document.getElementById('f2').value); }
+    });
+    class Snap extends Component {
+      getSnapshotBeforeUpdate() { ctx.note('snapshot', document.getElementById('f1').value, document.getElementById('f2').value); return null; }
+      componentDidUpdate() { ctx.note('did update', document.getElementById('f1').value); }
+      render() { return h('i', null, this.props.v); }
+    }
+    const view = (/** @type {string} */ v) => ctx.tree(
+      h('section', null, h('input', { id: 'f1', value: v, onChange() {} }), h(Snap, { v })),
+      h('section', null, h('textarea', { id: 'f2', value: v, onChange() {} }), changed && h('x-lane-reader', { id: 'same' })),
+      h('section', null, changed ? [h('x-lane-reader', { key: 'r', id: 'later' })] : []),
+    );
+    ctx.put(view('old'));
+    changed = true;
+    ctx.put(view('new'));
+  });
+  assert.deepEqual(events, [['snapshot', 'old', 'old'], ['connected', 'same', 'new', 'new'], ['connected', 'later', 'new', 'new'], ['did update', 'new']]);
+});
+
+test('a field value the commit cannot write goes to the error boundary of the component that rendered the field (React 19.3.1 file-boundary: InvalidStateError fallback)', async () => {
+  let html = [];
+  await quietly(() => edge((ctx) => {
+    class Caught extends Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      static getDerivedStateFromError(/** @type {any} */ e) { return { error: e.name }; }
+      render() { return this.state.error ? h('strong', null, this.state.error) : this.props.children; }
+    }
+    // A shared field wrapper still passes its text value as the input turns into a file input.
+    const view = (/** @type {string} */ type) => h(Caught, null, h('input', { type, value: 'text', onChange() {} }));
+    ctx.put(view('text'));
+    ctx.put(view('file'));
+    html.push(ctx.container.innerHTML);
+    ctx.put(view('text'));
+    html.push(ctx.container.innerHTML);
+  }));
+  assert.deepEqual(html, ['<strong>InvalidStateError</strong>', '<strong>InvalidStateError</strong>']);
 });
 
 for (const stopToo of [false, true]) {

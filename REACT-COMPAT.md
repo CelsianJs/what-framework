@@ -464,24 +464,27 @@ one React component per row is 1.29 times an all-native one (1.27 before;
 - **Render and commit are one pass.** React renders a whole tree, then
   commits it; here each component is rendered and its DOM patched in turn.
   What follows from it:
-  - A removed component's layout cleanups (and `componentWillUnmount`) run
-    while the reconciler is at its place in the tree, before the components
-    after it have rendered. In React they run after every render of the
-    commit.
+  - A removed component's layout cleanups, `componentWillUnmount`, ref
+    detach and DOM removal wait until the commit's render is done, a list's
+    leavers first, as React's mutation phase runs them. But the rows that
+    stay or arrive are patched and placed as they render, so those cleanups
+    already see their siblings' new props and newly placed nodes, which
+    React shows only after its deletions.
   - `getSnapshotBeforeUpdate` is called after its component's `render()` and
-    before that component's own DOM changes, but DOM that an earlier part of
-    the same commit patched (a parent's attributes, an earlier sibling) is
-    already new.
-  - A ref whose callback changed is detached while its element is patched,
-    before the commit's insertion effects; the new one attaches in the
-    layout phase, as in React. React detaches it in its mutation phase,
-    component by component with the insertion effects and layout cleanups.
+    before that component's own DOM changes. A sibling the commit removes is
+    still in the page, as in React, but DOM that an earlier part of the same
+    commit patched (a parent's attributes, an earlier sibling) is already
+    new.
+  - A ref whose callback changed is detached with the commit's mutations,
+    once its render is done; the new one attaches in the layout phase, as
+    in React.
   - Every insertion effect of a commit runs before any layout cleanup.
     React runs a component's insertion effects and layout cleanups
     together, component by component.
-  - If a descendant throws during a subtree's first commit, effect cleanups
-    of partially mounted children may not run before the boundary's fallback
-    replaces them. Not re-checked in this pass.
+  - When a boundary catches an error or content suspends, what the failed
+    render built is torn down and never set up, but siblings in the same
+    commit can set up their refs and effects before the fallback replaces
+    them, and are cleaned up then; React sets none of them up.
 - **State updates.**
   - `useReducer` runs an action at the `dispatch` call when nothing is
     queued, with the reducer of the last render (React 17's behaviour), and

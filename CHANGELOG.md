@@ -1183,11 +1183,24 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   effects, as React does: React Hook Form's `useFieldArray().swap()` keeps
   the edited field focused (it lost the focus). MIXED.md, Limits, lists
   what still differs (`packages/react-compat/test/commit-order.test.js`).
-<!-- lane: root-ownership. The what-react fix for a root re-rendered or
-     unmounted during its own first commit, a second unmount() from an old
-     handle after a remount, and a controlled value write that throws.
-     Its Fixed bullet goes here; drop the matching entries under "Known
-     issues" in docs/releases/v0.15.0.md when it lands. -->
+- **what-react: a `createRoot()` handle owns one root for its whole life.**
+  `render()` and `unmount()` are scheduled as React's `updateContainer`
+  schedules them, whether or not the root has mounted: at once when nothing
+  is committing, otherwise once the running commit and its passive effects
+  are done, with the calls made meanwhile merged into the last one. A
+  layout effect that re-renders its root during the first commit no longer
+  mounts a second tree that `unmount()` could not release (its cleanups
+  never ran and its listeners kept firing). An `unmount()` cancels a render
+  still waiting, so nothing that render would set up runs. A second
+  `unmount()` on a handle does nothing, and an unmount removes only that
+  root's nodes: an old handle's cleanup no longer empties a new root mounted
+  in the same container. The first render into another root from inside an
+  effect waits for the commit, as React's does. A controlled `value` the
+  browser refuses (a non-empty value on a `type="file"` input) reaches the
+  nearest error boundary instead of being logged, and a custom element's
+  `connectedCallback` reads its sibling fields' new values
+  (`packages/react-compat/test/root-lifecycle.test.js`,
+  `commit-order.test.js`).
 - **Spreads on one element resolve as React's props do.** Across any number
   of spreads and attributes each name has one writer, the last in source
   order, and it stays live:

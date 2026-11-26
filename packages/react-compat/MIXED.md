@@ -428,10 +428,16 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   (cleanups, ref detaches, nodes out of the page) once the whole render is
   done; React renders everything first, then removes, then updates. A
   controlled field's `value` (and any element's `value` prop) is written
-  with the removals, after them, as React writes it: a `<select>` whose
-  option for the value left and came back under another key selects the
-  new one, and a class's `getSnapshotBeforeUpdate` reads a field's value as
-  it was. A class's `getSnapshotBeforeUpdate` sees the rows the commit
+  after the removals, as React writes it in its mutation phase: a
+  `<select>` whose option for the value left and came back under another
+  key selects the new one, a class's `getSnapshotBeforeUpdate` reads a
+  field's value as it was, and a field's new value is written before any
+  element of the commit goes into the page, so a custom element's
+  `connectedCallback` reads it, as in React (a snapshot rendered after an
+  element went into the page in the same commit reads the new value). A value the browser refuses
+  (a controlled text value on a field that became a file input) goes to the
+  error boundary of the component that rendered the field, as in React. A
+  class's `getSnapshotBeforeUpdate` sees the rows the commit
   removes, as in React, but also the other new props and text of elements
   patched before it in the same commit, where React's sees none of the
   commit's changes. A removed row's layout and ref cleanups still run
@@ -467,25 +473,45 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   content suspends after it was shown keeps that content mounted and
   hidden with its refs and layout effects attached; React detaches them
   while it is hidden.
-- A root unmounted by a callback of its own commit (`root.unmount()` from a
-  removed row's cleanup, a ref, an effect, the first commit's included) is
-  unmounted once the commit is done, as React does: the commit finishes on
-  nodes in the page, its passive effects run, every callback has returned
-  its cleanup, and then every cleanup runs, of everything the root held
-  then. With `flushSync` all of it happens before it returns, as in React;
-  without it, with the commit's passive effects on the next microtask
-  (React unmounts at the end of the commit either way). `render()` on a
-  root after its `unmount()` throws React's error 409 ("Cannot update an
-  unmounted root."), also while the unmount waits. Unmounting empties the
-  container, nodes of others included (React removes only its own).
-- `root.render()` on a mounted root, asked for while a render, a commit or
-  its effects run (another root's removed row's cleanup, a layout effect, a
-  passive effect), renders once that commit is done, after its passive
-  effects; the renders asked for until then are one, the last element's,
-  as React batches them. React renders one asked for from a layout effect
-  or a cleanup there too; one asked for from a passive effect React
-  renders in a task after it, what-react before `flushSync` returns. A
-  root's first `render()` renders at once, wherever it is called.
+- A `createRoot()` handle owns one root, and its `render()` goes the same
+  way whether the root is mounted or not, as React's updateContainer:
+  outside a render, a commit or its effects it commits before it returns;
+  asked for while one runs (a layout effect of the root's own first commit,
+  another root's removed row's cleanup, a passive effect), it commits once
+  that commit is done, after its passive effects, and the renders asked
+  for until then are one, the last element's, as React batches them. Each
+  root rendered that way runs its own passive effects before the next one
+  renders, as React flushes a synchronous commit's. React renders one asked
+  for from a layout effect or a cleanup there too; one asked for from a
+  passive effect React renders in a task after it, what-react before
+  `flushSync` returns. A render asked for in the root's first commit
+  replaces that tree once the commit is done; a root's first render asked
+  for from an effect sets nothing up for the elements it is merged past.
+- `unmount()` is a render of nothing that goes the same way, as React's is:
+  asked for from a callback of the root's own commit (a removed row's
+  cleanup, a ref, an effect, the first commit's included), it runs once
+  the commit is done: the commit finishes on nodes in the page, its
+  passive effects run, every callback has returned its cleanup, and then
+  every cleanup runs, of everything the root held then. With `flushSync`
+  all of it happens before it returns, as in React; without it, with the
+  commit's passive effects on the next microtask (React unmounts at the end
+  of the commit either way). It takes the place of a render of the root
+  still waiting, which sets nothing up. A passive effect still waiting when
+  the root renders again runs first, as React runs them before it
+  renders; if it unmounts the root, that render is not done. `render()`
+  after `unmount()` throws React's error 409 ("Cannot update an unmounted
+  root."), also while the unmount waits; a second `unmount()` on a handle
+  does nothing, so an old handle never touches a new root in the same
+  container. Unmounting removes only the root's own nodes, as React does
+  (a root that never rendered empties its container, as React's first
+  commit does).
+- `render()` outside a render, a commit or its effects commits before it
+  returns, where React schedules it: two `render()` calls in one task
+  commit one after the other, where React commits only the last. If the
+  first one's passive effect unmounts the root, it runs before the second
+  render, which is not done (React commits the second and releases it at
+  the unmount); nothing either set up outlives the unmount
+  (`test/root-lifecycle.test.js`).
 - `hydrateRoot()` in full compat renders on the client at once, inside the
   call (React hydrates in a later task), so a callback of that first commit
   cannot reach the root it returns.

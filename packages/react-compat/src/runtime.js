@@ -456,8 +456,24 @@ export function runInCommit(fn) {
  */
 const mutations = [];
 
+/**
+ * The `value` a commit writes to its fields (an input, a textarea, any
+ * element but a select and its options, which go with the mutations: a
+ * select's waits for the option that held it to leave). Written after the
+ * mutations, as React writes them in its mutation phase, so a class's
+ * snapshot and a removed row's cleanup read the value as it was, and before
+ * an element goes into the page: a custom element's connectedCallback reads
+ * the new one, as in React. What a write throws goes to the error boundary
+ * of the component that rendered the field.
+ * @type {Array<() => void>}
+ */
+const fields = [];
+
 function exitCommit() {
-  if (commitDepth === 1) runAll(mutations);
+  if (commitDepth === 1) {
+    runAll(mutations);
+    runAll(fields);
+  }
   if (--commitDepth !== 0) return;
   // React's commit order: insertion effects (a CSS-in-JS library writes
   // its rules before anything reads layout), then the layout phase (the DOM
@@ -1084,6 +1100,7 @@ function reconcile(parentDom, old, kids, ids, lists, anchor, svg, owner, inst, i
   // back once the list is in place, as React gives it back after its
   // mutations (restoreSelection), before an autoFocus or a layout effect.
   const had = /** @type {HTMLElement | null} */ (document.activeElement);
+  runAll(fields);
   while (places.length > 0) placeRNode(places.pop(), parentDom, places.pop());
   if (had !== document.activeElement) had?.focus({ preventScroll: true });
   return result;
@@ -1539,7 +1556,11 @@ function mountElement(v, parentDom, before, svg, owner) {
   if (props.autoFocus === true) layoutQueue.push({ focus: true, el, inst: owner });
   if (rn.ref) layoutQueue.push({ rn, ref: rn.ref, el, inst: owner });
 
-  if (parentDom !== null) parentDom.insertBefore(el, before);
+  if (parentDom !== null) {
+    // The fields patched before it have their values (fields).
+    if (fields.length > 0 && parentDom.isConnected) runAll(fields);
+    parentDom.insertBefore(el, before);
+  }
   return rn;
 }
 
@@ -1801,9 +1822,12 @@ function patchElement(rn, v, svg, owner) {
 
     patchElementChildren(rn, v, newProps, childSvg, owner);
 
-    // With the commit's mutations, as React writes it: once the children
-    // that leave are gone (a select's option that held the value).
-    if (hasValue) mutations.push(() => setProperty(el, 'value', value, oldProps.value, isSvgEl));
+    // In the commit's mutation phase, as React writes it (fields): a
+    // select's once the children that leave are gone (the option that held
+    // the value), after its options'.
+    if (hasValue) (v.tag === 'select' || v.tag === 'option' ? mutations : fields).push(() => {
+      try { setProperty(el, 'value', value, oldProps.value, isSvgEl); } catch (e) { handleRenderError(owner, e, true); }
+    });
     if (hasChecked) setProperty(el, 'checked', checked, oldProps.checked, isSvgEl);
     if (emptySelect && el.options.length > 0) resetSelect(el, null);
 
@@ -2318,38 +2342,58 @@ export function _setRangeHidden(inst, hidden) {
 // Roots — entry points used by react-compat's ReactDOM implementation
 // =====================================================================
 
-export function mountRoot(element, container) {
-  // The root holds its list: a component at its top finds its place in it.
-  const root = { container, rns: NO_RNODES, svg: typeof SVGElement !== 'undefined' && container instanceof SVGElement };
-  root.rns = runInCommit(() => patchChildren(container, NO_RNODES, element, null, root.svg, null, root));
-  return root;
-}
-
 /**
- * Render `element` into a mounted root. Asked for while a render, a commit or
- * its effects run (a removed row's cleanup that renders another root), it is
- * an update React renders once that commit is done, after its passive
- * effects (_whenCommitted); the renders asked for until then are one, the
- * last element's.
+ * A `createRoot()` handle and the root it owns (which holds its list: a
+ * component at its top finds its place in it). render() commits the element
+ * as React's updateContainer schedules it, mounted or not: now, or, asked
+ * for while a render, a commit or its effects run (a layout effect of the
+ * root's own first commit, another root's removed row's cleanup), once that
+ * commit is done, after its passive effects (_whenCommitted). What is asked
+ * for until it runs is one commit, of the last element. unmount() is a
+ * render of nothing that goes the same way, as React's is: it takes the
+ * place of a render still waiting, so nothing that one would have set up
+ * runs, only the root's own nodes leave, and the handle takes no render
+ * after it (React's error #409) and does nothing on a second unmount().
  */
-export function patchRoot(root, element) {
-  root.next = element;
-  if (root.queued) return;
-  root.queued = true;
-  _whenCommitted(() => {
-    root.queued = false;
-    _flushPendingPassive();
-    root.rns = runInCommit(() => patchChildren(root.container, root.rns, root.next, null, root.svg, null, root));
-  });
-}
-
-/** Unmount `root`: its cleanups run and its nodes leave. */
-export function unmountRoot(root) {
-  runInCommit(() => {
-    for (const rn of root.rns) unmountRNode(rn, true);
-    root.rns = NO_RNODES;
-  });
-  _flushUnmounted();
+export function _createRoot(container) {
+  const root = { container, rns: NO_RNODES };
+  const svg = typeof SVGElement !== 'undefined' && container instanceof SVGElement;
+  let next, queued = false, fresh = true, gone = false;
+  const commit = (element) => {
+    next = element;
+    if (queued) return;
+    queued = true;
+    _whenCommitted(() => {
+      // React runs the last commit's passive effects before it renders: one
+      // may render this root again, or unmount it.
+      _flushPendingPassive();
+      queued = false;
+      // React empties the container in a root's first commit.
+      if (fresh) container.textContent = '';
+      fresh = false;
+      root.rns = runInCommit(() => patchChildren(container, root.rns, next, null, svg, null, root));
+      // Its passive phase now when it unmounted the root, or ran in the
+      // passive phase of the commit that asked for it (React flushes a
+      // synchronous commit's passive effects before another root renders):
+      // what it removed, then its effects.
+      if (gone || effectDepth > 0) {
+        runAll(unmountedPassive);
+        flushEffectQueue(passiveQueue);
+      }
+    });
+  };
+  return {
+    render(element) {
+      // Also while the unmount waits for a commit.
+      if (gone) throw new Error('Cannot update an unmounted root.');
+      commit(element);
+    },
+    unmount() {
+      if (gone) return;
+      gone = true;
+      commit(null);
+    },
+  };
 }
 
 // =====================================================================
@@ -2424,6 +2468,7 @@ export function _commitPlaced(node, render) {
     render();
   } finally {
     runAll(mutations);
+    runAll(fields);
     commitDepth--;
   }
   flushInsertionQueue();
