@@ -15,7 +15,8 @@
 //
 // Bounds: no main-thread task over 100 ms while streaming at 200/s; the heap
 // after a forced GC grows by less than 1 MiB across three samples 6 s apart,
-// and does not rise at every sample.
+// and does not rise at every sample. The heap is read in Chromium only (the
+// devtools protocol); in WebKit and Firefox that check is skipped.
 
 import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
 
@@ -33,11 +34,30 @@ const INIT = `
     window.setInterval = (fn, ms, ...args) => { const id = set(fn, ms, ...args); live.add(id); return id; };
     window.clearInterval = (id) => { live.delete(id); return clear(id); };
     window.__longTasks = [];
-    try {
+    // Long tasks come from the Long Tasks API where the browser has it
+    // (Chromium). Elsewhere (WebKit, Firefox) a 10 ms timeout chain measures
+    // how late each tick runs: a task that holds the main thread for D ms
+    // makes the next tick D ms late, and a lateness over 50 ms is recorded as
+    // a long task of that length. setTimeout, not setInterval: the cleanup
+    // check counts the page's live intervals.
+    if ((PerformanceObserver.supportedEntryTypes || []).includes('longtask')) {
+      window.__longTaskSource = 'longtask';
       new PerformanceObserver((list) => {
         for (const e of list.getEntries()) window.__longTasks.push(e.duration);
       }).observe({ type: 'longtask', buffered: true });
-    } catch {}
+    } else {
+      window.__longTaskSource = 'loop-lag';
+      const TICK = 10;
+      let due = performance.now() + TICK;
+      const tick = () => {
+        const now = performance.now();
+        const late = now - due;
+        if (late > 50) window.__longTasks.push(late);
+        due = now + TICK;
+        setTimeout(tick, TICK);
+      };
+      setTimeout(tick, TICK);
+    }
   })();
 `;
 
@@ -55,7 +75,7 @@ export default {
     'cmp:svg',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
     const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
@@ -126,11 +146,11 @@ export default {
           'every trade reached the store, the cards and the keyed tape exactly once',
           `emitted=${paused.emitted} received=${paused.received} cards=${cardTrades} gaps=${paused.gaps} repeats=${paused.repeats} tape-top=${paused.tape[0]} rows=${paused.tape.length} samples-bad=${samples.slice(0, 3).join(',') || 0}`);
 
-        const longTasks = await page.evaluate(() => window.__longTasks.slice());
+        const { longTasks, source } = await page.evaluate(() => ({ longTasks: window.__longTasks.slice(), source: window.__longTaskSource }));
         const worst = longTasks.length ? Math.max(...longTasks) : 0;
         check('perf:long-tasks', worst <= LONG_TASK_BOUND,
           `no main-thread task over ${LONG_TASK_BOUND}ms while streaming`,
-          `long-tasks=${longTasks.length} worst=${worst.toFixed(0)}ms`);
+          `long-tasks=${longTasks.length} worst=${worst.toFixed(0)}ms (${source})`);
 
         // === Pause holds, resume continues from the next sequence number =========
         await sleep(400);
@@ -181,6 +201,18 @@ export default {
 
         // === Memory over a longer run ===========================================
         // Keep streaming and keep toggling; sample the heap after a forced GC.
+        // Forcing a GC and reading the heap goes through the devtools protocol,
+        // which only Chromium speaks; WebKit and Firefox give a page neither.
+        if (browserName !== 'chromium') {
+          skip('perf:memory', 'the heap after a forced GC stays level over 15 s of streaming and panel churn',
+            `${browserName} has no devtools-protocol session to force a GC and read the heap`);
+          const end = await state();
+          reporter.assert(end.received === end.emitted || end.running, 'the long run kept every trade',
+            `received=${end.received} emitted=${end.emitted}`);
+          reporter.assert(diag.errors.length === 0, 'the feed ran with zero page errors', diag.errors.slice(0, 3).join(' | '));
+          log(`rate=${rate.toFixed(0)}/s long-tasks=${longTasks.length} worst=${worst.toFixed(0)}ms (${source})`);
+          return;
+        }
         const cdp = await page.context().newCDPSession(page);
         const heap = async () => {
           await cdp.send('HeapProfiler.collectGarbage');
