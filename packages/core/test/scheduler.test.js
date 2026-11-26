@@ -78,10 +78,35 @@ describe('scheduler', () => {
 
   describe('nextFrame', () => {
     it('should wait for next animation frame', async () => {
-      const start = Date.now();
-      await nextFrame();
-      const elapsed = Date.now() - start;
-      assert.ok(elapsed >= 0); // At least some time passed
+      const frames = [];
+      const realRaf = global.requestAnimationFrame;
+      global.requestAnimationFrame = (cb) => frames.push(cb);
+      try {
+        let resolved = false;
+        const done = nextFrame().then(() => { resolved = true; });
+        await Promise.resolve();
+        assert.equal(frames.length, 1, 'requests one frame');
+        assert.equal(resolved, false, 'does not resolve before the frame');
+        frames[0](0);
+        await done;
+        assert.equal(resolved, true);
+      } finally {
+        global.requestAnimationFrame = realRaf;
+      }
+    });
+
+    it('cancel() drops the frame and rejects', async () => {
+      const cancelled = [];
+      const realCancel = global.cancelAnimationFrame;
+      global.cancelAnimationFrame = (id) => { cancelled.push(id); realCancel(id); };
+      try {
+        const frame = nextFrame();
+        frame.cancel();
+        await assert.rejects(frame, /Cancelled/);
+        assert.equal(cancelled.length, 1);
+      } finally {
+        global.cancelAnimationFrame = realCancel;
+      }
     });
   });
 
