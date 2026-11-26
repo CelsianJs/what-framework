@@ -99,7 +99,7 @@ const apps = readdirSync(appsDir)
   .filter((name) => /^const importMap = /m.test(readFileSync(join(appsDir, name, 'server.js'), 'utf8')));
 
 test('every buildless smoke app is checked', () => {
-  assert.deepEqual(apps.sort(), ['ops-console', 'scrollytelling', 'storefront']);
+  assert.deepEqual(apps.sort(), ['newsroom', 'ops-console', 'scrollytelling', 'storefront']);
 });
 
 for (const app of apps) {
