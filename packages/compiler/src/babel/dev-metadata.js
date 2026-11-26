@@ -14,6 +14,8 @@
 //                                        `const [count, setCount]`; useSignal alike
 //   effects      effect(fn)           -> effect(fn, { name: "save@src/store.js:9:1" })
 //                effect(fn, { phase }) -> effect(fn, { phase, name: "…" })
+//                useEffect(fn, deps)  -> useEffect(fn, deps, "useEffect@src/App.jsx:8:3"),
+//                                        `useEffect(fn, undefined, "…")` without deps
 //   bindings     _$effect(() => _$setAttr(el, "title", x()), { name: "li.title@src/App.jsx:14:9" })
 //                _$insert(el, () => x(), marker, "li.children@src/App.jsx:15:11")
 //
@@ -75,6 +77,7 @@ const NAMED_PRIMITIVES = new Map([
   ['computed', 'argument'],
   ['useState', 'argument'],
   ['useSignal', 'argument'],
+  ['useEffect', 'third'],
   ['h', 'vnode'],
 ]);
 
@@ -140,6 +143,11 @@ export function annotatePrimitive(callPath, state) {
   }
   const text = describe(boundName(callPath, primitive), callPath.node, state);
   if (!text) return;
+  if (NAMED_PRIMITIVES.get(primitive) === 'third') {
+    if (args.length === 1) args.push(t.identifier('undefined'), t.stringLiteral(text));
+    else if (args.length === 2) args.push(t.stringLiteral(text));
+    return;
+  }
   if (NAMED_PRIMITIVES.get(primitive) === 'argument') {
     if (args.length === 1) args.push(t.stringLiteral(text));
     else if (primitive === 'signal' && args.length === 2) args.push(t.stringLiteral(text));

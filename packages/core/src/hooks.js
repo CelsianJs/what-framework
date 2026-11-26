@@ -3,7 +3,7 @@
 // Components run ONCE. Hooks return signal accessors (functions) so the
 // fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, effect, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
+import { signal, computed, effect, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _devStackLoc, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
 import { getLoaderData as _getLoaderData, getResource as _getResource, getResourceError as _getResourceError, _seedFor, _errorFromRecord } from './hydration-data.js';
 import { computed as asyncComputed } from './async.js';
@@ -133,16 +133,26 @@ export function useComputed(fn) {
 // getter, and listing it is harmless (a component runs once, so a callback
 // never changes).
 // The component is the report's subject, so the same mistake in two
-// components is two reports, each with its own owner and location, and the
-// rows of one component's list are one.
-function reportPlainDeps(deps, ctx) {
+// components is two reports, each with its own owner, and the rows of one
+// component's list are one. The report is at the useEffect call: `at`, the
+// location what-compiler gave it, else the caller's frame of the stack.
+function reportPlainDeps(deps, ctx, at) {
   const subject = { kind: 'component', name: ctx.Component?.displayName || ctx.Component?.name || 'anonymous' };
+  /** @type {string | null | undefined} */
+  let loc;
+  const where = () => (loc === undefined ? (loc = at ?? _devStackLoc(useEffect)) : loc);
   for (let i = 0; i < deps.length; i++) {
     const dep = deps[i];
     if (dep == null) continue;
-    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` } });
-    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` } });
+    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` }, loc: where() });
+    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` }, loc: where() });
   }
+}
+
+// "name@path:line:column" (what-compiler's development metadata) as its location.
+function devLoc(meta) {
+  const at = typeof meta === 'string' ? meta.indexOf('@') : -1;
+  return at === -1 ? null : meta.slice(at + 1);
 }
 
 // A callback's result as an effect's: a function is the cleanup. In
@@ -160,10 +170,13 @@ function cleanupOf(result, ctx, mounting) {
   return undefined;
 }
 
-export function useEffect(fn, deps) {
+// `debugName` is what-compiler's development metadata for the call
+// ("useEffect@src/App.jsx:10:3"), in development builds only.
+export function useEffect(fn, deps, debugName) {
   const ctx = getCtx('useEffect');
   getHook(ctx);
-  if (__DEV__ && Array.isArray(deps)) reportPlainDeps(deps, ctx);
+  const at = __DEV__ ? devLoc(debugName) : null;
+  if (__DEV__ && Array.isArray(deps)) reportPlainDeps(deps, ctx, at);
   // A server render never mounts.
   if (isServerRender()) return;
 
@@ -183,7 +196,8 @@ export function useEffect(fn, deps) {
   }
   if (__DEV__) {
     /** @type {any} */ (run).inner = fn;
-    /** @type {any} */ (_userEffect)(run, _devCallSite(fn.name || 'useEffect', useEffect));
+    const name = fn.name || 'useEffect';
+    /** @type {any} */ (_userEffect)(run, at !== null ? `${name}@${at}` : _devCallSite(name, useEffect));
   } else {
     _userEffect(run);
   }

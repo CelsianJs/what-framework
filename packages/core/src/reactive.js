@@ -3812,7 +3812,20 @@ export function _devAction(data) {
  * and useEffect it makes.
  */
 export function _devCallSite(name, primitive, kind = 'effects') {
-  if (!__DEV__ || !devWatched(kind) || typeof window === 'undefined' || devSplit(name)[1] !== null) return name;
+  if (!__DEV__ || !devWatched(kind) || devSplit(name)[1] !== null) return name;
+  const loc = _devStackLoc(primitive);
+  return loc === null ? name : `${name || ''}@${loc}`;
+}
+
+/**
+ * @internal Development: where the app called `primitive`, from a stack trace,
+ * as "path:line:column": a page's URL is made relative to its origin, without
+ * the dev server's query (`?t=…`), so it reads as the compiler's locations do
+ * (`src/App.jsx:10:3`); a Vite `/@fs/` path is the file's absolute path. Null
+ * outside a browser, and for a frame of What's own or of node_modules.
+ */
+export function _devStackLoc(primitive) {
+  if (!__DEV__ || typeof window === 'undefined') return null;
   const error = new Error();
   const capture = /** @type {{ captureStackTrace?: (error: Error, skip: Function) => void }} */ (Error).captureStackTrace;
   if (capture) capture(error, primitive);
@@ -3822,14 +3835,17 @@ export function _devCallSite(name, primitive, kind = 'effects') {
   try {
     stack = error.stack;
   } catch {
-    return name;
+    return null;
   }
-  if (typeof stack !== 'string') return name;
+  if (typeof stack !== 'string') return null;
   const frames = stack.split('\n');
   const caller = capture ? frames[1] : frames[frames.findIndex((line) => line.startsWith(primitive.name + '@')) + 1];
   const loc = caller?.trim().match(/(?:^at (?:.*? \()?|@)((?:https?:|file:|\/).+?:\d+:\d+)\)?$/)?.[1];
-  if (!loc || /\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(loc)) return name;
-  return `${name || ''}@${loc}`;
+  if (!loc || /\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(loc)) return null;
+  const [, file, pos] = /** @type {RegExpMatchArray} */ (loc.match(/^(.*?)(:\d+:\d+)$/));
+  const page = file.match(/^https?:\/\/[^/]+\/([^?#]*)/);
+  if (page === null) return loc;
+  return (page[1].startsWith('@fs/') ? page[1].slice(3) : page[1]) + pos;
 }
 
 // A runtime name given the compiler's location, unless it carries its own.
