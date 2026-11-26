@@ -233,7 +233,10 @@ export default function App() {
 
 `nestedRoutes(base, children, { layout, loading, error })` prefixes each child's
 path and gives it the options it does not set itself. A layout receives
-`{ params, query, children }`.
+`{ params, query, children }`. It stays mounted, with its state and its DOM,
+while the visitor moves between routes that share it, and only the page in
+`children` changes; it is built again when its params or query change, so a
+layout that reads `params.id` in its body sees the new id.
 
 ## Route Guards & Middleware
 

@@ -1025,6 +1025,26 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   // navigation does not render the route again. A server render's URL does
   // not move.
   const page = server ? state.url : computed(() => pageOf(state.url()));
+  // The route a URL matches, its params and its query, made once per URL:
+  // the layout chain and the page both read it, and the route state they
+  // write from it is then the same objects, which notify nobody twice.
+  /** @type {any} */
+  let lastMatch = null;
+  const matchOf = (/** @type {string} */ url) => {
+    if (lastMatch !== null && lastMatch.url === url) return lastMatch;
+    const { path, search } = splitUrl(url);
+    const matched = matchRoute(path, routes);
+    lastMatch = { url, matched, query: matched ? parseQuery(search) : null };
+    return lastMatch;
+  };
+  const enter = (/** @type {any} */ r, /** @type {any} */ params, /** @type {any} */ queryObj) => {
+    batch(() => {
+      state.params.set(params);
+      state.query.set(queryObj);
+      if (state === tab) _pattern.set(r.path);
+    });
+  };
+
   // The Router component runs ONCE. `content` is a reactive function child that
   // re-evaluates whenever its page changes (its URL, not counting the hash); the
   // fine-grained runtime reconciles only the matched page in place. The globalLayout is rendered ONCE around it
@@ -1033,19 +1053,13 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   const renderMatch = () => {
     page();
     const currentUrl = untrack(state.url);
-    const { path, search } = splitUrl(currentUrl);
     const loadingView = pendingView === null ? null : pendingView();
 
-    const matched = matchRoute(path, routes);
+    const { matched, query: queryObj } = matchOf(currentUrl);
 
     if (matched) {
       const { route: r, params } = matched;
-      const queryObj = parseQuery(search);
-      batch(() => {
-        state.params.set(params);
-        state.query.set(queryObj);
-        if (state === tab) _pattern.set(r.path);
-      });
+      enter(r, params, queryObj);
 
       // The verdict the route's preparation decided (a navigation's, or this
       // render's), which this render follows. Middleware is synchronous:
@@ -1092,12 +1106,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
         element = h(ErrorBoundary, { fallback: r.error }, element);
       }
 
-      // Wrap with nested layouts (innermost to outermost)
-      const layouts = buildLayoutChain(r, routes);
-      for (const Layout of layouts.reverse()) {
-        element = h(Layout, { params, query: queryObj }, element);
-      }
-
+      // The route's layouts are around this region (`routed` below).
       return element;
     }
 
@@ -1127,15 +1136,64 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     return handleRedirect(sig.to, sig.options, matched ? matched.route.path : undefined);
   };
 
+  // The route layouts around the page. They are built again only when the
+  // chain of layouts, the params or the query change, so moving between
+  // routes that share a layout keeps it, with its state and its DOM, and the
+  // page changes inside it: `content` is the innermost layout's reactive
+  // child. A page whose middleware declines it, a 404 and a route with no
+  // layout render `content` as they are.
+  /** @type {any} */
+  let shownChain = null;
+  const layoutsFor = () => {
+    page();
+    const currentUrl = untrack(state.url);
+    const { matched, query } = matchOf(currentUrl);
+    if (!matched) return null;
+    const layouts = buildLayoutChain(matched.route, routes);
+    if (layouts.length === 0) return null;
+    // The route state goes in first, as renderMatch writes it, because the
+    // preparation runs middleware that reads it; renderMatch's own write of
+    // the same objects is then no change.
+    const verdict = untrack(() => {
+      enter(matched.route, matched.params, query);
+      return prepFor(currentUrl, matched.route);
+    }).verdict();
+    if (verdict === false || typeof verdict === 'string' || (verdict !== null && typeof verdict === 'object')) return null;
+    const next = { layouts, params: matched.params, query };
+    if (shownChain !== null && sameChain(shownChain, next)) return shownChain;
+    shownChain = next;
+    return next;
+  };
+  const chain = server ? layoutsFor : computed(layoutsFor);
+  const routed = () => {
+    const around = chain();
+    if (around === null) return content();
+    /** @type {any} */
+    let element = content;
+    for (let i = around.layouts.length - 1; i >= 0; i--) {
+      element = h(around.layouts[i], { params: around.params, query: around.query }, element);
+    }
+    return element;
+  };
+
   // Render the global layout ONCE so it — and everything it mounts (sidebars,
   // toasters, command palettes, global key listeners) — PERSISTS across
   // navigations; the reactive `content` child swaps the matched page in place.
   // A function child is a reactive region (see render.insert), so on navigation
   // only the page subtree reconciles, never the shell. 404/403/redirect screens
   // now render inside the shell too (the natural meaning of a "global" layout).
-  // Without a globalLayout, `content` itself is the reactive root — Router still
+  // Without a globalLayout, `routed` itself is the reactive root — Router still
   // returns a reactive function child (back-compat).
-  return globalLayout ? h(globalLayout, {}, content) : content;
+  return globalLayout ? h(globalLayout, {}, routed) : routed;
+}
+
+// Whether two layout chains show the same layouts with the same params and
+// query: then the layouts already on screen stay.
+/** @param {any} a @param {any} b */
+function sameChain(a, b) {
+  if (a.layouts.length !== b.layouts.length) return false;
+  for (let i = 0; i < a.layouts.length; i++) if (a.layouts[i] !== b.layouts[i]) return false;
+  return JSON.stringify(a.params) === JSON.stringify(b.params) && JSON.stringify(a.query) === JSON.stringify(b.query);
 }
 
 // --- Link Component ---
