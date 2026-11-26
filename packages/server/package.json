@@ -1,6 +1,6 @@
 {
   "name": "what-server",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "What Framework - SSR, islands architecture, static generation",
   "type": "module",
   "main": "src/index.js",
@@ -74,8 +74,8 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "what-core": "^0.14.0",
-    "what-router": "^0.14.0"
+    "what-core": "^0.15.0",
+    "what-router": "^0.15.0"
   },
   "repository": {
     "type": "git",

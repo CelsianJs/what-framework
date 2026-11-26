@@ -1,6 +1,6 @@
 {
   "name": "what-isr",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "What Framework - Origin-first ISR cache engine: stale-while-revalidate, on-demand & poll regeneration, no CDN required",
   "type": "module",
   "main": "src/index.js",
@@ -33,7 +33,7 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "what-server": "^0.14.0"
+    "what-server": "^0.15.0"
   },
   "peerDependenciesMeta": {
     "what-server": {

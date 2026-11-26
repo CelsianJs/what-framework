@@ -1,6 +1,6 @@
 {
   "name": "what-framework-cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "What Framework CLI - Dev server, build, and deployment tools",
   "type": "module",
   "bin": {
@@ -25,7 +25,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "what-framework": "^0.14.0"
+    "what-framework": "^0.15.0"
   },
   "repository": {
     "type": "git",
