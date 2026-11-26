@@ -1,0 +1,16 @@
+{
+  "name": "smoke-newsroom",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Newsroom smoke app: a streamed front page with out-of-order Suspense, long ISR article pages that hydrate, five island modes on one page, comments as server actions with and without JavaScript.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "what-framework": "0.15.0",
+    "what-isr": "0.15.0",
+    "what-server": "0.15.0"
+  }
+}

@@ -1,0 +1,65 @@
+:root {
+  color-scheme: light;
+  --ink: #1b1a17;
+  --muted: #6b6458;
+  --line: #ddd6c8;
+  --accent: #9b2c1f;
+  --paper: #fbf8f1;
+  font-family: Georgia, 'Iowan Old Style', serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); }
+a { color: inherit; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: #fff; padding: 0.3rem 0.7rem; border-radius: 4px; }
+.container { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+.masthead { border-bottom: 3px double var(--ink); text-align: center; padding: 1.25rem 1rem 0.5rem; }
+.brand { font-size: clamp(2rem, 6vw, 3.4rem); font-weight: 700; text-decoration: none; letter-spacing: -0.02em; }
+.edition { color: var(--muted); margin: 0.25rem 0 0.75rem; font-style: italic; }
+.sections { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; font-family: system-ui, sans-serif; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.5rem 0; }
+.sections a { text-decoration: none; }
+.front { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 2rem; }
+.front-tools, .pager { grid-column: 1 / -1; }
+.stories { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
+.card { border-top: 1px solid var(--line); padding-top: 0.75rem; }
+.card.lead { grid-column: 1 / -1; }
+.card.lead h2 { font-size: 2rem; margin: 0.25rem 0; }
+.stories.compact .dek, .stories.compact .byline { display: none; }
+.kicker { font-family: system-ui, sans-serif; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.1em; color: var(--accent); margin: 0; }
+.dek { color: var(--muted); }
+.byline { font-family: system-ui, sans-serif; font-size: 0.8rem; color: var(--muted); }
+.rail { border-left: 1px solid var(--line); padding-left: 1.5rem; }
+.rail h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.loading { color: var(--muted); font-style: italic; }
+.markets { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 1rem; font-family: system-ui, sans-serif; }
+.pager { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 1rem; font-family: system-ui, sans-serif; }
+.article-layout { display: grid; grid-template-columns: 220px minmax(0, 720px); gap: 2.5rem; justify-content: center; }
+.article h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; margin: 0.4rem 0; }
+.article-meta { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.article-body { font-size: 1.12rem; line-height: 1.65; }
+.article-body[data-text-size='small'] { font-size: 1rem; }
+.article-body[data-text-size='large'] { font-size: 1.3rem; }
+.pull { border-left: 4px solid var(--accent); margin: 2rem 0; padding-left: 1.25rem; font-size: 1.35rem; font-style: italic; }
+.pull cite { display: block; font-size: 0.9rem; font-style: normal; color: var(--muted); }
+.contents { position: sticky; top: 1rem; align-self: start; font-family: system-ui, sans-serif; font-size: 0.85rem; }
+.contents ol { padding-left: 1.1rem; }
+@media (max-width: 1099px) {
+  .article-layout { grid-template-columns: minmax(0, 720px); }
+  .contents { display: none; }
+}
+@media (max-width: 760px) {
+  .front { grid-template-columns: 1fr; }
+  .rail { border-left: 0; padding-left: 0; }
+}
+.share { position: relative; }
+.share-menu { position: absolute; z-index: 2; list-style: none; margin: 0.25rem 0 0; padding: 0.4rem; background: #fff; border: 1px solid var(--line); border-radius: 4px; min-width: 9rem; }
+.share-menu a, .share-menu button { display: block; width: 100%; text-align: left; border: 0; padding: 0.3rem 0.5rem; }
+.reading-now { font-family: system-ui, sans-serif; color: var(--muted); }
+.reading-now .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #2f855a; margin-right: 0.4rem; }
+.comments { border-top: 3px double var(--ink); margin-top: 3rem; }
+.comment-list { padding-left: 1.2rem; }
+.comment-author { font-weight: 700; margin-bottom: 0; }
+.comment-body { margin-top: 0.2rem; }
+.comment-form { display: grid; gap: 0.6rem; max-width: 34rem; font-family: system-ui, sans-serif; }
+.comment-form label { display: grid; gap: 0.25rem; }
+.comment-form input, .comment-form textarea { font: inherit; padding: 0.4rem; border: 1px solid var(--line); border-radius: 4px; }
+.footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 2rem 1rem; border-top: 1px solid var(--line); }

@@ -77,6 +77,7 @@ dirties the demo.
 | `data-grid` | compiled SPA over 10,000 rows | virtual scrolling with a bounded DOM, sort, filter, select-all, inline cell editing, a summary derived over every row, a 1,000-row bulk update, each with a time budget |
 | `live-feed` | compiled SPA fed 200 updates a second | a keyed tape with no dropped or repeated rows, SVG sparklines, store counters, pause/resume, panels mounting and unmounting under load with nothing left behind, a level heap, no long tasks |
 | `workspace` | compiled SPA chaining a product's workflows | a guarded deep link, nested layouts, a queried list, an optimistic edit and its rollback, a three-step wizard across back/forward and a reload, a focus-trapped portal dialog, a toast live region |
+| `newsroom` | buildless server-rendered news site under load | a streamed front page whose first byte beats its slow query, out-of-order Suspense boundaries, query-string pagination, 3,000-word ISR articles that hydrate without creating a node, all five island modes on one page, text typed before hydration surviving it, comments as server actions with and without JavaScript and their tag revalidation, 100 concurrent renders each with only its own content, a level server heap over 2,000 requests |
 
 ## Writing a new app
 

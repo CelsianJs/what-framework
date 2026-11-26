@@ -103,6 +103,15 @@ export const CAPABILITIES = {
   'perf:memory': { area: 'load', desc: 'the heap after a forced GC stays level over a long run of streaming and mount churn' },
   'perf:long-tasks': { area: 'load', desc: 'no main-thread task exceeds a stated bound while 200 updates a second arrive' },
 
+  // --- Server under load: streaming, hydration of long pages, concurrency --
+  'stream:ttfb': { area: 'server-load', desc: "a streamed page's first byte (the shell, with its fallbacks) arrives before its slowest query resolves" },
+  'stream:out-of-order': { area: 'server-load', desc: 'a later Suspense boundary whose data is ready first streams first, and every boundary lands in its own place' },
+  'route:query-pagination': { area: 'server-load', desc: 'the query string drives a paginated list on the server; a page out of range is a 404' },
+  'render:hydration-adopts-long-page': { area: 'server-load', desc: 'a page of several thousand words hydrates with no node created, added or rewritten' },
+  'island:input-before-hydration': { area: 'server-load', desc: "text typed into an island's form before hydration survives it" },
+  'server:request-isolation': { area: 'server-load', desc: 'concurrent renders of different pages (cached and streamed) each carry only their own content' },
+  'server:memory': { area: 'server-load', desc: "the server's heap after a full GC stays level across 2,000 requests" },
+
   'a11y:aria-enumerated': { area: 'a11y', desc: 'aria-* booleans serialize as "true"/"false", never empty or absent' },
 };
 
