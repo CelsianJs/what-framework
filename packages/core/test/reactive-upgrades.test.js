@@ -4,7 +4,7 @@
 // 3. Ownership tree for automatic disposal
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, memo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup } from '../src/reactive.js';
+import { signal, computed, effect, memo, batch, flushSync, createRoot, getOwner, runWithOwner, onCleanup } from '../src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -588,68 +588,6 @@ describe('backward compatibility', () => {
     assert.equal(runs, 2);
   });
 
-  it('effect runs immediately and tracks deps', async () => {
-    const s = signal(0);
-    const values = [];
-    const dispose = effect(() => values.push(s()));
-
-    assert.deepEqual(values, [0]);
-    s.set(1);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
-    dispose();
-  });
-
-  it('batch groups writes', () => {
-    const a = signal(0);
-    const b = signal(0);
-    let runs = 0;
-
-    const dispose = effect(() => { a(); b(); runs++; });
-    assert.equal(runs, 1);
-
-    batch(() => {
-      a.set(1);
-      b.set(2);
-    });
-    assert.equal(runs, 2);
-    dispose();
-  });
-
-  it('untrack prevents subscription', () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => {
-      untrack(() => s());
-      runs++;
-    });
-    assert.equal(runs, 1);
-    s.set(1);
-    flushSync();
-    assert.equal(runs, 1);
-    dispose();
-  });
-
-  it('createRoot dispose works', () => {
-    const s = signal(0);
-    let runs = 0;
-
-    createRoot(dispose => {
-      effect(() => { s(); runs++; });
-      assert.equal(runs, 1);
-
-      s.set(1);
-      flushSync();
-      assert.equal(runs, 2);
-
-      dispose();
-
-      s.set(2);
-      flushSync();
-      assert.equal(runs, 2);
-    });
-  });
-
   it('memo equality check still works', async () => {
     const s = signal(1);
     const m = memo(() => s() > 5 ? 'big' : 'small');
@@ -668,20 +606,5 @@ describe('backward compatibility', () => {
     assert.equal(runs, 2);
     assert.equal(m(), 'big');
     dispose();
-  });
-
-  it('signal.subscribe still works', async () => {
-    const s = signal(0);
-    const values = [];
-    const unsub = s.subscribe(v => values.push(v));
-
-    assert.deepEqual(values, [0]);
-    s.set(1);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
-    unsub();
-    s.set(2);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
   });
 });

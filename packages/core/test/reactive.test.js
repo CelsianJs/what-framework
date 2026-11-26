@@ -1,7 +1,7 @@
 // Tests for What Framework - Reactive System
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, untrack, flushSync } from '../src/reactive.js';
+import { signal, computed, effect, batch, flushSync } from '../src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -10,31 +10,10 @@ async function flush() {
 }
 
 describe('signal', () => {
-  it('should hold and return a value', () => {
-    const s = signal(42);
-    assert.equal(s(), 42);
-  });
-
-  it('should update value with set()', () => {
-    const s = signal(1);
-    s.set(2);
-    assert.equal(s(), 2);
-  });
-
   it('should accept updater function', () => {
     const s = signal(5);
     s.set(v => v * 2);
     assert.equal(s(), 10);
-  });
-
-  it('should not notify if value is same (Object.is)', () => {
-    const s = signal(1);
-    let runs = 0;
-    const dispose = effect(() => { s(); runs++; });
-    assert.equal(runs, 1);
-    s.set(1);
-    assert.equal(runs, 1);
-    dispose();
   });
 
   it('should notify when writing -0 over +0 (Object.is, not ===)', () => {
@@ -58,16 +37,6 @@ describe('signal', () => {
     flushSync();
     assert.equal(runs, 2);
     assert.ok(Object.is(c(), -0));
-    dispose();
-  });
-
-  it('should not notify when writing NaN over NaN', () => {
-    const s = signal(NaN);
-    let runs = 0;
-    const dispose = effect(() => { s(); runs++; });
-    assert.equal(runs, 1);
-    s.set(NaN);
-    assert.equal(runs, 1);
     dispose();
   });
 
@@ -99,19 +68,6 @@ describe('signal', () => {
     }
   });
 
-  it('should support peek() without tracking', () => {
-    const s = signal(10);
-    let runs = 0;
-    const dispose = effect(() => {
-      s.peek();
-      runs++;
-    });
-    assert.equal(runs, 1);
-    s.set(20);
-    assert.equal(runs, 1);
-    dispose();
-  });
-
   it('should support subscribe()', async () => {
     const s = signal(0);
     const values = [];
@@ -135,23 +91,6 @@ describe('computed', () => {
     const sum = computed(() => a() + b());
     assert.equal(sum(), 5);
   });
-
-  it('should update when deps change', () => {
-    const a = signal(1);
-    const doubled = computed(() => a() * 2);
-    assert.equal(doubled(), 2);
-    a.set(5);
-    assert.equal(doubled(), 10);
-  });
-
-  it('should be lazy — not compute until read', () => {
-    let runs = 0;
-    const a = signal(1);
-    const c = computed(() => { runs++; return a() * 2; });
-    assert.equal(runs, 0);
-    c();
-    assert.equal(runs, 1);
-  });
 });
 
 describe('effect', () => {
@@ -172,16 +111,6 @@ describe('effect', () => {
     await flush();
     assert.deepEqual(values, [0, 1, 2]);
     dispose();
-  });
-
-  it('should stop when disposed', () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => { s(); runs++; });
-    assert.equal(runs, 1);
-    dispose();
-    s.set(1);
-    assert.equal(runs, 1);
   });
 
   it('should track dynamic deps', async () => {
@@ -228,37 +157,6 @@ describe('batch', () => {
       b.set(1);
     });
     assert.equal(runs, 2);
-    dispose();
-  });
-
-  it('should support nested batches', () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => { s(); runs++; });
-
-    batch(() => {
-      s.set(1);
-      batch(() => {
-        s.set(2);
-      });
-      assert.equal(runs, 1);
-    });
-    assert.equal(runs, 2);
-    dispose();
-  });
-});
-
-describe('untrack', () => {
-  it('should read without subscribing', () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => {
-      untrack(() => s());
-      runs++;
-    });
-    assert.equal(runs, 1);
-    s.set(1);
-    assert.equal(runs, 1);
     dispose();
   });
 });

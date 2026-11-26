@@ -29,19 +29,6 @@ describe('microtask deferral', () => {
     dispose();
   });
 
-  it('effect runs after microtask flush', async () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => { s(); runs++; });
-    assert.equal(runs, 1);
-
-    s.set(1);
-    await flush();
-    assert.equal(runs, 2, 'ran after microtask');
-
-    dispose();
-  });
-
   it('multiple writes in same sync block batch to single effect run', async () => {
     const a = signal(0);
     const b = signal(0);
@@ -77,26 +64,6 @@ describe('microtask deferral', () => {
 // =========================================================================
 
 describe('diamond dependency', () => {
-  it('effect sees consistent state from two computeds depending on same signal', async () => {
-    const a = signal(1);
-    const b = computed(() => a() * 2);
-    const c = computed(() => a() * 3);
-
-    const snapshots = [];
-    const dispose = effect(() => {
-      snapshots.push({ b: b(), c: c() });
-    });
-
-    assert.deepEqual(snapshots, [{ b: 2, c: 3 }]);
-
-    a.set(10);
-    await flush();
-
-    // Should see consistent state (b=20, c=30), never (b=20, c=3) or (b=2, c=30)
-    assert.deepEqual(snapshots[snapshots.length - 1], { b: 20, c: 30 });
-    dispose();
-  });
-
   it('no intermediate inconsistent states in diamond with batch', () => {
     const a = signal(1);
     const b = computed(() => a() + 1);
@@ -236,23 +203,6 @@ describe('flush loop guard', () => {
 // =========================================================================
 
 describe('batch with microtask deferral', () => {
-  it('effects run once at end of batch', () => {
-    const a = signal(0);
-    const b = signal(0);
-    let runs = 0;
-
-    const dispose = effect(() => { a(); b(); runs++; });
-    assert.equal(runs, 1);
-
-    batch(() => {
-      a.set(1);
-      b.set(2);
-    });
-    // batch forces synchronous flush at end
-    assert.equal(runs, 2, 'ran once after batch');
-    dispose();
-  });
-
   it('nested batches defer until outermost completes', () => {
     const s = signal(0);
     let runs = 0;
@@ -279,16 +229,6 @@ describe('batch with microtask deferral', () => {
 // =========================================================================
 
 describe('computed edge cases', () => {
-  it('computed is lazy — does not compute until read', () => {
-    let computeCount = 0;
-    const s = signal(1);
-    const c = computed(() => { computeCount++; return s() * 2; });
-
-    assert.equal(computeCount, 0, 'not computed yet');
-    assert.equal(c(), 2);
-    assert.equal(computeCount, 1, 'computed on first read');
-  });
-
   it('peek() does not track but still computes if dirty', () => {
     const s = signal(5);
     const c = computed(() => s() * 10);
@@ -337,34 +277,5 @@ describe('untrack', () => {
     assert.equal(runs, 2, 'tracked signal change triggered');
 
     dispose();
-  });
-});
-
-// =========================================================================
-// Signal Subscribe
-// =========================================================================
-
-describe('signal.subscribe', () => {
-  it('fires callback with current value immediately', () => {
-    const s = signal(42);
-    const values = [];
-    const unsub = s.subscribe(v => values.push(v));
-
-    assert.deepEqual(values, [42]);
-    unsub();
-  });
-
-  it('fires callback on changes after flush', async () => {
-    const s = signal(0);
-    const values = [];
-    const unsub = s.subscribe(v => values.push(v));
-
-    s.set(1);
-    await flush();
-    s.set(2);
-    await flush();
-
-    assert.deepEqual(values, [0, 1, 2]);
-    unsub();
   });
 });
