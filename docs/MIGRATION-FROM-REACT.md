@@ -100,6 +100,42 @@ function App() {
 }
 ```
 
+### Portals
+
+react-dom's `createPortal(children, node)` is the `<Portal>` component, on the
+root entry. `target` is an element or a CSS selector, `document.body` when
+there is none. There is no `createPortal` export: an import of it fails in the
+browser with "does not provide an export named 'createPortal'".
+
+```jsx
+import { Portal, useState } from 'what-framework';
+
+function Modal({ onClose, children }) {
+  return (
+    <Portal target={document.body}>
+      <div role="dialog" aria-modal="true">
+        <button onClick={onClose}>Close</button>
+        {children}
+      </div>
+    </Portal>
+  );
+}
+
+function App() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Open</button>
+      {open() ? <Modal onClose={() => setOpen(false)}>Hi</Modal> : null}
+    </>
+  );
+}
+```
+
+The condition sits where the modal renders, in the parent's JSX. Written in
+the modal as React does (`if (!open) return null`), it is read once
+(`ERR_PROP_READ_ONCE`). [API.md, Portal](./API.md#portal) has the rest.
+
 ### Spread Props and Polymorphic Components
 
 Rest props, `as` props and wrappers that spread their props keep working as written, and follow the parent's state as React re-renders them:

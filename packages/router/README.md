@@ -4,15 +4,21 @@ Client-side router for [What Framework](https://whatfw.com). Supports dynamic ro
 
 ## Install
 
-```bash
-npm install what-router what-core
-```
-
-Or use via the main package:
+An app made with `npm create what@latest` already has it: import it from the
+main package, which depends on it.
 
 ```js
 import { Router, Link, navigate } from 'what-framework/router';
 ```
+
+On its own: `npm install what-router what-core`, and import from `what-router`.
+The examples below import from `what-router`; in an app on `what-framework`,
+write `what-framework/router`.
+
+A route's data is its `preload` ([Route data](#route-data-preload)), on the
+client and in a server render. A page's server `loader` (what
+`useLoaderData()` reads) belongs to what-server's full-stack pages, not to
+this router.
 
 ## Quick Start
 

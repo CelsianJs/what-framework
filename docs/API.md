@@ -15,6 +15,8 @@ Complete public API for `what-framework`. The root entry is
 | `what-framework/data` | [Data Fetching](#data-fetching) |
 | `what-framework/form` | [Forms](#forms) |
 | `what-framework/testing` | [Testing](#testing) |
+| `what-framework/router` | `Router`, `Link`, `navigate`, `route`, route `preload` data: [packages/router/README.md](../packages/router/README.md) |
+| `what-framework/server` | Server rendering, `action()`, `<Form>`, page loaders: [DATA.md](DATA.md) and [packages/server/README.md](../packages/server/README.md) |
 
 Every `what-framework/<kit>` has a `what-core/<kit>` twin. Names that left the
 root entry in 0.15, and where they went, are listed in [UPGRADING.md](UPGRADING.md).
