@@ -10,6 +10,8 @@
 //   components   _$createComponent(Row, props, children, "Row@src/App.jsx:12:5")
 //                (also _$componentVNode and the server back end's _$ssrComponent)
 //   signals      signal(0)            -> signal(0, "count@src/store.js:3:15")
+//                useState(0)          -> useState(0, "count@src/App.jsx:4:27"), named by
+//                                        `const [count, setCount]`; useSignal alike
 //   effects      effect(fn)           -> effect(fn, { name: "save@src/store.js:9:1" })
 //                effect(fn, { phase }) -> effect(fn, { phase, name: "…" })
 //   bindings     _$effect(() => _$setAttr(el, "title", x()), { name: "li.title@src/App.jsx:14:9" })
@@ -71,6 +73,8 @@ const NAMED_PRIMITIVES = new Map([
   ['signal', 'argument'],
   ['effect', 'options'],
   ['computed', 'argument'],
+  ['useState', 'argument'],
+  ['useSignal', 'argument'],
   ['h', 'vnode'],
 ]);
 
@@ -96,6 +100,10 @@ function primitiveName(callPath) {
 function boundName(callPath, fallback) {
   const parent = callPath.parent;
   if (t.isVariableDeclarator(parent) && t.isIdentifier(parent.id)) return parent.id.name;
+  // `const [count, setCount] = useState(0)` names the state after its accessor.
+  if (t.isVariableDeclarator(parent) && t.isArrayPattern(parent.id) && t.isIdentifier(parent.id.elements[0])) {
+    return parent.id.elements[0].name;
+  }
   if ((t.isObjectProperty(parent) || t.isClassProperty(parent)) && !parent.computed && t.isIdentifier(parent.key)) {
     return parent.key.name;
   }

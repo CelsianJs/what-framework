@@ -81,6 +81,41 @@ describe('development metadata: what is emitted', () => {
   });
 });
 
+describe('development metadata: React-style state hooks', () => {
+  const HOOKS = `import { useState, useSignal } from 'what-framework';
+import { useState as reactState } from 'react';
+export let seen;
+export function Form() {
+  const [name, setName] = useState('');
+  const theme = useSignal('dark');
+  const [, setHidden] = useState(false);
+  const [given] = useState(0, 'kept');
+  const [other] = reactState(1);
+  seen = { name, theme, setName, setHidden, given, other };
+  return <p>{name()}</p>;
+}
+`;
+
+  it('names useState after its accessor and useSignal after its variable', () => {
+    const code = dev(HOOKS);
+    assert.match(code, /useState\('', "name@src\/App\.jsx:5:27"\)/);
+    assert.match(code, /useSignal\('dark', "theme@src\/App\.jsx:6:17"\)/);
+    assert.match(code, /useState\(false, "useState@src\/App\.jsx:7:25"\)/, 'a state with no accessor keeps the hook\'s name');
+    assert.match(code, /useState\(0, 'kept'\);/, 'a second argument written in the source is left as it is');
+    assert.match(code, /reactState\(1\);/, 'a hook from another library is not named');
+  });
+
+  it('the state signal carries the name, so devtools find it by it', async () => {
+    const mod = await loadCompiled(HOOKS.replace("import { useState as reactState } from 'react';\n", '').replace('reactState(1)', 'useState(1)'),
+      { filename: '/proj/src/App.jsx', pluginOptions: { devMetadata: true, projectRoot: '/proj' } });
+    const host = document.createElement('div');
+    mount(h(mod.Form), host);
+    flushSync();
+    assert.equal(mod.seen.name._debugName, 'name@src/App.jsx:4:27');
+    assert.equal(mod.seen.theme._debugName, 'theme@src/App.jsx:5:17');
+  });
+});
+
 describe('development metadata: production output is untouched', () => {
   it('a production build is byte-identical with the option on and off', () => {
     for (const generate of ['dom', 'ssr']) {

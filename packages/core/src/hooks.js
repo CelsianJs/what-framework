@@ -62,12 +62,13 @@ function getHook(ctx) {
 // via insert()'s effect wrapper. For interpolation, use count() explicitly.
 // This matches Solid's API and works with the run-once component model.
 
-export function useState(initial) {
+// `debugName` is the development name what-compiler passes ("count@src/App.jsx:4:27").
+export function useState(initial, debugName) {
   const ctx = getCtx('useState');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    const s = signal(typeof initial === 'function' ? initial() : initial);
+    const s = signal(typeof initial === 'function' ? initial() : initial, debugName);
     ctx.hooks[index] = s;
   }
 
@@ -79,12 +80,12 @@ export function useState(initial) {
 // Returns the raw signal. More powerful: read with sig(), write with sig.set(v).
 // Avoids array destructuring overhead.
 
-export function useSignal(initial) {
+export function useSignal(initial, debugName) {
   const ctx = getCtx('useSignal');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = signal(typeof initial === 'function' ? initial() : initial);
+    ctx.hooks[index] = signal(typeof initial === 'function' ? initial() : initial, debugName);
   }
 
   return ctx.hooks[index];
