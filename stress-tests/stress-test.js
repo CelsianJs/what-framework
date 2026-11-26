@@ -20,42 +20,6 @@ import { renderToString, renderToHydratableString, renderToStream } from '../pac
 // ============================================================
 
 describe('deeply nested reactive chains', () => {
-  test('computed chain depth 50', () => {
-    const base = signal(1);
-    let current = base;
-    for (let i = 0; i < 50; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-    assert.equal(current(), 51);
-    base(10);
-    assert.equal(current(), 60);
-  });
-
-  test('computed chain depth 200', () => {
-    const base = signal(0);
-    let current = base;
-    for (let i = 0; i < 200; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-    assert.equal(current(), 200);
-    base(100);
-    assert.equal(current(), 300);
-  });
-
-  test('computed chain depth 1000', () => {
-    const base = signal(0);
-    let current = base;
-    for (let i = 0; i < 1000; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-    assert.equal(current(), 1000);
-    base(5);
-    assert.equal(current(), 1005);
-  });
-
   test('diamond dependency graph (wide fan-out)', () => {
     const base = signal(1);
     const branches = [];

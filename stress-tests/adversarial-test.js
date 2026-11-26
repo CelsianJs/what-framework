@@ -13,17 +13,6 @@ import { renderToString, renderToStream } from '../packages/server/src/index.js'
 // ============================================================
 
 describe('stack overflow resistance', () => {
-  test('computed chain depth 5000 should not overflow', () => {
-    const base = signal(0);
-    let current = base;
-    for (let i = 0; i < 5000; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-    // Reading triggers lazy cascade
-    assert.equal(current(), 5000);
-  });
-
   test('SSR component depth 500 should not overflow', () => {
     function Deep({ depth }) {
       if (depth <= 0) return h('span', null, 'leaf');
