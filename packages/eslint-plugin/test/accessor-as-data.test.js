@@ -76,6 +76,14 @@ describe('no-uncalled-signals: What state used as data', () => {
     assert.deepEqual(lint(`function App() {\n  ${BODY}\n  return <Field value={name} fields={{ name, age }} list={[name, age]} />;\n}\n`, { wrap: false }), []);
   });
 
+  it('does not report a plain shape on a same-named variable of another scope', () => {
+    // `idx` is a signal in one component and a plain local in another.
+    const code = "function A() { const idx = useSignal(0); return <p>{() => idx() + 1}</p>; }\n" +
+      'function B({ current }) { return <div>{() => { const idx = current(); if (idx === 0) return <i />; return `n${idx}`; }}</div>; }';
+    assert.deepEqual(lint(code, { wrap: false }), []);
+    assert.equal(lint('function C() { const idx = useSignal(0); return <p>{() => (idx === 0 ? 1 : 2)}</p>; }', { wrap: false }).length, 1, 'the signal itself still is');
+  });
+
   it('does not report state What did not make, or a name that shadows it', () => {
     const react = "import { useState } from 'react';\n";
     assert.deepEqual(lint("function A() { const [name] = useState(''); const [s, setS] = useState(null); return <p onClick={() => setS({ name })}>{JSON.stringify(s)}</p>; }", { head: react, wrap: false }), []);

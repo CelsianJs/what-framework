@@ -38,7 +38,7 @@
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
-import { whatState } from '../utils/what-state.js';
+import { whatState, declaredAsSignal } from '../utils/what-state.js';
 
 // Functions that read the values of their arguments: an accessor handed to one
 // is turned into its source text, `undefined` or `{}`.
@@ -276,7 +276,7 @@ export default {
       if (isWholeJSXExpression(node)) return;
 
       // Check: is this a direct signal variable?
-      if (tracker.isSignalLike(name)) {
+      if (tracker.isSignalLike(name) && declaredAsSignal(sourceCode, node)) {
         context.report({
           node,
           messageId: tracker.isSignal(name) ? 'uncalledSignal' : 'uncalledDestructuredGetter',

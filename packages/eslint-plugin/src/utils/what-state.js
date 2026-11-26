@@ -5,7 +5,7 @@
  * and React's hooks in a what-react file are left alone.
  */
 
-import { SIGNAL_CREATORS, ACCESSOR_PAIR_HOOKS } from './signal-tracking.js';
+import { SIGNAL_CREATORS, ACCESSOR_PAIR_HOOKS, SWR_LIKE_HOOKS } from './signal-tracking.js';
 
 const WHAT_SOURCES = /^what-(framework|core)(\/|$)/;
 
@@ -48,3 +48,22 @@ export function whatState(sourceCode, node) {
   return null;
 }
 
+
+/**
+ * Whether the identifier `node` reads the variable a signal tracker recorded
+ * under its name (createSignalTracker, which goes by name): the declaration
+ * it resolves to is a call of a signal creator, an accessor-pair hook or a
+ * data hook. A same-named variable of another scope (a parameter, a local
+ * `const idx = current()`) is not. Without scope information (a test's fake
+ * context) the name decides.
+ */
+export function declaredAsSignal(sourceCode, node) {
+  if (!sourceCode?.getScope) return true;
+  const def = resolve(sourceCode, node)?.defs[0];
+  if (def?.type !== 'Variable' || def.node.init?.type !== 'CallExpression' || def.node.init.callee.type !== 'Identifier') return false;
+  const hook = def.node.init.callee.name;
+  const id = def.node.id;
+  if (id.type === 'Identifier') return id === def.name && SIGNAL_CREATORS.includes(hook);
+  if (id.type === 'ArrayPattern') return id.elements[0] === def.name && ACCESSOR_PAIR_HOOKS.includes(hook);
+  return id.type === 'ObjectPattern' && SWR_LIKE_HOOKS.includes(hook);
+}

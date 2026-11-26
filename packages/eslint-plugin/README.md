@@ -213,7 +213,9 @@ return first, and the getter fields of `useSWR`, `useFetch`, `useQuery` and
 `useInfiniteQuery`. `memo` is React's component memo and returns a component.
 A method of a signal (`count.set(…)`, `count.peek()`, an async computed's
 `users.pending()`) is not a read. A name where it is declared, destructured or
-exported is not a read and is not reported. `what/signal-call-in-jsx` reports the condition case
+exported is not a read and is not reported, and neither is a variable of
+another scope that shares a signal's name (`const idx = current()` in one
+component, `const idx = useSignal(0)` in another). `what/signal-call-in-jsx` reports the condition case
 in JSX (`{isLoading && …}`, `{open ? … : …}`) with the same code; the `compiler`
 preset turns it off and keeps this rule.
 
