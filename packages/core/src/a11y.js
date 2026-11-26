@@ -78,27 +78,24 @@ export function useFocusTrap(containerRef) {
     // Focus first element
     focusables[0].focus();
 
-    // Handle Tab key
+    // Tab and Shift+Tab move focus through the trap's own list, in document
+    // order, wrapping at both ends. The trap makes every move itself because
+    // browsers disagree on what Tab reaches: Safari by default skips buttons
+    // and links, so from the last field it reaches the browser would carry
+    // focus out of the container.
     function handleKeydown(e) {
       if (e.key !== 'Tab') return;
 
       const focusables = getFocusableElements(container);
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
+      e.preventDefault();
+      if (focusables.length === 0) return;
 
-      if (e.shiftKey) {
-        // Shift+Tab: if on first, go to last
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        // Tab: if on last, go to first
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      const at = focusables.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+      const last = focusables.length - 1;
+      const next = e.shiftKey
+        ? focusables[at <= 0 ? last : at - 1]
+        : focusables[at === -1 || at === last ? 0 : at + 1];
+      next.focus();
     }
 
     container.addEventListener('keydown', handleKeydown);

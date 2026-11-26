@@ -180,6 +180,41 @@ describe('accessibility utilities', () => {
       container.remove();
     });
 
+    it('useFocusTrap makes every Tab move itself, so a browser that skips buttons cannot carry focus out', () => {
+      // Safari's default Tab reaches form fields only. From the textarea, the
+      // browser's own move would leave the container: the trap has to take it.
+      const container = document.createElement('div');
+      const close = document.createElement('button');
+      const title = document.createElement('input');
+      const notes = document.createElement('textarea');
+      const submit = document.createElement('button');
+      container.append(close, title, notes, submit);
+      document.body.appendChild(container);
+
+      const trap = useFocusTrap(container);
+      const stop = trap.activate();
+      const tab = (shiftKey = false) => {
+        const event = new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+        document.activeElement.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+
+      const forward = [];
+      for (let i = 0; i < 5; i++) forward.push([tab(), document.activeElement]);
+      assert.deepEqual(forward.map(([prevented]) => prevented), [true, true, true, true, true]);
+      assert.deepEqual(forward.map(([, el]) => el), [title, notes, submit, close, title]);
+
+      notes.focus();
+      assert.equal(tab(true), true);
+      assert.equal(document.activeElement, title);
+      close.focus();
+      tab(true);
+      assert.equal(document.activeElement, submit);
+
+      stop?.();
+      container.remove();
+    });
+
     it('FocusTrap restores focus on conditional unmount', async () => {
       const app = document.getElementById('app');
       app.textContent = '';
