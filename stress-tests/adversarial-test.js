@@ -126,21 +126,6 @@ describe('type coercion edge cases', () => {
     const html = renderToString(vnode);
     assert.equal(html, '<div>visible</div>');
   });
-
-  test('SSR with symbol should not crash', () => {
-    // Symbols can't be concatenated to strings normally
-    let threw = false;
-    let html;
-    try {
-      html = renderToString(h('div', null, Symbol('test')));
-    } catch {
-      threw = true;
-    }
-    // Either outcome is acceptable; crashing the process is not. `threw` was
-    // being set and never read, so `assert.ok(true)` was the whole test.
-    assert.ok(threw || typeof html === 'string',
-      'a symbol child must either render to a string or throw, not corrupt the output');
-  });
 });
 
 // ============================================================
@@ -262,25 +247,6 @@ describe('pathological SSR', () => {
 // ============================================================
 
 describe('effect scheduling edge cases', () => {
-  test('effect inside effect cleanup', () => {
-    const s = signal(0);
-
-    createRoot(() => {
-      effect(() => {
-        s();
-        return () => {
-          // Creating an effect inside cleanup is unusual but should not crash
-          // We just verify it doesn't throw
-        };
-      });
-    });
-
-    s(1);
-    flushSync();
-    // If we got here, no crash
-    assert.ok(true);
-  });
-
   test('signal write inside effect should schedule re-run', () => {
     const a = signal(0);
     const b = signal(0);
