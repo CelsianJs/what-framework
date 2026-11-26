@@ -19,6 +19,9 @@ import preferSet from './rules/prefer-set.js';
 import noUncalledSignals from './rules/no-uncalled-signals.js';
 import noHInUserCode from './rules/no-h-in-user-code.js';
 import signalCallInJsx from './rules/signal-call-in-jsx.js';
+import noPropReadOnce from './rules/no-prop-read-once.js';
+import noStateReadOnce from './rules/no-state-read-once.js';
+import noCleanupReadsLive from './rules/no-cleanup-reads-live.js';
 import noSetInComputed from './rules/no-set-in-computed.js';
 import noMovedImports from './rules/no-moved-imports.js';
 import noEffectSelfWrite from './rules/no-effect-self-write.js';
@@ -61,6 +64,9 @@ const plugin = {
     'no-promise-in-usememo': noPromiseInUsememo,
     'no-optimistic-snapshot': noOptimisticSnapshot,
     'prefer-async-computed': preferAsyncComputed,
+    'no-prop-read-once': noPropReadOnce,
+    'no-state-read-once': noStateReadOnce,
+    'no-cleanup-reads-live': noCleanupReadsLive,
   },
 
   configs: {},
@@ -124,6 +130,9 @@ plugin.configs.recommended = {
     'what/no-promise-in-usememo': 'warn',
     'what/no-optimistic-snapshot': 'warn',
     'what/prefer-async-computed': 'warn',
+    'what/no-prop-read-once': 'warn',
+    'what/no-state-read-once': 'warn',
+    'what/no-cleanup-reads-live': 'warn',
   },
 };
 
@@ -153,6 +162,9 @@ plugin.configs.strict = {
     'what/no-promise-in-usememo': 'error',
     'what/no-optimistic-snapshot': 'error',
     'what/prefer-async-computed': 'error',
+    'what/no-prop-read-once': 'error',
+    'what/no-state-read-once': 'error',
+    'what/no-cleanup-reads-live': 'error',
   },
 };
 
@@ -182,6 +194,9 @@ plugin.configs.compiler = {
     'what/no-promise-in-usememo': 'warn',
     'what/no-optimistic-snapshot': 'warn',
     'what/prefer-async-computed': 'warn',
+    'what/no-prop-read-once': 'off',          // what-compiler reports these at build time
+    'what/no-state-read-once': 'off',
+    'what/no-cleanup-reads-live': 'off',
   },
 };
 

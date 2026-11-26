@@ -37,9 +37,8 @@
  * - The name is being declared or exported: const [count] = useState(0), export { count }
  */
 
-import { createSignalTracker, SIGNAL_METHODS, SIGNAL_CREATORS, ACCESSOR_PAIR_HOOKS } from '../utils/signal-tracking.js';
-
-const WHAT_SOURCES = /^what-(framework|core)(\/|$)/;
+import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
+import { whatState } from '../utils/what-state.js';
 
 // Functions that read the values of their arguments: an accessor handed to one
 // is turned into its source text, `undefined` or `{}`.
@@ -53,45 +52,6 @@ const VALUE_METHODS = {
 };
 // Methods of an array literal that read its elements as values.
 const ARRAY_VALUE_METHODS = new Set(['join', 'toString', 'toLocaleString']);
-
-/** The variable `node` (an identifier) resolves to, or null. */
-function resolve(sourceCode, node) {
-  if (!sourceCode?.getScope) return null;
-  for (let scope = sourceCode.getScope(node); scope; scope = scope.upper) {
-    const v = scope.set.get(node.name);
-    if (v) return v;
-  }
-  return null;
-}
-
-/** The name `callee` imports from what-framework or what-core, or null. */
-function whatImport(sourceCode, callee) {
-  if (callee?.type !== 'Identifier') return null;
-  const def = resolve(sourceCode, callee)?.defs[0];
-  if (def?.type !== 'ImportBinding' || def.node.type !== 'ImportSpecifier') return null;
-  if (!WHAT_SOURCES.test(String(def.parent?.source?.value))) return null;
-  return def.node.imported.name ?? def.node.imported.value;
-}
-
-/**
- * What the identifier `node` is, when What made it: 'accessor' for the state a
- * What hook or primitive returns (`const x = signal()`, the first element of
- * `const [x, setX] = useState()`), 'setter' for the second element of such a
- * pair, else null.
- */
-function whatState(sourceCode, node) {
-  const def = resolve(sourceCode, node)?.defs[0];
-  if (def?.type !== 'Variable' || def.node.init?.type !== 'CallExpression') return null;
-  const hook = whatImport(sourceCode, def.node.init.callee);
-  if (hook === null) return null;
-  const id = def.node.id;
-  if (id.type === 'Identifier' && id === def.name) return SIGNAL_CREATORS.includes(hook) ? 'accessor' : null;
-  if (id.type === 'ArrayPattern' && ACCESSOR_PAIR_HOOKS.includes(hook)) {
-    if (id.elements[0] === def.name) return 'accessor';
-    if (id.elements[1] === def.name && hook !== 'useTransition' && hook !== 'createResource') return 'setter';
-  }
-  return null;
-}
 
 /** Whether the call `call` reads the values of its arguments. */
 function readsValues(call) {

@@ -29,7 +29,7 @@ a TypeScript parser layered on top, such as typescript-eslint.
 
 | Config | Description |
 |---|---|
-| `what.configs.compiler` | For projects compiled with what-compiler, as a create-what SPA is: turns off the rules the compiler makes unnecessary (`reactive-jsx-children`, `no-camelcase-events`, `signal-call-in-jsx`) and declares `For`, `Show`, `Switch` and `Match` as globals, since the compiler lowers them without an import |
+| `what.configs.compiler` | For projects compiled with what-compiler, as a create-what SPA is: turns off the rules the compiler makes unnecessary (`reactive-jsx-children`, `no-camelcase-events`, `signal-call-in-jsx`) and the read-once rules it reports itself at build time (`no-prop-read-once`, `no-state-read-once`, `no-cleanup-reads-live`), and declares `For`, `Show`, `Switch` and `Match` as globals, since the compiler lowers them without an import |
 | `what.configs.recommended` | For JSX without the compiler (the automatic runtime, as the islands template uses) and `h()` code: most rules warn; `no-moved-imports`, `no-effect-self-write` and `no-set-in-computed` are errors |
 | `what.configs.strict` | Every rule `recommended` turns on, as an error, plus `prefer-set` and `signal-debug-name` as warnings |
 
@@ -245,6 +245,55 @@ what-core, is reported in these places (React's `useState` in a what-react file
 returns a value), and handing the accessor on is left alone: a prop
 (`<Field value={name} />`), a dependency array, `untrack(name)`,
 `computed(name)`, a custom hook, or an object you keep.
+
+### `what/no-state-read-once`, `what/no-prop-read-once`, `what/no-cleanup-reads-live`
+
+A component runs once, so what its body reads outside JSX and outside a
+function is read once, where React reads it again on every render.
+what-compiler reports these shapes at build time (`ERR_STATE_READ_ONCE`,
+`ERR_PROP_READ_ONCE`, `ERR_CLEANUP_READS_LIVE`); these rules report them where
+the compiler does not build, in JSX on the automatic runtime (the islands
+template) and in `h()` code, so `recommended` and `strict` turn them on and
+`compiler` leaves them to the compiler:
+
+- `no-state-read-once`: a return decided by the component's own state, or a
+  value derived from it in the body and shown in JSX.
+- `no-prop-read-once`: a return decided by a prop.
+- `no-cleanup-reads-live`: a `useEffect` cleanup that reads a prop or state
+  its run also reads, in an effect that runs again; the cleanup sees the new
+  value.
+
+<!-- snippet: bad lint=ERR_STATE_READ_ONCE -->
+```jsx
+import { useState, useEffect } from 'what-framework';
+
+export function Users() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { setTimeout(() => setLoading(false), 100); }, []);
+  if (loading()) return <p>Loading…</p>;
+  return <ul />;
+}
+```
+
+<!-- snippet: bad lint=ERR_CLEANUP_READS_LIVE -->
+```jsx
+import { useEffect } from 'what-framework';
+
+export function Room(props) {
+  useEffect(() => {
+    connect(props.room);
+    return () => disconnect(props.room);
+  });
+  return <p>{() => props.room}</p>;
+}
+```
+
+Branch where it renders, `<>{() => (loading() ? <p>Loading…</p> : <ul />)}</>`
+or `<Show when={() => !loading()} fallback={<p>Loading…</p>}>`; keep the value
+the effect's run used in a local for its cleanup. State is what a What hook or
+primitive returns, imported from what-framework or what-core; a read inside a
+function (`untrack(() => count())`, a handler) is not reported, and a React
+file (one that imports `react`) is not checked.
 
 ### `what/no-async-component`
 
@@ -532,6 +581,9 @@ count.set(5);
   'what/no-promise-in-usememo': 'warn',
   'what/no-optimistic-snapshot': 'warn',
   'what/prefer-async-computed': 'warn',
+  'what/no-prop-read-once': 'warn',
+  'what/no-state-read-once': 'warn',
+  'what/no-cleanup-reads-live': 'warn',
 })
 ```
 
@@ -558,6 +610,9 @@ count.set(5);
   'what/no-promise-in-usememo': 'error',
   'what/no-optimistic-snapshot': 'error',
   'what/prefer-async-computed': 'error',
+  'what/no-prop-read-once': 'error',
+  'what/no-state-read-once': 'error',
+  'what/no-cleanup-reads-live': 'error',
 })
 ```
 
@@ -584,6 +639,9 @@ count.set(5);
   'what/no-promise-in-usememo': 'warn',
   'what/no-optimistic-snapshot': 'warn',
   'what/prefer-async-computed': 'warn',
+  'what/no-prop-read-once': 'off',  // what-compiler reports these at build time
+  'what/no-state-read-once': 'off',
+  'what/no-cleanup-reads-live': 'off',
 })
 ```
 

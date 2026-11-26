@@ -92,10 +92,18 @@ export default [
   // The framework's own rules, run against the framework. Sourced from the
   // workspace rather than the published package so a rule change is linted by
   // the same commit that makes it.
+  // The read-once rules are for app components; the framework's own
+  // components read their configuration props once by design (<Router
+  // globalLayout>).
   {
     files: ['packages/*/src/**/*.{js,jsx}'],
     plugins: { what },
-    rules: what.configs.recommended.rules,
+    rules: {
+      ...what.configs.recommended.rules,
+      'what/no-prop-read-once': 'off',
+      'what/no-state-read-once': 'off',
+      'what/no-cleanup-reads-live': 'off',
+    },
   },
 
   // Everything under examples/, sites/ and the JSX benchmarks is built by

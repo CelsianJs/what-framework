@@ -156,6 +156,8 @@ const FIXTURES = {
   badImportClean: { marker: { channel: 'import', code: null }, code: "import { signal } from 'what-framework';" },
   badLint: { marker: { channel: 'lint', code: 'ERR_INFINITE_EFFECT' }, code: "import { signal, effect } from 'what-framework';\nconst count = signal(0);\neffect(() => { count(count() + 1); });" },
   badLintClean: { marker: { channel: 'lint', code: 'ERR_INFINITE_EFFECT' }, code: "import { signal } from 'what-framework';\nconst count = signal(0);" },
+  badLintCompiled: { marker: { channel: 'lint', code: 'ERR_STATE_READ_ONCE' }, code: "import { useState } from 'what-framework';\nexport function Users() { const [loading] = useState(true); if (loading()) return <p>Loading</p>; return <ul />; }" },
+  badLintOtherWarning: { marker: { channel: 'lint', code: 'ERR_STATE_READ_ONCE' }, code: "import { useState } from 'what-framework';\nexport function Users() { const [loading] = useState(true); const [items] = useState([1]); if (loading()) return <p>Loading</p>; return <ul>{items().map((i) => <li>{i}</li>)}</ul>; }" },
   badCompile: { marker: { channel: 'compile', code: 'ERR_INVALID_HTML_NESTING' }, code: 'const el = <p><div>block</div></p>;' },
   badCompileServer: { marker: { channel: 'compile', code: 'ERR_UNSAFE_STATIC_MARKUP' }, code: '<a href="javascript:void 0">Open</a>;' },
   badCompileWarning: { marker: { channel: 'compile', code: 'ERR_MISSING_KEY' }, code: "import { signal } from 'what-framework';\nfunction L() { const items = signal([1]); return <ul>{items().map((i) => <li>{i}</li>)}</ul>; }" },
@@ -228,7 +230,7 @@ describe('checks', () => {
   });
 
   it('asserts that a marked bad block fails exactly the stated way', () => {
-    for (const name of ['badRun', 'badImport', 'badLint', 'badCompile', 'badCompileServer', 'badCompileWarning']) {
+    for (const name of ['badRun', 'badImport', 'badLint', 'badLintCompiled', 'badCompile', 'badCompileServer', 'badCompileWarning']) {
       passes(name);
       assert.equal(results[name].counts.badAsserted, true, name);
     }
@@ -236,6 +238,8 @@ describe('checks', () => {
     failsWith('badRunFragment', /it cannot run on its own \(free identifiers: count\)/);
     failsWith('badImportClean', /marked bad import, but every import resolves/);
     failsWith('badLintClean', /marked bad lint=ERR_INFINITE_EFFECT, but it does not fail that way: eslint-plugin-what reports nothing/);
+    // The compiler's report of the same code is the same mistake; another code is not.
+    failsWith('badLintOtherWarning', /compile warning: \[what-compiler\] ERR_MISSING_KEY/);
   });
 
   it('asserts a catalogue bad half through its detection channel when one can be exercised', () => {

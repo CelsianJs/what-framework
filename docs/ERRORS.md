@@ -315,12 +315,12 @@ createRoot(document.getElementById('app')).render(<App />);
 ## ERR_CLEANUP_READS_LIVE
 
 **Severity:** warning
-  ·  **Raised by:** `what-compiler`
-  ·  **Detected:** compile
+  ·  **Raised by:** `eslint-plugin-what`, `what-compiler`
+  ·  **Detected:** compile, lint
 
 > The {{hook}} cleanup in <{{component}}> reads `{{name}}` when it runs, not the value its run used.
 
-A component runs once, so a prop or a state accessor read in an effect's cleanup is read when the cleanup runs: after the change that makes the effect run again. React's cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array).
+A component runs once, so a prop or a state accessor read in an effect's cleanup is read when the cleanup runs: after the change that makes the effect run again. React's cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array); eslint-plugin-what's no-cleanup-reads-live reports the same where the compiler does not build (the islands template, h() code).
 
 ```jsx
 import { useEffect } from 'what-framework';
@@ -1283,12 +1283,12 @@ await ensurePretext();
 ## ERR_PROP_READ_ONCE
 
 **Severity:** warning
-  ·  **Raised by:** `what-compiler`
-  ·  **Detected:** compile
+  ·  **Raised by:** `eslint-plugin-what`, `what-compiler`
+  ·  **Detected:** compile, lint
 
 > Prop `{{name}}` is read once, when <{{component}}> runs: {{reason}}.
 
-what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Two more shapes read a prop once: a component that decides what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) decides once, so branch where it renders (`<>{() => (on ? <A /> : <B />)}</>` or `<Show when={…}>`; with h(), `() => (on ? h(A) : null)`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`<Mk value={value} />`). The compiler reports each at build time (development builds). Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.
+what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Two more shapes read a prop once: a component that decides what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) decides once, so branch where it renders (`<>{() => (on ? <A /> : <B />)}</>` or `<Show when={…}>`; with h(), `() => (on ? h(A) : null)`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`<Mk value={value} />`). The compiler reports each at build time (development builds); where it does not build (the islands template, h() code), eslint-plugin-what's no-prop-read-once reports the return decided by a prop. Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.
 
 ```jsx
 // Bad - size is assigned again, so it is read once:
@@ -1564,12 +1564,12 @@ export function loader({ query, response }) {
 ## ERR_STATE_READ_ONCE
 
 **Severity:** warning
-  ·  **Raised by:** `what-compiler`
-  ·  **Detected:** compile
+  ·  **Raised by:** `eslint-plugin-what`, `what-compiler`
+  ·  **Detected:** compile, lint
 
 > State `{{name}}` is read once in <{{component}}>: {{reason}}.
 
-A component runs once, so state it reads in its body, outside JSX and outside a function, is read once, where React reads it again on every render. Two shapes ported from React do something else, with no error: a component that decides what it returns from its state (`if (loading()) return <Spinner />`, `return open() ? <Dialog /> : null`) keeps the branch it took first, so branch where it renders (`<>{() => (loading() ? <Spinner /> : <List />)}</>` or `<Show when={…}>`); and a value derived from state in the body and shown in JSX (`const valid = name().length > 0` with `disabled={!valid}`) keeps its first value, so write the expression in the JSX (`disabled={name().length === 0}`) or derive it with `computed()` or `useMemo()` and call it there (`valid()`). State is the accessor a What hook or primitive returns (`useState`, `useReducer`, `useSignal`, `signal`, `computed`, `useMemo`, …). what-compiler reports both at build time (development builds). A read inside a function is not reported: `untrack(() => count())` keeps the first value on purpose.
+A component runs once, so state it reads in its body, outside JSX and outside a function, is read once, where React reads it again on every render. Two shapes ported from React do something else, with no error: a component that decides what it returns from its state (`if (loading()) return <Spinner />`, `return open() ? <Dialog /> : null`) keeps the branch it took first, so branch where it renders (`<>{() => (loading() ? <Spinner /> : <List />)}</>` or `<Show when={…}>`); and a value derived from state in the body and shown in JSX (`const valid = name().length > 0` with `disabled={!valid}`) keeps its first value, so write the expression in the JSX (`disabled={name().length === 0}`) or derive it with `computed()` or `useMemo()` and call it there (`valid()`). State is the accessor a What hook or primitive returns (`useState`, `useReducer`, `useSignal`, `signal`, `computed`, `useMemo`, …). what-compiler reports both at build time (development builds), and eslint-plugin-what's no-state-read-once where the compiler does not build (the islands template, h() code). A read inside a function is not reported: `untrack(() => count())` keeps the first value on purpose.
 
 ```jsx
 import { useState, useEffect, useMemo } from 'what-framework';

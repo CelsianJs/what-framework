@@ -235,10 +235,6 @@ async function checkOne(snippet, expectation, { exportsIndex, globals, runner })
   } else {
     counts.compiled = true;
   }
-  for (const w of warned) {
-    if (!(compileCaught && codesIn(w).includes(expectation.code))) fail(null, `compile warning: ${w.replace(/\s*\(?[^\s]*snippet-[0-9a-f]+-\d+\.jsx[^\s]*\)?/g, '').trim()}`);
-  }
-
   let lintCaught = false;
   let lintFound = null;
   let lintLines = new Set();
@@ -250,6 +246,13 @@ async function checkOne(snippet, expectation, { exportsIndex, globals, runner })
       lintFound = lint.codes;
       lintLines = new Set(lint.found.filter((f) => f.code === expectation.code).map((f) => f.line));
     }
+  }
+
+  // A compile warning with the code the block is marked with is the same
+  // mistake, whichever channel the marker names: lint and the compiler both
+  // report ERR_STATE_READ_ONCE, for instance.
+  for (const w of warned) {
+    if (!((compileCaught || lintCaught) && codesIn(w).includes(expectation.code))) fail(null, `compile warning: ${w.replace(/\s*\(?[^\s]*snippet-[0-9a-f]+-\d+\.jsx[^\s]*\)?/g, '').trim()}`);
   }
 
   // An import the expected lint report points at (ERR_MOVED_IMPORT's bad
