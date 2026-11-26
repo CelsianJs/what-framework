@@ -1,6 +1,6 @@
 // Type probe for what-router's declarations (packages/router/index.d.ts),
 // compiled by ../../types.test.js. Must type-check clean under strict mode.
-import { route, parseQuery, useSearch, type RouteConfig, type RouteMiddleware, type RouteQuery } from 'what-router';
+import { route, parseQuery, useSearch, type LayoutProps, type RouteComponentProps, type RouteConfig, type RouteMiddleware, type RouteQuery } from 'what-router';
 
 // Exact type equality: fails to compile when the two differ either way.
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -33,4 +33,26 @@ export const routes: RouteConfig[] = [
     middleware: [remember],
     preload: ({ query, url }) => [tags(query), url],
   },
+];
+
+// A page types what its route's preload returned with RouteComponentProps<T>;
+// without the argument `data` stays `any`, as before.
+interface User { id: number; name: string }
+const loadUser = (id: string) => () => ({ id: Number(id), name: 'Ada' } as User);
+function UserPage({ data, params }: RouteComponentProps<ReturnType<typeof loadUser>>) {
+  expect<Equals<typeof data, (() => User) | undefined>>(true);
+  const name: string | undefined = data?.().name;
+  // @ts-expect-error data is optional: a route without preload has none.
+  data().name;
+  return (name ?? params.id) as any;
+}
+const untyped = (props: RouteComponentProps) => {
+  expect<Equals<typeof props.data, any>>(true);
+  return props.data.anything as any;
+};
+const Layout = ({ params, query, children }: LayoutProps) => [params.id, query.tab, children] as any;
+
+export const typedRoutes: RouteConfig[] = [
+  { path: '/users/:id', preload: ({ params }) => loadUser(params.id), component: UserPage, layout: Layout },
+  { path: '/plain', component: untyped },
 ];

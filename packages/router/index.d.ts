@@ -100,14 +100,22 @@ export interface RouteConfig {
   preload?: (ctx: { params: Record<string, string>; query: RouteQuery; url: string }) => any;
 }
 
-export interface RouteComponentProps {
+/**
+ * A route page's props. `TData` types `data`, what the route's `preload`
+ * returned: `RouteComponentProps<ReturnType<typeof loadUser>>`.
+ */
+export interface RouteComponentProps<TData = any> {
   params: Record<string, string>;
   query: RouteQuery;
   route: RouteConfig;
   /** What the route's `preload` returned, undefined without one. */
-  data?: any;
+  data?: TData;
 }
 
+/**
+ * A route layout's props. `params` and `query` are live: JSX that reads
+ * `params.id` shows the current URL's, while the layout stays mounted.
+ */
 export interface LayoutProps {
   params: Record<string, string>;
   query: RouteQuery;

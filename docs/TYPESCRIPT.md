@@ -203,9 +203,9 @@ const requireLogin: RouteMiddleware = ({ url }) =>
 ```
 
 A route list typed as `RouteConfig[]` types each route's `preload` context
-(`params`, `query`, `url`). A page gets what its `preload` returned as `data`,
-which `RouteComponentProps` types as optional (a route without `preload` has
-none), so a page names its own type for it:
+(`params`, `query`, `url`). A page gets what its `preload` returned as `data`:
+`RouteComponentProps<T>` types it as `T`, optional because a route without
+`preload` has none (`RouteComponentProps` alone leaves it `any`):
 
 ```tsx
 import { Router, type RouteComponentProps, type RouteConfig } from 'what-framework/router';
@@ -219,7 +219,7 @@ interface User {
 const loadUser = (id: string) =>
   query(['user', id], (key, { signal }) => fetch(`/api/users/${key[1]}`, { signal }).then((r) => r.json() as Promise<User>));
 
-function UserPage({ data }: RouteComponentProps & { data?: ReturnType<typeof loadUser> }) {
+function UserPage({ data }: RouteComponentProps<ReturnType<typeof loadUser>>) {
   return <h1>{data?.()?.name}</h1>;
 }
 

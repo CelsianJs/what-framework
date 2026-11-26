@@ -35,7 +35,7 @@ const consumers = {
       import { jsx } from 'what-framework/jsx-runtime';
       import { jsxDEV } from 'what-framework/jsx-dev-runtime';
       import { setClass } from 'what-framework/render';
-      import { navigate } from 'what-framework/router';
+      import { navigate, type RouteComponentProps, type RouteConfig } from 'what-framework/router';
       import { flushEffects, render } from 'what-framework/testing';
       const count = signal(0);
       const tree = <button onClick={() => count(n => n + 1)}>{count}</button>;
@@ -47,6 +47,10 @@ const consumers = {
       flushEffects();
       // @ts-expect-error A numeric signal cannot accept a string.
       count('wrong');
+      // A page types its route's preload data.
+      const Page = ({ data }: RouteComponentProps<() => { name: string }>) => <h1>{data?.().name}</h1>;
+      const routes: RouteConfig[] = [{ path: '/', preload: () => () => ({ name: 'n' }), component: Page }];
+      void routes;
     `,
   },
 };
