@@ -132,9 +132,8 @@ export default {
         check('route:nested-layout', nesting,
           'a wizard step renders inside the wizard layout inside the shell', `nested=${nesting}`);
         // The layout's own state (its tips panel, closed here) has to survive a
-        // step change, as a React Router or Next.js layout does. Known defect:
-        // what-router builds a route's layout again on every navigation
-        // (smoke/FINDINGS.md E), so this check fails until that is fixed.
+        // step change, as a React Router or Next.js layout does
+        // (smoke/FINDINGS.md 23).
         await page.click('[data-tips-toggle]');
         await page.waitForFunction(() => !document.querySelector('[data-tips]'));
         await page.evaluate(() => { document.querySelector('[data-wizard]').__stamp = 'kept'; });

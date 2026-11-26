@@ -510,6 +510,47 @@ for a navigation that actually succeeded.
 
 ---
 
+### 23. A route layout was built again on every navigation
+`packages/router/src/index.js`, `Router` (`renderMatch`)
+
+Found by the `workspace` app. The wizard's three steps share one layout through
+`nestedRoutes('/new', [...], { layout: WizardLayout })`. Moving from one step to
+the next disposed the layout and built a new one: its state (a tips panel the
+visitor closed) was back to its default, its DOM nodes were new, and anything
+typed into it was gone. The router README's own nested-layout example did the same:
+
+```jsx
+function DashboardLayout({ children }) {
+  const [clicks, setClicks] = useState(0);
+  return <div><button onClick={() => setClicks((c) => c + 1)}>clicks {clicks()}</button><main>{children}</main></div>;
+}
+const routes = nestedRoutes('/dashboard', [
+  { path: '/', component: Home },
+  { path: '/settings', component: Settings },
+], { layout: DashboardLayout });
+// click twice, then follow the Settings link: the button says "clicks 0" again
+```
+
+React Router's `<Outlet>` layouts and Next.js layouts stay mounted while the
+child route changes, so code ported from either loses state here. The
+`globalLayout` persisted by design; route layouts were wrapped around the page
+inside the reactive `content` region, so they rebuilt whenever the page did.
+
+Development made it harder to see: it reported `ERR_REBUILT_COMPONENT` against
+the code that renders the region, which was the router's internal `content` or
+the app's own `<main>{children}</main>` in its `globalLayout`, neither of which
+the developer could change to fix it.
+
+- The Router builds the layout chain in a region of its own, which builds
+  again only when the chain of layouts, the params or the query change; the
+  page is the innermost layout's reactive child. A route with no layout, a
+  404 and a page its middleware declines render as before.
+- The route a URL matches is made once per URL, so the route state written
+  from it is the same objects on both reads and runs no middleware twice.
+- Test: `packages/router/test/nested-layout-persists.test.js`; the
+  `workspace` check "the wizard layout stays mounted, with its state, while the
+  steps change under it".
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -568,50 +609,10 @@ The storefront works around it by putting the review form on `/review`, a
 `mode: 'server'` page. Worth either documenting loudly or having `<Form>` detect
 a cached render and say so.
 
-### E. A route layout is built again on every navigation
-`packages/router/src/index.js`, `Router` (`renderMatch`)
-
-Found by the `workspace` app. The wizard's three steps share one layout through
-`nestedRoutes('/new', [...], { layout: WizardLayout })`. Moving from one step to
-the next disposes the layout and builds a new one: its state (a tips panel the
-visitor closed) is back to its default, its DOM nodes are new, and anything typed
-into it is gone. The router README's own nested-layout example does the same:
-
-```jsx
-function DashboardLayout({ children }) {
-  const [clicks, setClicks] = useState(0);
-  return <div><button onClick={() => setClicks((c) => c + 1)}>clicks {clicks()}</button><main>{children}</main></div>;
-}
-const routes = nestedRoutes('/dashboard', [
-  { path: '/', component: Home },
-  { path: '/settings', component: Settings },
-], { layout: DashboardLayout });
-// click twice, then follow the Settings link: the button says "clicks 0" again
-```
-
-React Router's `<Outlet>` layouts and Next.js layouts stay mounted while the
-child route changes, so code ported from either loses state here. The
-`globalLayout` does persist, by design (the comment above `Router`'s return says
-so); route layouts are wrapped around the page inside the reactive `content`
-region, so they rebuild whenever the page does.
-
-Development makes it harder to see: it reports `ERR_REBUILT_COMPONENT` against
-the code that renders the region, which is the router's internal `content` or
-the app's own `<main>{children}</main>` in its `globalLayout`, neither of which
-the developer can change to fix it.
-
-The fix is to render the layout chain once per chain of layout identities and
-hand each layout its inner content as a reactive child, with `params` and
-`query` as live props. It touches the server render and hydration of every
-routed page, so it is left for a deliberate change. A failing unit test is
-ready for it (`nested-layout-persists.test.js`, router package), and the
-`workspace` check "the wizard layout stays mounted, with its state, while the
-steps change under it" fails until it lands.
-
 ## The load apps: what they measured
 
 `data-grid`, `live-feed` and `workspace` were added to find what only shows
-under volume and rate. Apart from E, the framework met every bound they set, in
+under volume and rate. Apart from 23, the framework met every bound they set, in
 headless Chromium on an M-series Mac:
 
 | measure | bound | measured (median) |
