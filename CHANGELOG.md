@@ -656,9 +656,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   another copy of what-core on the page reads too. It is not enumerable, so
   `Object.keys`, a spread, `Object.assign`, `structuredClone` and JSON leave
   it out; `Reflect.ownKeys` and `Object.getOwnPropertySymbols` list it.
-  Compiled JSX writes that mark into a props object with a live prop
-  (`{ [_$props]: true, get on() { … } }`) where it wrote one with no
-  prototype, and the component gets the object with the mark hidden: setting
+  Compiled JSX marks a props object with a live prop as it builds it
+  (`_$marked({ get on() { … } })`, the mark not enumerable) where it wrote
+  one with no prototype, and the component gets the object as it is: setting
   a prototype in place would give each object a hidden class of its own in
   V8, and make prop reads about 13 times slower. What's copies and spreads
   take own keys only (a key written onto Object.prototype is never a prop or
@@ -798,6 +798,46 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   its props to a JSX helper as a value (`return mk({ value })`): it names the
   prop, the component, `file:line:column` and the fix, so a prop never keeps
   its first value in silence.
+- **`ERR_STATE_READ_ONCE`**, the same compile-time warning for state: a
+  component that picks what it returns from its own state
+  (`if (loading()) return <p>Loading…</p>`, which showed "Loading…" forever)
+  and a value derived from state in the body and shown in JSX
+  (`const valid = name().length > 0; … disabled={!valid}`, a button that
+  never enabled). State is an accessor a What hook or primitive returns and
+  the component declares; a read inside a function (a handler,
+  `untrack(() => x())`) is not reported, and the suggested fix quotes the
+  condition. Compiling the 188 What JSX, TSX and `h()` files in examples/,
+  sites/, demo/, docs-site/, benchmark/ and smoke/ reports nothing.
+  `packages/compiler/test/state-read-once.test.js`.
+- **`ERR_CLEANUP_READS_LIVE`**, a compile-time warning in development
+  builds for a `useEffect` cleanup that reads a prop or calls a state
+  accessor its run also reads, in an effect that can run again (no `[]`):
+  `return () => leave(roomId)` leaves the new room, since a component runs
+  once and the cleanup reads the prop when it runs. It is matched in the
+  source, so it costs nothing at run time; a value reached through a helper
+  or an object is not seen (GOTCHAS.md, section 27). The same 188 files
+  report nothing. `packages/compiler/test/cleanup-reads-live.test.js`.
+- **The page reports what the compiler found.** `ERR_PROP_READ_ONCE`,
+  `ERR_STATE_READ_ONCE` and `ERR_CLEANUP_READS_LIVE` reached only the dev
+  server's terminal. A development DOM build now ends such a module with
+  `_$buildDiagnostics([...])` (what-framework/render), which reports each
+  finding on the diagnostics channel when the module loads, with its source
+  location as written and its component as the subject: the browser
+  console, `getDiagnostics()`, `what_connection_status`, `what_errors` and
+  `what_explain` show them. Production builds and builds without
+  development metadata emit nothing. `what_why` on a target nothing reactive
+  reads (a `disabled` computed in the body) adds a hint that the value was
+  read once and that `what_errors` names the build's finding, where it
+  answered only `reason: "no-live-bindings-or-effects-for-target"`.
+  `packages/compiler/test/state-read-once.test.js`,
+  `packages/devtools-mcp/test/tools.test.js`.
+- **`useState` and `useSignal` state is named after its variable in
+  development**: `const [count, setCount] = useState(0)` is `count`, at the
+  `useState` call, as `signal()` is named, where the devtools showed
+  `signal_12` at the JSX that rendered the component. `what_signals({ filter:
+  "count" })`, the first step of the MCP "UI not updating" workflow, finds
+  it. A production build is byte-identical.
+  `packages/compiler/test/dev-metadata.test.js`.
 
 - **`live(source)`**, a read-only live view of the object an accessor returns:
   `view.name` reads the current value's `name`, through getters What reads as
@@ -1017,7 +1057,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 76 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 78 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
@@ -1066,10 +1106,61 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   so a change that slows one call in twenty fails it. Every package declares
   `engines.node: ">=20"`. The gate re-runs once and fails only an operation
   that missed on both attempts, and each benchmark runs its queued effects
-  after it is measured, so its warm-up measures that operation alone.
+  after it is measured, so its warm-up measures that operation alone. The
+  SSR benchmark has a page of 200 small components beside the 1,000-row
+  table, measures each hydration against a client render of the same page
+  from the same bundle, and puts the hydration tables of the same commit in
+  its RESULTS.md. `npm run smoke:apps` runs seven apps, three of them under
+  load: a 10,000-row grid with virtual scroll and time budgets, a feed of
+  200 updates a second checked for loss, unmount cleanup, heap growth and
+  long tasks, and a workspace whose chained workflows cross back/forward and
+  a reload.
 
 ### Fixed
 
+- **A route layout stays mounted while the visitor moves between the routes
+  that share it** (what-router), with its state, its DOM and what was typed
+  into it, as React Router's `<Outlet>` layouts and Next.js layouts do. The
+  router built every `layout` of `nestedRoutes(..., { layout })` again on
+  each navigation, the router README's own `DashboardLayout` example
+  included, and development blamed the router's region or the app's
+  `{children}` with `ERR_REBUILT_COMPONENT`. The layout chain is a region of
+  its own now, built again only when the layouts, the params or the query
+  change, so a layout that reads `params.id` sees the new id; a route with
+  no layout, a 404 and a page its middleware declines render as before.
+  `packages/router/test/nested-layout-persists.test.js`, and the smoke
+  suite's workspace app.
+- **A `<Suspense>` or `<ErrorBoundary>` that is a region's whole value leaves
+  with it.** A route page whose root is `<Suspense>` over a query or a
+  `lazy()` child (or a ternary branch that is one) stayed in the DOM beside
+  the next page after a navigation, and so did an `<ErrorBoundary>` showing
+  its fallback, with no diagnostic: the region removed only the nodes it had
+  recorded, not the children the boundary inserted later.
+  `packages/core/test/boundary-in-region.test.js`.
+- **A controlled number field keeps what the user typed.** With
+  `value={n()}` and `onChange={(e) => setN(Number(e.target.value))}`, typing
+  `04` showed `4`; the field now keeps `04` while the state holds the same
+  number, as React does. `packages/compiler/test/react-habits.test.js`.
+- **`onChange` hears the next edit after a script wrote the field.** A chat
+  box that clears its field on Enter (`e.target.value = ''`) while it keeps
+  the focus missed onChange when the next keystrokes made the text the field
+  held before the clear. The first time onChange hears a text field, What
+  wraps the field's `value` setter, as React's value tracker does, so a
+  script's write makes it forget what onChange saw; What's own writes keep
+  it, and a field that already has its own `value` is left alone.
+  `packages/core/test/onchange-script-write.test.js`, and
+  `packages/compiler/test/onchange-real-input.test.js` in Chromium and
+  WebKit.
+- **`h('button', { ...props })` renders `props.children`**, as
+  `createElement` does: an element given its children as a prop (a wrapper
+  that spreads its props onto an element) rendered empty, on the client and
+  the server. Children passed as arguments still win; a component's props are
+  unchanged. `packages/core/test/h-children-prop.test.js`.
+- **`ERR_EFFECT_DEP_NOT_FUNCTION` and `ERR_EFFECT_DEP_NOT_SIGNAL` are
+  reported once per component.** They folded by their message, so the same
+  mistake in two components was one diagnostic that named only the component
+  reported last. The component is now the report's subject.
+  `packages/core/test/dev-warnings.test.js`.
 - **Capture-phase handlers in compiled JSX fire.** `onClickCapture`,
   `onKeyDownCapture` and the rest listen for their event in the capture
   phase, with modifiers too (`onClickCapture__once`), as `h()` and spreads
@@ -1873,6 +1964,34 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   is 6 inserts and 2 comments (18 and 6). `perf-counts.test.js` pins the
   counts, and `npm run check:size` now has a what-react scenario
   (`react-counter`).
+- **A signal write that re-runs many `useEffect`s pays far less for React's
+  effect order.** A useEffect or onMount carries the number it was first
+  queued with on its node instead of in a WeakMap, and a round of re-runs in
+  sibling components or list rows, the usual round, is run in that order
+  with no Map, no tuples and no sort; only a round where a re-run's
+  component holds another effect of the round below it takes the keyed
+  sort. The order is unchanged. Measured in Chromium, interleaved builds,
+  click to microtasks drained: one write re-running the useEffect of 10,000
+  components 2.92 ms to 1.14 ms, 10,000 `onMount` components mount in 0.77
+  of the time. `packages/core/test/effect-order-react.test.js` pins the
+  order, including siblings written in the reverse of their order. Size:
+  hooks-app +148 B gzip.
+- **A component with a live prop is built faster.** Compiled JSX passes
+  `_$marked({ get on() { … } })` where it passed
+  `{ [_$props]: true, get on() { … } }`: V8 defined every property after the
+  computed key one at a time, and the runtime then hid the mark in place.
+  10,000 components with a live prop 16.9 ms to 15.8 ms in Chromium
+  (interleaved builds); a props object marked in the literal still works.
+  No size scenario changes. `packages/compiler/test/live-props.test.js`.
+- **`hydrate()` checks a keyed list's server row keys in one pass**: the
+  part of the hash every key of the list shares is computed once, each
+  digest is compared digit by digit with the server's text, and no string is
+  made per digest. Any other answer falls back to the comparison digest by
+  digest, so what is adopted, moved or rebuilt is unchanged. Hydrating a
+  compiled 1,000-row keyed table in Chromium 8.30 ms to 7.10 ms median (61
+  fresh pages per side, interleaved, production dist; the client render of
+  the same page 5.70 to 5.60). Size: compiled-hydrate +326 B gzip,
+  mixed-hydrate +276 B. `packages/core/test/row-keys-in-order.test.js`.
 - **A list row that is a component costs close to the same row written
   inline.** A component that returns one element adds no DOM node: 1,000
   rows of `<Row key={item.id} item={item} />` leave 1,001 nodes in the list's

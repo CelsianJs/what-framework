@@ -573,6 +573,15 @@ and navigations that are transitions. Each change below has its migration.
   typed a query as `Record<string, string>`: narrow the value
   (`Array.isArray(v) ? v[0] : v`), or name the shape
   (`useSearch<{ page?: string }>()`).
+- **A route layout stays mounted between the routes that share it.** 0.14
+  built every `layout` (from `nestedRoutes(..., { layout })` or a route's
+  own) again on each navigation, so its state, its DOM and what was typed
+  into it were lost going from `/dashboard` to `/dashboard/settings`. 0.15
+  builds it again only when the layouts, the params or the query change. Its
+  body, its `onMount` and its effects run once for as long as the visitor
+  stays under it. This affects a layout that relied on being rebuilt to
+  reset its state or to run code on each navigation: read the route
+  (`useRoute()`) in an effect, or use `afterNavigate`.
 - **A `<Router>` inside another has route state of its own**, on the server
   and in the browser: what it renders reads the params and query it matched,
   and its parent's subtree keeps reading the parent's. In the browser the
@@ -861,7 +870,10 @@ options.
   component). An element with a spread and no children of its own renders the
   spread's `children`, on the client and the server: 0.14 wrote them as a
   `children` attribute on the client (`<a {...props} />` showed
-  `<a children="…">`) and dropped them on the server. A destructured prop the
+  `<a children="…">`) and dropped them on the server. `h()` does the same:
+  `h('button', { ...props })` renders `props.children` when no children are
+  passed as arguments (arguments still win), where 0.14 rendered the element
+  empty on both sides. A destructured prop the
   compiler still reads once (one assigned again, a computed key, a default
   that reads another prop or calls something) is reported in development
   builds as `ERR_PROP_READ_ONCE`, with the place and the fix. This affects
