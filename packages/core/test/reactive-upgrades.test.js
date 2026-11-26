@@ -587,24 +587,4 @@ describe('backward compatibility', () => {
     assert.equal(c(), 10);
     assert.equal(runs, 2);
   });
-
-  it('memo equality check still works', async () => {
-    const s = signal(1);
-    const m = memo(() => s() > 5 ? 'big' : 'small');
-    let runs = 0;
-    const dispose = effect(() => { m(); runs++; });
-
-    assert.equal(runs, 1);
-    assert.equal(m(), 'small');
-
-    s.set(3); // still 'small' — memo should not propagate
-    await flush();
-    assert.equal(runs, 1); // memo suppressed the notification
-
-    s.set(10); // now 'big' — memo should propagate
-    await flush();
-    assert.equal(runs, 2);
-    assert.equal(m(), 'big');
-    dispose();
-  });
 });

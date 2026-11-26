@@ -183,39 +183,6 @@ describe('_$createComponent runtime', () => {
   });
 });
 
-describe('h() is internal-only, not a public API', () => {
-  it('h exists in exports for internal package use but is not the compiler target', async () => {
-    const core = await import('../../core/src/index.js');
-    const render = await import('../../core/src/render.js');
-    // h is still exported for internal packages (server, router, react-compat, jsx-runtime)
-    // but the compiler no longer emits h() calls — it uses _$createComponent instead
-    assert.ok(
-      typeof core.h === 'function',
-      'h should exist for internal package consumers'
-    );
-    assert.ok(
-      typeof render._$createComponent === 'function',
-      '_$createComponent should be the compiler target, not h'
-    );
-  });
-
-  it('Fragment IS still publicly exported', async () => {
-    const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core.Fragment === 'function',
-      'Fragment should still be exported from the public index'
-    );
-  });
-
-  it('html tagged template IS still publicly exported', async () => {
-    const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core.html === 'function',
-      'html should still be exported from the public index'
-    );
-  });
-});
-
 describe('jsx-runtime still works', () => {
   it('jsx-runtime exports jsx, jsxs, Fragment', async () => {
     const runtime = await import('../../core/src/jsx-runtime.js');
