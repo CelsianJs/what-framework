@@ -20,7 +20,7 @@ test('the documented typed Button updates the prop passed as an accessor, in pla
     document.body.appendChild(host);
     // Props as a component receives them: one frozen plain object, built once.
     // label is a value; variant changes, so the parent passes the signal.
-    const dispose = mount(Button(Object.freeze({ label: 'Save', variant, onclick: () => { clicks++; } })), host);
+    const dispose = mount(Button(Object.freeze({ label: 'Save', variant, onClick: () => { clicks++; } })), host);
     try {
       const button = host.querySelector('button');
       assert.equal(button.textContent, 'Save');
