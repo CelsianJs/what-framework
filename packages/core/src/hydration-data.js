@@ -340,9 +340,8 @@ export function _enterRow(frame, root, list, key, index) {
   if (list.keys !== undefined) n = (list.counts ??= keyCounts(list.keys))[/** @type {number} */ (index)];
   else {
     const seen = list.seen ??= new Map();
-    const id = keyId(key);
-    n = seen.get(id) || 0;
-    seen.set(id, n + 1);
+    n = seen.get(key) || 0;
+    seen.set(key, n + 1);
   }
   let up = outer;
   let lead = '';
@@ -378,18 +377,23 @@ function placeOf(open, scope, number, end, who) {
   return before === 0 ? place : place + 'Y' + formatId('', before);
 }
 
-const keyId = (key) => (typeof key === 'string' ? 's' : 'n') + key;
-
-// For each key of `keys`, how many before it are the same row key.
+// For each key of `keys`, how many before it are the same row key. A Map
+// tells keys apart as SameValueZero does: a number from its string form, and
+// 0 from nothing but -0, which is the same row key.
 function keyCounts(keys) {
   const seen = new Map();
-  return keys.map((key) => {
-    if (!isRowKey(key)) return 0;
-    const id = keyId(key);
-    const n = seen.get(id) || 0;
-    seen.set(id, n + 1);
-    return n;
-  });
+  const counts = [];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!isRowKey(key)) {
+      counts.push(0);
+      continue;
+    }
+    const n = seen.get(key) || 0;
+    seen.set(key, n + 1);
+    counts.push(n);
+  }
+  return counts;
 }
 
 /** @internal The row _enterRow entered in `frame`'s output is done: `saved` is what it returned. */
