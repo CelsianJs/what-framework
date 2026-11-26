@@ -219,18 +219,20 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
         esbuild: '^0.28.2',
         'what-devtools': whatVersionRange,
         'what-devtools-mcp': whatVersionRange,
-        eslint: '^9.0.0',
+        eslint: '^10.0.0',
         'eslint-plugin-what': whatVersionRange,
         typescript: '^5.6.0',
+        'typescript-eslint': '^8.56.0',
       }
     : template === 'islands'
       ? {
           vite: '^6.0.0',
           'what-devtools': whatVersionRange,
           'what-devtools-mcp': whatVersionRange,
-          eslint: '^9.0.0',
+          eslint: '^10.0.0',
           'eslint-plugin-what': whatVersionRange,
           typescript: '^5.6.0',
+          'typescript-eslint': '^8.56.0',
         }
       : {
           vite: '^6.0.0',
@@ -238,9 +240,10 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
           'what-devtools': whatVersionRange,
           'what-devtools-mcp': whatVersionRange,
           '@babel/core': '^7.23.0',
-          eslint: '^9.0.0',
+          eslint: '^10.0.0',
           'eslint-plugin-what': whatVersionRange,
           typescript: '^5.6.0',
+          'typescript-eslint': '^8.56.0',
         };
 
   const scripts = template === 'fullstack'
@@ -284,6 +287,42 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
     dependencies: deps,
     devDependencies: devDeps,
   }, null, 2) + '\n';
+}
+
+// The scaffold's eslint.config.js for `template`.
+function generateEslintConfig(template) {
+  const ignores = template === 'islands' ? "['dist', '.ssr', 'node_modules']" : "['dist', 'node_modules']";
+  const preset = template === 'fullstack'
+    ? `  what.configs.recommended,
+  // This template authors pages with h() on purpose (buildless, no compiler).
+  { rules: { 'what/no-h-in-user-code': 'off' } },`
+    : template === 'islands'
+      ? `  // 'recommended' preset: this project's JSX uses the automatic runtime, not
+  // the What compiler, so reactive text has to be written as a function.
+  what.configs.recommended,`
+      : `  // 'compiler' preset: this project uses the What compiler (via Vite), which
+  // handles event casing and reactive JSX wrapping automatically.
+  what.configs.compiler,`;
+  return `import what from 'eslint-plugin-what';
+import tseslint from 'typescript-eslint';
+
+export default [
+  { ignores: ${ignores} },
+${preset}
+  { rules: { 'no-unused-vars': ['warn', { args: 'none', varsIgnorePattern: '^_' }] } },
+  // TypeScript: typescript-eslint's parser, and its unused-variable rule,
+  // which counts a name used only as a type.
+  {
+    files: ['**/*.{ts,tsx,mts,cts}'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', { args: 'none', varsIgnorePattern: '^_' }],
+    },
+  },
+];
+`;
 }
 
 function generateViteConfig({ reactCompat, cssApproach }) {
@@ -1231,10 +1270,11 @@ export const savePostAction = action(async (previous, fields) => {
 
   // Server action: mutate, then revalidate the cached pages it affects.
   writeFileSync(resolve(root, 'src', 'actions', 'posts.js'), `// Server action: create a post, then revalidate the cached home listing.
-// revalidatePath purges the origin ISR cache (and any CDN) so the new post
-// appears immediately on the next request.
+// \`revalidate: ['/']\` purges the origin ISR cache (and any CDN) when the
+// action succeeds, so the new post appears on the next request; call
+// revalidatePath() from what-framework/server for a path known only then.
 
-import { action, revalidatePath } from 'what-framework/server';
+import { action } from 'what-framework/server';
 import { createPost } from '../db.js';
 
 export const createPostAction = action(
@@ -2658,35 +2698,10 @@ Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`w
   //        `recommended` with the JSX-only h() rule disabled.
   //   Islands: JSX without the compiler, which is exactly what `recommended`
   //        checks (reactive children, signal calls in JSX, event casing).
-  writeFileSync(resolve(root, 'eslint.config.js'), options.template === 'fullstack'
-    ? `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', 'node_modules'] },
-  what.configs.recommended,
-  // This template authors pages with h() on purpose (buildless, no compiler).
-  { rules: { 'what/no-h-in-user-code': 'off' } },
-];
-`
-    : isIslands
-      ? `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', '.ssr', 'node_modules'] },
-  // 'recommended' preset: this project's JSX uses the automatic runtime, not
-  // the What compiler, so reactive text has to be written as a function.
-  what.configs.recommended,
-];
-`
-      : `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', 'node_modules'] },
-  // 'compiler' preset: this project uses the What compiler (via Vite), which
-  // handles event casing and reactive JSX wrapping automatically.
-  what.configs.compiler,
-];
-`);
+  // Every template parses .ts and .tsx with typescript-eslint's parser, so the
+  // first TypeScript file lints as the .jsx ones do, and reports unused
+  // variables (typescript-eslint's rule in TypeScript, which knows types).
+  writeFileSync(resolve(root, 'eslint.config.js'), generateEslintConfig(options.template));
 
   // tsconfig.json
   writeFileSync(resolve(root, 'tsconfig.json'), JSON.stringify({

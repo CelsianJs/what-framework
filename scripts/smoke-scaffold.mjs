@@ -261,6 +261,22 @@ function lintClean(appDir) {
   log('  ok - npm run lint passes with no warnings');
 }
 
+// A TypeScript file in the scaffold lints with the scaffold's own config:
+// typescript-eslint's parser reads it (no "Parsing error"), the What rules
+// check it, and an unused variable is reported. `source` must lint clean; the
+// same source with an unused local added must report it.
+function lintTypeScript(appDir, file, source) {
+  const path = join(appDir, file);
+  writeFileSync(path, source);
+  lintClean(appDir);
+  writeFileSync(path, source + '\nconst neverRead: number = 1;\n');
+  const eslintBin = join(appDir, 'node_modules', 'eslint', 'bin', 'eslint.js');
+  const report = JSON.parse(run(process.execPath, [eslintBin, '--format', 'json', file], { cwd: appDir }));
+  const rules = report.flatMap((r) => r.messages.map((m) => m.ruleId));
+  assert(rules.length === 1 && rules[0] === '@typescript-eslint/no-unused-vars', `${file}: lint parses TypeScript and reports an unused variable (got: ${rules.join(', ') || 'nothing'})`);
+  rmSync(path);
+}
+
 function distText(appDir) {
   return readdirSync(join(appDir, 'dist'), { recursive: true })
     .map((f) => join(appDir, 'dist', f))
@@ -318,6 +334,16 @@ async function smokeSpa(workDir, tarballs, browser) {
   }
 
   lintClean(appDir);
+  lintTypeScript(appDir, 'src/Typed.tsx', `import { useSignal } from 'what-framework';
+import type { Signal } from 'what-framework';
+
+interface Props { label: string; step?: number }
+
+export function Typed({ label, step = 1 }: Props) {
+  const count: Signal<number> = useSignal(0);
+  return <button onClick={() => count.set(count() + step)}>{label}: {count()}</button>;
+}
+`);
 
   child.kill('SIGTERM');
 }
@@ -780,6 +806,15 @@ async function smokeFullstack(workDir, tarballs, browser) {
   }
 
   lintClean(appDir);
+  lintTypeScript(appDir, 'src/typed.ts', `import { h, signal } from 'what-framework';
+
+interface Item { id: number; label: string }
+
+export function List({ items }: { items: Item[] }) {
+  const picked = signal<number | null>(null);
+  return h('ul', {}, items.map((item) => h('li', { onClick: () => picked(item.id) }, item.label)));
+}
+`);
 
   child.kill('SIGTERM');
 }
@@ -914,6 +949,13 @@ async function smokeIslands(workDir, tarballs, browser) {
   preview.kill('SIGTERM');
 
   lintClean(appDir);
+  lintTypeScript(appDir, 'src/islands/Typed.tsx', `import { useSignal } from 'what-framework';
+
+export function Typed({ label }: { label: string }) {
+  const count = useSignal<number>(0);
+  return <button onclick={() => count.set(count() + 1)}>{label}: {() => count()}</button>;
+}
+`);
 }
 
 // --- Main -------------------------------------------------------------------

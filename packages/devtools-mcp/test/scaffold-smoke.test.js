@@ -167,6 +167,14 @@ for (const template of ['fullstack', 'islands']) {
     execFileSync(process.execPath, [fileURLToPath(new URL('../../create-what/index.js', import.meta.url)), 'app', '--template', template, '-y'], { cwd: work });
     const root = join(work, 'app');
     symlinkSync(fileURLToPath(new URL('../../../node_modules', import.meta.url)), join(root, 'node_modules'), 'dir');
+    // The scaffold's eslint.config.js imports typescript-eslint for .ts and
+    // .tsx files, which a create-what install has and this repository does
+    // not: a stand-in beside the app lets the template's own config load. The
+    // snippets linted here are JavaScript, which its TypeScript layer skips.
+    const stub = join(work, 'node_modules', 'typescript-eslint');
+    mkdirSync(stub, { recursive: true });
+    writeFileSync(join(stub, 'package.json'), JSON.stringify({ name: 'typescript-eslint', type: 'module', main: 'index.js' }));
+    writeFileSync(join(stub, 'index.js'), 'export default { parser: {}, plugin: { rules: {} } };\n');
     const service = new McpServer({ name: 'template-scaffold', version: '0.0.0' });
     const connection = new Client({ name: 'test', version: '0.0.0' });
     const [c, s] = InMemoryTransport.createLinkedPair();

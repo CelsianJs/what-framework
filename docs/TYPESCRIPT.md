@@ -262,27 +262,16 @@ Install the **What Framework** VS Code extension for:
 
 ## ESLint
 
-Add `eslint-plugin-what` for What-specific lint rules:
+A project made by create-what lints `.ts` and `.tsx` files out of the box:
+its `eslint.config.js` layers typescript-eslint's parser over them, and the
+What rules check them as they check `.jsx`. Unused variables are reported
+(typescript-eslint's rule in TypeScript files, which counts a name used only
+as a type).
+
+In a project of your own:
 
 ```bash
-npm install -D eslint-plugin-what
-```
-
-```js
-// eslint.config.js
-import what from 'eslint-plugin-what';
-
-export default [
-  what.configs.compiler,  // Use 'compiler' preset when using what-compiler
-];
-```
-
-The presets parse JavaScript and JSX. A `.ts` or `.tsx` file, the scaffold's
-included, stops `npm run lint` with `Parsing error: Unexpected token` at the
-first piece of TypeScript syntax until a TypeScript parser is layered on top:
-
-```bash
-npm install -D typescript-eslint
+npm install -D eslint eslint-plugin-what typescript-eslint
 ```
 
 ```js
@@ -292,12 +281,13 @@ import tseslint from 'typescript-eslint';
 
 export default [
   { ignores: ['dist', 'node_modules'] },
-  what.configs.compiler,
+  what.configs.compiler,  // 'compiler' with what-compiler, 'recommended' without
   { files: ['**/*.{ts,tsx}'], languageOptions: { parser: tseslint.parser } },
 ];
 ```
 
-The What rules then check `.tsx` files as they check `.jsx`.
+Without the parser layer, the first piece of TypeScript syntax stops
+`npm run lint` with `Parsing error: Unexpected token`.
 
 ## Troubleshooting
 
