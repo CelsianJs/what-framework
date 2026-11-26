@@ -652,8 +652,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `String(props)`, `props.valueOf()`, classnames and lodash's
   `isPlainObject` work, where they threw or answered false on 0.14's objects
   with no prototype. What tells its props objects apart, and keeps their
-  getters live, by a `Symbol.for('what-core.props.v1')` property that no
-  listing shows, which another copy of what-core on the page reads too.
+  getters live, by a `Symbol.for('what-core.props.v1')` property, which
+  another copy of what-core on the page reads too. It is not enumerable, so
+  `Object.keys`, a spread, `Object.assign`, `structuredClone` and JSON leave
+  it out; `Reflect.ownKeys` and `Object.getOwnPropertySymbols` list it.
   Compiled JSX writes that mark into a props object with a live prop
   (`{ [_$props]: true, get on() { … } }`) where it wrote one with no
   prototype, and the component gets the object with the mark hidden: setting
@@ -1075,6 +1077,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   `clickcapture`, which never fires. `onGotPointerCapture` and
   `onLostPointerCapture` are events of their own, in compiled JSX and in
   `h()` (which heard `gotpointer`). `packages/compiler/test/capture-events.test.js`.
+- **`onDoubleClick` fires.** React's name for the DOM's `dblclick` listened
+  for an event named `doubleclick`, which no browser sends, in compiled JSX
+  (`onDoubleClickCapture` too), in `h()` props and through a spread, with no
+  warning; only `onDblClick` worked. Both names are the same event now.
+  `packages/compiler/test/double-click.test.js`.
 - **The Vite plugin's default `exclude` is a `node_modules` directory**
   (`/\/node_modules\//`), not a path that holds the word: an app's own
   `my_node_modules_backup/Card.jsx` was skipped, and its build failed with the

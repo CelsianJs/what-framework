@@ -38,6 +38,8 @@ interface WhatEventHandlers<T extends EventTarget = Element> {
   onClick?: EventHandler<MouseEvent, T>;
   onclick?: EventHandler<MouseEvent, T>;
   onDblClick?: EventHandler<MouseEvent, T>;
+  /** React's name for the DOM's `dblclick`, the same event as `onDblClick`. */
+  onDoubleClick?: EventHandler<MouseEvent, T>;
   ondblclick?: EventHandler<MouseEvent, T>;
   onMouseDown?: EventHandler<MouseEvent, T>;
   onmousedown?: EventHandler<MouseEvent, T>;

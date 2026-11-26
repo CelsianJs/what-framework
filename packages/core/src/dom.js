@@ -1288,7 +1288,9 @@ function setProp(el, key, value, isSvg) {
       eventName = eventName.slice(0, -7);
       useCapture = true;
     }
-    const event = eventName.toLowerCase();
+    // onDoubleClick is React's name for the DOM's `dblclick`.
+    let event = eventName.toLowerCase();
+    if (event === 'doubleclick') event = 'dblclick';
     const storageKey = useCapture ? event + '_capture' : event;
     // onChange is React's change event (_onChange): it hears `input` too.
     const types = event === 'change' ? ['input', event] : [event];

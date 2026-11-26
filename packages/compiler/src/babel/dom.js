@@ -4,7 +4,7 @@
 import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, ATTRIBUTE_ALIASES, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
-  EVENT_OPTION_MODIFIERS, captureEventName, compileError, componentCallee, createEventHandler,
+  EVENT_OPTION_MODIFIERS, captureEventName, compileError, componentCallee, createEventHandler, eventType,
   getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers, controlFlowTag,
   isBindingAttribute, isComponentElement, isConditionallyEvaluated, isDynamicAttr,
   isEventAttrName, isFieldProp, isHydrateRootArgument, isShadowedAttr, isSlotAttribute, isStaticChild,
@@ -808,7 +808,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       // `onClickCapture` is a listener in the capture phase, which delegation
       // (the bubble phase, at the document) cannot give.
       const captured = captureEventName(attrName);
-      const event = (captured ?? attrName).slice(2).toLowerCase();
+      const event = eventType(captured ?? attrName);
       const handler = getAttributeValue(attr.value);
       const metadata = bindingMetadata(tagName, attrName, attr, state);
       if (metadata) {
@@ -852,7 +852,7 @@ function applyDynamicAttrs(statements, elId, attributes, state, tagName, ns) {
       const handler = getAttributeValue(attr.value);
       const wrappedHandler = createEventHandler(handler, modifiers);
       const captured = captureEventName(eventName);
-      const event = (captured ?? eventName).slice(2).toLowerCase();
+      const event = eventType(captured ?? eventName);
 
       const optionMods = modifiers.filter(m => EVENT_OPTION_MODIFIERS.has(m));
       if (captured !== null && !optionMods.includes('capture')) optionMods.push('capture');

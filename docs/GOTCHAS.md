@@ -525,3 +525,32 @@ The props, a rest element and a spread's merge are plain objects, as React's are
 A spreading component costs one props object for the rest (`_$omit`, a copy that keeps the getters), and one binding per live prop it spreads (re-run when that prop's value changes, as a reactive attribute is). A component that does not spread pays nothing for any of this.
 
 Only a component's props are read this way. A function is one when it renders JSX, or, with no JSX, when it is named as a component and calls What's `h()` or returns a prop as it is (`(props) => props.children`). A helper that destructures its argument (`function Point({ x, y, ...rest })`), a reducer, a class's method or a `forwardRef()` you write yourself keeps its plain destructuring (docs/ARCHITECTURE.md, "Which functions are components").
+
+### 27. A `useEffect` Cleanup Reads the Current Props
+
+A component runs once, so a prop or a signal read in a cleanup is read when the cleanup runs, after the change that made the effect run again. React's cleanup closes over the render it was made in and sees the old value. A cleanup that undoes what the effect did with a prop therefore undoes it for the new value:
+
+```jsx
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    join(roomId);
+    return () => leave(roomId);   // roomId is the new room by now: the old one is never left
+  });
+  return <h2>{roomId}</h2>;
+}
+```
+
+Keep the value the run used in a local, and undo that:
+
+```jsx
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const room = roomId;
+    join(room);
+    return () => leave(room);
+  });
+  return <h2>{roomId}</h2>;
+}
+```
+
+Nothing reports the first form: it is valid code, and on unmount, when no value changed, both forms do the same.

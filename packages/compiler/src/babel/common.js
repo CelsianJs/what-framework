@@ -177,6 +177,14 @@ export function captureEventName(name) {
   return name.endsWith('Capture') && !name.endsWith('PointerCapture') ? name.slice(0, -7) : null;
 }
 
+// The DOM event an event prop listens for: its name in lower case, and
+// `dblclick` for React's `onDoubleClick` (what-core dom.js and render.js do
+// the same for h() and spreads).
+export function eventType(name) {
+  const type = name.slice(2).toLowerCase();
+  return type === 'doubleclick' ? 'dblclick' : type;
+}
+
 export function isBindingAttribute(name) {
   return name.startsWith('bind:');
 }

@@ -2305,12 +2305,14 @@ function writerName(key, el) {
 // a prefix and a local name; `xmlns` is neither.
 const XML_NAME = /^(xlink|xml(?!ns)):?(.+)/;
 
-// `name`: an event prop's name in lower case (`onclick`). onChange is React's
-// change event (dom.js _onChange): it hears a text field's `input` too.
+// `name`: an event prop's name in lower case (`onclick`). onDoubleClick is
+// React's name for `dblclick`, and onChange is React's change event (dom.js
+// _onChange): it hears a text field's `input` too.
 // `options`: compiled JSX's for an onChange with modifiers (`onChange__once`).
 function listen(el, name, handler, options) {
   if (typeof handler !== 'function') return;
   name = name.slice(2);
+  if (name === 'doubleclick') name = 'dblclick';
   if (name === 'change') {
     const change = handler;
     on(el, 'input', handler = (e) => _onChange(e, change), options);
