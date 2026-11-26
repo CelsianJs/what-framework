@@ -2867,16 +2867,21 @@ function orderUserRound(round, len) {
     if (e.depHead !== null && e.owner !== null) e.owner.flags |= RERUN_OWNER;
   }
   let below = false;
+  let sorted = true;
   for (let i = 0; i < len && !below; i++) {
+    if (i > 0 && round[i].queued < round[i - 1].queued) sorted = false;
     for (let a = round[i].owner?.owner; a != null && !below; a = a.owner) below = (a.flags & RERUN_OWNER) !== 0;
   }
   for (let i = 0; i < len; i++) {
     const o = round[i].owner;
     if (o !== null) o.flags &= ~RERUN_OWNER;
   }
-  const order = below ? orderNested(round, len) : round.slice(0, len).sort((p, q) => p.queued - q.queued);
+  if (below || !sorted) {
+    const order = below ? orderNested(round, len) : round.slice(0, len).sort((p, q) => p.queued - q.queued);
+    for (let i = 0; i < len; i++) round[i] = order[i];
+  }
   for (let i = 0; i < len; i++) {
-    const e = round[i] = order[i];
+    const e = round[i];
     let f = e.flags;
     if ((f & (DIRTY | DISPOSED)) === 0 && (f & PENDING) && /** @type {any} */ (pullOps).check(e)) e.flags = f = e.flags | DIRTY;
     if ((f & (DIRTY | DISPOSED)) !== DIRTY) continue;
