@@ -127,10 +127,10 @@ export function __installServerContextStorage(storage, frames) {
 // (`_inBody`). The server renders the component's bindings once, in that
 // frame, after the function has returned: a pending() read there is the read
 // the client's binding makes, tracked (reactive.js devUntrackedPending).
-function inBody(frame, fn) {
+function inBody(frame, fn, arg) {
   frame._inBody = true;
   try {
-    return fn();
+    return fn(arg);
   } finally {
     frame._inBody = false;
   }
@@ -149,13 +149,13 @@ export function _runComponentAsync(frame, fn) {
 }
 
 /**
- * Call a server component's function `fn`, in its `frame`, synchronously
- * (renderToString).
+ * Call `fn(arg)`, which runs a server component's function, in the
+ * component's `frame`, synchronously (renderToString).
  *
  * @internal
  */
-export function _runComponentSync(frame, fn) {
-  return __DEV__ ? inBody(frame, fn) : fn();
+export function _runComponentSync(frame, fn, arg) {
+  return __DEV__ ? inBody(frame, fn, arg) : fn(arg);
 }
 
 // Whether code outside every render runs on a server, where a query cache

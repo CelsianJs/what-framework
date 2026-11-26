@@ -258,11 +258,10 @@ function _renderHydratable(vnode) {
   // element of its output (compiled.js has the rule) as the output is written.
   // A built-in the compiler lowers away has none (hydration-data.js).
   if (typeof vnode.tag === 'function') {
-    const Component = vnode.tag;
-    const ctx = _beginComponentSSR(Component);
+    const ctx = _beginComponentSSR(vnode.tag);
     if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site)) {
       try {
-        return _renderHydratable(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
+        return _renderHydratable(_runComponentSync(ctx, callComponent, vnode));
       } finally {
         _endComponentSSR(ctx);
       }
@@ -271,7 +270,7 @@ function _renderHydratable(vnode) {
     const key = /** @type {string} */ (ctx._ownerPath);
     HK.key = key;
     try {
-      return _renderHydratable(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
+      return _renderHydratable(_runComponentSync(ctx, callComponent, vnode));
     } finally {
       _endComponentSSR(ctx);
       if (HK.key === key) HK.key = outer;
@@ -336,6 +335,12 @@ function renderChildren(children, render) {
     }
   }
   return out;
+}
+
+// A component vnode's call, which the renderers make in its frame
+// (_runComponentSync).
+function callComponent(vnode) {
+  return vnode.tag(_componentProps(vnode));
 }
 
 // --- Render to String ---
@@ -442,11 +447,10 @@ function _renderString(vnode) {
   // failed outright rather than degrading. The frame has to stay current while
   // the result is rendered, because useContext resolves by walking owners.
   if (typeof vnode.tag === 'function') {
-    const Component = vnode.tag;
-    const ctx = _beginComponentSSR(Component);
+    const ctx = _beginComponentSSR(vnode.tag);
     _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site);
     try {
-      return _renderString(_runComponentSync(ctx, () => Component(_componentProps(vnode))));
+      return _renderString(_runComponentSync(ctx, callComponent, vnode));
     } finally {
       _endComponentSSR(ctx);
     }

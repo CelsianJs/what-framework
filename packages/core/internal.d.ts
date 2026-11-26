@@ -236,7 +236,7 @@ export function __installServerContextStorage(storage: unknown, frames?: unknown
 /** @internal Used by what-server. Calls a server component's function in its frame, so that its code after an `await` keeps the frame as its owner. */
 export function _runComponentAsync<T>(frame: unknown, fn: () => T): T;
 /** @internal Used by what-server. Calls a server component's function in its frame, synchronously (renderToString). */
-export function _runComponentSync<T>(frame: unknown, fn: () => T): T;
+export function _runComponentSync<A, T>(frame: unknown, fn: (arg: A) => T, arg: A): T;
 /** @internal Used by what-server. Marks a process that renders on the server with no document: outside a render, the query cache shares nothing. */
 export function __markServerProcess(): void;
 /** @internal Used by what-router. Whether code outside a render runs on a server: a process what-server marked, unless it had a document then and has AsyncLocalStorage. */
