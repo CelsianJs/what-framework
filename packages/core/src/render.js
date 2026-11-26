@@ -9,7 +9,7 @@
 
 import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _newProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation } from './diagnostics.js';
@@ -261,16 +261,19 @@ export function _$inNs(ns, build) {
 }
 
 // The props object a compiled component runs with, a plain object as React's
-// props are (dom.js _newProps). Compiled JSX builds a fresh object when it
-// passes live props (getters, dom.js _isLiveProp), marked (`_$marked({ … })`,
-// or `[_$props]: true` in the literal) or with no prototype: that object is
-// the component's own, made a plain one in place so its getters stay live
-// (dom.js _ownProps). A props object What built (a merge of spreads, _$merge;
+// props are. Compiled JSX builds a fresh object when it passes live props
+// (getters, dom.js _isLiveProp), marked (`_$marked({ … })`, or `[_$props]:
+// true` in the literal) or with no prototype: that object is the component's
+// own, made a plain one in place so its getters stay live (dom.js _ownProps).
+// A props object What marked (a merge of spreads that kept a getter, _$merge;
 // what-react's) is taken as it is. Any other object is copied: it may be the
-// caller's (a hand-written call).
+// caller's (a hand-written call). The copy holds no getter, as a spread reads
+// each one, so it is not marked (dom.js _copyProps); the lazy getters of the
+// component's children mark it when they are defined (_installLazyChildren).
 function ownProps(props) {
+  if (props == null) return {};
   // A spread defines `__proto__` as a key, where Object.assign would set the prototype.
-  if (props == null || !_isOwnProps(props)) return _markProps({ ...props });
+  if (!_isOwnProps(props)) return { ...props };
   return Object.isExtensible(props) ? _ownProps(props) : props;
 }
 
@@ -280,22 +283,24 @@ export { PROPS as _$props, _markProps as _$marked };
 
 /**
  * Compiled JSX's spread props (`<Box a {...s} b />`): the sources merged in
- * order into one props object of What's (dom.js _newProps). A getter of a
- * props object What built (a forwarded `{...props}`, a live prop) stays a
- * getter, so a wrapper that forwards its props keeps them live; any other
- * object's properties are copied by value, as Object.assign copies them.
+ * order into one plain object. A getter of a props object What marked (a
+ * forwarded `{...props}`, a live prop) stays a getter, and the merge is
+ * marked when it kept one, so a wrapper that forwards its props keeps them
+ * live; any other object's properties are copied by value, as Object.assign
+ * copies them.
  */
 export function _$merge() {
-  const out = _newProps();
+  const out = {};
+  let live = false;
   for (let i = 0; i < arguments.length; i++) {
     // As object spread takes a source: null, undefined, a boolean or a
     // number gives nothing, a string its characters (`{ ...(on && x) }`).
     const src = Object(arguments[i]);
     const own = _isOwnProps(src);
     // Every own enumerable key, symbols too, as Object.assign copies them.
-    for (const key of Reflect.ownKeys(src)) if (Object.prototype.propertyIsEnumerable.call(src, key)) _copyProp(out, src, key, own);
+    for (const key of Reflect.ownKeys(src)) if (Object.prototype.propertyIsEnumerable.call(src, key) && _copyProp(out, src, key, own)) live = true;
   }
-  return out;
+  return live ? _markProps(out) : out;
 }
 
 // Compiled JSX's rest element of destructured props (`({ a, ...rest })`):

@@ -380,25 +380,30 @@ export function _place(props, key, inPlace, fallback) {
 // --- Live props ---
 // Compiled JSX passes a component a prop whose value reads a signal
 // (`<Badge on={count() > 0} />`) as a getter over the expression, in an
-// object with no prototype (`{ __proto__: null, get on() { … } }`), so the
+// object it marks as What's (`_$marked({ get on() { … } })`), so the
 // component sees the current value wherever it reads `props.on`: a JSX
 // binding that reads it re-runs when `count` changes, as it would for
-// `count()` written there. Every props object What builds is one of its own:
-// the props a component runs with (render.js ownProps, which gives compiled
-// JSX's object Object.prototype in place), a spread's merge (render.js
-// _$merge) and a rest element (_$omit). A getter on one of them is kept by
-// every copy and merge; a getter on any other object (a user's object spread
-// into props) is read once, as Object.assign reads it. The lazy getters
-// _installLazyChildren defines for children and slots are not live props: a
-// read of one builds JSX (they carry _lazy).
+// `count()` written there. A getter on a props object What marked is kept by
+// every copy and merge (render.js ownProps, _$merge, a rest element _$omit);
+// a getter on any other object (a user's object spread into props) is read
+// once, as Object.assign reads it. The lazy getters _installLazyChildren
+// defines for children and slots are kept the same way, and are not live
+// props: a read of one builds JSX (they carry _lazy).
 //
 // The props a component sees, a rest element and a merge are plain objects,
 // as React's props are (`props.hasOwnProperty(k)`, `String(props)`,
-// classnames and lodash's isPlainObject take them), marked as What's by a
-// property no listing shows (PROPS: not enumerable, a symbol; Symbol.for, so
-// another copy of what-core on the page takes them as its own too). An object
-// with no prototype counts as one as well: compiled JSX's, before the
-// component gets it, what-react's for a native component, and a live() view.
+// classnames and lodash's isPlainObject take them). One that holds a getter
+// of either kind is marked as What's by a property no listing shows (PROPS:
+// not enumerable, a symbol; Symbol.for, so another copy of what-core on the
+// page takes them as its own too): compiled JSX's literal with a live prop, a
+// copy or merge that kept a getter, and an object _installLazyChildren gave
+// one. One with none is not marked, since every copy of it is the same marked
+// or not: a copy of an object that is not marked reads its getters, and the
+// copy holds none. An object with no prototype counts as marked as well: a
+// source compiled JSX writes with a getter into a merge or an element's
+// spread (`_$merge(props, { __proto__: null, get on() { … } })`), and a
+// live() view. what-react's props for a native component are marked
+// (react-compat mixed.js).
 // Only own keys are copied or spread, so a key written onto Object.prototype
 // never reaches a component or an element, and a key named `__proto__` is
 // defined as a property like any other (_setOwnProp): no copy sets a
@@ -413,14 +418,9 @@ export const PROPS = Symbol.for('what-core.props.v1');
 const MARK = { value: true };
 const HIDE = { enumerable: false };
 
-/** `props`, a plain object, marked as a props object of What's (PROPS). */
+/** `props`, a plain object, marked as a props object of What's (PROPS): its getters are kept by every copy. */
 export function _markProps(props) {
   return Object.defineProperty(props, PROPS, MARK);
-}
-
-/** A new props object of What's: a plain object, marked. */
-export function _newProps() {
-  return _markProps({});
 }
 
 /** Compiled JSX's props object made the one its component sees, in place: Object.prototype, the mark hidden. */
@@ -430,7 +430,7 @@ export function _ownProps(props) {
   return props;
 }
 
-/** Whether the object `x` is a props object What built, whose getters are live props: marked, or with no prototype. */
+/** Whether the object `x` is a props object What built whose getters are What's (live props, lazy children): marked, or with no prototype. */
 export function _isOwnProps(x) {
   return x[PROPS] === true || Object.getPrototypeOf(x) === null;
 }
@@ -443,29 +443,35 @@ export function _isLiveProp(props, key) {
 }
 
 /**
- * A props object of What's (_newProps) with the own enumerable properties of
- * `props`, without the keys in `omit` (a rest element, render.js _$omit). A
- * props object What built keeps its getters (live props, lazy children); any
- * other object is copied by value, as a spread copies it.
+ * A plain object with the own enumerable properties of `props`, without the
+ * keys in `omit` (a rest element, render.js _$omit). A props object What
+ * marked keeps its getters (live props, lazy children), and the copy is
+ * marked when it kept one; any other object is copied by value, as a spread
+ * copies it, and the copy holds no getter.
  */
 export function _copyProps(props, omit) {
-  if (props == null) return _newProps();
+  if (props == null) return {};
   const own = _isOwnProps(props);
   // A spread defines each key, `__proto__` too, where Object.assign would set
   // the prototype with it.
-  if (!own && !omit) return _markProps({ ...props });
-  const out = _newProps();
+  if (!own && !omit) return { ...props };
+  const out = {};
+  let live = false;
   for (const key in props) {
-    if (Object.hasOwn(props, key) && !(omit && omit.includes(key))) _copyProp(out, props, key, own);
+    if (Object.hasOwn(props, key) && !(omit && omit.includes(key)) && _copyProp(out, props, key, own)) live = true;
   }
-  return out;
+  return live ? _markProps(out) : out;
 }
 
-/** `src[key]` onto `out`: a getter of a props object What built (`own`) as the getter, never read; anything else as its value. */
+/** `src[key]` onto `out`: a getter of a props object What built (`own`) as the getter, never read, and true; anything else as its value. */
 export function _copyProp(out, src, key, own) {
   const get = own ? /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(src, key)).get : undefined;
-  if (get) Object.defineProperty(out, key, { get, enumerable: true, configurable: true });
-  else _setOwnProp(out, key, src[key]);
+  if (get) {
+    Object.defineProperty(out, key, { get, enumerable: true, configurable: true });
+    return true;
+  }
+  _setOwnProp(out, key, src[key]);
+  return false;
 }
 
 /**
@@ -505,6 +511,8 @@ export function _installLazyChildren(Component, target, lazyChildren, slots) {
   /** @type {any[]} */
   const cache = [null];
   const define = (key, factory) => {
+    // Its first getter marks target, so every copy keeps them (_copyProps).
+    if (cache.length === 1 && !_isOwnProps(target)) _markProps(target);
     const at = cache.push(factory, undefined, 0, null) - 4;
     /** @type {(() => any) & { _lazy?: boolean }} */
     const get = function () {
