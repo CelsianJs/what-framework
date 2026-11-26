@@ -418,7 +418,13 @@ function extractStaticHTML(node, state) {
     const domName = markupName(name);
     checkStaticAttribute(attr, domName, name, t.isStringLiteral(attr.value) ? attr.value.value : true, state);
     const sep = afterQuote ? '' : ' ';
-    if (!attr.value) {
+    if (!attr.value && isEnumeratedAttr(domName)) {
+      // A valueless aria-* or data-* attribute is `true`, which those write
+      // as "true" (aria-hidden="" would mean no value at all), as the server
+      // target and the runtime write it.
+      html += `${sep}${domName}=true`;
+      afterQuote = false;
+    } else if (!attr.value) {
       html += sep + domName;
       afterQuote = false;
     } else if (t.isStringLiteral(attr.value)) {
