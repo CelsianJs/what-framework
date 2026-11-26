@@ -1814,7 +1814,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   that returns one) renders as an island, by React's rules.
   At the release, after the React commit-order fixes and the three React
   habits in native What (plain-object props, React's effect order, `onChange`
-  per keystroke), the three measure 16,327 B, 24,223 B and 43,479 B.
+  per keystroke), the three measure 16,327 B, 24,223 B and 43,514 B.
 
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
@@ -1834,7 +1834,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   9,172 B (9,873 B), and an app on hooks, a store and a form 14,131 B
   (15,378 B); every app `npm run check:size` builds is smaller. At the
   release, with plain-object props, React's effect order and `onChange` per
-  keystroke in, the three are 5,456 B, 9,379 B and 14,845 B. A compiled
+  keystroke in, the three are 5,456 B, 9,379 B and 14,878 B. A compiled
   module imports the component call it needs: with no component handed
   children or JSX in a prop it leaves out the lazy getters, and when every
   component is a function the module defines (or one of what-framework's or
