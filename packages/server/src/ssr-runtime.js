@@ -425,9 +425,12 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
 // attributes, which render none): between the edges of a keyed row. A row of
 // finished HTML renders no component, and needs none.
 function keyRow(m, at, list, index) {
-  if (/** @type {any[]} */ (m.p).length === at) return;
+  const p = /** @type {any[]} */ (m.p);
+  if (p.length === at) return;
   const end = new RowEdge(null, undefined, 0, null);
-  /** @type {any[]} */ (m.p).splice(at, 0, new RowEdge(list, list.keys[index], index, end));
+  // The row's start goes in before its parts, which move up one.
+  for (let i = p.length; i > at; i--) p[i] = p[i - 1];
+  p[at] = new RowEdge(list, list.keys[index], index, end);
   defer(m, end);
 }
 
