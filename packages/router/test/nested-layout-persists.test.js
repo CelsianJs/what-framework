@@ -10,7 +10,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/dashboard' });
 
-const { h, mount, signal } = await import('what-core');
+const { h, mount, signal, useEffect } = await import('what-core');
 const { nestedRoutes, navigate, Router } = await import('../src/index.js');
 
 const flush = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -45,12 +45,15 @@ describe('a nested layout persists across its child routes', () => {
     assert.equal(document.getElementById('bump').textContent, 'clicks 1', 'the layout keeps its state');
   });
 
-  it('builds the layout again when its params change, so its body reads the new ones', async () => {
-    const seen = [];
-    function ProjectLayout({ params, children }) {
-      const id = params.id;
-      seen.push(id);
-      return h('section', { id: 'project' }, h('h2', null, `project ${id}`), children);
+  it('keeps the layout when its params change, and its JSX reads the new ones', async () => {
+    let built = 0;
+    const once = [];
+    const loaded = [];
+    function ProjectLayout(props) {
+      built++;
+      once.push(props.params.id);
+      useEffect(() => { loaded.push(props.params.id); });
+      return h('section', { id: 'project' }, h('h2', null, () => `project ${props.params.id}`), h('input', { id: 'note' }), props.children);
     }
     const routes = nestedRoutes('/projects/:id', [
       { path: '/', component: () => h('p', null, 'overview') },
@@ -60,13 +63,61 @@ describe('a nested layout persists across its child routes', () => {
     await navigate('/projects/1');
     mount(h(Router, { routes }), '#app');
     await flush();
+    const section = document.getElementById('project');
+    document.getElementById('note').value = 'typed';
     await navigate('/projects/1/files');
     await flush();
-    assert.deepEqual(seen, ['1'], 'a sibling route under the same params keeps the layout');
     await navigate('/projects/2/files');
     await flush();
-    assert.deepEqual(seen, ['1', '2']);
-    assert.equal(document.querySelector('#project h2').textContent, 'project 2');
+    assert.equal(built, 1, 'a change of params keeps the layout');
+    assert.equal(document.getElementById('project'), section, 'the layout keeps its DOM');
+    assert.equal(document.getElementById('note').value, 'typed', 'and what was typed into it');
+    assert.equal(document.querySelector('#project h2').textContent, 'project 2', 'JSX that reads props.params follows them');
     assert.equal(document.querySelector('#project p').textContent, 'files');
+    assert.deepEqual(once, ['1'], 'a read in the body is a read once, as in any component');
+    assert.deepEqual(loaded, ['1', '2'], 'an effect that reads props.params runs again when they change');
+  });
+
+  it('keeps the layout when the query changes, and its JSX reads the new query', async () => {
+    let built = 0;
+    function TabsLayout(props) {
+      built++;
+      return h('div', { id: 'tabs' }, h('span', { id: 'tab' }, () => `tab ${props.query.tab ?? 'none'}`), h('input', { id: 'search' }), props.children);
+    }
+    const routes = nestedRoutes('/tabs', [
+      { path: '/', component: (p) => h('p', { id: 'page' }, `page ${p.query.tab}`) },
+    ], { layout: TabsLayout });
+
+    await navigate('/tabs?tab=1');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const el = document.getElementById('tabs');
+    document.getElementById('search').value = 'abc';
+    await navigate('/tabs?tab=2');
+    await flush();
+    assert.equal(built, 1, 'a change of query keeps the layout');
+    assert.equal(document.getElementById('tabs'), el);
+    assert.equal(document.getElementById('search').value, 'abc');
+    assert.equal(document.getElementById('tab').textContent, 'tab 2');
+    assert.equal(document.getElementById('page').textContent, 'page 2', 'the page is given the new query');
+  });
+
+  it('builds the layout again when the chain of layouts changes', async () => {
+    const built = [];
+    const A = (props) => { built.push('A'); return h('div', { id: 'a' }, props.children); };
+    const B = (props) => { built.push('B'); return h('div', { id: 'b' }, props.children); };
+    const routes = [
+      ...nestedRoutes('/a', [{ path: '/', component: () => h('p', null, 'a') }], { layout: A }),
+      ...nestedRoutes('/b', [{ path: '/', component: () => h('p', null, 'b') }], { layout: B }),
+    ];
+    await navigate('/a');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    await navigate('/b');
+    await flush();
+    await navigate('/a');
+    await flush();
+    assert.deepEqual(built, ['A', 'B', 'A']);
+    assert.equal(document.querySelector('#a p').textContent, 'a');
   });
 });

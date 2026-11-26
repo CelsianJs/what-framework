@@ -239,10 +239,37 @@ export default function App() {
 
 `nestedRoutes(base, children, { layout, loading, error })` prefixes each child's
 path and gives it the options it does not set itself. A layout receives
-`{ params, query, children }`. It stays mounted, with its state and its DOM,
-while the visitor moves between routes that share it, and only the page in
-`children` changes; it is built again when its params or query change, so a
-layout that reads `params.id` in its body sees the new id.
+`{ params, query, children }`. It stays mounted, with its state, its DOM and
+what the visitor typed into it, while the visitor moves between routes that
+share it: only the page in `children` changes. A change of params
+(`/projects/1` to `/projects/2`) or of the query string (`?tab=2`, a search box
+that writes `?q=`) keeps it too. The layout is built again only when the chain
+of layouts changes.
+
+`params` and `query` are live props: JSX in the layout that reads
+`params.id` or `query.tab` shows the current URL's. A read in the layout's
+body, outside JSX, is a read once, as in any component, and keeps the first
+value (the compiler does not report this shape):
+
+```jsx
+function ProjectLayout({ params, query, children }) {
+  const firstId = params.id;               // read once: stays the id the layout was built with
+  return (
+    <section>
+      <h1>Project {params.id}</h1>         {/* follows /projects/:id */}
+      <p>Tab: {query.tab ?? 'overview'}</p>{/* follows ?tab= */}
+      <input placeholder="Notes" />        {/* keeps what was typed when the URL changes */}
+      {children}
+    </section>
+  );
+}
+```
+
+To act on a change, read the param where it runs: an effect with no
+dependency array, `useEffect(() => load(params.id))`, runs again when the id
+changes, and so does a `computed(() => params.id)` read in JSX. A page is
+built again whenever its URL changes, so a page's `params.id` is always its
+URL's.
 
 ## Route Guards & Middleware
 

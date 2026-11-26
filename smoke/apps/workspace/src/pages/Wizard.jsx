@@ -17,9 +17,10 @@ const STEPS = [
   { path: '/new/review', label: 'Review' },
 ];
 
-export function WizardLayout({ children }) {
+export function WizardLayout({ query, children }) {
   // The layout's own state: whether the tips panel is open. It belongs to the
-  // layout, not to a step, so it should hold while the steps change under it.
+  // layout, not to a step, so it should hold while the steps change under it,
+  // and while the query changes (`?help=keys` opens the shortcuts panel).
   const [tips, setTips] = useState(true);
   return (
     <section class="wizard" data-wizard>
@@ -28,6 +29,10 @@ export function WizardLayout({ children }) {
         <button class="link" data-tips-toggle onClick={() => setTips((t) => !t)}>{tips() ? 'Hide tips' : 'Show tips'}</button>
       </div>
       {tips() ? <p class="tips muted" data-tips>Each step saves when you press Next. Back and forward keep your answers.</p> : null}
+      <label class="muted">Scratch notes <input data-wizard-note placeholder="Only for you, not saved" /></label>
+      {query.help === 'keys'
+        ? <p class="tips muted" data-help>Enter moves to the next step. <button class="link" data-help-close onClick={() => navigate(route.path, { replace: true })}>Close</button></p>
+        : <Link href="?help=keys" replace class="link" data-help-open>Shortcuts</Link>}
       <ol class="steps">
         {STEPS.map((s, i) => (
           <li class={route.path === s.path ? 'current' : ''} data-step={s.label.toLowerCase()} aria-current={route.path === s.path ? 'step' : undefined}>

@@ -163,6 +163,26 @@ export default {
         check('route:nested-layout', layoutKept.sameNode && layoutKept.tipsHidden,
           'the wizard layout stays mounted, with its state, while the steps change under it',
           `same-node=${layoutKept.sameNode} tips-still-hidden=${layoutKept.tipsHidden}`);
+        // A change of query string (`?help=keys`) keeps the layout too, with
+        // what was typed into it, and the layout's JSX reads the new query.
+        await page.fill('[data-wizard-note]', 'ask Bo about the budget');
+        await page.click('[data-help-open]');
+        await page.waitForSelector('[data-help]', { timeout: 2000 }).catch(() => {});
+        const queryKept = await page.evaluate(() => ({
+          path: location.pathname + location.search,
+          sameNode: document.querySelector('[data-wizard]').__stamp === 'kept',
+          note: document.querySelector('[data-wizard-note]').value,
+          help: !!document.querySelector('[data-help]'),
+          step: !!document.querySelector('[data-form="team"]'),
+        }));
+        await page.click('[data-help-close]').catch(() => {});
+        await page.waitForSelector('[data-help-open]', { timeout: 2000 }).catch(() => {});
+        const queryCleared = await path();
+        check('route:nested-layout',
+          queryKept.path === '/new/team?help=keys' && queryKept.sameNode && queryKept.note === 'ask Bo about the budget'
+            && queryKept.help && queryKept.step && queryCleared === '/new/team',
+          'a change of query string keeps the wizard layout, its DOM and what was typed into it, and the layout shows the new query',
+          `path=${queryKept.path} same-node=${queryKept.sameNode} note="${queryKept.note}" help=${queryKept.help} step=${queryKept.step} after-close=${queryCleared}`);
 
         await page.fill('[data-field="email"]', 'nope');
         await page.click('[data-add-member]');

@@ -1037,10 +1037,13 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     lastMatch = { url, matched, query: matched ? parseQuery(search) : null };
     return lastMatch;
   };
+  // Params or a query equal to the ones shown keep their object, so what reads
+  // them (a layout's live `params`, useParams) does not run again for a URL
+  // that changes neither.
   const enter = (/** @type {any} */ r, /** @type {any} */ params, /** @type {any} */ queryObj) => {
     batch(() => {
-      state.params.set(params);
-      state.query.set(queryObj);
+      if (!sameRecord(state.params.peek(), params)) state.params.set(params);
+      if (!sameRecord(state.query.peek(), queryObj)) state.query.set(queryObj);
       if (state === tab) _pattern.set(r.path);
     });
   };
@@ -1137,11 +1140,14 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   };
 
   // The route layouts around the page. They are built again only when the
-  // chain of layouts, the params or the query change, so moving between
-  // routes that share a layout keeps it, with its state and its DOM, and the
-  // page changes inside it: `content` is the innermost layout's reactive
-  // child. A page whose middleware declines it, a 404 and a route with no
-  // layout render `content` as they are.
+  // chain of layouts changes, so moving between routes that share a layout
+  // keeps it, with its state and its DOM, and the page changes inside it:
+  // `content` is the innermost layout's reactive child. A layout's `params`
+  // and `query` are live props (getters over the route state, in a props
+  // object with no prototype: what-core dom.js _isLiveProp), so JSX in it
+  // that reads `props.params.id` or `props.query.tab` follows the URL. A page
+  // whose middleware declines it, a 404 and a route with no layout render
+  // `content` as they are.
   /** @type {any} */
   let shownChain = null;
   const layoutsFor = () => {
@@ -1159,20 +1165,18 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       return prepFor(currentUrl, matched.route);
     }).verdict();
     if (verdict === false || typeof verdict === 'string' || (verdict !== null && typeof verdict === 'object')) return null;
-    const next = { layouts, params: matched.params, query };
-    if (shownChain !== null && sameChain(shownChain, next)) return shownChain;
-    shownChain = next;
-    return next;
+    if (shownChain !== null && sameChain(shownChain, layouts)) return shownChain;
+    shownChain = layouts;
+    return layouts;
   };
+  const layoutProps = { __proto__: null, get params() { return state.params(); }, get query() { return state.query(); } };
   const chain = server ? layoutsFor : computed(layoutsFor);
   const routed = () => {
     const around = chain();
     if (around === null) return content();
     /** @type {any} */
     let element = content;
-    for (let i = around.layouts.length - 1; i >= 0; i--) {
-      element = h(around.layouts[i], { params: around.params, query: around.query }, element);
-    }
+    for (let i = around.length - 1; i >= 0; i--) element = h(around[i], layoutProps, element);
     return element;
   };
 
@@ -1187,13 +1191,24 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   return globalLayout ? h(globalLayout, {}, routed) : routed;
 }
 
-// Whether two layout chains show the same layouts with the same params and
-// query: then the layouts already on screen stay.
+// Whether two params or query objects hold the same keys and values.
 /** @param {any} a @param {any} b */
+function sameRecord(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const k of keys) if (!Object.hasOwn(b, k) || a[k] !== b[k]) return false;
+  return true;
+}
+
+// Whether two layout chains show the same layouts: then the layouts already
+// on screen stay.
+/** @param {any[]} a @param {any[]} b */
 function sameChain(a, b) {
-  if (a.layouts.length !== b.layouts.length) return false;
-  for (let i = 0; i < a.layouts.length; i++) if (a.layouts[i] !== b.layouts[i]) return false;
-  return JSON.stringify(a.params) === JSON.stringify(b.params) && JSON.stringify(a.query) === JSON.stringify(b.query);
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 // --- Link Component ---
