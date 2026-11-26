@@ -30,6 +30,7 @@ import {
   launchBrowser,
   resolvePackageSource,
   run,
+  smokeBrowserName,
   verifyInstalledSource,
 } from './harness/index.mjs';
 import { CAPABILITIES, auditResults, coverageReport, validateCoverage } from './harness/capabilities.mjs';
@@ -50,6 +51,7 @@ function flag(name, fallback = null) {
 const SOURCE = flag('source', 'workspace');
 const KEEP = !!flag('keep', false);
 const ONLY = flag('apps', null);
+const BROWSER = smokeBrowserName();
 
 if (!['workspace', 'npm'].includes(SOURCE)) {
   console.error(`--source must be "workspace" or "npm" (got "${SOURCE}")`);
@@ -88,7 +90,7 @@ if (isFullRun && coverageProblems.length) {
   process.exit(1);
 }
 
-log(`source=${SOURCE}${SOURCE === 'npm' ? ` version=${VERSION}` : ''} apps=${apps.map((a) => a.name).join(',')}`);
+log(`source=${SOURCE}${SOURCE === 'npm' ? ` version=${VERSION}` : ''} browser=${BROWSER} apps=${apps.map((a) => a.name).join(',')}`);
 
 // --- Run -------------------------------------------------------------------
 
@@ -107,7 +109,7 @@ try {
     log,
   });
 
-  browser = await launchBrowser({ required: true });
+  browser = await launchBrowser({ required: true, browserName: BROWSER });
 
   let port = PORT_BASE;
   for (const app of apps) {
@@ -135,6 +137,8 @@ try {
       capabilityOf.set(capability, (capabilityOf.get(capability) ?? true) && passed);
       return passed;
     };
+    // For a check this browser cannot run (a Chromium-only API), with the reason.
+    const skip = (capability, name, reason) => reporter.skip(`[${capability}] ${name}`, reason);
 
     try {
       await app.check({
@@ -142,7 +146,9 @@ try {
         port,
         appPort,
         browser,
+        browserName: BROWSER,
         check,
+        skip,
         reporter,
         log: (m) => console.log(`    .. ${m}`),
         run,
@@ -167,6 +173,7 @@ try {
 // --- Report ----------------------------------------------------------------
 
 const failures = allResults.filter((r) => !r.passed);
+const skipped = allResults.filter((r) => r.skipped);
 const unproven = isFullRun ? auditResults(apps, allResults) : [];
 
 console.log('\n──────────── coverage ────────────');
@@ -175,15 +182,19 @@ for (const [area, { total, covered: c }] of Object.entries(report)) {
   const mark = c === total ? 'ok  ' : 'GAP ';
   console.log(`  ${mark} ${area.padEnd(12)} ${c}/${total}`);
 }
-console.log(`\nchecks: ${allResults.length - failures.length}/${allResults.length} passed across ${apps.length} app(s)`);
+const ran = allResults.length - skipped.length;
+console.log(`\nchecks (${BROWSER}): ${ran - failures.length}/${ran} passed across ${apps.length} app(s)${skipped.length ? `, ${skipped.length} skipped` : ''}`);
+for (const s of skipped) console.log(`  skipped ${s.app}: ${s.name}: ${s.detail}`);
 
 const artifact = {
   source: SOURCE,
   version: VERSION,
+  browser: BROWSER,
   apps: apps.map((a) => a.name),
   capabilities: Object.keys(CAPABILITIES).length,
   results: allResults,
   failures: failures.length,
+  skipped: skipped.length,
   unproven,
 };
 mkdirSync(join(REPO, 'artifacts'), { recursive: true });

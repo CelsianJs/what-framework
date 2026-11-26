@@ -133,13 +133,18 @@ export function validateCoverage(apps) {
  */
 export function auditResults(apps, results) {
   const problems = [];
-  const passedIds = new Set(
-    results.filter((r) => r.passed && r.capability).map((r) => r.capability),
-  );
+  const passedIds = new Set();
+  const skippedIds = new Set();
+  for (const r of results) {
+    if (!r.passed || !r.capability) continue;
+    (r.skipped ? skippedIds : passedIds).add(r.capability);
+  }
 
   for (const app of apps) {
     for (const id of app.covers) {
-      if (!passedIds.has(id)) {
+      // A capability the browser cannot exercise is skipped with a reason
+      // (reported with the run), not failed and not claimed as covered.
+      if (!passedIds.has(id) && !skippedIds.has(id)) {
         problems.push(`${app.name} declares "${id}" but no passing check reported it`);
       }
     }

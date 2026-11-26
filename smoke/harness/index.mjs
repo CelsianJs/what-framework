@@ -165,7 +165,12 @@ export function verifyInstalledSource(appDir, { kind, version }) {
   if (problems.length) throw new Error(`installed tree does not match the requested source:\n  ${problems.join('\n  ')}`);
 }
 
-export async function launchBrowser({ required = true, browserName = process.env.WHAT_SMOKE_BROWSER || 'chromium' } = {}) {
+/** The browser a run drives: WHAT_SMOKE_BROWSER, chromium by default. */
+export function smokeBrowserName() {
+  return process.env.WHAT_SMOKE_BROWSER || 'chromium';
+}
+
+export async function launchBrowser({ required = true, browserName = smokeBrowserName() } = {}) {
   if (!['chromium', 'firefox', 'webkit'].includes(browserName)) {
     throw new Error(`Unsupported smoke browser "${browserName}"; use chromium, firefox or webkit.`);
   }
@@ -233,6 +238,13 @@ export function createReporter(appName) {
       if (cond) this.ok(name, detail);
       else this.fail(name, detail);
       return !!cond;
+    },
+    // A check this browser cannot run at all (a Chromium-only API). The reason
+    // is required: a skip is reported with it, never counted as a pass.
+    skip(name, reason) {
+      if (!reason) throw new Error(`skip of "${name}" needs a reason`);
+      results.push({ app: appName, name, passed: true, skipped: true, detail: reason });
+      console.log(`    skip ${name} (${reason})`);
     },
     get failures() { return results.filter((r) => !r.passed); },
   };
