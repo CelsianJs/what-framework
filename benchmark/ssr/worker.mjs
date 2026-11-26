@@ -17,25 +17,36 @@
 //                end marker (the <footer> after the boundary) went out, whether
 //                the fallback was flushed before the data, and the bytes sent
 //                before the data resolved.
+//   cards        string, on the component page (renderCards(), shared/data.mjs
+//                buildCards): job.rows is the number of cards.
 //   memory       heap bytes allocated by one renderString() call: gc() twice,
 //                read heapUsed, render, read heapUsed while the result is
 //                alive. Needs --expose-gc and a young generation big enough
 //                that no GC runs mid-render (bench.mjs passes
 //                --max-semi-space-size); a sample during which any GC ran is
-//                discarded, never estimated.
+//                discarded, never estimated. cardsMemory: the same for
+//                renderCards().
 
 import { Writable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import { PerformanceObserver } from 'node:perf_hooks';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildRows, expectedPageHtml, SELECTED_ID, FALLBACK_TEXT, SHELL_END_TEXT } from './shared/data.mjs';
-import { verifyPage, verifyAsyncPage } from './shared/verify.mjs';
+import { buildRows, buildCards, expectedCardsHtml, expectedPageHtml, SELECTED_ID, FALLBACK_TEXT, SHELL_END_TEXT } from './shared/data.mjs';
+import { verifyCards, verifyPage, verifyAsyncPage } from './shared/verify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const job = JSON.parse(process.argv[2]);
 const mod = await import(pathToFileURL(path.join(here, 'dist', `${job.bundle}.mjs`)).href);
-const rows = buildRows(job.rows);
+const CARDS = job.op === 'cards' || job.op === 'cardsMemory';
+const rows = CARDS ? null : buildRows(job.rows);
+const cards = CARDS ? buildCards(job.rows) : null;
+
+// The page a string or memory job renders, and the check of its output.
+const renderPage = CARDS ? () => mod.renderCards(cards) : () => mod.renderString(rows, SELECTED_ID);
+const verifyRendered = CARDS
+  ? (html) => verifyCards(html, cards, expectedCardsHtml(cards))
+  : (html) => verifyPage(html, rows, SELECTED_ID, expectedPageHtml(rows, SELECTED_ID));
 
 function recordingSink(t0, resolvedAt) {
   const sink = new Writable({
@@ -99,14 +110,14 @@ async function measureStream() {
 }
 
 function measureString() {
-  const html = mod.renderString(rows, SELECTED_ID);
-  verifyPage(html, rows, SELECTED_ID, expectedPageHtml(rows, SELECTED_ID));
-  for (let i = 0; i < job.warmup; i++) Buffer.from(mod.renderString(rows, SELECTED_ID));
+  const html = renderPage();
+  verifyRendered(html);
+  for (let i = 0; i < job.warmup; i++) Buffer.from(renderPage());
   const samples = new Array(job.samples);
   const renderOnly = new Array(job.samples);
   for (let i = 0; i < job.samples; i++) {
     const t0 = performance.now();
-    const out = mod.renderString(rows, SELECTED_ID);
+    const out = renderPage();
     const t1 = performance.now();
     Buffer.from(out);
     samples[i] = performance.now() - t0;
@@ -117,9 +128,9 @@ function measureString() {
 
 async function measureMemory() {
   if (typeof globalThis.gc !== 'function') throw new Error('memory job needs --expose-gc');
-  const html = mod.renderString(rows, SELECTED_ID);
-  verifyPage(html, rows, SELECTED_ID, expectedPageHtml(rows, SELECTED_ID));
-  for (let i = 0; i < job.warmup; i++) mod.renderString(rows, SELECTED_ID);
+  const html = renderPage();
+  verifyRendered(html);
+  for (let i = 0; i < job.warmup; i++) renderPage();
 
   const gcTimes = [];
   const observer = new PerformanceObserver((list) => {
@@ -135,7 +146,7 @@ async function measureMemory() {
     await new Promise((resolve) => setImmediate(resolve));
     const before = process.memoryUsage().heapUsed;
     const t0 = performance.now();
-    const out = mod.renderString(rows, SELECTED_ID);
+    const out = renderPage();
     const t1 = performance.now();
     const after = process.memoryUsage().heapUsed;
     if (out.length !== html.length) throw new Error('render output changed between samples');
@@ -149,7 +160,7 @@ async function measureMemory() {
   return { bytes: Buffer.byteLength(html), samples: valid, discarded: deltas.length - valid.length };
 }
 
-const MEASURE = { string: measureString, stream: measureStream, streamAsync: measureStream, memory: measureMemory };
+const MEASURE = { string: measureString, cards: measureString, stream: measureStream, streamAsync: measureStream, memory: measureMemory, cardsMemory: measureMemory };
 
 try {
   const result = await MEASURE[job.op]();

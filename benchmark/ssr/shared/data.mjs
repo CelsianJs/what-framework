@@ -81,3 +81,31 @@ export function expectedPageHtml(rows, selectedId) {
     `<table class="table table-hover table-striped test-data"><tbody>${expectedRowsHtml(rows, selectedId)}</tbody></table>`,
   );
 }
+
+// The component page: CARD_COUNT small components, each a card with fixed
+// text, text from its props and a counter of its own (a signal shown in a
+// button), so server rendering and hydration pay for components rather than
+// for one big list's rows.
+export const CARD_COUNT = 200;
+
+export function buildCards(count, seed = 0xca7d) {
+  const rand = mulberry32(seed);
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const cards = new Array(count);
+  for (let i = 0; i < count; i++) {
+    cards[i] = { id: i + 1, title: `${pick(ADJECTIVES)} ${pick(COLOURS)} ${pick(NOUNS)}`, start: Math.floor(rand() * 10) };
+  }
+  return cards;
+}
+
+export function expectedCardsHtml(cards) {
+  let out = '<div class="cards">';
+  for (const card of cards) {
+    out += `<div class="card" id="card-${card.id}">`
+      + `<h3 class="title">${card.title}</h3>`
+      + `<p class="note">Card ${card.id} of ${cards.length}</p>`
+      + `<button type="button" class="inc">${card.start}</button>`
+      + '</div>';
+  }
+  return out + '</div>';
+}

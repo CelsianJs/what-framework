@@ -19,12 +19,19 @@
 // must be built (`node scripts/build.js`). React is not measured: there is no
 // React entry.
 //
+// Two pages: the table (1,000 rows) and the component page (CARD_COUNT small
+// components, shared/data.mjs buildCards, frameworks/*/cards.jsx).
+//
 // Per run, in a fresh page: the server's HTML is in the document, the client
 // bundle has loaded, and the page then measures `hydrate`, the time the
 // hydrate() call takes; `interactive`, from that call until a click on a row's
-// label has selected the row; and `created`, the nodes in the page that were
-// not there before hydrating (adopting every node the server wrote adds none).
-// Reported: the median of the runs, and the client bundle's gzip size.
+// label has selected the row (on the component page: a click on a card's
+// button has counted); and `created`, the nodes in the page that were not
+// there before hydrating (adopting every node the server wrote adds none).
+// `render` is the same client bundle rendering the same page into an empty
+// container (What mount(), Solid render()) in a fresh page, the cost hydrating
+// is there to avoid. Reported: the median of the runs, hydrate / render, and
+// the client bundle's gzip size.
 //
 // Usage: node hydrate.mjs [--quick] [--before <what-fw checkout>]
 
@@ -37,7 +44,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
-import { buildRows, SELECTED_ID } from './shared/data.mjs';
+import { buildRows, buildCards, CARD_COUNT, SELECTED_ID } from './shared/data.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -121,44 +128,68 @@ const SERVERS = {
 // The client: hydrate the page the server rendered, with the same rows.
 const CLIENTS = {
   whatc: (checkout, compiler, hydratable) => ({
-    source: `import { hydrate } from 'what-framework';
+    source: `import { hydrate, mount } from 'what-framework';
 import { App } from './app.jsx';
-import { buildRows } from '../../shared/data.mjs';
+import { Cards } from './cards.jsx';
+import { buildRows, buildCards } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
-window.__hydrate = () => hydrate(<App rows={rows} selected={${SELECTED_ID}} />, document.getElementById('main'));`,
+const cards = buildCards(${CARD_COUNT});
+const main = () => document.getElementById('main');
+window.__pages = {
+  table: { hydrate: () => hydrate(<App rows={rows} selected={${SELECTED_ID}} />, main()), render: () => mount(<App rows={rows} selected={${SELECTED_ID}} />, main()) },
+  cards: { hydrate: () => hydrate(<Cards cards={cards} />, main()), render: () => mount(<Cards cards={cards} />, main()) },
+};`,
     jsx: { plugins: [[compiler, { production: true, ...(hydratable ? { hydratable: true } : {}) }]] },
     plugins: [whatAliases(checkout, CLIENT_CONDITIONS), babelJsx({ parserOpts: { plugins: ['jsx'] }, plugins: [[compiler, { production: true, ...(hydratable ? { hydratable: true } : {}) }]] })],
   }),
   what: (checkout) => ({
-    source: `import { h, hydrate } from 'what-framework';
+    source: `import { h, hydrate, mount } from 'what-framework';
 import { App } from './app.jsx';
-import { buildRows } from '../../shared/data.mjs';
+import { Cards } from './cards.jsx';
+import { buildRows, buildCards } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
-window.__hydrate = () => hydrate(h(App, { rows, selected: ${SELECTED_ID} }), document.getElementById('main'));`,
+const cards = buildCards(${CARD_COUNT});
+const main = () => document.getElementById('main');
+window.__pages = {
+  table: { hydrate: () => hydrate(h(App, { rows, selected: ${SELECTED_ID} }), main()), render: () => mount(h(App, { rows, selected: ${SELECTED_ID} }), main()) },
+  cards: { hydrate: () => hydrate(h(Cards, { cards }), main()), render: () => mount(h(Cards, { cards }), main()) },
+};`,
     esbuildJsx: { jsx: 'automatic', jsxImportSource: 'what-framework' },
     plugins: [whatAliases(checkout, CLIENT_CONDITIONS)],
   }),
   solid1: () => ({
-    source: `import { hydrate } from 'solid-js/web';
+    source: `import { hydrate, render } from 'solid-js/web';
 import { App } from './app.jsx';
-import { buildRows } from '../../shared/data.mjs';
+import { Cards } from './cards.jsx';
+import { buildRows, buildCards } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
-window.__hydrate = () => hydrate(() => <App rows={rows} selected={${SELECTED_ID}} />, document.getElementById('main'));`,
+const cards = buildCards(${CARD_COUNT});
+const main = () => document.getElementById('main');
+window.__pages = {
+  table: { hydrate: () => hydrate(() => <App rows={rows} selected={${SELECTED_ID}} />, main()), render: () => render(() => <App rows={rows} selected={${SELECTED_ID}} />, main()) },
+  cards: { hydrate: () => hydrate(() => <Cards cards={cards} />, main()), render: () => render(() => <Cards cards={cards} />, main()) },
+};`,
     jsx: { presets: [[solidPresetV1, { generate: 'dom', hydratable: true }]] },
     plugins: [babelJsx({ presets: [[solidPresetV1, { generate: 'dom', hydratable: true }]] })],
   }),
   solid2: () => ({
-    source: `import { hydrate } from '@solidjs/web';
+    source: `import { hydrate, render } from '@solidjs/web';
 import { App } from './app.jsx';
-import { buildRows } from '../../shared/data.mjs';
+import { Cards } from './cards.jsx';
+import { buildRows, buildCards } from '../../shared/data.mjs';
 const rows = buildRows(${ROWS});
-window.__hydrate = () => hydrate(() => <App rows={rows} selected={${SELECTED_ID}} />, document.getElementById('main'));`,
+const cards = buildCards(${CARD_COUNT});
+const main = () => document.getElementById('main');
+window.__pages = {
+  table: { hydrate: () => hydrate(() => <App rows={rows} selected={${SELECTED_ID}} />, main()), render: () => render(() => <App rows={rows} selected={${SELECTED_ID}} />, main()) },
+  cards: { hydrate: () => hydrate(() => <Cards cards={cards} />, main()), render: () => render(() => <Cards cards={cards} />, main()) },
+};`,
     jsx: { plugins: [[solidPluginV2.default ?? solidPluginV2, { generate: 'dom', hydratable: true }]] },
     plugins: [babelJsx({ plugins: [[solidPluginV2.default ?? solidPluginV2, { generate: 'dom', hydratable: true }]] })],
   }),
 };
 
-async function serverPage(name, kind, checkout, compiler) {
+async function serverPages(name, kind, checkout, compiler) {
   const config = SERVERS[kind](checkout, compiler);
   const outfile = path.join(outDir, `${name}.server.mjs`);
   await build({
@@ -168,14 +199,15 @@ async function serverPage(name, kind, checkout, compiler) {
     define: { 'process.env.NODE_ENV': '"production"', ...config.define },
   });
   const mod = await import(pathToFileURL(outfile).href + '?' + Date.now());
-  const body = mod.renderString(buildRows(ROWS), SELECTED_ID);
+  const bodies = { table: mod.renderString(buildRows(ROWS), SELECTED_ID), cards: mod.renderCards(buildCards(CARD_COUNT)) };
   let head = '';
   if (kind === 'solid1') head = (await import(requireFrom('frameworks/solid1').resolve('solid-js/web'))).generateHydrationScript();
   if (kind === 'solid2') {
     const web = await import(pathToFileURL(createRequire(path.join(here, 'frameworks/solid2/package.json')).resolve('@solidjs/web')).href);
     if (web.generateHydrationScript) head = web.generateHydrationScript();
   }
-  return `<!doctype html><html><head><meta charset="utf-8">${head}</head><body><div id="main">${body}</div></body></html>`;
+  const doc = (body) => `<!doctype html><html><head><meta charset="utf-8">${head}</head><body><div id="main">${body}</div></body></html>`;
+  return { table: doc(bodies.table), cards: doc(bodies.cards), empty: doc('') };
 }
 
 async function clientBundle(name, kind, checkout, compiler, hydratable) {
@@ -196,37 +228,67 @@ async function clientBundle(name, kind, checkout, compiler, hydratable) {
   return code;
 }
 
-async function measure(browser, html, code) {
+// One hydration of `pageName` (the server's HTML in the document), timed, then
+// a click that has to work.
+async function measure(browser, html, code, pageName) {
+  return inPage(browser, html, code, (page) => page.evaluate(async (name) => {
+    const main = document.getElementById('main');
+    const before = new Set();
+    const walk = (visit) => {
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_ALL);
+      for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) visit(n);
+    };
+    walk((n) => before.add(n));
+    const t0 = performance.now();
+    window.__pages[name].hydrate();
+    const t1 = performance.now();
+    let worked;
+    let count;
+    if (name === 'table') {
+      main.querySelectorAll('tbody tr')[4].querySelector('a.lbl').click();
+      await Promise.resolve();
+      worked = main.querySelectorAll('tbody tr')[4].className === 'danger';
+      count = main.querySelectorAll('tbody tr').length;
+    } else {
+      const button = main.querySelectorAll('.card button.inc')[4];
+      const was = Number(button.textContent);
+      button.click();
+      await Promise.resolve();
+      worked = Number(main.querySelectorAll('.card button.inc')[4].textContent) === was + 1;
+      count = main.querySelectorAll('.card').length;
+    }
+    const t2 = performance.now();
+    let created = 0;
+    walk((n) => { if (!before.has(n)) created++; });
+    return { hydrate: t1 - t0, interactive: t2 - t0, created, worked, count };
+  }, pageName), pageName);
+}
+
+// One client render of `pageName` into the empty container, timed.
+async function measureRender(browser, html, code, pageName) {
+  return inPage(browser, html, code, (page) => page.evaluate((name) => {
+    const t0 = performance.now();
+    window.__pages[name].render();
+    const t1 = performance.now();
+    const main = document.getElementById('main');
+    const count = main.querySelectorAll(name === 'table' ? 'tbody tr' : '.card').length;
+    return { render: t1 - t0, worked: true, count };
+  }, pageName), pageName);
+}
+
+async function inPage(browser, html, code, run, pageName) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
     await page.setContent(html);
     await page.addScriptTag({ content: code, type: 'module' });
-    await page.waitForFunction(() => typeof window.__hydrate === 'function');
-    const result = await page.evaluate(async () => {
-      const main = document.getElementById('main');
-      const before = new Set();
-      const walk = (visit) => {
-        const walker = document.createTreeWalker(main, NodeFilter.SHOW_ALL);
-        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) visit(n);
-      };
-      walk((n) => before.add(n));
-      const t0 = performance.now();
-      window.__hydrate();
-      const t1 = performance.now();
-      const row = main.querySelectorAll('tbody tr')[4];
-      row.querySelector('a.lbl').click();
-      await Promise.resolve();
-      const selected = main.querySelectorAll('tbody tr')[4].className === 'danger';
-      const t2 = performance.now();
-      let created = 0;
-      walk((n) => { if (!before.has(n)) created++; });
-      return { hydrate: t1 - t0, interactive: t2 - t0, created, selected, rows: main.querySelectorAll('tbody tr').length };
-    });
+    await page.waitForFunction(() => typeof window.__pages === 'object');
+    const result = await run(page);
     if (errors.length) throw new Error(errors.join('\n'));
-    if (!result.selected) throw new Error('a click on a row label did not select the row');
-    if (result.rows !== ROWS) throw new Error(`${result.rows} rows after hydrating`);
+    if (!result.worked) throw new Error(`${pageName}: a click after hydrating did not update the page`);
+    const want = pageName === 'table' ? ROWS : CARD_COUNT;
+    if (result.count !== want) throw new Error(`${pageName}: ${result.count} items, expected ${want}`);
     return result;
   } finally {
     await page.close();
@@ -246,28 +308,44 @@ if (beforeAt) {
   entries.push({ name: 'before.what', kind: 'what', checkout: beforeAt, compiler: old, hydratable: false });
 }
 
+const PAGES = { table: `the table, ${ROWS} rows`, cards: `the component page, ${CARD_COUNT} components` };
 const browser = await chromium.launch();
 const rowsOut = [];
 try {
   for (const entry of entries) {
-    const html = await serverPage(entry.name, entry.kind, entry.checkout, entry.compiler);
+    const html = await serverPages(entry.name, entry.kind, entry.checkout, entry.compiler);
     const code = await clientBundle(entry.name, entry.kind, entry.checkout, entry.compiler, entry.hydratable);
-    const runs = [];
-    for (let i = 0; i < RUNS; i++) runs.push(await measure(browser, html, code));
-    const row = {
-      entry: entry.name,
-      hydrateMs: +median(runs.map((r) => r.hydrate)).toFixed(2),
-      interactiveMs: +median(runs.map((r) => r.interactive)).toFixed(2),
-      created: median(runs.map((r) => r.created)),
-      clientGzip: gzipSync(code).length,
-    };
-    rowsOut.push(row);
-    console.log(JSON.stringify(row));
+    for (const pageName of Object.keys(PAGES)) {
+      const runs = [];
+      const renders = [];
+      // Hydration and client render alternate, so load on the machine reaches both alike.
+      for (let i = 0; i < RUNS; i++) {
+        runs.push(await measure(browser, html[pageName], code, pageName));
+        renders.push(await measureRender(browser, html.empty, code, pageName));
+      }
+      const hydrateMs = median(runs.map((r) => r.hydrate));
+      const renderMs = median(renders.map((r) => r.render));
+      const row = {
+        page: pageName,
+        entry: entry.name,
+        hydrateMs: +hydrateMs.toFixed(2),
+        interactiveMs: +median(runs.map((r) => r.interactive)).toFixed(2),
+        renderMs: +renderMs.toFixed(2),
+        ratio: +(hydrateMs / renderMs).toFixed(2),
+        created: median(runs.map((r) => r.created)),
+        clientGzip: gzipSync(code).length,
+      };
+      rowsOut.push(row);
+      console.log(JSON.stringify(row));
+    }
   }
 } finally {
   await browser.close();
 }
-console.log(`\n${ROWS} rows, ${RUNS} runs each (median), Chromium ${browser.version()}`);
-console.log('| entry | hydrate (ms) | interactive (ms) | nodes created | client (gzip B) |');
-console.log('|---|---:|---:|---:|---:|');
-for (const r of rowsOut) console.log(`| ${r.entry} | ${r.hydrateMs} | ${r.interactiveMs} | ${r.created} | ${r.clientGzip} |`);
+console.log(`\n${RUNS} runs each (median), Chromium ${browser.version()}`);
+for (const [pageName, title] of Object.entries(PAGES)) {
+  console.log(`\n${title}\n`);
+  console.log('| entry | hydrate (ms) | interactive (ms) | client render (ms) | hydrate / render | nodes created | client (gzip B) |');
+  console.log('|---|---:|---:|---:|---:|---:|---:|');
+  for (const r of rowsOut.filter((x) => x.page === pageName)) console.log(`| ${r.entry} | ${r.hydrateMs} | ${r.interactiveMs} | ${r.renderMs} | ${r.ratio} | ${r.created} | ${r.clientGzip} |`);
+}

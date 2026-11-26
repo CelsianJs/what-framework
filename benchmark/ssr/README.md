@@ -8,7 +8,11 @@ target), **solid 1.9**, **solid 2.0** and **react 19** as a reference point.
 
 Measured: synchronous string render (plain and hydratable), streaming of the
 plain page, streaming of the page with the table inside one async boundary
-(shell-first vs in-order flushing), and heap allocated per render.
+(shell-first vs in-order flushing), and heap allocated per render. A second
+page, the component page (`frameworks/*/cards.jsx`: 200 small components, each
+a card with text from its props and a counter of its own), is string-rendered
+plain and hydratable with its heap per render: the table page has three
+components, this one measures what a component costs.
 
 ## Run it
 
@@ -28,11 +32,16 @@ node page.mjs --quick --before <what-fw checkout>  # an ordinary page, two check
 Run it on an otherwise idle machine; the jobs are strictly sequential.
 
 `hydrate.mjs` (`npm run bench:hydrate`, 21 runs per entry) measures the other
-half: each framework's hydratable server renders the 1,000-row page and its
-client hydrates it in Chromium. It reports the `hydrate()` call's time, the
-time until a click on a row's label has selected it, the nodes created while
-hydrating (zero when the client adopts every node the server wrote) and the
-client bundle's gzip size. Each client is built the way an app ships it: the
+half: each framework's hydratable server renders the 1,000-row page and the
+component page, and its client hydrates them in Chromium. It reports the
+`hydrate()` call's time, the time until a click has worked (a row's label
+selects the row, a card's button counts), the client rendering the same page
+into an empty container in the same bundle (What `mount()`, Solid `render()`),
+hydrate / render, the nodes created while hydrating (zero when the client
+adopts every node the server wrote; a text node the client splits off the
+server's counts) and the client bundle's gzip size. Each run is a fresh page,
+so it is a page load's first, cold call; hydration and client render runs
+alternate. Each client is built the way an app ships it: the
 What clients resolve the `production` export condition (`dist/*.min.js`), so
 run `node scripts/build.js` first. `--before <what-fw checkout>` adds
 `before.what` built from another (built) checkout, and `before.whatc` when that
@@ -58,10 +67,11 @@ that is not one big list. It prints its table and writes nothing outside
 | Path | What |
 |---|---|
 | `frameworks/<fw>/app.jsx` | The page in each framework's idiom (same markup, same data); `what` is the h()/runtime-JSX page, `whatc` the what-compiler page |
-| `frameworks/<fw>/entry.jsx` | `renderString`, `stream`, `streamAsync` over that framework's server API (What: `renderToStream(...).pipe(out)`) |
+| `frameworks/<fw>/entry.jsx` | `renderString`, `stream`, `streamAsync`, `renderCards` over that framework's server API (What: `renderToStream(...).pipe(out)`) |
+| `frameworks/<fw>/cards.jsx` | The component page in each framework's idiom |
 | `frameworks/whatc/page.jsx`, `page-entry.jsx` | The ordinary page `page.mjs` renders, and its server entry |
 | `frameworks/solid1`, `frameworks/solid2` | npm workspaces, so the two Solid majors each resolve their own `solid-js` |
-| `shared/data.mjs` | Seeded dataset and the canonical markup |
+| `shared/data.mjs` | Seeded datasets (rows, cards) and the canonical markup |
 | `shared/verify.mjs` | Output equivalence checks run before any timing |
 | `build.mjs` | Bundles each framework twice (plain, hydratable) into `dist/` and writes `dist/manifest.json` |
 | `worker.mjs` | One measurement job in a fresh process |

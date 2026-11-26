@@ -20,8 +20,11 @@
 //   - string: render + UTF-8 encode, timed per call after warmup; median, p95,
 //     ops/s = 1000 / median.
 //   - stream / streamAsync: hydratable bundles (streaming exists to hydrate;
-//     what's renderToStream has no marker-emitting mode, so its stream output
-//     is plain). Consumed in-process by a recording Writable.
+//     every framework streams hydratable HTML). Consumed in-process by a
+//     recording Writable.
+//   - cards: string render of the component page (CARD_COUNT small
+//     components, shared/data.mjs buildCards), plain and hydratable, with its
+//     heap per render (cardsMemory).
 //   - memory: heap bytes allocated by one render, measured only when no GC ran
 //     during it (worker.mjs explains); one round.
 //
@@ -33,7 +36,7 @@ import { spawnSync, execSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { buildRows, expectedPageHtml, SELECTED_ID } from './shared/data.mjs';
+import { buildRows, expectedPageHtml, SELECTED_ID, CARD_COUNT } from './shared/data.mjs';
 import { verifyPage } from './shared/verify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -51,8 +54,8 @@ const SEMI_SPACE_MB = 1024;
 
 // [warmup, samples] per job and round.
 const COUNTS = QUICK
-  ? { string: { 1000: [30, 40], 10000: [5, 8] }, stream: { 1000: [10, 15], 10000: [2, 4] }, streamAsync: { 1000: [2, 4], 10000: [1, 3] }, memory: { 1000: [10, 5], 10000: [3, 5] } }
-  : { string: { 1000: [300, 400], 10000: [30, 60] }, stream: { 1000: [50, 100], 10000: [10, 20] }, streamAsync: { 1000: [5, 20], 10000: [3, 10] }, memory: { 1000: [100, 25], 10000: [20, 15] } };
+  ? { string: { 1000: [30, 40], 10000: [5, 8] }, stream: { 1000: [10, 15], 10000: [2, 4] }, streamAsync: { 1000: [2, 4], 10000: [1, 3] }, memory: { 1000: [10, 5], 10000: [3, 5] }, cards: { [CARD_COUNT]: [30, 40] }, cardsMemory: { [CARD_COUNT]: [10, 5] } }
+  : { string: { 1000: [300, 400], 10000: [30, 60] }, stream: { 1000: [50, 100], 10000: [10, 20] }, streamAsync: { 1000: [5, 20], 10000: [3, 10] }, memory: { 1000: [100, 25], 10000: [20, 15] }, cards: { [CARD_COUNT]: [500, 800] }, cardsMemory: { [CARD_COUNT]: [100, 25] } };
 
 const FRAMEWORK_LABEL = { what: 'what h() vnodes (working tree)', whatc: 'what compiled (working tree)', solid1: 'solid 1.9', solid2: 'solid 2.0', react: 'react 19' };
 const STRING_API = {
@@ -89,7 +92,7 @@ function selfTestVerifier() {
 }
 
 function runJob(job) {
-  const flags = job.op === 'memory' ? ['--expose-gc', `--max-semi-space-size=${SEMI_SPACE_MB}`] : [];
+  const flags = job.op === 'memory' || job.op === 'cardsMemory' ? ['--expose-gc', `--max-semi-space-size=${SEMI_SPACE_MB}`] : [];
   const child = spawnSync(process.execPath, [...flags, path.join(here, 'worker.mjs'), JSON.stringify(job)], {
     cwd: here,
     env: { ...process.env, NODE_ENV: 'production' },
@@ -114,6 +117,10 @@ function planJobs() {
         jobs.push({ round, op: 'streamAsync', bundle: `${fw}.hydratable`, fw, mode: 'hydratable', rows, delayMs: DELAY_MS });
         if (round === 0) for (const mode of MODES) jobs.push({ round, op: 'memory', bundle: `${fw}.${mode}`, fw, mode, rows });
       }
+    }
+    for (const fw of order) {
+      for (const mode of MODES) jobs.push({ round, op: 'cards', bundle: `${fw}.${mode}`, fw, mode, rows: CARD_COUNT });
+      if (round === 0) for (const mode of MODES) jobs.push({ round, op: 'cardsMemory', bundle: `${fw}.${mode}`, fw, mode, rows: CARD_COUNT });
     }
   }
   for (const job of jobs) [job.warmup, job.samples] = COUNTS[job.op][job.rows];
@@ -151,11 +158,11 @@ function aggregate(jobs, outputs) {
     const entry = { op: g.op, framework: g.fw, mode: g.mode, rows: g.rows, errors: g.errors };
     if (g.rounds.length) {
       entry.bytes = g.rounds[0].bytes;
-      if (g.op === 'string') {
+      if (g.op === 'string' || g.op === 'cards') {
         entry.ms = stats(g.rounds.flatMap((r) => r.samples));
         entry.renderOnlyMs = stats(g.rounds.flatMap((r) => r.renderOnly));
         entry.roundSpreadMs = spread(g.rounds.map((r) => stats(r.samples).median));
-      } else if (g.op === 'memory') {
+      } else if (g.op === 'memory' || g.op === 'cardsMemory') {
         const samples = g.rounds.flatMap((r) => r.samples);
         entry.discarded = g.rounds.reduce((a, r) => a + r.discarded, 0);
         entry.heapBytes = samples.length ? stats(samples) : null;
@@ -194,16 +201,16 @@ function errorCell(entry) {
   return entry && entry.errors.length && !entry.ms && !entry.doneMs && !entry.heapBytes ? `FAILED (${entry.errors[0].split('\n')[0].slice(0, 80)})` : null;
 }
 
-function stringTable(summary, rows) {
+function stringTable(summary, rows, op = 'string', memoryOp = 'memory') {
   const lines = [
     `| framework | mode | API | median ms | p95 ms | ops/s | time vs solid 2.0, same mode (lower is faster) | render-only median ms | round spread ms | output KB | heap MB / render |`,
     '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
   ];
   for (const mode of MODES) {
-    const ref = summary[key('string', 'solid2', mode, rows)];
+    const ref = summary[key(op, 'solid2', mode, rows)];
     for (const fw of FRAMEWORKS) {
-      const e = summary[key('string', fw, mode, rows)];
-      const m = summary[key('memory', fw, mode, rows)];
+      const e = summary[key(op, fw, mode, rows)];
+      const m = summary[key(memoryOp, fw, mode, rows)];
       const failed = errorCell(e);
       if (failed) { lines.push(`| ${FRAMEWORK_LABEL[fw]} | ${mode} | ${STRING_API[fw][mode]} | ${failed} |||||||| `); continue; }
       const ratio = ref && ref.ms ? `${(e.ms.median / ref.ms.median).toFixed(2)}x` : '—';
@@ -268,6 +275,12 @@ function renderMarkdown(meta, summary) {
     '"render-only" excludes it. Heap MB is allocation during one render with no GC in between',
     '(n/a when every sample saw a GC).', '');
 
+  L.push(`## Synchronous string render — component page, ${CARD_COUNT} components`, '');
+  L.push(...stringTable(summary, CARD_COUNT, 'cards', 'cardsMemory'), '');
+  L.push(`${CARD_COUNT} small components in a keyed list (\`shared/data.mjs\` buildCards, \`frameworks/*/cards.jsx\`):`,
+    'each a card with fixed text, text from its props and a counter of its own shown in a',
+    'button. The table page has three components; this one measures what a component costs.', '');
+
   for (const rows of SIZES) {
     L.push(`## Streaming, plain page (hydratable bundles) — ${rows.toLocaleString('en-US')} rows`, '');
     L.push(...streamTable(summary, rows), '');
@@ -298,12 +311,10 @@ function renderMarkdown(meta, summary) {
     '  what-compiler\'s server target into string templates, as Solid 1/2 compile theirs.',
     '  See README.md for the mechanical explanation.',
     '- Streaming numbers are in-process (no sockets, no HTTP chunked framing). A chunk is',
-    '  one `write()` on a Node Writable; What\'s per-tag chunks would each become a chunked',
+    '  one `write()` on a Node Writable; React\'s ~4 KB chunks would each become a chunked',
     '  frame on a real response, which this benchmark does not charge for.',
     '- Solid streams serialize the async data into the page for hydration; React and What do',
     '  not, so their async-page byte counts are not like for like.',
-    '- What\'s renderToStream emits no hydration markers, so its streaming output is plain HTML',
-    '  while Solid and React stream hydratable HTML.',
     '- Single machine, Node only, no CPU pinning. Differences under ~10% (or under the round',
     '  spread) are noise.', '');
   return L.join('\n');

@@ -86,3 +86,21 @@ export function verifyAsyncPage(html, rows, selectedId, shellEndText) {
     throw new Error(`row ${selectedId} is not marked selected`);
   }
 }
+
+// The component page (data.mjs expectedCardsHtml): every card, the text of
+// three of them, and structural equality after normalize().
+export function verifyCards(html, cards, expected) {
+  const n = normalize(html);
+  const count = (n.match(/<div class="card" id="card-\d+">/g) || []).length;
+  if (count !== cards.length) throw new Error(`expected ${cards.length} cards, got ${count}`);
+  for (const card of [cards[0], cards[Math.floor(cards.length / 2)], cards[cards.length - 1]]) {
+    const m = n.match(new RegExp(`<div class="card" id="card-${card.id}"><h3 class="title">([^<]*)</h3>`));
+    if (!m || m[1] !== card.title) throw new Error(`card ${card.id}: expected title ${JSON.stringify(card.title)}, got ${JSON.stringify(m && m[1])}`);
+  }
+  const canonical = normalize(expected);
+  if (n !== canonical) {
+    let i = 0;
+    while (i < n.length && n[i] === canonical[i]) i++;
+    throw new Error(`structure differs at offset ${i}:\n  got      ${JSON.stringify(n.slice(Math.max(0, i - 60), i + 80))}\n  expected ${JSON.stringify(canonical.slice(Math.max(0, i - 60), i + 80))}`);
+  }
+}

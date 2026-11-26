@@ -3,6 +3,7 @@
 /* global __HYDRATABLE__ */
 import { renderToString, renderToHydratableString, renderToStream } from 'what-server';
 import { App, AsyncApp } from './app.jsx';
+import { Cards } from './cards.jsx';
 
 const toString = __HYDRATABLE__ ? renderToHydratableString : renderToString;
 
@@ -16,4 +17,8 @@ export function stream(rows, selected, out) {
 
 export function streamAsync(selected, load, out) {
   renderToStream(<AsyncApp selected={selected} load={load} />).pipe(out);
+}
+
+export function renderCards(cards) {
+  return toString(<Cards cards={cards} />);
 }

@@ -4,6 +4,7 @@
 /* global __HYDRATABLE__ */
 import { renderToStaticMarkup, renderToString, renderToPipeableStream } from 'react-dom/server';
 import { App, AsyncApp } from './app.jsx';
+import { Cards } from './cards.jsx';
 
 const toString = __HYDRATABLE__ ? renderToString : renderToStaticMarkup;
 
@@ -25,4 +26,8 @@ export function stream(rows, selected, out) {
 
 export function streamAsync(selected, load, out) {
   pipe(<AsyncApp selected={selected} load={load} />, out);
+}
+
+export function renderCards(cards) {
+  return toString(<Cards cards={cards} />);
 }
