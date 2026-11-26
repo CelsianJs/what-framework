@@ -307,7 +307,7 @@ const current = await whatCompiler(repo);
 for (const kind of ['whatc', 'what', 'solid1', 'solid2']) entries.push({ name: kind, kind, checkout: repo, compiler: current, hydratable: true });
 if (beforeAt) {
   const old = await whatCompiler(beforeAt);
-  if (await hasServerTarget(old)) entries.push({ name: 'before.whatc', kind: 'whatc', checkout: beforeAt, compiler: old, hydratable: false });
+  if (await hasServerTarget(old)) entries.push({ name: 'before.whatc', kind: 'whatc', checkout: beforeAt, compiler: old, hydratable: true });
   else console.log(`Skipping before.whatc: the compiler in ${beforeAt} has no server target (generate: 'ssr').`);
   entries.push({ name: 'before.what', kind: 'what', checkout: beforeAt, compiler: old, hydratable: false });
 }
