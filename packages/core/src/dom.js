@@ -785,9 +785,10 @@ export function _setFieldProp(el, key, value) {
 // onChange handlers of the same `input` run) keeps it for onChange to hear,
 // and one whose onChange saw nothing yet hears whatever comes next.
 function writeValue(el, value) {
-  const seen = el._$seen === el.value;
+  const was = el._$seen;
+  const seen = was === el.value;
   el.value = value;
-  if (seen) el._$seen = el.value;
+  el._$seen = seen ? el.value : was;
 }
 
 // The props of a <select> and its <option>s: their value, their default and
@@ -945,7 +946,35 @@ export function _onChange(e, handler) {
   const text = 'selectionStart' in el && !el.files && !ATTRIBUTE_VALUE_TYPES.has(el.type);
   e._$change ??= text ? el.value !== el._$seen : change;
   if (e._$change) handler(e);
-  if (text) el._$seen = change && e.isTrusted ? undefined : el.value;
+  if (text) {
+    el._$seen = change && e.isTrusted ? undefined : el.value;
+    hearScriptWrites(el);
+  }
+}
+
+// A script's write to a text field it has heard (`el.value = ''` once a chat
+// box has sent, while the field keeps the focus) makes the field forget what
+// onChange saw, so the next edit is heard, one that types what the field held
+// before the write included. The field's own `value` setter is wrapped for
+// it, as React's value tracker wraps it; What's writes (writeValue) keep what
+// onChange saw. A field that already has its own `value` (a copy of
+// what-core, or React's tracker, wrapped it) is left as it is.
+function hearScriptWrites(el) {
+  if (Object.prototype.hasOwnProperty.call(el, 'value')) return;
+  let proto = Object.getPrototypeOf(el);
+  let desc;
+  while (proto !== null && (desc = Object.getOwnPropertyDescriptor(proto, 'value')) === undefined) proto = Object.getPrototypeOf(proto);
+  if (desc === undefined || desc.set === undefined || desc.get === undefined) return;
+  const { get, set } = desc;
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    enumerable: desc.enumerable,
+    get() { return get.call(this); },
+    set(next) {
+      set.call(this, next);
+      this._$seen = undefined;
+    },
+  });
 }
 
 // Show what the props of `el` hold, where the field shows something else.

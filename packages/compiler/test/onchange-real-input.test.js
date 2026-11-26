@@ -230,6 +230,15 @@ for (const [engine, type] of engines) {
         assert.deepEqual(await seen(), ['unc b'], 'the field forgot what it held when it lost focus');
       });
 
+      it('a field a script clears while it keeps the focus hears the same text typed again (a chat box on Enter)', async () => {
+        await page.evaluate(() => { globalThis.M.refs.unc.value = ''; });
+        await typeAtEnd('#unc', 'h');
+        assert.deepEqual(await seen(), ['unc h']);
+        await page.evaluate(() => { globalThis.M.refs.unc.value = ''; });
+        await page.keyboard.type('h');
+        assert.deepEqual(await seen(), ['unc h'], 'the keystroke that makes what the field held before the write');
+      });
+
       it('events a script dispatches: after its own write an edit (as in what-react; React has none), and none that changed nothing', async () => {
         const fire = (write, type) => page.evaluate(([w, t]) => {
           const el = document.getElementById('unc');
