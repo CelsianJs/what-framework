@@ -328,7 +328,7 @@ function diagnosticsSkill() {
     const list = entries.filter(test);
     if (!list.length) continue;
     out.push('', `## ${title}`, '');
-    for (const e of list) out.push(`- \`${e.code}\` ${e.severity === 'error' ? 'error' : 'warn'}: ${oneLine(e.summary, 64)}`);
+    for (const e of list) out.push(`- \`${e.code}\` ${e.severity === 'error' ? 'error' : 'warn'}: ${oneLine(e.summary, 60)}`);
   }
   return `${out.join('\n')}\n`;
 }

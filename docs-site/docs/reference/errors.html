@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 77 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 78 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 77 of them: 44 errors and 33 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 78 of them: 44 errors and 34 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -81,6 +81,7 @@
             <li><a href="#ERR_ASYNC_WITHOUT_SUSPENSE">ERR_ASYNC_WITHOUT_SUSPENSE</a></li>
             <li><a href="#ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</a></li>
             <li><a href="#ERR_CLASS_COMPONENT_NOT_INSTALLED">ERR_CLASS_COMPONENT_NOT_INSTALLED</a></li>
+            <li><a href="#ERR_CLEANUP_READS_LIVE">ERR_CLEANUP_READS_LIVE</a></li>
             <li><a href="#ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</a></li>
             <li><a href="#ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</a></li>
             <li><a href="#ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</a></li>
@@ -265,6 +266,31 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
 
 createRoot(document.getElementById('app')).render(&lt;App /&gt;);</code></pre>
+
+          <h2 id="ERR_CLEANUP_READS_LIVE">ERR_CLEANUP_READS_LIVE</h2>
+          <p class="subtitle">The hook cleanup in &lt;component&gt; reads `name` when it runs, not the value its run used.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-compiler</code>.</p>
+          <p>A component runs once, so a prop or a state accessor read in an effect's cleanup is read when the cleanup runs: after the change that makes the effect run again. React's cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array).</p>
+<pre><code>import { useEffect } from 'what-framework';
+
+// Bad - when roomId changes, the cleanup leaves the new room:
+function ChatRoom({ roomId }) {
+  useEffect(() =&gt; {
+    join(roomId);
+    return () =&gt; leave(roomId);
+  });
+  return &lt;h2&gt;{roomId}&lt;/h2&gt;;
+}
+
+// Good - the cleanup undoes what its run did:
+function ChatRoom({ roomId }) {
+  useEffect(() =&gt; {
+    const room = roomId;
+    join(room);
+    return () =&gt; leave(room);
+  });
+  return &lt;h2&gt;{roomId}&lt;/h2&gt;;
+}</code></pre>
 
           <h2 id="ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</h2>
           <p class="subtitle">onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs.</p>

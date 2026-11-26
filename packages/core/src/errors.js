@@ -491,6 +491,33 @@ function Signup() {
 }`,
   },
 
+  CLEANUP_READS_LIVE: {
+    code: 'ERR_CLEANUP_READS_LIVE',
+    severity: 'warning',
+    template: 'The {{hook}} cleanup in <{{component}}> reads `{{name}}` when it runs, not the value its run used.',
+    suggestion: 'A component runs once, so a prop or a state accessor read in an effect\'s cleanup is read when the cleanup runs: after the change that makes the effect run again. React\'s cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array).',
+    codeExample: `import { useEffect } from 'what-framework';
+
+// Bad - when roomId changes, the cleanup leaves the new room:
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    join(roomId);
+    return () => leave(roomId);
+  });
+  return <h2>{roomId}</h2>;
+}
+
+// Good - the cleanup undoes what its run did:
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const room = roomId;
+    join(room);
+    return () => leave(room);
+  });
+  return <h2>{roomId}</h2>;
+}`,
+  },
+
   DUPLICATE_KEY: {
     code: 'ERR_DUPLICATE_KEY',
     severity: 'warning',

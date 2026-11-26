@@ -48,7 +48,7 @@
  */
 
 import { t, setTypes } from './babel/types.js';
-import { deferPlacedProps, warnStateReadOnce, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
+import { deferPlacedProps, warnLiveCleanup, warnStateReadOnce, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
 import { initDomState, finishDomProgram, transformJsxRoot, mayBuildTag } from './babel/dom.js';
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
@@ -195,6 +195,9 @@ export default function whatBabelPlugin({ types }) {
           const calls = [];
           path.traverse({
             Function(fnPath) {
+              // Before deferPlacedProps rewrites destructured props as
+              // `props.<key>` reads, so it names them as they are written.
+              warnLiveCleanup(fnPath, state);
               deferPlacedProps(fnPath, state);
               warnStateReadOnce(fnPath, state);
             },

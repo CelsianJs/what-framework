@@ -1164,6 +1164,80 @@ export function warnStateReadOnce(fnPath, state) {
   }
 }
 
+// --- A useEffect cleanup that reads what its run read ---
+// `useEffect(() => { join(roomId); return () => leave(roomId); })`: a
+// component runs once, so `roomId` in the cleanup is read when the cleanup
+// runs, after the change that makes the effect run again, and the cleanup
+// leaves the new room; React's closes over its render and leaves the old one.
+// Reported at build time in development (ERR_CLEANUP_READS_LIVE) when the
+// cleanup, a function the callback returns, reads a prop or calls a state
+// accessor that the callback also reads outside it, and the effect can run
+// again (no `[]` dependency array). Reads inside functions written in either
+// are not counted.
+
+
+function importedWhatName(fnPath, callee) {
+  if (!t.isIdentifier(callee)) return null;
+  const binding = fnPath.scope.getBinding(callee.name);
+  if (!binding || binding.kind !== 'module' || !t.isImportSpecifier(binding.path.node)) return null;
+  const imported = binding.path.node.imported;
+  const name = t.isIdentifier(imported) ? imported.name : imported.value;
+  return importedFrom(binding, t.isImportSpecifier, name) ? name : null;
+}
+
+// Every name `read` gives for a node of `node`, outside a function written in it.
+function readsIn(node, read) {
+  const found = new Set();
+  const visit = (n) => {
+    if (!n || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (typeof n.type !== 'string' || t.isFunction(n)) return;
+    const name = read(n);
+    if (name !== null) found.add(name);
+    for (const key of t.VISITOR_KEYS[n.type] || []) visit(n[key]);
+  };
+  visit(node);
+  return found;
+}
+
+export function warnLiveCleanup(fnPath, state) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || state.frameworkFile || !isComponentFunction(fnPath) || isRowFunction(fnPath, state)) return;
+  if (!t.isBlockStatement(fnPath.node.body)) return;
+  const props = propReader(fnPath);
+  const names = stateAccessors(fnPath);
+  if (props === null && names.size === 0) return;
+  const read = (n) => (props !== null ? props(n) : null)
+    ?? (names.size !== 0 && t.isCallExpression(n) && n.arguments.length === 0 && t.isIdentifier(n.callee) && names.has(n.callee.name) ? `${n.callee.name}()` : null);
+  for (const stmt of fnPath.node.body.body) {
+    const call = t.isExpressionStatement(stmt) ? stmt.expression : null;
+    if (!t.isCallExpression(call) || importedWhatName(fnPath, call.callee) !== 'useEffect') continue;
+    const [callback, deps] = call.arguments;
+    if (!t.isFunction(callback) || (t.isArrayExpression(deps) && deps.elements.length === 0)) continue;
+    const cleanups = t.isBlockStatement(callback.body)
+      ? callback.body.body.filter((s) => t.isReturnStatement(s) && t.isFunction(s.argument)).map((s) => s.argument)
+      : t.isFunction(callback.body) ? [callback.body] : [];
+    if (cleanups.length === 0) continue;
+    const inRun = readsIn(callback.body, read);
+    for (const cleanup of cleanups) {
+      const name = [...readsIn(cleanup.body, read)].find((n) => inRun.has(n));
+      if (name === undefined) continue;
+      const hook = 'useEffect';
+      recordBuildDiagnostic(state, 'ERR_CLEANUP_READS_LIVE', { name, component: componentName(fnPath), hook }, cleanup);
+      const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+      const at = `${fileName}${cleanup.loc ? `:${cleanup.loc.start.line}:${cleanup.loc.start.column + 1}` : ''}`;
+      if (warnedReadOnce.has(`${at}::cleanup`)) break;
+      warnedReadOnce.add(`${at}::cleanup`);
+      const local = name.replace(/^props\./, '').replace(/\(\)$/, '');
+      console.warn(
+        `[what-compiler] ERR_CLEANUP_READS_LIVE: the ${hook} cleanup in <${componentName(fnPath)}> at ${at} reads \`${name}\`, which its run reads too. ` +
+        `A component runs once, so when \`${name}\` changes and the effect runs again, the cleanup reads the new value, where React's cleanup sees the value of the render that made it. ` +
+        `Fix: keep the value the run used in a local (\`const ${local}Used = ${name};\`) and use it in the run and in the cleanup. Run what_fix({ error: 'ERR_CLEANUP_READS_LIVE' }) for the worked example.`
+      );
+      break;
+    }
+  }
+}
+
 function warnStateOnce(fnPath, state, node, read, why, fix) {
   const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
   const at = `${fileName}${node.loc ? `:${node.loc.start.line}:${node.loc.start.column + 1}` : ''}`;

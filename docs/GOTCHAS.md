@@ -553,4 +553,4 @@ function ChatRoom({ roomId }) {
 }
 ```
 
-Nothing reports the first form: it is valid code, and on unmount, when no value changed, both forms do the same.
+On unmount, when no value changed, both forms do the same. A development build reports the first form (`ERR_CLEANUP_READS_LIVE`) when the cleanup reads a prop or calls a state accessor that its run also reads and the effect can run again (it has no `[]` dependency array). A value it reaches another way, through a helper or an object, is not seen.

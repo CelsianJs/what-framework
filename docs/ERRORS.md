@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 77 of them: 44 errors and 33 warnings.
+Every code in What's error catalogue, all 78 of them: 44 errors and 34 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -55,6 +55,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_ASYNC_WITHOUT_SUSPENSE`](#err-async-without-suspense) | warning | Component "`component`" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
 | [`ERR_CLASS_COMPONENT_NOT_INSTALLED`](#err-class-component-not-installed) | error | [what-react] `name` is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component. |
+| [`ERR_CLEANUP_READS_LIVE`](#err-cleanup-reads-live) | warning | The `hook` cleanup in <`component`> reads ``name`` when it runs, not the value its run used. |
 | [`ERR_CLEANUP_WITHOUT_OWNER`](#err-cleanup-without-owner) | warning | onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs. |
 | [`ERR_COMPILED_JSX_IN_SSR`](#err-compiled-jsx-in-ssr) | error | what-compiler client output cannot be server-rendered: `file`. |
 | [`ERR_COMPILER_RUNTIME_MISMATCH`](#err-compiler-runtime-mismatch) | error | what-compiler `compiler` cannot build for `name` `version` (`file`). |
@@ -309,6 +310,39 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.jsx';
 
 createRoot(document.getElementById('app')).render(<App />);
+```
+
+## ERR_CLEANUP_READS_LIVE
+
+**Severity:** warning
+  ·  **Raised by:** `what-compiler`
+  ·  **Detected:** compile
+
+> The {{hook}} cleanup in <{{component}}> reads `{{name}}` when it runs, not the value its run used.
+
+A component runs once, so a prop or a state accessor read in an effect's cleanup is read when the cleanup runs: after the change that makes the effect run again. React's cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array).
+
+```jsx
+import { useEffect } from 'what-framework';
+
+// Bad - when roomId changes, the cleanup leaves the new room:
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    join(roomId);
+    return () => leave(roomId);
+  });
+  return <h2>{roomId}</h2>;
+}
+
+// Good - the cleanup undoes what its run did:
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const room = roomId;
+    join(room);
+    return () => leave(room);
+  });
+  return <h2>{roomId}</h2>;
+}
 ```
 
 ## ERR_CLEANUP_WITHOUT_OWNER
