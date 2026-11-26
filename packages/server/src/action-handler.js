@@ -137,8 +137,11 @@ export function safeLocalPath(value) {
 }
 
 function safeRedirectTarget(form, headers) {
+  // The fragment of `_redirect` is kept (`/posts/7#comments`), as
+  // response.redirect() keeps it: it never reaches a server, so it cannot
+  // move the target off this origin.
   const explicit = safeLocalPath(form && form._redirect);
-  if (explicit) return explicit;
+  if (explicit) return explicit + new URL(form._redirect, 'http://localhost').hash;
   const referer = headers.referer || headers.referrer;
   if (referer) {
     try {

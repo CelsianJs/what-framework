@@ -46,6 +46,14 @@ describe('createActionHandler — plain HTML form post fallback', () => {
     assert.deepEqual(received[0], { title: 'hello', tags: ['a', 'b'] });
   });
 
+  it('keeps the fragment of _redirect, as response.redirect() does', async () => {
+    const res = await formHandle()(formReq({
+      fields: { _action: 'form-save', _csrf: TOKEN, _redirect: '/posts/7?tab=all#comments' },
+    }));
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.location, '/posts/7?tab=all#comments');
+  });
+
   it('falls back to the Referer path when no _redirect is given', async () => {
     const res = await formHandle()(formReq({
       fields: { _action: 'form-save', _csrf: TOKEN },
