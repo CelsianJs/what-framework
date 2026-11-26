@@ -149,6 +149,20 @@ describe('props, a rest element and a merge are plain objects', () => {
     assert.equal(render._$props, Symbol.for('what-core.props.v1'));
   });
 
+  it('compiled JSX marks its literal with _$marked: the component gets it in place, the mark hidden, its getters live', () => {
+    let seen;
+    const Probe = (props) => { seen = props; return null; };
+    const literal = { b: 'x', get a() { return mod.n(); } };
+    assert.equal(render._$marked(literal), literal);
+    render._$createComponent(Probe, literal, []);
+    assert.equal(seen, literal, 'no copy');
+    assert.equal(Object.getPrototypeOf(seen), Object.prototype);
+    assert.equal(Object.prototype.propertyIsEnumerable.call(seen, render._$props), false);
+    assert.deepEqual(Reflect.ownKeys({ ...seen }), ['b', 'a']);
+    assert.equal(dom._isLiveProp(seen, 'a'), true);
+    assert.equal(dom._isLiveProp(seen, 'b'), false);
+  });
+
   it('another copy of what-core takes them as its own, and its own as this copy\'s', async () => {
     const other = await import(`../src/dom.js?copy=${Date.now()}`);
     const getter = render._$merge({ __proto__: null, get a() { return mod.n(); } });

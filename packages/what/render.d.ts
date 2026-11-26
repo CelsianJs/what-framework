@@ -63,6 +63,7 @@ export {
   _$merge,
   _$omit,
   _$props,
+  _$marked,
   _$place,
   _$inNs,
 } from 'what-core/render';

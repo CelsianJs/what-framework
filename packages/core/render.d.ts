@@ -262,6 +262,8 @@ export function _$slots<P extends object>(props: P, slots: Record<string, () => 
 export function _$merge(...sources: unknown[]): Record<string, unknown>;
 /** @internal The key compiled JSX marks a props object with (`{ [_$props]: true, ... }`): its getters are live props, and its component gets it as a plain object with the mark hidden. `Symbol.for('what-core.props.v1')`. */
 export const _$props: unique symbol;
+/** @internal Compiled JSX: its props literal `props` marked with `_$props`, the mark not enumerable, and returned. */
+export function _$marked<P extends object>(props: P): P;
 /** @internal Compiled JSX's rest element of destructured props: `props` without `keys`, getters kept. */
 export function _$omit(props: unknown, keys: readonly string[]): Record<string, unknown>;
 /** @internal Compiled JSX: a component call placed in SVG (`ns` 1), MathML (2) or HTML inside one of them (0), so a tag held in a binding below it that SVG and HTML both name is created in that namespace. */

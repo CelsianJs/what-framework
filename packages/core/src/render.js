@@ -262,19 +262,21 @@ export function _$inNs(ns, build) {
 
 // The props object a compiled component runs with, a plain object as React's
 // props are (dom.js _newProps). Compiled JSX builds a fresh object when it
-// passes live props (getters, dom.js _isLiveProp), marked (`[_$props]: true`)
-// or with no prototype: that object is the component's own, made a plain one
-// in place so its getters stay live (dom.js _ownProps). A props object What
-// built (a merge of spreads, _$merge; what-react's) is taken as it is. Any
-// other object is copied: it may be the caller's (a hand-written call).
+// passes live props (getters, dom.js _isLiveProp), marked (`_$marked({ … })`,
+// or `[_$props]: true` in the literal) or with no prototype: that object is
+// the component's own, made a plain one in place so its getters stay live
+// (dom.js _ownProps). A props object What built (a merge of spreads, _$merge;
+// what-react's) is taken as it is. Any other object is copied: it may be the
+// caller's (a hand-written call).
 function ownProps(props) {
   // A spread defines `__proto__` as a key, where Object.assign would set the prototype.
   if (props == null || !_isOwnProps(props)) return _markProps({ ...props });
   return Object.isExtensible(props) ? _ownProps(props) : props;
 }
 
-// The key compiled JSX marks its props objects with (`{ [_$props]: true, … }`).
-export { PROPS as _$props };
+// The key a props object of compiled JSX is marked with (`{ [_$props]: true, … }`),
+// and compiled JSX's mark of its props literal, hidden (`_$marked({ … })`).
+export { PROPS as _$props, _markProps as _$marked };
 
 /**
  * Compiled JSX's spread props (`<Box a {...s} b />`): the sources merged in

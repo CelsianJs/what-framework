@@ -51,8 +51,9 @@ describe('live props: compiled output', () => {
     const out = compileJSX(`${PRELUDE}
       function Badge(props) { return <b>{props.on ? 'on' : 'off'}</b>; }
       export function App() { return <Badge on={count() > 0} />; }`);
-    assert.match(out, /_\$createComponent\(Badge, \{\s*\[_\$props\]: true,\s*get on\(\) \{\s*return count\(\) > 0;\s*\}\s*\}/);
-    assert.match(out, /import \{[^}]*\b_\$props\b[^}]*\} from/);
+    assert.match(out, /_\$createComponent\(Badge, _\$marked\(\{\s*get on\(\) \{\s*return count\(\) > 0;\s*\}\s*\}\)/);
+    assert.match(out, /import \{[^}]*\b_\$marked\b[^}]*\} from/);
+    assert.doesNotMatch(out, /_\$props/);
   });
 
   it('keeps names, literals, functions, ref and children as they are written', () => {

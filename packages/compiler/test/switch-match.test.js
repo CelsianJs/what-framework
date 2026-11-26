@@ -281,7 +281,7 @@ describe('compiled Switch/Match', () => {
         <Switch checked={checked} onChange={onChange} checkedChildren="ON" />
       );
     `);
-    assert.match(code, /_\$createComponent\(Switch, (?:_\$slots\()?\{/);
+    assert.match(code, /_\$createComponent\(Switch, (?:_\$slots\()?(?:_\$marked\()?\{/);
   });
 
   it('leaves a third-party Switch with children alone', () => {

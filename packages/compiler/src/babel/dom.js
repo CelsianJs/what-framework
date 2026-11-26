@@ -1842,10 +1842,13 @@ function transformComponentFineGrained(path, state) {
     // A lone object literal (no spread, or an inline `{...}`) is already a
     // fresh props object. A lone identifier/member/call spread is the
     // CALLER'S object and goes through the merge below. One holding a getter
-    // is the component's own (no prototype), taken as it is so its getters
-    // stay live (render.js ownProps). It is marked (`[_$props]: true`) rather
-    // than built with no prototype: setting a prototype in place gives each
-    // object a hidden class of its own in V8 (prop reads about 13x slower).
+    // is the component's own, taken as it is so its getters stay live
+    // (render.js ownProps): it is marked (`_$marked({ ... })`, the mark
+    // hidden). Not built with no prototype: setting a prototype in place gives
+    // each object a hidden class of its own in V8 (prop reads about 13x
+    // slower). Not marked in the literal (`[_$props]: true`) either: V8 builds
+    // every property after a computed key one at a time, and the mark is then
+    // hidden in place.
     propsExpr = live ? markedProps(parts[0], state) : parts[0];
   } else {
     // Merged in source order, getters kept: a wrapper's `{...props}` stays
@@ -1984,12 +1987,11 @@ function withoutPrototype(literal) {
   return literal;
 }
 
-// `{ [_$props]: true, ... }`: the component's own props object, a plain one
-// What's runtime recognises by its mark (render.js ownProps), so its getters
-// stay live props.
+// `_$marked({ ... })`: the component's own props object, a plain one What's
+// runtime recognises by its mark (render.js ownProps), so its getters stay
+// live props.
 function markedProps(literal, state) {
-  literal.properties.unshift(t.objectProperty(helper(state, '_$props'), t.booleanLiteral(true), true));
-  return literal;
+  return t.callExpression(helper(state, '_$marked'), [literal]);
 }
 
 // JSX, or a conditional that renders JSX in one of its branches.
@@ -3062,7 +3064,7 @@ const RENDER_IMPORTS = [
   ['_$slots', '_$slots'],
   ['_$place', '_$place'],
   ['_$merge', '_$merge'],
-  ['_$props', '_$props'],
+  ['_$marked', '_$marked'],
   ['_$omit', '_$omit'],
   ['_$inNs', '_$inNs'],
   ['_$selects', '_$selects'],

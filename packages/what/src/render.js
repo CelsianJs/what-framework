@@ -104,6 +104,7 @@ export {
   _$merge,
   _$omit,
   _$props,
+  _$marked,
   _$place,
   // A component call placed in SVG or MathML, for the tags held in bindings it builds.
   _$inNs,
