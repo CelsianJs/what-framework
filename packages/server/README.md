@@ -585,10 +585,14 @@ import { createRequestHandler, createRouteRenderer } from 'what-framework/server
 import { createCacheEngine, createMemoryStore } from 'what-isr';
 
 const document = { clientEntry: '/src/entry-client.js' };
-const render = createRouteRenderer(document);
-const cache = createCacheEngine({ store: createMemoryStore(), render });
-const handle = createRequestHandler({ routes, cache, render, document });
+const cache = createCacheEngine({ store: createMemoryStore(), render: createRouteRenderer(document) });
+const handle = createRequestHandler({ routes, cache, document });
 ```
+
+The renderer goes to the engine, not to the handler: the handler renders
+requests with its built-in renderer already, and a handler given a `render`
+of its own (even this one) renders `mode: 'server'` routes buffered instead
+of streaming them.
 
 How the default CSRF protection works:
 
