@@ -513,8 +513,11 @@ function TodoCount() {
 - `const { remaining } = useTodos()` reads the value once. Keep the object and
   read `todos.remaining` where it should update, inside a function in JSX:
   `{() => todos.remaining}`, `class={() => (todos.filter === 'all' ? 'on' : '')}`.
-  The compiler cannot tell that a store field is reactive, so a bare
-  `{todos.remaining}` is evaluated once.
+  A bare `{todos.remaining}` may be evaluated once: it updates when the store
+  is made in the same module as the component (the compiler sees the getters
+  it reads), and is read once when the store is imported from another file,
+  the usual layout of an app. The function form `{() => todos.remaining}`
+  always updates.
 
 ### Decision matrix
 
