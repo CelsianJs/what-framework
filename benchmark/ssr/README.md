@@ -41,7 +41,9 @@ hydrate / render, the nodes created while hydrating (zero when the client
 adopts every node the server wrote; a text node the client splits off the
 server's counts) and the client bundle's gzip size. Each run is a fresh page,
 so it is a page load's first, cold call; hydration and client render runs
-alternate. Each client is built the way an app ships it: the
+alternate. The rows are also written to `dist/hydrate/results.json`, and
+`node bench.mjs` puts them in RESULTS.md when they were measured at the commit
+it reports: run `node hydrate.mjs` first. Each client is built the way an app ships it: the
 What clients resolve the `production` export condition (`dist/*.min.js`), so
 run `node scripts/build.js` first. `--before <what-fw checkout>` adds
 `before.what` built from another (built) checkout, and `before.whatc` when that

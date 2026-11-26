@@ -31,7 +31,9 @@
 // `render` is the same client bundle rendering the same page into an empty
 // container (What mount(), Solid render()) in a fresh page, the cost hydrating
 // is there to avoid. Reported: the median of the runs, hydrate / render, and
-// the client bundle's gzip size.
+// the client bundle's gzip size. The rows are also written to
+// dist/hydrate/results.json, which bench.mjs puts in RESULTS.md when they were
+// measured at the commit it reports.
 //
 // Usage: node hydrate.mjs [--quick] [--before <what-fw checkout>]
 
@@ -43,6 +45,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
+import os from 'node:os';
 import { chromium } from 'playwright';
 import { buildRows, buildCards, CARD_COUNT, SELECTED_ID } from './shared/data.mjs';
 
@@ -342,6 +346,11 @@ try {
 } finally {
   await browser.close();
 }
+const commit = (() => { try { return execSync('git rev-parse --short HEAD', { cwd: repo, encoding: 'utf8' }).trim(); } catch { return null; } })();
+await writeFile(path.join(outDir, 'results.json'), JSON.stringify({
+  date: new Date().toISOString(), git: commit, quick, runs: RUNS, chromium: browser.version(), loadavg: os.loadavg().map((v) => +v.toFixed(2)),
+  pages: PAGES, rows: rowsOut,
+}, null, 1) + '\n');
 console.log(`\n${RUNS} runs each (median), Chromium ${browser.version()}`);
 for (const [pageName, title] of Object.entries(PAGES)) {
   console.log(`\n${title}\n`);

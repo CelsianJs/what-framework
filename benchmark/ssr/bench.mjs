@@ -293,6 +293,26 @@ function renderMarkdown(meta, summary) {
     'shell-first streamer sends it (with the fallback) before the data exists; an in-order',
     'streamer cannot send it until the boundary has resolved and rendered.', '');
 
+  L.push('## Hydration in Chromium', '');
+  const hyd = meta.hydration;
+  if (!hyd) {
+    L.push('Not in this run: `node hydrate.mjs` writes `dist/hydrate/results.json` at the commit',
+      `bench.mjs reports (${meta.git.commit}); run it before \`node bench.mjs\` to include it here.`, '');
+  } else {
+    L.push(`\`hydrate.mjs\`${hyd.quick ? ' --quick' : ''} at git ${hyd.git} on ${hyd.date}, Chromium ${hyd.chromium}, ${hyd.runs} runs per entry and page`,
+      `(median), load average at its end ${hyd.loadavg.join(' / ')}. Each run is a fresh page: the first, cold call of a page`,
+      'load. "client render" is the same bundle rendering the same page into an empty container;',
+      '"nodes created" counts what the page holds after hydrating that it did not hold before (a text',
+      'node split off the server\'s counts).', '');
+    for (const [page, title] of Object.entries(hyd.pages)) {
+      L.push(`### ${title}`, '',
+        '| entry | hydrate ms | interactive ms | client render ms | hydrate / render | nodes created | client gzip B |',
+        '|---|---:|---:|---:|---:|---:|---:|');
+      for (const r of hyd.rows.filter((x) => x.page === page)) L.push(`| ${r.entry} | ${r.hydrateMs} | ${r.interactiveMs} | ${r.renderMs} | ${r.ratio} | ${r.created} | ${int(r.clientGzip)} |`);
+      L.push('');
+    }
+  }
+
   const failures = Object.values(summary).filter((e) => e.errors.length);
   if (failures.length) {
     L.push('## Failed jobs', '');
@@ -341,6 +361,14 @@ for (const [i, job] of jobs.entries()) {
 }
 
 const summary = aggregate(jobs, outputs);
+
+// hydrate.mjs's last results, when they were measured at this commit.
+async function hydrationResults() {
+  const file = path.join(here, 'dist', 'hydrate', 'results.json');
+  if (!existsSync(file)) return null;
+  const results = JSON.parse(await readFile(file, 'utf8'));
+  return results.git === git('rev-parse --short HEAD') ? results : null;
+}
 const pkgVersions = new Map();
 for (const b of Object.values(manifest.bundles)) for (const p of b.packages) pkgVersions.set(`${p.name}@${p.version}`, p.path);
 const meta = {
@@ -361,6 +389,7 @@ const meta = {
   versions: [...pkgVersions.keys()].filter((k) => /^(solid-js|@solidjs\/(web|signals)|react|react-dom)@/.test(k)).map((k) => `${k} (${pkgVersions.get(k)})`).join(', '),
   config: { rounds: ROUNDS, counts: COUNTS, delayMs: DELAY_MS, sizes: SIZES, semiSpaceMB: SEMI_SPACE_MB },
   manifest,
+  hydration: await hydrationResults(),
 };
 
 await writeFile(path.join(here, 'results.json'), JSON.stringify({ meta, summary, jobs: jobs.map((job, i) => ({ ...job, result: outputs[i] })) }, null, 1) + '\n');
