@@ -127,6 +127,35 @@ load, as a click on a `<Link>` to it is: `navigate()` calls
 guard. A middleware or `redirect()` that sends a navigation to another origin
 replaces the entry the same way.
 
+## Base path
+
+An app deployed below a path (`/app/` on GitHub Pages or behind a reverse
+proxy) routes below it. With Vite, its `base` is the router's: set
+`base: '/app/'` in `vite.config.js` and nothing else.
+
+```js
+// Without Vite's base (another bundler, or a server build that keeps
+// what-router external): once, before the app renders, in code the client
+// and the server both run
+import { setBase } from 'what-router';
+setBase('/app'); // or setBase(import.meta.env.BASE_URL)
+```
+
+Below the base, a path from the root is a URL of the app: `<Link href="/x">`
+renders and goes to `/app/x`, `navigate('/x')`, `redirect('/x')` and a
+middleware returning `'/x'` go to `/app/x`, and route paths are written as
+without a base (`{ path: '/x' }`). Route state holds the URL without the base:
+`route.url`, `route.path`, the params, `useRoute()`, active links, and what
+middleware, `preload` and the navigation hooks are given. A relative href
+(`'8'`, `'?page=2'`, `'#top'`) resolves against the address bar as the browser
+resolves it. A URL outside the base is not the app's: no route shows it (a
+catch-all included: the Router shows its `fallback`, and `route.url` and
+`route.path` are `''`), and `navigate()` and `<Link>` leave it to the browser.
+A server render of a request below the base renders the same page, and its
+redirects go below the base. A base that is not a path from the root (Vite's
+`./`, a CDN's URL) is no base. what-server's `createRequestHandler({ basePath })`
+is the server's own: set it to the same path.
+
 ## Route data: `preload`
 
 ```jsx
@@ -411,6 +440,7 @@ enableScrollRestoration(); // call once at app entry
 | `Router` | Route matching component |
 | `Link` / `NavLink` | Navigation link with active states |
 | `navigate(to, opts?)` | Navigate as a transition: prepare the destination (lazy chunk, `preload`), then commit; `{ replace, state, transition, flushSync }` |
+| `setBase(base)` | Serve the app below `base` ([Base path](#base-path)); without a call, Vite's `base` |
 | `route` | Route state: `url`, `path`, `params`, `query`, `hash`, `isNavigating` and `error` are getters that subscribe when read in a binding, effect or computed |
 | `useRoute()` | `{ path, params, query, hash, isNavigating }` as computeds (call them: `path()`), plus `navigate` and `prefetch` |
 | `useParams()` | The current params, read when called (call it inside a binding or effect to track changes) |

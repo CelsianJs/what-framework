@@ -395,6 +395,15 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
 
           <p>This is a hint to the browser to fetch that URL's document early. It does not pull in a <code>lazy()</code> route's JavaScript chunk, and each URL is prefetched at most once per page load.</p>
 
+          <h2 id="base-path">Serving Below a Base Path</h2>
+          <p>An app deployed below a path (<code>/app/</code> on GitHub Pages or behind a reverse proxy) routes below it. With Vite, its <code>base</code> is the router's: set <code>base: '/app/'</code> in <code>vite.config.js</code> and nothing else. Without Vite's base (another bundler, or a server build that keeps what-router external), call <code>setBase</code> once, before the app renders, in code the client and the server both run:</p>
+
+<pre><code><span class="keyword">import</span> { setBase } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+
+<span class="function">setBase</span>(<span class="string">'/app'</span>); <span class="comment">// or setBase(import.meta.env.BASE_URL)</span></code></pre>
+
+          <p>Below the base, a path from the root is a URL of the app: <code>&lt;Link href="/x"&gt;</code> renders and goes to <code>/app/x</code>, <code>navigate('/x')</code>, <code>redirect('/x')</code> and a middleware returning <code>'/x'</code> go to <code>/app/x</code>, and route paths are written as without a base. Route state holds the URL without the base: <code>route.url</code>, <code>route.path</code>, the params, <code>useRoute()</code>, active links, and what middleware, <code>preload</code> and the navigation hooks are given. A relative href resolves against the address bar, as the browser resolves it. A URL outside the base is not the app's: no route shows it (a catch-all included: the Router shows its <code>fallback</code>), and <code>navigate()</code> and <code>&lt;Link&gt;</code> leave it to the browser. A server render of a request below the base renders the same page, and its redirects go below the base. what-server's <code>createRequestHandler({ basePath })</code> is the server's own setting: give it the same path.</p>
+
           <h2 id="use-route">useRoute Hook</h2>
           <p>Access reactive route state inside any component with the <code>useRoute</code> hook. Returns computed signals for each property:</p>
 
@@ -443,6 +452,7 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
             <li><a href="#view-transitions">View Transitions</a></li>
             <li><a href="#scroll-restoration">Scroll Restoration</a></li>
             <li><a href="#prefetching">Prefetching</a></li>
+            <li><a href="#base-path">Base Path</a></li>
             <li><a href="#use-route">useRoute Hook</a></li>
           </ul>
         </aside>
