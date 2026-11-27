@@ -350,6 +350,28 @@ describe('an empty value before text the server merged', () => {
     stop();
   });
 
+  it('h(): a reactive child after static text, showing an array with a reactive child, in markup without markers', () => {
+    const a = signal('A');
+    const b = signal('B');
+    const tree = () => h('p', null, 'st', () => [() => a(), ' ', b()]);
+    const host = document.body.appendChild(document.createElement('div'));
+    host.innerHTML = server.renderToString(h(tree));
+    const reports = [];
+    const stop = hydrate(h(tree), host, { onHydrationError: (r) => reports.push(r.kind) });
+    const p = host.querySelector('p');
+    assert.deepEqual(reports, []);
+    a('Q');
+    flushSync();
+    assert.equal(p.textContent, 'stQ B');
+    b('Z');
+    flushSync();
+    assert.equal(p.textContent, 'stQ Z');
+    a('R');
+    flushSync();
+    assert.equal(p.textContent, 'stR Z');
+    stop();
+  });
+
   it('h(): a null reactive child, then one with text, in markup without markers', () => {
     const icon = signal(null);
     const label = signal('Hello');

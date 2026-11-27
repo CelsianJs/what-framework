@@ -4583,9 +4583,17 @@ function adoptRegion(fn, devName) {
     if (!keep) return;
   } else {
     if (!keep || textNode !== null) return;
-    // The server's text it starts inside of, split where it starts.
+    // The server's text it starts inside of, split where it starts. The parts
+    // of that text what it shows claimed go with the text they are in: both
+    // halves share the list of parts, each part naming its own (partNode).
     if (startAt > 0 && startNode.data.length > startAt) {
       const rest = startNode.splitText(startAt);
+      for (const p of (rest.$p = startNode.$p) || []) {
+        if (p.a >= startAt) {
+          p.n = rest;
+          p.a -= startAt;
+        }
+      }
       if (c.n === startNode) {
         c.n = rest;
         c.o -= startAt;
@@ -5740,9 +5748,11 @@ function claimOwnText(c, text) {
 }
 
 // The node of its own a part becomes. Every part of its text node is split
-// off at once, the last first, so each earlier part's offset still holds. A
-// part whose text is no longer there (something other than What changed the
-// node) writes a node of its own, which is not in the document.
+// off at once, the last first, so each earlier part's offset still holds;
+// the list also holds the parts of a node split off it (adoptRegion), which
+// name that node. A part whose text is no longer there (something other than
+// What changed the node) writes a node of its own, which is not in the
+// document.
 function partNode(part) {
   if (part.r === null) {
     const node = part.n;
@@ -5750,6 +5760,7 @@ function partNode(part) {
     node.$p = undefined;
     for (let k = parts.length - 1; k >= 0; k--) {
       const p = parts[k];
+      if (p.n !== node) continue;
       const end = p.a + p.t.length;
       if (!node.data.startsWith(p.t, p.a)) p.r = document.createTextNode(p.t);
       else {
