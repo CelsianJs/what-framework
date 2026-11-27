@@ -120,7 +120,8 @@ every downstream assertion lie.
 
 `WHAT_SMOKE_BROWSER` picks Playwright's `chromium` (the default), `webkit` or
 `firefox`; the run prints it and `artifacts/smoke-apps.json` records it. Every
-app runs in each. A check that needs what only one browser has (forcing a GC
+app runs in each, and CI runs the suite in all three: `app-smoke` in Chromium,
+`webkit-native` in WebKit and `firefox-native` in Firefox. A check that needs what only one browser has (forcing a GC
 and reading the heap through the devtools protocol) calls
 `skip(capability, name, reason)` elsewhere: the skip is printed with its
 reason, counted apart from the passes, and satisfies the capability audit

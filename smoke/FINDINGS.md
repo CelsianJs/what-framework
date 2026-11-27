@@ -23,6 +23,8 @@ Three waves, in this order.
   keyed log fed by a server stream that drops) and `board` (cards dragged
   between keyed lists). Four are in `useForm`, which no app had used at more
   than a handful of fields; one is the cost of every update to a capped log.
+- **35** came from `handbook`, an app of code-split routes whose chunks the
+  check delays, fails and overtakes, and from running every app in Firefox.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -700,6 +702,23 @@ task over 50 ms, for 144 B gzip.
 - Test: `packages/core/test/reconcile-slide.test.js` (the key-read count fails
   before: 3,020 reads for a slide of one row of 1,000).
 
+### 35. Hovering a link did not download its lazy route's chunk
+`packages/router/src/index.js` (`prefetch`)
+
+`<Link>` prefetches on hover by default, and `prefetch(href)` is documented
+as prefetching "a route's assets". It added `<link rel="prefetch" href>`
+for the URL, which in a client-routed app fetches the HTML page again, not
+the route's code, so the click still waited for the `lazy()` chunk.
+handbook hovered a chapter's link for a second, then clicked: 818 to 841 ms
+to the page, for a chunk the network took 800 ms to serve. prefetch now
+also starts the chunk of the route the outermost Router matches; a route
+behind middleware is left to the navigation, which downloads it only once
+admitted, so a guest hovering a guarded link downloads nothing. After: the
+chunk is requested on hover and the click shows the page in 5 to 23 ms
+(Chromium, WebKit, Firefox).
+- Test: `packages/router/test/lazy-route-prefetch.test.js` (3 of 4 fail
+  before).
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -803,6 +822,25 @@ component's owner and run, the region's and the list's effects, the row's
 scope, the compiled callbacks). `packages/core/test/recursion-depth.test.js`
 counts frames per level, and explorer pins 101 levels.
 
+### I. A `lazy()` component whose download failed can never load again in that page
+
+`lazy()` keeps the error of a failed download and throws it on every later
+render, as React's `lazy` does. So a route's error page cannot recover in
+place: its `reset` ("Try again") builds the page again and gets the same
+error, and so does a later visit, until the page is loaded again. The
+browsers do not require that: after a failed `import()`, a second `import()`
+of the same URL in the same page downloads it again in Chromium, WebKit and
+Firefox (measured with page routing aborting the first request). A chunk
+lost to a network blip, or replaced by a deploy, is the common case of a
+failed download. handbook's error page reloads the page to try again.
+- Failing test, not in the tree: `lazy-retry.test.js` in the round 5
+  Firefox lane's `keep/` (3 of 4 fail): a reset downloads again and shows
+  the page, a retry that fails again downloads nothing more on its own, a
+  component rendered again later downloads again.
+- Why not fixed: whether to differ from React here, and how a navigation
+  that meets a failed chunk should retry (keep the old page while it
+  downloads again, as a first visit does), is a design decision.
+
 ## The load apps: what they measured
 
 `data-grid`, `live-feed` and `workspace` were added to find what only shows
@@ -865,6 +903,21 @@ Two things that looked like defects and were not:
 | a drop (pointer release to the card in place) | 100 ms | 16 / 1 ms |
 | an undo or redo (key to the card in place) | 100 ms | 13 / 12 ms |
 
+### Code-split routes
+
+`handbook` (Chromium / WebKit / Firefox, M-series Mac), timed in the page
+from the click event to the mutation that shows the page:
+
+| measure | bound | measured |
+|---|---|---|
+| first visit, chunk delayed 700 ms: the page being left stays, marked busy | no empty or fallback frame | 729 / 713 / 699 ms, none |
+| revisit, chunk already here | 150 ms, no request | 14 / 15 / 4 ms |
+| hovered for a second, then clicked, chunk delayed 800 ms | 250 ms | 22 / 17 / 5 ms (818–841 ms before 35) |
+| a navigation overtaken by a newer one, 1,500 ms chunk | never shown; one history entry | 0 builds; +1 |
+| a chunk that fails: the route's error page, then the next link | no uncaught error | 32 / 17 / 11 ms; 52 / 15 / 17 ms |
+| back three, forward three through loaded chapters | 150 ms each, no request | 1–8 ms, 0 requests |
+| 24 navigations between loaded chapters | 150 ms (95th percentile) | 20 / 18 / 11 ms |
+
 ## Browsers
 
 `WHAT_SMOKE_BROWSER=webkit npm run smoke:apps` runs every app in WebKit. The
@@ -877,4 +930,33 @@ browser differences an app has to allow for showed up:
 - Safari does not focus a button when it is clicked, so a keydown handler on
   a menu's container never hears Escape after a click. newsroom's share menu
   listens on the document while it is open.
+
+### Firefox
+
+Every app passes in Firefox (`WHAT_SMOKE_BROWSER=firefox`), with the heap
+checks skipped as in WebKit: Firefox has no devtools protocol in Playwright
+to force a GC. Three things in the checks held only in Chromium and WebKit,
+and none is a framework defect:
+
+- Firefox waits at least 500 ms before reopening an `EventSource`, whatever
+  `retry:` the server sends (measured: `retry: 150` reopens after 150 to
+  165 ms in Chromium and WebKit, 504 to 539 ms in Firefox). chat's 12 s run
+  reconnected 8 times instead of the 10 it asks for; the run now goes on
+  until ten reconnects, up to 30 s.
+- A `Secure` cookie set by a plain-http page is refused by every browser;
+  Firefox also logs it as a console error. The workspace examples run in
+  production, whose CSRF cookie is `Secure`, and were served at
+  `http://workspace.test`: the cookie was silently dropped in Chromium and
+  WebKit, and failed three examples on the console error in Firefox. They
+  are served at `https://workspace.test` now, where it sets in all three.
+- With JavaScript off, opening an article again in the context that has just
+  posted a comment to it makes Firefox load it twice (the second request a
+  revalidation), and Playwright waits for the second load to commit until it
+  times out, in about half the runs. newsroom's refused post starts from a
+  fresh context.
+
+And one in WebKit, seen under Playwright's request routing only: a chunk
+whose download failed is not requested again after a reload, so the
+reloaded page fails the import with no request. handbook skips its reload
+retry in WebKit with that reason.
 
