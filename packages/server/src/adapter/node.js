@@ -119,6 +119,13 @@ function isAbort(err) {
   return !!err && (err.name === 'AbortError' || err.name === 'TimeoutError');
 }
 
+// Whether the request failed because the client went away: the work stopped
+// on purpose (an abort), or the body stopped arriving (a cancelled upload, a
+// closed tab: Node's `aborted` error, ECONNRESET), with nobody left to answer.
+function clientGone(res, err) {
+  return res.destroyed && (isAbort(err) || (!!err && (err.code === 'ECONNRESET' || err.code === 'ERR_STREAM_PREMATURE_CLOSE')));
+}
+
 // The handler's response for one Node request: 413 and 400 come from reading
 // the request, before the handler, with `limit` (its `bodyLimit`).
 async function respond(handler, req, res, limit) {
@@ -135,7 +142,7 @@ async function respond(handler, req, res, limit) {
 // sees a truncated response, not a complete-looking page with a 500 glued to
 // its end.
 function failed(res, err) {
-  if (res.destroyed && isAbort(err)) return;
+  if (clientGone(res, err)) return;
   console.error('[what-server] request error:', err);
   if (res.headersSent) {
     res.destroy();
@@ -176,7 +183,7 @@ export function whatMiddleware(options = {}) {
     try {
       webRes = await respond(handler, req, res, handler.bodyLimit);
     } catch (err) {
-      if (res.destroyed && isAbort(err)) return;
+      if (clientGone(res, err)) return;
       if (typeof next === 'function') return next(err);
       failed(res, err);
       return;

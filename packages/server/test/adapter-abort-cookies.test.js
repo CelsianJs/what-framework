@@ -13,10 +13,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import { h, Suspense, createResource } from 'what-core';
 import { createRequestHandler } from '../src/index.js';
-import { createServer, toNodeListener } from '../src/node.js';
+import { createServer, toNodeListener, whatMiddleware } from '../src/node.js';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -226,4 +227,48 @@ describe('the Node adapter streams the body', () => {
       server.close();
     }
   });
+});
+
+// A visitor who cancels an upload (closes the tab, loses the connection)
+// stops the body half way: nobody is left to answer, and that is no server
+// error to log, for the listener and for the middleware alike.
+describe('a client that goes away while sending the body', () => {
+  async function cancelUpload(port) {
+    const sock = net.connect(port, '127.0.0.1');
+    await new Promise((resolve) => sock.on('connect', resolve));
+    sock.write('POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 100000\r\n\r\n');
+    sock.write('a'.repeat(1000));
+    await delay(30);
+    sock.destroy();
+    await delay(100);
+  }
+
+  for (const [name, make] of [
+    ['toNodeListener', (handler) => toNodeListener(handler)],
+    // Express hands an error given to next() to its error handler, which logs it.
+    ['whatMiddleware', () => {
+      const middleware = whatMiddleware({ routes: [], csrf: false });
+      return (req, res) => middleware(req, res, (err) => {
+        if (err) console.error('next(err):', err);
+        res.destroy();
+      });
+    }],
+  ]) {
+    it(`${name} logs nothing and runs nothing`, async () => {
+      let handled = 0;
+      const server = http.createServer(make(async (request) => { handled++; await request.text(); return new Response('ok'); }));
+      const port = await listen(server);
+      const logged = [];
+      const realError = console.error;
+      console.error = (...args) => logged.push(args.map(String).join(' '));
+      try {
+        await cancelUpload(port);
+      } finally {
+        console.error = realError;
+        server.close();
+      }
+      assert.deepEqual(logged, []);
+      assert.equal(handled, 0);
+    });
+  }
 });
