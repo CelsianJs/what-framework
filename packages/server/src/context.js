@@ -55,7 +55,8 @@ export function renderContextFrom(init, caller) {
  * @param {unknown} loaderData
  * @param {{ signal?: AbortSignal | null, request?: any, response?: any }} [options]
  */
-export function createRenderContext(loaderData, { signal, request, response } = {}) {
+export function createRenderContext(loaderData, { signal, request, response: given } = {}) {
+  const response = given || createResponse();
   const controller = new AbortController();
   const external = signal || (request && request.signal) || null;
   /** @type {(() => void) | null} */
@@ -90,7 +91,11 @@ export function createRenderContext(loaderData, { signal, request, response } = 
     islandStores: new Map(),
     signal: controller.signal,
     request,
-    response: response || createResponse(),
+    response,
+    // The base the render's app is served below, the one its response
+    // redirects below: what-router renders below it when the app set no
+    // base of its own (the request handler's and exportStatic's `basePath`).
+    base: response._base,
     owner,
     /** @param {unknown} [reason] */
     abort(reason) {

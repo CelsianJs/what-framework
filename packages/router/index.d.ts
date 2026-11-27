@@ -82,20 +82,21 @@ export function navigate(to: string, options?: NavigateOptions): Promise<void>;
 
 /**
  * Serve the app below `base`, the path it is deployed at: `'/app'`, `'/app/'`
- * as Vite writes it, or `'app'`, all the same base. A path from the root that the app writes
- * (`'/x'` in a `<Link>`, `navigate()`, `redirect()`, a middleware verdict, the
- * `url` of a `<Router>`) is a URL of the app, which the address bar and a
- * server see below the base (`'/app/x'`); route state (`route.url`,
- * `route.path`, the params, `useRoute()`, active links, what middleware,
- * `preload` and the navigation hooks are given) holds URLs without it. A URL
- * outside the base is not routed: no route shows it, and `navigate()` and
- * `<Link>` leave it to the browser. Without a call, the base is Vite's `base`
- * (`import.meta.env.BASE_URL`) when Vite builds what-router, else none.
- * `''` and `'/'` are no base, nor is one that is not a path (`'./'`, a CDN's
- * URL). Call it
- * before the app renders, in code that the client and a server both run: a
- * server build that keeps what-router external does not see Vite's `base`.
- * what-server's actions and `<Form>` use the base it sets too.
+ * as Vite writes it, or `'app'`, all the same base. A path from the root that
+ * the app writes (`'/x'` in a `<Link>`, `navigate()`, `redirect()`, a
+ * middleware verdict, the `url` of a `<Router>`) is a URL of the app, which
+ * the address bar and a server see below the base (`'/app/x'`); route state
+ * (`route.url`, `route.path`, the params, `useRoute()`, active links, what
+ * middleware, `preload` and the navigation hooks are given) holds URLs
+ * without it. A URL outside the base is not routed: no route shows it, and
+ * `navigate()` and `<Link>` leave it to the browser. Without a call, the base
+ * is Vite's `base` (`import.meta.env.BASE_URL`) when Vite builds what-router;
+ * else, in a render what-server's `createRequestHandler` or `exportStatic`
+ * runs, their `basePath`; else none. `''` and `'/'` are no base, nor is one
+ * that is not a path (`'./'`, a CDN's URL). Call it before the app renders:
+ * in the client when Vite does not build it, and in a custom server that
+ * renders with `renderToString`. what-server's actions and `<Form>` use the
+ * base it sets too.
  */
 export function setBase(base: string): void;
 

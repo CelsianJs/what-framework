@@ -145,15 +145,16 @@ replaces the entry the same way.
 ## Base path
 
 An app deployed below a path (`/app/` on GitHub Pages or behind a reverse
-proxy) routes below it. With Vite, its `base` is the router's: in a
-client-rendered app, set `base: '/app/'` in `vite.config.js` and nothing else.
-A server-rendered app calls `setBase` on the server too, because Vite's SSR
-build keeps what-router external, where `import.meta.env` is not defined.
+proxy) routes below it. With Vite, its `base` is the router's: set
+`base: '/app/'` in `vite.config.js`. A server-rendered app gives what-server
+the same path, `createRequestHandler({ basePath: '/app' })` or
+`exportStatic({ basePath: '/app' })`, and the router renders the pages they
+serve below it, with no `setBase` on the server, also in a server build that
+keeps what-router external (where `import.meta.env` is not defined).
 
 ```js
-// Without Vite's base (another bundler, or a server build that keeps
-// what-router external): once, before the app renders, in code the client
-// and the server both run
+// Without Vite's base (another bundler), or in a custom server that renders
+// with renderToString: once, before the app renders
 import { setBase } from 'what-router';
 setBase('/app'); // or setBase(import.meta.env.BASE_URL)
 ```
@@ -169,10 +170,13 @@ resolves it. A URL outside the base is not the app's: no route shows it (a
 catch-all included: the Router shows its `fallback`, and `route.url` and
 `route.path` are `''`), and `navigate()` and `<Link>` leave it to the browser.
 A server render of a request below the base renders the same page, and its
-redirects go below the base. A base that is not a path from the root (Vite's
-`./`, a CDN's URL) is no base. what-server's `createRequestHandler({ basePath })`
-and `exportStatic({ basePath })` are the server's own: set them to the same
-path. Server actions use the same
+redirects go below the base: a path is a URL of the app whoever redirects to
+it, so a loader's `response.redirect('/login')` and a component's
+`getResponse().redirect('/login')` answer `/app/login`, as `redirect('/login')`
+does. `'/app'`, `'/app/'` and `'app'` are the same base; `''` and `'/'` are
+none, and so is one that is not a path from the root (Vite's `./`, a CDN's
+URL). A base the app sets (Vite's, `setBase`) is the router's on the server
+too; give what-server's `basePath` the same path. Server actions use the same
 base: an action posts to `/app/__what_action`, a `<Form>`'s `redirect` is a
 URL of the app, and so is a path an action redirects to.
 

@@ -695,10 +695,12 @@ and navigations that are transitions. Each change below has its migration.
   `navigate()` and `<Link>` hand it to the browser. 0.14 ignored `base`. This
   affects an app that wrote the base into its routes and links: drop it (a
   prefixed link now renders `/app/app/x`), or call `setBase('')` to route
-  from the root. A relative base (`'./'`) changes nothing. Another bundler,
-  or a server build that keeps what-router external, calls
-  `setBase('/app/')`; `createRequestHandler({ basePath })` takes the same
-  path.
+  from the root. A relative base (`'./'`) changes nothing. Another bundler
+  calls `setBase('/app/')`. On the server, `createRequestHandler({ basePath })`
+  and `exportStatic({ basePath })` take the same path, and the router renders
+  below it when the app set no base of its own, also in a server build that
+  keeps what-router external; a custom server that renders with
+  `renderToString` calls `setBase` too.
 - **`navigate()` to another origin or scheme leaves the page**, as a
   `<Link>` to one does: `location.assign`, or `location.replace` with
   `{ replace: true }`, and no guard runs. Middleware and `redirect()` to

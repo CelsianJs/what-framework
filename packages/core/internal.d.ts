@@ -164,6 +164,8 @@ export interface ServerContext {
   signal?: AbortSignal;
   request?: any;
   response?: ServerResponse;
+  /** The path the render's app is served below ('/app'), or '': what-router renders below it when the app set no base of its own. */
+  base?: string;
   /** The reactive root that owns every effect and computed this render's components create. */
   owner?: unknown;
   [key: string]: any;

@@ -68,9 +68,18 @@ export function isSafeUrl(url) {
 // the address bar and a server see below the base ('/app/x'). A URL outside
 // the base is not the app's: no route shows it, and navigate() and <Link>
 // leave it to the browser. The base is Vite's `base` (import.meta.env.BASE_URL)
-// when Vite builds this module, or what setBase() sets.
+// when Vite builds this module, or what setBase() sets. An app that set none
+// that way (null here) renders a server render below the base the server
+// serves it at (what-server's `basePath`, which its render context carries),
+// so a server that keeps what-router external renders the page the browser
+// shows without a setBase() of its own.
 
-let BASE = baseOf(import.meta.env && import.meta.env.BASE_URL);
+let BASE = baseOf(import.meta.env && import.meta.env.BASE_URL) || null;
+
+// The base in effect: the app's own, else the server render's, else none.
+function base() {
+  return BASE ?? getServerContext()?.base ?? '';
+}
 
 // A base as Vite writes it ('/app/'), or without either slash ('/app', 'app/',
 // 'app'): the path from the root, without its trailing slash. '' and '/' are
@@ -97,7 +106,7 @@ export function setBase(base) {
 // A URL of the app as the address bar and a server see it: a path from the
 // root goes below the base. A relative URL or another origin's is as it is.
 function outward(url) {
-  return url[0] === '/' ? BASE + url : url;
+  return url[0] === '/' ? base() + url : url;
 }
 
 // What history writes for a path of this origin (with its search and hash):
@@ -111,8 +120,9 @@ function historyUrl(path) {
 // shows: the path without the base ('/app?a' shows '/?a'). Null for one
 // outside the base ('/application').
 function inward(url) {
-  const rest = url.slice(BASE.length);
-  return !url.startsWith(BASE) || /^[^/?#]/.test(rest) ? null : rest[0] === '/' ? rest : '/' + rest;
+  const at = base();
+  const rest = url.slice(at.length);
+  return !url.startsWith(at) || /^[^/?#]/.test(rest) ? null : rest[0] === '/' ? rest : '/' + rest;
 }
 
 // The address bar's URL as a URL of the app: '' outside the base, which no
