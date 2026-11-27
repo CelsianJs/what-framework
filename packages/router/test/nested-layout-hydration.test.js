@@ -1,7 +1,8 @@
 // A chain of route layouts renders on the server and hydrates clean: the
-// client adopts the server's elements for every layout and the page, and a
-// navigation afterwards keeps the layouts the two chains share (the very
-// elements the server sent) and builds only the levels that differ.
+// client adopts the server's elements for every layout and the page. A
+// change of query afterwards keeps the page the server sent, and a
+// navigation to another route keeps the layouts the two chains share (the
+// very elements the server sent) and builds only the levels that differ.
 //
 // Its own file: the router keeps module-scoped URL state, and this one starts
 // at /org/team/alpha.
@@ -49,7 +50,7 @@ function app(built) {
   const routes = [
     { path: '/org/_layout', layout: Org, component: () => null },
     { path: '/org/team/_layout', layout: Team, component: () => null },
-    { path: '/org/team/alpha', layout: Alpha, component: () => h('p', { id: 'page' }, 'alpha') },
+    { path: '/org/team/alpha', layout: Alpha, component: (props) => h('p', { id: 'page' }, () => `alpha ${props.query.tab}`) },
     { path: '/org/team/beta', layout: Beta, component: () => h('p', { id: 'page' }, 'beta') },
   ];
   const Shell = (props) => h('main', { id: 'shell' }, props.children);
@@ -61,7 +62,7 @@ describe('nested route layouts, server-rendered and hydrated', () => {
     const serverBuilt = [];
     const html = await collect(server.renderToStream(core.h(app(serverBuilt), {}), { request: new Request('http://app.test/org/team/alpha?tab=1') }));
     assert.deepEqual(serverBuilt, ['Org', 'Team', 'Alpha']);
-    assert.match(html, /data-layout="Org"[\s\S]*data-layout="Team"[\s\S]*data-layout="Alpha"[\s\S]*alpha/);
+    assert.match(html, /data-layout="Org"[\s\S]*data-layout="Team"[\s\S]*data-layout="Alpha"[\s\S]*alpha (<!--[^>]*-->)?1/);
 
     document.body.innerHTML = `<div id="app">${html}</div>`;
     internal.__resetHydrationData();
@@ -86,6 +87,12 @@ describe('nested route layouts, server-rendered and hydrated', () => {
     document.querySelector('[data-bump="Team"]').click();
     await tick();
     assert.equal(document.querySelector('[data-bump="Team"]').textContent, 'Team 1 1', 'the adopted layout is live');
+
+    await router.navigate('/org/team/alpha?tab=5');
+    await tick();
+    assert.deepEqual(built, ['Org', 'Team', 'Alpha'], 'a change of query builds nothing');
+    assert.equal(document.getElementById('page'), fromServer.page, 'the page is still the server\'s element');
+    assert.equal(document.getElementById('page').textContent, 'alpha 5', 'and reads the new query');
 
     await router.navigate('/org/team/beta?tab=2');
     await tick();

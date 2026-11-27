@@ -11,10 +11,6 @@
 
 import { serveViteApp, withPage } from '../../harness/index.mjs';
 
-// Development only: what-router renders a page again for a URL that changes
-// only its query, and <TeamStep> holds its form's state.
-const ROUTER_REBUILD = 'ERR_REBUILT_COMPONENT A reactive region rebuilt <TeamStep>';
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export default {
@@ -22,7 +18,6 @@ export default {
 
   // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
   dev: true,
-  devDiagnostics: { [ROUTER_REBUILD]: 'what-router renders the page again when only the query changes (`?help=keys`), so the Team step\'s form state is gone' },
 
   covers: [
     'route:guard',
@@ -177,7 +172,11 @@ export default {
           `same-node=${layoutKept.sameNode} tips-still-hidden=${layoutKept.tipsHidden}`);
         // A change of query string (`?help=keys`) keeps the layout too, with
         // what was typed into it, and the layout's JSX reads the new query.
+        // The step under it is the same route with the same params, so it
+        // stays mounted as well, with what was typed into its form.
         await page.fill('[data-wizard-note]', 'ask Bo about the budget');
+        await page.fill('[data-field="email"]', 'half typed');
+        await page.evaluate(() => { document.querySelector('[data-form="team"]').__stamp = 'kept'; });
         await page.click('[data-help-open]');
         await page.waitForSelector('[data-help]', { timeout: 2000 }).catch(() => {});
         const queryKept = await page.evaluate(() => ({
@@ -185,16 +184,17 @@ export default {
           sameNode: document.querySelector('[data-wizard]').__stamp === 'kept',
           note: document.querySelector('[data-wizard-note]').value,
           help: !!document.querySelector('[data-help]'),
-          step: !!document.querySelector('[data-form="team"]'),
+          step: document.querySelector('[data-form="team"]')?.__stamp === 'kept',
+          typed: document.querySelector('[data-field="email"]')?.value,
         }));
         await page.click('[data-help-close]').catch(() => {});
         await page.waitForSelector('[data-help-open]', { timeout: 2000 }).catch(() => {});
         const queryCleared = await path();
         check('route:nested-layout',
           queryKept.path === '/new/team?help=keys' && queryKept.sameNode && queryKept.note === 'ask Bo about the budget'
-            && queryKept.help && queryKept.step && queryCleared === '/new/team',
-          'a change of query string keeps the wizard layout, its DOM and what was typed into it, and the layout shows the new query',
-          `path=${queryKept.path} same-node=${queryKept.sameNode} note="${queryKept.note}" help=${queryKept.help} step=${queryKept.step} after-close=${queryCleared}`);
+            && queryKept.help && queryKept.step && queryKept.typed === 'half typed' && queryCleared === '/new/team',
+          'a change of query string keeps the wizard layout and the step under it, their DOM and what was typed into them, and the layout shows the new query',
+          `path=${queryKept.path} same-node=${queryKept.sameNode} note="${queryKept.note}" help=${queryKept.help} step-kept=${queryKept.step} typed="${queryKept.typed}" after-close=${queryCleared}`);
 
         await page.fill('[data-field="email"]', 'nope');
         await page.click('[data-add-member]');
@@ -280,7 +280,7 @@ export default {
         reporter.assert(toastsLeft === 0, 'toasts dismiss themselves', `left=${toastsLeft}`);
 
         reporter.assert(diag.errors.length === 0, 'the workspace ran with zero page errors', diag.errors.slice(0, 3).join(' | '));
-        const warnings = diag.warnings.filter((w) => w.includes('[what]') && !w.includes(ROUTER_REBUILD));
+        const warnings = diag.warnings.filter((w) => w.includes('[what]'));
         reporter.assert(warnings.length === 0, 'the workspace ran with no framework warnings', warnings.slice(0, 3).join(' | '));
       }, { context });
     } finally {

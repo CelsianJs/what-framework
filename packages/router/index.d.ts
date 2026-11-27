@@ -134,7 +134,10 @@ export interface RouteConfig {
 
 /**
  * A route page's props. `TData` types `data`, what the route's `preload`
- * returned: `RouteComponentProps<ReturnType<typeof loadUser>>`.
+ * returned: `RouteComponentProps<ReturnType<typeof loadUser>>`. The page is
+ * built for its route and its `params`; a change of query alone keeps it
+ * mounted, and `query` and `data` are live: JSX that reads `query.page`
+ * shows the current URL's, and a read in the body keeps the first value.
  */
 export interface RouteComponentProps<TData = any> {
   params: Record<string, string>;

@@ -182,11 +182,16 @@ describe('hash-only navigation', () => {
     assert.equal(mounts, 0);
   });
 
-  it('a query change is a page navigation, not a fragment one', async () => {
+  it('a query change is a page navigation, not a fragment one, that keeps the page', async () => {
+    const input = typeDraft('typed');
     await navigate('/settings?tab=1#teams', { transition: false });
     await flush();
     assert.equal(route.url, '/settings?tab=1#teams');
-    assert.equal(mounts, 1);
+    assert.equal(middlewareRuns, 1, 'the guard decides the new URL');
+    assert.equal(preloads, 1, 'and the preload runs for its query');
+    assert.equal(mounts, 0, 'the same route with the same params keeps its page');
+    assert.equal(document.getElementById('draft'), input);
+    assert.equal(input.value, 'typed');
   });
 
   it('keeps the entry\'s history.state when it replaces it, unless the caller passes state', async () => {

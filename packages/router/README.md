@@ -54,9 +54,30 @@ function App() {
 mount(<App />, '#app');
 ```
 
-A route component receives `{ params, query, route }`. Destructuring them is
-fine: when the URL changes, the Router renders the matched route again with the
-new values.
+A route component receives `{ params, query, route }` (and `data`, below).
+Destructuring them is fine. The page is built for its route and its params:
+another route, or the same route with other params (`/users/1` to `/users/2`),
+builds it again with the new values, so `params.id` is always its URL's, also
+in the page's body. A change of query alone (`?page=2`, a search box that
+writes `?q=`) keeps the page mounted, as React Router keeps the route's
+element: its state and what was typed into it survive, and `query` and `data`
+are live props, so JSX that reads `query.page` shows the current URL's (and
+`route.query`, `useSearch()` and `useRoute()` agree). A read of the query in
+the body keeps the first value, as in any component:
+
+```jsx
+function Products({ query }) {
+  const first = query.page;               // read once: stays the page the component was built with
+  const [draft, setDraft] = useState(''); // kept when ?page= changes
+  return (
+    <>
+      <input value={draft()} onInput={(e) => setDraft(e.target.value)} />
+      <p>Page {query.page ?? 1}</p>       {/* follows ?page= */}
+      <Link href={`?page=${Number(query.page ?? 1) + 1}`}>Next</Link>
+    </>
+  );
+}
+```
 
 ## Route Patterns
 
@@ -210,7 +231,8 @@ export const routes = [
 `preload({ params, query, url })` runs when a navigation prepares the route
 (and on its first render). The navigation waits for what it returns: a
 `query()`, an async value, a promise, or an array or object of them. The
-page receives it as its `data` prop, and a `query()` the page makes on the
+page receives it as its `data` prop (live: a change of query that keeps the
+page runs `preload` again, and `data` reads what it returned), and a `query()` the page makes on the
 same key is answered from the cache. The queries a preload makes are read
 on the route's path, so `invalidatePath('/users/7')` (a server action's
 `revalidate`) refetches them. `route.isNavigating`, or `useTransition`'s
@@ -348,9 +370,9 @@ function ProjectLayout({ params, query, children }) {
 
 To act on a change, read the param where it runs: an effect with no
 dependency array, `useEffect(() => load(params.id))`, runs again when the id
-changes, and so does a `computed(() => params.id)` read in JSX. A page is
-built again whenever its URL changes, so a page's `params.id` is always its
-URL's.
+changes, and so does a `computed(() => params.id)` read in JSX. A page reads
+its `query` the same way; its `params` are its URL's, as a page is built
+again for other params.
 
 ## Route Guards & Middleware
 

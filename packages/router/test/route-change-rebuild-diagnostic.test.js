@@ -1,9 +1,9 @@
 // ERR_REBUILT_COMPONENT reports a region that builds again a component whose
-// state its last run held. A navigation to another route shows another page:
-// its route's <ErrorBoundary> (every route with `error:` has one) is a new
-// boundary, not the last route's with its state lost, so nothing is reported.
-// A navigation that renders the same route again (another query) rebuilds
-// its page, whose state is then gone, and that is still reported.
+// state its last run held. The router's page region runs again only to show
+// another page: another route, whose <ErrorBoundary> (every route with
+// `error:` has one) is a new boundary, not the last route's with its state
+// lost, or the same route for other params, which is built for them. Neither
+// is reported. A change of query alone keeps the page, with its state.
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -30,6 +30,7 @@ const Failed = () => h('p', null, 'failed');
 const routes = [
   { path: '/a', component: page('a'), error: Failed },
   { path: '/b', component: page('b'), error: Failed },
+  { path: '/p/:id', component: page('p'), error: Failed },
 ];
 
 let unmount = null;
@@ -63,9 +64,24 @@ describe('ERR_REBUILT_COMPONENT across navigations', () => {
     assert.deepEqual(reports.map((r) => r.data.component), []);
   });
 
-  it('is reported when the same route renders again and its page loses its state', async () => {
+  it('is not reported for a change of query, which keeps the page and its state', async () => {
+    const input = document.querySelector('#a input');
+    input.value = 'kept';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     await navigate('/a?tab=2', { transition: false });
     await flush();
-    assert.deepEqual(reports.map((r) => r.data.component), ['ErrorBoundary']);
+    assert.equal(document.querySelector('#a input'), input);
+    assert.equal(input.value, 'kept');
+    assert.deepEqual(reports.map((r) => r.data.component), []);
+  });
+
+  it('is not reported for the same route with other params, whose page is built for them', async () => {
+    await navigate('/p/1', { transition: false });
+    await flush();
+    const first = document.querySelector('#p input');
+    await navigate('/p/2', { transition: false });
+    await flush();
+    assert.notEqual(document.querySelector('#p input'), first, 'a page is built for each params');
+    assert.deepEqual(reports.map((r) => r.data.component), []);
   });
 });

@@ -81,12 +81,13 @@ describe('a nested layout persists across its child routes', () => {
 
   it('keeps the layout when the query changes, and its JSX reads the new query', async () => {
     let built = 0;
+    let pages = 0;
     function TabsLayout(props) {
       built++;
       return h('div', { id: 'tabs' }, h('span', { id: 'tab' }, () => `tab ${props.query.tab ?? 'none'}`), h('input', { id: 'search' }), props.children);
     }
     const routes = nestedRoutes('/tabs', [
-      { path: '/', component: (p) => h('p', { id: 'page' }, `page ${p.query.tab}`) },
+      { path: '/', component: (p) => { pages++; return h('p', { id: 'page' }, () => `page ${p.query.tab}`); } },
     ], { layout: TabsLayout });
 
     await navigate('/tabs?tab=1');
@@ -100,7 +101,8 @@ describe('a nested layout persists across its child routes', () => {
     assert.equal(document.getElementById('tabs'), el);
     assert.equal(document.getElementById('search').value, 'abc');
     assert.equal(document.getElementById('tab').textContent, 'tab 2');
-    assert.equal(document.getElementById('page').textContent, 'page 2', 'the page is given the new query');
+    assert.equal(document.getElementById('page').textContent, 'page 2', 'the page reads the new query');
+    assert.equal(pages, 1, 'and stays mounted');
   });
 
   it('keeps the query for a URL whose query did not change, a repeated key included', async () => {

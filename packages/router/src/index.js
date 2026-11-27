@@ -822,18 +822,24 @@ function PreloadFailed({ error }) {
   throw error;
 }
 
-// The error page of route `r`, whose `reset` ("Try again") downloads a lazy()
-// chunk that failed again before it builds the page again: the error page
-// stays on screen meanwhile, as the page being left does on a navigation.
-function errorPage(r) {
-  return ({ error, reset }) => h(r.error, {
-    error,
-    reset: () => {
-      const chunk = chunkOf(r.component);
-      if (chunk === null) reset();
-      else chunk.then(reset, reset);
-    },
-  });
+// The error page of route `r` shown in view `v`, whose `reset` ("Try again")
+// downloads a lazy() chunk that failed again before it builds the page
+// again: the error page stays on screen meanwhile, as the page being left
+// does on a navigation. While it shows, the view is `crashed`, and a URL
+// with another query builds the page again instead of keeping the view.
+function errorPage(r, v) {
+  return ({ error, reset }) => {
+    v.crashed = true;
+    return h(r.error, {
+      error,
+      reset: () => {
+        v.crashed = false;
+        const chunk = chunkOf(r.component);
+        if (chunk === null) reset();
+        else chunk.then(reset, reset);
+      },
+    });
+  };
 }
 
 // A navigation that is not going to commit stops.
@@ -1103,16 +1109,6 @@ function handleRedirect(target, options, guard) {
 
 // --- Router Component ---
 
-// The `loading:` component of the route a navigation is heading to, or null when
-// there is no pending destination, it does not match, it declares no loading
-// component, or it is the route already being rendered.
-function destinationLoading(pendingUrl, routes, currentRoute) {
-  if (!pendingUrl) return null;
-  const dest = matchRoute(pathOf(pendingUrl), routes);
-  if (!dest || dest.route === currentRoute) return null;
-  return dest.route.loading || null;
-}
-
 // The verdict of a route's middleware chain: true to show the route, false to
 // decline it (the Router fallback), or a path to redirect to. A redirect() it
 // throws propagates, and so does ERR_ASYNC_MIDDLEWARE.
@@ -1205,21 +1201,24 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   onCleanup(() => { if (local !== null) local.dispose(); });
   // The `loading:` component a navigation in flight shows instead of the page:
   // the destination's, or the departing route's when only it declares one.
-  // A computed, so the page re-renders only when there is one to show, not
-  // whenever a navigation starts or ends. A server does not navigate.
+  // None for a navigation to the page on screen with another query, which
+  // stays mounted while the new query prepares. A computed, so the page
+  // re-renders only when there is one to show, not whenever a navigation
+  // starts or ends. A server does not navigate.
   const pendingView = server ? null : computed(() => {
     if (!_preparing()) return null;
     const matched = matchRoute(pathOf(state.url()), routes);
-    const current = matched ? matched.route : null;
-    return destinationLoading(_pendingUrl(), routes, current) || (current && current.loading) || null;
+    const to = _pendingUrl();
+    const dest = to ? matchRoute(pathOf(to), routes) : null;
+    if (dest && matched && dest.route === matched.route) return sameRecord(dest.params, matched.params) ? null : matched.route.loading || null;
+    return (dest && dest.route.loading) || (matched && matched.route.loading) || null;
   });
   // The page its URL shows: the URL without its hash, so that a fragment
   // navigation does not render the route again. A server render's URL does
   // not move.
   const page = server ? state.url : computed(() => pageOf(state.url()));
-  // The route a URL matches, its params and its query, made once per URL:
-  // the layout chain and the page both read it, and the route state they
-  // write from it is then the same objects, which notify nobody twice.
+  // The route a URL matches, its params and its query, made once per URL (a
+  // server render reads the view at each level of its layouts).
   /** @type {any} */
   let lastMatch = null;
   const matchOf = (/** @type {string} */ url) => {
@@ -1240,36 +1239,64 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     });
   };
 
+  // What a URL shows, decided once per URL (its page, not counting the hash):
+  // the route it matches with its params, the verdict of the route's
+  // preparation, a `loading:` to show instead while a navigation is in
+  // flight, or a preload that failed. A URL that shows the same route with
+  // the same params, admitted and loaded (`ok`), gives the same view unless
+  // the route's error page shows (`crashed`, see errorPage), so the page
+  // stays mounted when only the query changes, as React Router keeps it: its
+  // `query` and `data` props are live (getters over the route state and the
+  // view's preparation, in a props object with no prototype: what-core
+  // dom.js _isLiveProp). Other params, another route or anything else is a
+  // view of its own, whose page is built again. The route state goes in
+  // first, because the preparation runs middleware that reads it.
+  /** @type {any} */
+  let shownView = null;
+  const viewFor = () => {
+    page();
+    const url = untrack(state.url);
+    const loading = pendingView === null ? null : pendingView();
+    const { matched, query } = matchOf(url);
+    if (!matched) return shownView = {};
+    const { route: r, params } = matched;
+    const prep = untrack(() => {
+      enter(r, params, query);
+      return prepFor(url, r);
+    });
+    const verdict = prep.verdict();
+    const ok = verdict === true && !loading && !prep.failed;
+    const v = shownView;
+    if (ok && v !== null && v.ok && !v.crashed && v.route === r && sameRecord(v.params, params)) {
+      untrack(() => v.prep.set(prep));
+      return v;
+    }
+    return shownView = { route: r, params, verdict, loading, ok, prep: signal(prep) };
+  };
+  const view = server ? viewFor : computed(viewFor);
+
   // The Router component runs ONCE. `content` is a reactive function child that
-  // re-evaluates whenever its page changes (its URL, not counting the hash); the
-  // fine-grained runtime reconciles only the matched page in place. The globalLayout is rendered ONCE around it
+  // runs again when the view changes; the fine-grained runtime reconciles only
+  // the matched page in place. The globalLayout is rendered ONCE around it
   // (below) so the app shell persists across navigations instead of
   // re-instantiating.
-  /** @type {any} */
-  let shownRoute;
+  let shown = false;
   const renderMatch = () => {
-    page();
-    const currentUrl = untrack(state.url);
-    const loadingView = pendingView === null ? null : pendingView();
+    const v = view();
+    const r = v.route;
+    // Development: the region runs again only to show another view, so the
+    // page it builds is a new one, not one whose state was lost.
+    if (__DEV__) {
+      if (shown) _devNewContent();
+      shown = true;
+    }
 
-    const { matched, query: queryObj } = matchOf(currentUrl);
-
-    if (matched) {
-      const { route: r, params } = matched;
-      enter(r, params, queryObj);
-      // Development: another route's page is a new page, so what this run
-      // builds again (a route's ErrorBoundary) lost no state of its own.
-      if (__DEV__) {
-        if (shownRoute !== undefined && shownRoute !== r) _devNewContent();
-        shownRoute = r;
-      }
-
+    if (r) {
       // The verdict the route's preparation decided (a navigation's, or this
       // render's), which this render follows. Middleware is synchronous:
       // async authorization belongs in a component wrapper,
       // asyncGuard(check)(Component).
-      const prep = untrack(() => prepFor(currentUrl, r));
-      const verdict = prep.verdict();
+      const verdict = v.verdict;
       if (verdict !== null && typeof verdict === 'object') throw verdict.error;
       if (verdict === false) {
         // Middleware rejected — show fallback
@@ -1283,6 +1310,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
 
       // Build element with loading state support
       let element;
+      const prep = untrack(v.prep);
 
       // While a navigation is in flight, a `loading:` declared by the
       // DESTINATION wins. The URL has not committed yet, so `r` is still the
@@ -1291,22 +1319,23 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       // route's `loading:` preserves the existing behaviour for the case where
       // only the page being left declares one. Without either, the page being
       // left stays until the new one can show.
-      if (loadingView) {
-        element = h(loadingView, {});
+      if (v.loading) {
+        element = h(v.loading, {});
       } else if (prep.failed) {
         element = h(PreloadFailed, { error: prep.error });
       } else {
         element = h(r.component, {
-          params,
-          query: queryObj,
+          __proto__: null,
+          params: v.params,
+          get query() { return state.query(); },
           route: r,
-          data: prep.data,
+          get data() { return v.prep().data; },
         });
       }
 
       // Wrap with per-route error boundary if specified
       if (r.error) {
-        element = h(ErrorBoundary, { fallback: errorPage(r) }, element);
+        element = h(ErrorBoundary, { fallback: errorPage(r, v) }, element);
       }
 
       // The route's layouts are around this region (`routed` below).
@@ -1351,20 +1380,8 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   // page whose middleware declines it, a 404 and a route with no layout
   // render `content` as they are.
   const layoutsFor = () => {
-    page();
-    const currentUrl = untrack(state.url);
-    const { matched, query } = matchOf(currentUrl);
-    if (!matched) return null;
-    const layouts = buildLayoutChain(matched.route, routes);
-    if (layouts.length === 0) return null;
-    // The route state goes in first, as renderMatch writes it, because the
-    // preparation runs middleware that reads it; renderMatch's own write of
-    // the same objects is then no change.
-    const verdict = untrack(() => {
-      enter(matched.route, matched.params, query);
-      return prepFor(currentUrl, matched.route);
-    }).verdict();
-    return verdict === false || typeof verdict === 'string' || (verdict !== null && typeof verdict === 'object') ? null : layouts;
+    const { route: r, verdict } = view();
+    return r && verdict === true ? buildLayoutChain(r, routes) : null;
   };
   const layoutProps = { __proto__: null, get params() { return state.params(); }, get query() { return state.query(); } };
   const chain = server ? layoutsFor : computed(layoutsFor);

@@ -673,6 +673,21 @@ and navigations that are transitions. Each change below has its migration.
   code on each navigation, or that reads its params or query in its body:
   read them in JSX or an effect, read the route (`useRoute()`) in an
   effect, or use `afterNavigate`.
+- **A change of query alone keeps the page.** On the same route with the
+  same params, a URL that changes only its query (`?page=2`, `?help=keys`)
+  keeps the page mounted, with its state, its DOM and what was typed into
+  it, as React Router keeps the route's element; the route's middleware and
+  `preload` run for the new URL as before, and no `loading:` shows for it.
+  The page's `query` and `data` props are live, as a layout's are: JSX that
+  reads `query.page` updates in place. Other params (`/projects/1` to
+  `/projects/2`) or another route build the page again, as in 0.14. 0.14
+  built the page again for every URL, so a value the page read from its
+  query once followed the URL. This affects a page that reads its query in
+  its body (`const page = Number(query.page ?? 1)`, `useSearch().q` in the
+  body, a query key built once) or runs code once per query: read it in JSX
+  (`{query.page ?? 1}`), make the value a function or a `computed()` and
+  call it there, read it in an effect (`useEffect(() => load(query.page))`),
+  or pass a function key (`useQuery({ queryKey: () => ['items', query.page] })`).
 - **Layouts nest.** A `nestedRoutes` layout goes around the layout a child
   declares, a `nestedRoutes` inside another included, as React Router nests
   routes, and so does a `routeGroup` layout; a route's `layout` may be a
