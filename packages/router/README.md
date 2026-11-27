@@ -242,8 +242,9 @@ after an `await` in a component sees no route state at all (the root URL,
 empty params and query), never another request's. A middleware redirect (a
 path, or `redirect()`), `<Redirect>` and a `guard()` path fallback redirect
 the render's response on the server, to the URL the browser would go to (a
-target resolved as the client resolves it, below the base), or off the site
-for another origin's URL (`getResponse().redirectExternal(to)`), and so do
+target resolved as the client resolves it, below the base; none for the page
+the render shows, as `navigate()` to the URL on screen is none), or off the
+site for another origin's URL (`getResponse().redirectExternal(to)`), and so do
 `redirect()` thrown from a component body and
 `navigate()`: a server never navigates, and nothing a render does reaches the
 route state of another one. A `beforeNavigate` or `afterNavigate` subscribed

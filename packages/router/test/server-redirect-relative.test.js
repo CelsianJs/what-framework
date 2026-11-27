@@ -77,3 +77,37 @@ describe('a relative redirect in a server render below a base', () => {
     }
   });
 });
+
+// A redirect to the page the render shows (a guard that sends its own page
+// to itself, '', '#top') is no navigation: in the browser navigate() to the
+// URL on screen changes nothing, and the response does not redirect either,
+// so the page is not answered with a redirect to itself, which the browser
+// follows until it gives up (too many redirects). A redirect to the same
+// path with another query, or without a trailing slash, still goes there,
+// and the page it lands on is then the one shown. Before, each of these
+// answered a Location to the URL requested.
+describe('a redirect to the page a server render shows', () => {
+  const self = [
+    { path: '/login', middleware: [() => '/login'], component: () => h('p', null, 'login page') },
+    { path: '/empty', component: () => redirect('') },
+    { path: '/top', component: () => { navigate('#top'); return h('p', null, 'top'); } },
+    { path: '/query', middleware: [({ query }) => query.tab === '1' || '?tab=1'], component: () => h('p', null, 'tab') },
+  ];
+
+  async function answer(url) {
+    const response = createResponse('/app');
+    await renderToStringAsync(h(Router, { routes: self }), { request: new Request('http://app.test/app' + url), response });
+    return response.location;
+  }
+
+  it('does not redirect the response', async () => {
+    for (const url of ['/login', '/empty', '/top']) assert.equal(await answer(url), null, url);
+  });
+
+  it('still redirects to another URL of the same page', async () => {
+    assert.equal(await answer('/login/'), '/app/login');
+    assert.equal(await answer('/login?next=x'), '/app/login');
+    assert.equal(await answer('/query'), '/app/query?tab=1');
+    assert.equal(await answer('/query?tab=1'), null);
+  });
+});

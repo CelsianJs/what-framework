@@ -576,14 +576,19 @@ export async function navigate(to, opts = {}) {
   // response answers with it (what-server's _redirectAt, which refuses one
   // that is no local path, such as '//host'). Another origin's URL (https:,
   // mailto:, tel:) leaves the site through redirectExternal(), as navigate()
-  // leaves it in the browser. Outside every render (code after an await,
-  // with no async context) there is no response to redirect.
+  // leaves it in the browser. The page the render shows ('', '#top', a guard
+  // that sends its page to itself) is no navigation, as navigate() to the URL
+  // on screen is none in the browser: a redirect there would answer the page
+  // with itself, which the browser follows until it gives up. Outside every
+  // render (code after an await, with no async context) there is no response
+  // to redirect.
   if (onServer()) {
     const response = getResponse();
     if (!isSafeUrl(to)) response._redirectAt?.(null, to);
-    else if (to[0] !== '#') {
+    else {
       const written = resolveUrl(to);
-      written === null ? response.redirectExternal(to) : response._redirectAt?.(written, to);
+      if (written === null) response.redirectExternal(to);
+      else if (pageOf(written) !== pageOf(outward(here().url()))) response._redirectAt?.(written, to);
     }
     return;
   }
