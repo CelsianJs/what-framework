@@ -345,7 +345,8 @@ export function redirect(to: string, options?: NavigateOptions): never;
  * unsubscribe. Not consulted for a fragment navigation, one that changes only
  * the hash (`navigate('#x')`, `navigate('/settings#x')` on /settings): it
  * scrolls, it does not change the route. Cancelling a back/forward navigation
- * restores the address bar by pushing the previous URL as a new history entry:
+ * (or a navigation started while one was still preparing) restores the
+ * address bar by pushing the URL of the page shown as a new history entry:
  * the entry the browser moved to is not recovered and its `history.state` is
  * not carried over.
  */

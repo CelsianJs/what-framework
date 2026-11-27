@@ -581,16 +581,17 @@ export async function navigate(to, opts = {}) {
   let committing = false;
   let committed = false;
   try {
-    // A popstate has already moved the browser URL, so cancelling one means
-    // pushing the previous entry back to keep the address bar in sync. That
-    // entry is a new one: the forward entry is not recoverable and its
+    // A popstate has already moved the browser URL (this navigation's own, or
+    // one still preparing that this one superseded), so cancelling means
+    // pushing the URL of the page shown back to keep the address bar in sync.
+    // That entry is a new one: the forward entry is not recoverable and its
     // history.state is not carried over. Documented on beforeNavigate in
     // index.d.ts.
     for (const fn of _beforeHooks.slice()) {
       const allowed = await waitFor(fn(href, from), nav);
       if (nav !== _navigation) return;
       if (allowed === false) {
-        if (_fromPopstate && typeof history !== 'undefined') history.pushState(null, '', outward(from));
+        if (typeof location !== 'undefined' && browserUrl() !== from) history.pushState(null, '', outward(from));
         return;
       }
     }
