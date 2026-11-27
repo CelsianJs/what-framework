@@ -5,7 +5,7 @@
 // the driver was licensed, so changing that date judges the driver's
 // incidents again. Errors show when a field is left (onBlur).
 
-import { onCleanup } from 'what-framework';
+import { onCleanup, untrack } from 'what-framework';
 import { useFieldArray } from 'what-framework/form';
 import { Link } from 'what-router';
 
@@ -19,7 +19,8 @@ import { RowMenu, focusIn, moveBy, placeOf } from './Vehicles.jsx';
 // fields are named by the driver's place now, not the one it was built at.
 function IncidentRow({ field, index, driverId, driverPlace, incidents, form }) {
   const prefix = `drivers.${driverPlace()}`;
-  const id = form.getValue(`${prefix}.incidents.${index}.id`);
+  // The incident's own id, read once on purpose: it never changes.
+  const id = untrack(() => form.getValue(`${prefix}.incidents.${index}.id`));
   probes.created.incident++;
   probes.effectsLive++;
   onCleanup(() => { probes.disposed.incident++; probes.effectsLive--; });
@@ -57,8 +58,10 @@ function IncidentRow({ field, index, driverId, driverPlace, incidents, form }) {
 }
 
 function DriverRow({ field, index, array, form, onRemove }) {
-  const prefix = `drivers.${index}`;
-  const id = form.getValue(`${prefix}.id`);
+  // The place the row is built at and the driver's own id, read once on
+  // purpose (the header's comment says why).
+  const prefix = untrack(() => `drivers.${index}`);
+  const id = untrack(() => form.getValue(`${prefix}.id`));
   probes.created.driver++;
   probes.effectsLive++;
   onCleanup(() => { probes.disposed.driver++; probes.effectsLive--; });

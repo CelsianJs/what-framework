@@ -5,7 +5,7 @@
 // around it. Alt+ArrowUp and Alt+ArrowDown move the row being edited; its
 // menu (which closes on a click outside it) duplicates or removes it.
 
-import { flushSync, onCleanup, useEffect, useState } from 'what-framework';
+import { flushSync, onCleanup, untrack, useEffect, useState } from 'what-framework';
 import { useFieldArray } from 'what-framework/form';
 import { Link } from 'what-router';
 
@@ -72,9 +72,10 @@ export function RowMenu({ label, actions }) {
 }
 
 // `id` is the vehicle's own id in the draft, which the page's test hooks
-// (data-vehicle, data-error) carry; field.id is the row's key.
+// (data-vehicle, data-error) carry; field.id is the row's key. It never
+// changes, so it is read once on purpose.
 function VehicleRow({ field, index, array, form, onRemove, onDuplicate }) {
-  const id = form.getValue(`vehicles.${index}.id`);
+  const id = untrack(() => form.getValue(`vehicles.${index}.id`));
   probes.created.vehicle++;
   probes.effectsLive++;
   onCleanup(() => { probes.disposed.vehicle++; probes.effectsLive--; });
