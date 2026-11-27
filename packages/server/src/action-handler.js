@@ -6,7 +6,7 @@
 // and Web-Fetch adapters. CSRF + dispatch + error masking are reused from
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
-import { _base, handleActionRequest } from './actions.js';
+import { _base, _baseOf, handleActionRequest } from './actions.js';
 import { addField, RESERVED_FIELDS, urlEncodedFields, urlEncodedPairs } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
@@ -206,22 +206,34 @@ function postedState(form) {
 const plainValue = (key, value) => (key === 'toString' || key === 'valueOf' ? undefined : value);
 const INVALID = Symbol('invalid');
 
-// The CSRF policy of a handler's options, and the base path the app is
-// served below (`_base`, the request handler's `basePath`; else, for the
-// endpoint of a custom server, what-router's base, read per request): a path
-// an action redirects to is a URL of the app, which the response of its call
-// puts below the base (response.js), for a no-JS post's 303 and for the
-// X-What-Redirect the client follows alike. `_redirect` and the Referer are
-// where the browser was, below the base already.
+// The CSRF policy of a handler's options, and the base path the app of a
+// request is served below (`baseFor`): a path an action redirects to is a URL
+// of the app, which the response of its call puts below the base
+// (response.js), for a no-JS post's 303 and for the X-What-Redirect the
+// client follows alike. `_redirect` and the Referer are where the browser
+// was, below the base already.
 function csrfPolicy(options) {
   return {
     getCsrfToken: options.getCsrfToken,
     skipCsrf: options.skipCsrf === true,
     trustedOrigins: new Set(options.trustedOrigins || []),
-    get base() {
-      return options._base ?? _base();
-    },
+    baseFor: (reqLike) => options._base ?? (_base() || endpointBase(reqLike.url)),
   };
+}
+
+// The base `url`, a post to the action endpoint, names: the action client and
+// a <Form> post to the endpoint below the base their page is served at
+// ('/app/__what_action' is '/app'), so a custom server's endpoint, which has
+// no `basePath` of the request handler and may have no what-router base set,
+// answers below the base its caller is at. '' for any other URL, and for a
+// path before the endpoint that is no base ('//host').
+function endpointBase(url) {
+  try {
+    const path = new URL(String(url), 'http://localhost').pathname;
+    return path.endsWith(DEFAULT_BASE_PATH) ? _baseOf(path.slice(0, -DEFAULT_BASE_PATH.length)) : '';
+  } catch {
+    return '';
+  }
 }
 
 // The action call: handleActionRequest in a context of its own, whose request
@@ -279,7 +291,7 @@ async function runFormPost(policy, reqLike, form, actionId) {
 
   const args = formArguments(form);
   if (args === INVALID) return { status: 400, message: 'Invalid form state' };
-  const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders, policy.base);
+  const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders, policy.baseFor(reqLike));
   return { actionId: String(actionId), call };
 }
 
@@ -399,7 +411,7 @@ export function createActionHandler(options = {}) {
       const outcome = await runFormPost(policy, reqLike, form, form._action || form['data-action'] || (reqLike.query && reqLike.query.action));
       if (!outcome.call || outcome.call.status !== 200) return failedForm(outcome);
       const { response } = outcome.call;
-      const location = response.location ?? safeRedirectTarget(form, headers, policy.base);
+      const location = response.location ?? safeRedirectTarget(form, headers, policy.baseFor(reqLike));
       return { status: 303, headers: withActionHeaders(response, { location }), body: '' };
     }
 
@@ -422,7 +434,7 @@ export function createActionHandler(options = {}) {
     const body = reqLike.body || {};
     const args = type === 'multipart' ? formArguments(body) : body.args;
     if (args === INVALID) return jsonResponse(400, { message: 'Invalid form state' });
-    const call = await callAction(reqLike, headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers, policy.base);
+    const call = await callAction(reqLike, headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers, policy.baseFor(reqLike));
     const answer = jsonResponse(call.status, call.body);
     if (call.status !== 200) return answer;
     /** @type {Record<string, string>} */

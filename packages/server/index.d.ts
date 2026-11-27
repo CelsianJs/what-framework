@@ -414,7 +414,7 @@ export interface ActionHandlerOptions {
   skipCsrf?: boolean;
   /** Other origins whose pages may post here ("https://app.example"); the browser's Origin must be one of them or this host. */
   trustedOrigins?: string[];
-  /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
+  /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. Below a base, the endpoint is `'/app/__what_action'`, and with no base set on the server (what-router's) that path names the base a path an action redirects to goes below. */
   basePath?: string;
   /** The most bytes a request body may hold, default 1048576 (1 MB): a larger one is answered 413 (an HTML page for a browser's form post, JSON for an action call or anything else). Read by nodeActionMiddleware, fetchActionHandler and createFormPostHandler (when it reads `request` itself); a server that reads the body itself sets its own limit. A multipart/form-data body's fields and files are all within it. */
   bodyLimit?: number;

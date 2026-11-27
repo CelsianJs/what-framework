@@ -517,7 +517,10 @@ action, `redirect` and permalink are written below the base. A path an action
 redirects to is a URL of the app, as a loader's and the router's are: the
 response of its call sends `/app/x`, in a no-JS post's 303 (a request handler
 with `basePath: '/app'`) and in `X-What-Redirect` alike, and with JavaScript
-the `<Router>` goes there.
+the `<Router>` goes there. A custom server's endpoint
+(`nodeActionMiddleware({ basePath: '/app/__what_action' })`,
+`fetchActionHandler`) with no base set on the server takes the base from the
+path it was posted to, `/app` for `/app/__what_action`.
 
 **A custom server.** `nodeActionMiddleware` serves only the action endpoint.
 For page-posted forms, run the post with `createFormPostHandler(options)` (the
