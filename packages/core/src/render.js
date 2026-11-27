@@ -1641,11 +1641,16 @@ function rowEnd(start, endMarker) {
   return n;
 }
 
+// moveBefore (Chromium, Firefox) moves a node without taking it out, so a
+// field being edited in the row keeps the focus and its caret; insertBefore
+// blurs it (and Chromium fires blur, which a form validating on blur reads
+// as the visitor leaving the field).
 function moveRow(parent, start, end, ref) {
+  const move = parent.moveBefore || parent.insertBefore;
   let n = start;
   while (n !== null && n !== end) {
     const next = n.nextSibling;
-    parent.insertBefore(n, ref);
+    move.call(parent, n, ref);
     n = next;
   }
 }
