@@ -41,6 +41,25 @@ describe('isomorphic matcher', () => {
   });
 });
 
+// A more specific route wins whatever the order the routes are listed in,
+// and whichever syntax names its params: a static segment before a param,
+// fewer params before more, a catch-all last.
+describe('route specificity', () => {
+  it('ranks [param] and [...rest] as it ranks :param and *', () => {
+    for (const [routes, path, winner] of [
+      [[{ path: '/u/[id]' }, { path: '/u/new' }], '/u/new', '/u/new'],
+      [[{ path: '/u/:id' }, { path: '/u/new' }], '/u/new', '/u/new'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/intro' }], '/docs/intro', '/docs/intro'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/[page]' }], '/docs/intro', '/docs/[page]'],
+      [[{ path: '/docs/*' }, { path: '/docs/:page' }], '/docs/intro', '/docs/:page'],
+      [[{ path: '/a/[x]/[y]' }, { path: '/a/[x]/b' }], '/a/1/b', '/a/[x]/b'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/[page]' }], '/docs/a/b', '/docs/[...rest]'],
+    ]) {
+      assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
+    }
+  });
+});
+
 // The path a route matches is the URL's, which the URL parser percent-encodes
 // ('/café' is '/caf%C3%A9', '/a b' is '/a%20b'): a route written with those
 // characters matches it, and one written encoded still does.

@@ -78,17 +78,20 @@ function decodeParam(value, isCatchAll) {
   return decoded;
 }
 
+function specificity(path) {
+  const { paramNames, catchAll } = getPattern(path);
+  return paramNames.length + (catchAll === null ? 0 : 100);
+}
+
 export function matchRoute(path, routes) {
   // Filter out routes without a path (layout-only routes, etc.)
   // `filter` already copies, so sorting below never touches the caller's array.
   const sorted = routes.filter(r => r.path);
 
-  // Sort routes by specificity (more specific first)
-  sorted.sort((a, b) => {
-    const aSpecific = (a.path.match(/:/g) || []).length + (a.path.includes('*') ? 100 : 0);
-    const bSpecific = (b.path.match(/:/g) || []).length + (b.path.includes('*') ? 100 : 0);
-    return aSpecific - bSpecific;
-  });
+  // Sort routes by specificity (more specific first): fewer params first, a
+  // catch-all last, counted on the compiled pattern, so `[id]` and
+  // `[...rest]` rank as `:id` and `*` do.
+  sorted.sort((a, b) => specificity(a.path) - specificity(b.path));
 
   for (const route of sorted) {
     const { regex, paramNames, catchAll } = getPattern(route.path);
