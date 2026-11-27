@@ -149,16 +149,30 @@ Without a view, a render callback is handed the raw item, as in React
 (`{renderCell(item)}` gets the very object in the list), and the JSX it returns
 is built again when a refetch replaces the item. A view is not `===` to the
 item and is not an array, so a callback that compares items or calls array
-methods on one gets the raw item, and a component (`<Cell item={item} />`)
-keeps its nodes the same way a view does.
+methods on one gets the raw item. A component (`<Cell item={item} />`) is
+handed the raw item too, and keeps its nodes the same way a view does while it
+reads the item in its JSX (`<span>{props.item.name}</span>`): those reads are
+bindings, which follow a replaced item.
 
-A keyed row is built again for a replaced item only when its building code (a
-component body, a statement in the row callback) read something of the item
-that the new item holds another value in. A read of one field, `row.name` in
-the row's own code or `view.name` through a live view, records that field; a
-read of the whole item (handed to a function, a method called on it) records
-the item, and any replacement rebuilds the row. The view is read-only and reads
-`undefined` while `source` returns null or undefined.
+A keyed row is built again for a replaced item when its building code (a
+statement in the row callback, a component body) read something of the item
+that the new item holds another value in. What a read records depends on where
+it is:
+
+- A read of one field in the row's own code (`row.name` in the `.map()`
+  callback, a prop given one field, `<Row kind={row.kind} />`), or through a
+  live view anywhere (`view.name`, in a component body too), records that
+  field: the row is kept while the new item holds the same value there.
+- A read of the item a component was handed, in that component's body
+  (`const id = props.item.id`, `const { title } = item`), records the whole
+  item, as does any read of the whole item (handed to a function, a method
+  called on it): every replacement rebuilds the row, with its nodes and the
+  component's state, even when each field the body read is unchanged.
+
+So a row component that keeps its state across refetches reads its item in its
+JSX, or, when its body needs a field, is handed that field as a prop or a view
+of the item (`<Row item={live(() => item)} />`). The view is read-only and
+reads `undefined` while `source` returns null or undefined.
 
 You rarely need to call it: inside a keyed `.map()` row the compiler rewrites
 `selected() === row.id` (or `!==`, either order) in a render binding to a

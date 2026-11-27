@@ -280,7 +280,7 @@ const counts = computed(() => countByKind(query.data()));
 </div>
 ```
 
-A table that hands each row to a render function (`render: (row) => <Menu row={row} />`) has the same choice. Give the function `live(() => row)` (what-framework), and the cell is built once per row while `{row.name}` inside it follows a replaced item. A row is built again for a replaced item only when the code that built it read a field the new item changed (`row.kind` in a component body, say); a read of the whole item (`format(row)`, `row.describe()`) rebuilds it on any replacement. See [API.md, live views](API.md#live-views-live).
+A table that hands each row to a render function (`render: (row) => <Menu row={row} />`) has the same choice. Give the function `live(() => row)` (what-framework), and the cell is built once per row while `{row.name}` inside it follows a replaced item. A row is built again for a replaced item only when the code that built it read a field the new item changed (`row.kind` read through the view in a component body, say); a read of the whole item (`format(row)`, `row.describe()`) rebuilds it on any replacement. Handed the raw row instead of a view, a component whose body reads any of it (`const kind = row.kind`) is built again, with its state, on every replacement; reads in its JSX do not count. See [API.md, live views](API.md#live-views-live).
 
 ## 15. Conditional Signal Reads (Dynamic Dependencies)
 
@@ -514,6 +514,8 @@ function Rows({ rows }) {
 ```
 
 Inside the callback a view is not `===` to the item and is not an array, so use it for field reads only (docs/API.md, live views).
+
+The component keeps its nodes while it reads the item in its JSX, as `Cell` does. A read in its body (`const id = item.id` next to a `useState`) records the whole item, so the row is built again, its state reset, whenever the item is replaced under its key, even if `id` is the same. Read the item in the JSX, hand the component the fields its body needs as props (`<Cell id={item.id} />`), or hand it a view: `<Cell item={live(() => item)} />` records only the fields its body reads.
 
 Read once, as in any What component:
 
