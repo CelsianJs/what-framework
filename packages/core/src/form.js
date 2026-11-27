@@ -51,6 +51,13 @@ function _mergeRegistration(props, registered) {
   }
 
   for (const key in registered) {
+    // A registration's `value` and `checked` are getters over the field; read
+    // here they would be its value at render, so they cross as functions,
+    // which the renderer binds live (a later setValue or reset shows).
+    if (Object.getOwnPropertyDescriptor(registered, key)?.get) {
+      merged[key] = () => registered[key];
+      continue;
+    }
     const value = registered[key];
     if (!_isEventProp(key)) {
       merged[key] = value;
@@ -777,16 +784,14 @@ export const Select = /* @__PURE__ */ Object.assign(function Select(props) {
   }, children);
 }, { _deferChildren: true });
 
+// Registered as a checkbox, so the field holds its checkedness: `checked`
+// follows the field (_mergeRegistration) and no `value` attribute is written,
+// so the form submits "on". An unregistered Checkbox takes `checked` from its
+// props.
 export function Checkbox(props) {
   const { register, ...rest } = props;
-  const registered = register ? register(props.name) : {};
-
-  return h('input', {
-    type: 'checkbox',
-    ...rest,
-    ...registered,
-    checked: registered.value,
-  });
+  if (!register) return h('input', { type: 'checkbox', ...rest });
+  return h('input', { type: 'checkbox', ..._mergeRegistration(rest, register(props.name, { type: 'checkbox' })) });
 }
 
 export function Radio(props) {
