@@ -27,7 +27,7 @@ const STATE_SOURCES = new Set(['signal', 'computed', 'useState', 'useReducer', '
 const SKIP_KEYS = new Set(['parent', 'loc', 'range', 'start', 'end', 'leadingComments', 'trailingComments', 'comments', 'tokens']);
 
 /** The component's name, or null when `fn` is not one. */
-export function componentName(fn) {
+function componentName(fn) {
   let name = fn.id?.name;
   if (!name) {
     let at = fn.parent;
@@ -174,7 +174,7 @@ function text(sourceCode, node, fallback) {
  * The read-once findings of the component `fn`: { code, node, name, why, fix }.
  * @returns {{ code: string, node: any, name: string, component: string, why: string, fix: string }[]}
  */
-export function readOnceFindings(fn, sourceCode) {
+function readOnceFindings(fn, sourceCode) {
   const component = componentName(fn);
   if (component === null || !renders(fn, sourceCode)) return [];
   const findings = [];

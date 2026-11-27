@@ -140,7 +140,7 @@ const GENERIC_ERROR = 'An error occurred while rendering on the server.';
 let frameworkCodes = null;
 
 /** True for an error code from what-core's catalogue, the only codes that may reach a page. */
-export function isFrameworkErrorCode(code) {
+function isFrameworkErrorCode(code) {
   if (typeof code !== 'string') return false;
   frameworkCodes ??= new Set(Object.values(ERROR_CODES).map((entry) => entry.code));
   return frameworkCodes.has(code);

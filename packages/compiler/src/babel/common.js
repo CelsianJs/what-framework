@@ -193,7 +193,7 @@ export function getBindingProperty(name) {
   return name.slice(5);
 }
 
-export function isComponent(name) {
+function isComponent(name) {
   return /^[A-Z]/.test(name);
 }
 
@@ -263,7 +263,7 @@ export function unsafeMarkup(node, state, message) {
 }
 
 /** The JSX name of a tag as written: `div`, `Foo.Bar`, `svg:rect`. */
-export function jsxTagName(name) {
+function jsxTagName(name) {
   if (t.isJSXMemberExpression(name)) return `${jsxTagName(name.object)}.${name.property.name}`;
   if (t.isJSXNamespacedName(name)) return `${name.namespace.name}:${name.name.name}`;
   return name.name;
@@ -359,7 +359,7 @@ export function isComponentElement(el) {
 
 // A tag whose binding came from a package other than What. isWhatTag is the
 // stronger claim: the binding came from What, so the tag is provably ours.
-export function isForeignTag(name, state) {
+function isForeignTag(name, state) {
   return !!(state.foreignImports && state.foreignImports.has(name));
 }
 
@@ -373,7 +373,7 @@ function isWhatTag(name, state) {
 // third-party <Switch>. Unlike <Show> and <For>, <Switch> has no working
 // runtime path, so guessing wrong here renders the fallback forever. An arm
 // written under the name What's Match was imported as counts too.
-export function hasLiteralMatchArms(node, state) {
+function hasLiteralMatchArms(node, state) {
   return node.children.some((child) => t.isJSXElement(child) && t.isJSXIdentifier(child.openingElement.name)
     && (child.openingElement.name.name === 'Match' || (state != null && whatControlFlow(state).get(child.openingElement.name.name) === 'Match')));
 }

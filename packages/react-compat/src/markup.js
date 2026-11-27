@@ -108,7 +108,7 @@ export function apart(inst, mark, fn) {
 
 // --- Attributes ---
 
-export const RENAMED = { acceptCharset: 'accept-charset', httpEquiv: 'http-equiv', tabIndex: 'tabindex', crossOrigin: 'crossorigin', xmlnsXlink: 'xmlns:xlink' };
+const RENAMED = { acceptCharset: 'accept-charset', httpEquiv: 'http-equiv', tabIndex: 'tabindex', crossOrigin: 'crossorigin', xmlnsXlink: 'xmlns:xlink' };
 
 // react-dom 19.3.0's server renderer, measured (test/island-server.test.js):
 // the attributes it writes as a boolean (bare, which the browser reads as

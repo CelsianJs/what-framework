@@ -10,7 +10,7 @@ import { SIGNAL_CREATORS, ACCESSOR_PAIR_HOOKS, SWR_LIKE_HOOKS } from './signal-t
 const WHAT_SOURCES = /^what-(framework|core)(\/|$)/;
 
 /** The variable `node` (an identifier) resolves to, or null. */
-export function resolve(sourceCode, node) {
+function resolve(sourceCode, node) {
   if (!sourceCode?.getScope) return null;
   for (let scope = sourceCode.getScope(node); scope; scope = scope.upper) {
     const v = scope.set.get(node.name);

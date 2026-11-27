@@ -36,7 +36,7 @@ import { idsOf, islandId, boundaryIds, apart, attrOf, styleText } from './markup
  * elements), under the compat instance `parent`: a flat list, each text
  * separated from the next.
  */
-export function serverTree(element, parent) {
+function serverTree(element, parent) {
   if (!namesIds) {
     namesIds = true;
     _islandIds(islandId);
@@ -268,7 +268,7 @@ function element(v, parent, svg) {
 // has hydrated (preventDefault) and keeps its form, its submitter and its
 // data. Once the island hydrates, what-react runs the action with that data
 // (hydrate.js replaySubmits), as React replays it into useActionState.
-export const FORM_GUARD = "javascript:throw new Error('React form unexpectedly submitted.')";
+const FORM_GUARD = "javascript:throw new Error('React form unexpectedly submitted.')";
 const CAPTURE = `(function(){var d=document;if(d.$$whatForms)return;d.$$whatForms=[];addEventListener("submit",function(e){if(e.defaultPrevented)return;var f=e.target,s=e.submitter,a=f.getAttribute("action"),b;if(s&&s.getAttribute("formaction")!=null)a=s.getAttribute("formaction");if(a!==${JSON.stringify(FORM_GUARD)})return;e.preventDefault();try{b=new FormData(f,s)}catch(x){b=new FormData(f);if(s&&s.name)b.append(s.name,s.value)}d.$$whatForms.push(f,s,b)})})()`;
 
 // Whether a function action was rendered since the enclosing <form> began.

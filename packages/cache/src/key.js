@@ -84,12 +84,12 @@ function cookiePairs(header) {
 }
 
 /** `header` with one pair per cookie name, the first: the view the key varies on. */
-export function canonicalCookie(header) {
+function canonicalCookie(header) {
   return [...cookiePairs(header)].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
 /** `query` (a string or an object) without the parameters the key ignores. */
-export function keyedQuery(query) {
+function keyedQuery(query) {
   if (!query) return query;
   if (typeof query === 'string') {
     const params = new URLSearchParams(query);

@@ -2415,7 +2415,7 @@ export function _createRoot(container) {
  * mountHole). A deferred island has none yet, so it holds its place with two
  * markers of its own.
  */
-export function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
+function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
   if (!deferred) {
     const inst = newInstance(view, EMPTY_OBJ, null, parent, null, null, !!svg);
     inst._nativeOwner = nativeOwner;
@@ -2538,7 +2538,7 @@ export function _setNativeBuilder(fn) {
  * (hydrate.js); without that installed, the client's render replaces the
  * server's HTML, in one step, before the page paints again.
  */
-export function adoptIsland(view, start, end, parent, nativeOwner, svg) {
+function adoptIsland(view, start, end, parent, nativeOwner, svg) {
   const inst = newInstance(view, EMPTY_OBJ, null, parent, start, end, !!svg);
   inst._nativeOwner = nativeOwner;
   const mount = adopter !== null ? adopter(inst, start, end) : () => {
@@ -2726,7 +2726,7 @@ function detachRef(rn) {
 }
 
 // preact's unitless-CSS-property test
-export const IS_NON_DIMENSIONAL = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+const IS_NON_DIMENSIONAL = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
 
 function setStyleValue(style, key, value) {
   if (key[0] === '-') {

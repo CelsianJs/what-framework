@@ -20,7 +20,7 @@
 // Only Node can look: with no `fs` (the compiler running in a browser) no
 // file is What's own. Lookups are cached per directory.
 
-export const WHAT_PACKAGES = new Set([
+const WHAT_PACKAGES = new Set([
   'what-framework', 'what-core', 'what-compiler', 'what-react', 'what-router', 'what-server',
   'what-isr', 'what-devtools', 'what-devtools-mcp', 'what-text', 'what-mcp',
   'eslint-plugin-what', 'what-framework-cli', 'create-what',

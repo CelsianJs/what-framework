@@ -30,7 +30,7 @@ function words(text) {
 }
 
 /** The three codes whose names share the most words with the input. */
-export function closestCodes(input, count = 3) {
+function closestCodes(input, count = 3) {
   const wanted = words(input);
   return DEFINITIONS
     .map((def) => {

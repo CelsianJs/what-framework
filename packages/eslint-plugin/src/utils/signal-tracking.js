@@ -25,7 +25,7 @@ export const SWR_LIKE_HOOKS = [
 ];
 
 // Properties on SWR-like return objects that are getter functions (must be called)
-export const SWR_GETTER_FIELDS = new Set([
+const SWR_GETTER_FIELDS = new Set([
   'data', 'error', 'isLoading', 'isValidating',
   'isFetching', 'isError', 'isSuccess',
   'status', 'fetchStatus',

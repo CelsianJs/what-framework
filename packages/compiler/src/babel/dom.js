@@ -467,7 +467,7 @@ function escapeAttr(str) {
 }
 
 // Analyze JSX tree and generate fine-grained output
-export function transformElementFineGrained(path, state) {
+function transformElementFineGrained(path, state) {
   const { node } = path;
   const openingElement = node.openingElement;
   const tagName = openingElement.name.name;
@@ -2671,7 +2671,7 @@ function lowersToRegion(node, state) {
   return flow === 'For' || flow === 'Show' || flow === 'Switch';
 }
 
-export function transformFragmentFineGrained(path, state) {
+function transformFragmentFineGrained(path, state) {
   const { node } = path;
   const children = node.children;
 

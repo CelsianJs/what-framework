@@ -43,7 +43,7 @@ const ORIGIN_GRACE_MS = 10_000;
 const REFUSAL_TTL_MS = 10 * 60_000;
 const PAIR_BODY_LIMIT = 4096;
 
-export const EVENT_NAMES = new Set([
+const EVENT_NAMES = new Set([
   'signal:created', 'signal:updated', 'signal:disposed',
   'effect:created', 'effect:run', 'effect:disposed',
   'component:mounted', 'component:unmounted',
@@ -65,7 +65,7 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isShortString = (v, max) => typeof v === 'string' && v.length <= max;
 
 /** True for an http(s) origin on a loopback host, written exactly as browsers send it. */
-export function isLoopbackOrigin(origin) {
+function isLoopbackOrigin(origin) {
   if (typeof origin !== 'string') return false;
   try {
     const url = new URL(origin);

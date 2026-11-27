@@ -809,7 +809,6 @@ export {
   BOUNDARY_TAGS,
   SERVER_SKIPPED_TAGS,
   VOID_ELEMENTS,
-  RAW_TEXT_ELEMENTS,
   _componentProps,
   OWN_PROPS,
   _boundaryFallback,
