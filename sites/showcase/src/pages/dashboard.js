@@ -1,27 +1,24 @@
 // Dashboard — showcases: signals, computed, spring animation, useSWR, skeleton, Show/For, effect
-import { h, useState, useEffect, useMemo, useRef } from 'what-framework';
+import { h, useState, useEffect, useMemo } from 'what-framework';
 import { spring } from 'what-framework/motion';
 import { useSWR } from 'what-framework/data';
 import { announce } from 'what-framework/a11y';
-import { useAppStore } from '../app.js';
 import { fetchStats, fetchActivity, CHART_DATA } from '../data.js';
 
 // ─── Animated Number ───
-function AnimatedNumber({ value, prefix = '', suffix = '' }) {
-  const ref = useRef(null);
-  if (!ref.current) {
-    ref.current = spring(0, { stiffness: 80, damping: 18 });
-  }
-  const displayed = ref.current;
+// A component runs once: the spring is made once, springs to the value after
+// mount, and the text is a function child that follows the spring.
+function AnimatedNumber(props) {
+  const displayed = spring(0, { stiffness: 80, damping: 18 });
 
   useEffect(() => {
-    displayed.set(value);
-  }, [value]);
+    displayed.set(props.value);
+  }, []);
 
   return h('span', null,
-    prefix,
-    Math.round(displayed.current()),
-    suffix,
+    props.prefix ?? '',
+    () => Math.round(displayed.current()),
+    props.suffix ?? '',
   );
 }
 
@@ -47,8 +44,6 @@ function StatCard({ label, value, change, direction, color, delay = 0 }) {
 // ─── Bar Chart ───
 function BarChart() {
   const [period, setPeriod] = useState('week');
-  const chartData = CHART_DATA[period] || [];
-  const max = Math.max(...chartData.map(d => d.value), 1);
 
   return h('div', { class: 'chart-container' },
     h('div', { class: 'chart-header' },
@@ -56,14 +51,16 @@ function BarChart() {
       h('div', { class: 'chart-tabs' },
         ...['week', 'month', 'quarter'].map(p =>
           h('button', {
-            class: `chart-tab${period === p ? ' active' : ''}`,
+            class: () => `chart-tab${period() === p ? ' active' : ''}`,
             onClick: () => setPeriod(p),
           }, p.charAt(0).toUpperCase() + p.slice(1)),
         ),
       ),
     ),
-    h('div', { class: 'chart-bars' },
-      ...chartData.map(d =>
+    h('div', { class: 'chart-bars' }, () => {
+      const chartData = CHART_DATA[period()] || [];
+      const max = Math.max(...chartData.map(d => d.value), 1);
+      return chartData.map(d =>
         h('div', { class: 'chart-bar-col', key: d.label },
           h('div', {
             class: 'chart-bar',
@@ -72,8 +69,8 @@ function BarChart() {
           }),
           h('span', { class: 'chart-bar-label' }, d.label),
         ),
-      ),
-    ),
+      );
+    }),
   );
 }
 
@@ -83,10 +80,6 @@ function ActivityFeed() {
     revalidateOnFocus: false,
   });
 
-  const loading = isLoading();
-  const activityData = data();
-  const hasData = activityData && !loading;
-
   return h('div', { class: 'card' },
     h('div', { class: 'card-header' },
       h('span', { class: 'card-title' }, 'Recent Activity'),
@@ -95,7 +88,7 @@ function ActivityFeed() {
         onClick: () => { mutate(); announce('Activity refreshed'); },
       }, '↻ Refresh'),
     ),
-    loading
+    () => isLoading()
       ? h('div', { style: 'display: flex; flex-direction: column; gap: 12px;' },
           ...[1,2,3,4].map(() =>
             h('div', { style: 'display: flex; gap: 12px; align-items: center;' },
@@ -108,9 +101,9 @@ function ActivityFeed() {
           ),
         )
       : null,
-    hasData
+    () => data() && !isLoading()
       ? h('ul', { class: 'activity-list' },
-          ...(activityData || []).map(item =>
+          ...data().map(item =>
             h('li', { class: 'activity-item', key: item.id },
               h('div', { class: `activity-dot ${item.color}` }),
               h('div', { class: 'activity-text' },
@@ -133,12 +126,8 @@ function QuickStats() {
     revalidateOnFocus: false,
   });
 
-  const loading = isLoading();
-  const statsData = data();
-  const hasData = statsData && !loading;
-
   return h('div', { class: 'stat-grid' },
-    loading
+    () => isLoading()
       ? [
           ...[1,2,3,4].map(_i =>
             h('div', { class: 'stat-card' },
@@ -149,14 +138,17 @@ function QuickStats() {
           ),
         ]
       : null,
-    hasData
-      ? [
+    () => {
+      const statsData = data();
+      return statsData && !isLoading()
+        ? [
           h(StatCard, { label: 'Tasks Completed', value: statsData?.tasksCompleted || 0, change: 12, direction: 'up', color: 'var(--accent)', delay: 1 }),
           h(StatCard, { label: 'Active Projects', value: statsData?.activeProjects || 0, change: 8, direction: 'up', color: 'var(--info)', delay: 2 }),
           h(StatCard, { label: 'Team Members', value: statsData?.teamMembers || 0, change: null, color: 'var(--success)', delay: 3 }),
           h(StatCard, { label: 'Sprint Velocity', value: statsData?.velocity || 0, change: 3, direction: 'down', color: 'var(--warning)', delay: 4 }),
         ]
-      : null,
+        : null;
+    },
   );
 }
 
@@ -170,16 +162,14 @@ function LiveClock() {
   }, []);
 
   const formatted = useMemo(() => {
-    return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }, [time]);
+    return time().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
 
   return h('span', { class: 'font-mono text-muted text-sm' }, formatted);
 }
 
 // ─── Dashboard Page ───
 export function Dashboard() {
-  useAppStore(); // subscribes this page to the store
-
   return h('div', null,
     // Welcome
     h('div', { class: 'flex items-center justify-between mb-6' },

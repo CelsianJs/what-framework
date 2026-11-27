@@ -97,19 +97,18 @@ function CommandPalette() {
   ];
 
   const filtered = () => {
-    const q = query.toLowerCase();
+    const q = query().toLowerCase();
     return q ? commands.filter(c => c.label.toLowerCase().includes(q)) : commands;
   };
 
-  const isOpen = store.commandPaletteOpen;
-
+  // Re-runs when the palette opens or closes: focus the input, start empty.
   useEffect(() => {
-    if (isOpen) {
+    if (store.commandPaletteOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
     setQuery('');
     setFocusIdx(0);
-  }, [isOpen]);
+  });
 
   const run = (cmd) => {
     store.closeCommandPalette();
@@ -120,13 +119,11 @@ function CommandPalette() {
     const items = filtered();
     if (e.key === 'ArrowDown') { e.preventDefault(); setFocusIdx(i => Math.min(i + 1, items.length - 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setFocusIdx(i => Math.max(i - 1, 0)); }
-    if (e.key === 'Enter' && items[focusIdx]) { run(items[focusIdx]); }
+    if (e.key === 'Enter' && items[focusIdx()]) { run(items[focusIdx()]); }
     if (e.key === 'Escape') { store.closeCommandPalette(); }
   };
 
-  const filteredItems = filtered();
-
-  return store.commandPaletteOpen
+  return () => store.commandPaletteOpen
     ? h('div', {
         class: 'cmd-overlay',
         onClick: (e) => e.target === e.currentTarget && store.closeCommandPalette(),
@@ -143,9 +140,9 @@ function CommandPalette() {
             }),
           ),
           h('div', { class: 'cmd-results' },
-            ...filteredItems.map((cmd, i) =>
+            () => filtered().map((cmd, i) =>
               h('div', {
-                class: `cmd-item${i === focusIdx ? ' focused' : ''}`,
+                class: () => `cmd-item${i === focusIdx() ? ' focused' : ''}`,
                 onClick: () => run(cmd),
                 onMouseEnter: () => setFocusIdx(i),
               },
@@ -169,7 +166,7 @@ function Toasts() {
   const store = useAppStore();
 
   return h('div', { class: 'toast-container', 'aria-live': 'polite' },
-    ...store.notifications.map(n =>
+    () => store.notifications.map(n =>
       h('div', { key: n.id, class: 'toast' },
         h('span', { class: `toast-dot ${n.type}` }),
         h('span', null, n.msg),
@@ -197,7 +194,7 @@ function Sidebar() {
         ...NAV_ITEMS.map(item =>
           h(Link, {
             href: item.href,
-            class: `sidebar-link${route.path === item.href || (item.href !== '/' && route.path.startsWith(item.href)) ? ' active' : ''}`,
+            class: () => `sidebar-link${route.path === item.href || (item.href !== '/' && route.path.startsWith(item.href)) ? ' active' : ''}`,
           },
             h(Icon, { name: item.icon }),
             item.label,
@@ -237,12 +234,14 @@ function Header() {
   const store = useAppStore();
   const { path } = useRoute();
 
-  const p = path();
-  const pageTitle = p === '/' ? 'Dashboard'
-    : p === '/projects' ? 'Projects'
-    : p === '/team' ? 'Team'
-    : p === '/settings' ? 'Settings'
-    : 'Flux';
+  const pageTitle = () => {
+    const p = path();
+    return p === '/' ? 'Dashboard'
+      : p === '/projects' ? 'Projects'
+      : p === '/team' ? 'Team'
+      : p === '/settings' ? 'Settings'
+      : 'Flux';
+  };
 
   return h('header', { class: 'main-header' },
     h('div', { class: 'main-header-left' },
@@ -257,10 +256,10 @@ function Header() {
       }, h(Icon, { name: 'search' })),
       h('button', {
         class: 'btn btn-ghost btn-icon',
-        onClick: () => { store.toggleTheme(); store.addNotification(`Switched to ${store.isDark ? 'light' : 'dark'} theme`, 'info'); },
+        onClick: () => { store.toggleTheme(); store.addNotification(`Switched to ${store.isDark ? 'dark' : 'light'} theme`, 'info'); },
         title: 'Toggle theme',
         'aria-label': 'Toggle theme',
-      }, h(Icon, { name: store.isDark ? 'moon' : 'sun' })),
+      }, () => h(Icon, { name: store.isDark ? 'moon' : 'sun' })),
     ),
   );
 }
@@ -269,11 +268,10 @@ function Header() {
 function Shell({ children }) {
   const store = useAppStore();
 
-  // Apply theme to document
-  const theme = store.theme;
+  // Apply theme to document; re-runs when the theme changes
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-theme', store.theme);
+  });
 
   // Keyboard shortcut: Cmd+K for command palette
   useEffect(() => {
