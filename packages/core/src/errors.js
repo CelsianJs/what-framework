@@ -426,7 +426,7 @@ html\`<div>\${sanitizedContent}</div>\``,
     code: 'ERR_PROP_READ_ONCE',
     severity: 'warning',
     template: 'Prop `{{name}}` is read once, when <{{component}}> runs: {{reason}}.',
-    suggestion: 'what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent\'s state as React re-renders with it, and a rest element keeps the props\' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Two more shapes read a prop once: a component that decides what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) decides once, so branch where it renders (`<>{() => (on ? <A /> : <B />)}</>` or `<Show when={…}>`; with h(), `() => (on ? h(A) : null)`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`<Mk value={value} />`). The compiler reports each at build time (development builds); where it does not build (the islands template, h() code), eslint-plugin-what\'s no-prop-read-once reports the return decided by a prop. Read the prop where you use it (`props.size ?? \'md\'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.',
+    suggestion: 'what-compiler reads a destructured prop where it is used (`({ label }) => <b>{label}</b>` reads `props.label` in the binding), so it follows the parent\'s state as React re-renders with it, and a rest element keeps the props\' live values (`({ as: Tag, ...rest }) => <Tag {...rest} />`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Three more shapes read a prop once: a component that decides what it returns from a prop (`return on ? <A /> : <B />`, `if (!open) return null`) decides once, so branch where it renders (`<>{() => (on ? <A /> : <B />)}</>` or `<Show when={…}>`; with h(), `() => (on ? h(A) : null)`); a value computed from a prop in the body and shown in JSX (`const label = name.toUpperCase()` with `{label}`) keeps its first value, so write the expression in the JSX (`{name.toUpperCase()}`) or make it a function and call it there (`const label = () => name.toUpperCase()` with `{label()}`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`<Mk value={value} />`). A route page\'s `params`, `query` and `route` are not reported: the router builds a page again for each URL. The compiler reports each at build time (development builds); where it does not build (the islands template, h() code), eslint-plugin-what\'s no-prop-read-once reports the return decided by a prop. Read the prop where you use it (`props.size ?? \'md\'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.',
     codeExample: `// Bad - size is assigned again, so it is read once:
 function Button({ size, ...rest }) {
   size = size ?? 'md';
@@ -436,6 +436,12 @@ function Button({ size, ...rest }) {
 // Bad - which element it returns is decided once:
 function Status({ online }) {
   return online ? <b>online</b> : <i>offline</i>;
+}
+
+// Bad - label is computed once, from the first name:
+function Title({ name }) {
+  const label = name.toUpperCase();
+  return <h1>{label}</h1>;
 }
 
 // Good - the default applies where size is read, and size follows the parent:
@@ -451,6 +457,12 @@ function IconButton(props) {
 // Good - the branch is a reactive child, decided where it renders:
 function Status({ online }) {
   return <>{() => (online ? <b>online</b> : <i>offline</i>)}</>;
+}
+
+// Good - label is a function, called where it is shown:
+function Title({ name }) {
+  const label = () => name.toUpperCase();
+  return <h1>{label()}</h1>;
 }`,
   },
 

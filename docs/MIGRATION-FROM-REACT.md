@@ -365,11 +365,13 @@ function Signup() {
 ```
 
 A development build reports both shapes when they read state
-(`ERR_STATE_READ_ONCE`). For a prop it reports the first, a return the prop
-decides (`ERR_PROP_READ_ONCE`); a value derived from a prop in the body
-(`const label = name.toUpperCase()`, then `{label}`) is not reported and keeps
-its first value. Write it in the JSX (`{name.toUpperCase()}`) or derive it with
-`useMemo(() => …)` and call it there.
+(`ERR_STATE_READ_ONCE`), and both when they read a prop (`ERR_PROP_READ_ONCE`):
+a return the prop decides, and a value derived from a prop in the body and
+shown in JSX (`const label = name.toUpperCase()`, then `{label}`), which keeps
+its first value. Write it in the JSX (`{name.toUpperCase()}`), or make it a
+function (`const label = () => name.toUpperCase()`) or a `useMemo(() => …)` and
+call it there. A route page's `params` and `query` are not reported: the router
+builds a page again for each URL.
 
 ### useMemo / useComputed
 
@@ -696,7 +698,7 @@ React libraries that depend on React internals (`__SECRET_INTERNALS_DO_NOT_USE_O
 3. `useMemo` and `useCallback` ignore their dependency arrays: delete them. `useMemo` returns an accessor, so read `total()`
 4. Remove all `React.memo()` wrappers (unnecessary with fine-grained updates)
 5. Call accessors where they render (`{count()}`, `class={active() ? 'on' : ''}`); the compiler makes those reactive. Write `() =>` yourself only when the read hides inside a call whose arguments call nothing
-6. Props written as in React stay live: `<Child count={count()} />` updates the child's `{props.count}` (or a destructured `{count}`, a nested one or one with a default) where it renders, and the child keeps its state; so do rest props (`({ as: Tag, ...rest }) => <Tag {...rest} />`) and spread props. A value the child computes in its body outside JSX is read once: write it in JSX or in `computed()`. Passing the accessor itself (`count={count}`, called as `count()` in the child) also works. Don't assign a destructured prop (`size = size ?? 'md'`): give it a default (`{ size = 'md' }`) or a new name; the build reports `ERR_PROP_READ_ONCE` for that assignment, for a component that picks what it returns from a prop and for props handed to a JSX helper as a value, but not for a value computed from a prop in the body. Handlers, `children` and objects merged from a rest stay live through forwarding, and an attribute after a spread wins over it
+6. Props written as in React stay live: `<Child count={count()} />` updates the child's `{props.count}` (or a destructured `{count}`, a nested one or one with a default) where it renders, and the child keeps its state; so do rest props (`({ as: Tag, ...rest }) => <Tag {...rest} />`) and spread props. A value the child computes in its body outside JSX is read once: write it in JSX or in `computed()`. Passing the accessor itself (`count={count}`, called as `count()` in the child) also works. Don't assign a destructured prop (`size = size ?? 'md'`): give it a default (`{ size = 'md' }`) or a new name; the build reports `ERR_PROP_READ_ONCE` for that assignment, for a component that picks what it returns from a prop, for a value computed from a prop in the body and shown in JSX, and for props handed to a JSX helper as a value. Handlers, `children` and objects merged from a rest stay live through forwarding, and an attribute after a spread wins over it
 7. Keep `.map()` with a `key` prop for lists, on the accessor: `{items().map(item => <li key={item.id}>…</li>)}`. An index key (`key={i}`) works as React keys it. A render callback gets the raw item: use `live(() => item)` or a `<Cell item={item} />` component to keep a cell's DOM across refetches
 8. Replace `React.lazy` with `lazy` from what-framework (same API). A download that failed is tried again on the next render (an error boundary's reset) and the next navigation to its route, where `React.lazy` keeps the error until a reload
 9. Update imports: `react` --> `what-framework`. React's hooks keep their names there; the router and the domain kits are subpaths (`what-framework/router`, `/form`, `/data`, `/a11y`, `/ui`, `/motion`, `/dom`, and `/server` for SSR, islands and actions)

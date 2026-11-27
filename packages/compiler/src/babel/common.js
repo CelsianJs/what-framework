@@ -1249,6 +1249,194 @@ export function warnStateReadOnce(fnPath, state) {
   }
 }
 
+// --- A value derived from a prop in the body ---
+// `function Title({ name }) { const label = name.toUpperCase(); return
+// <h1>{label}</h1>; }`: the component runs once, so `label` is computed once,
+// from the first `name`, and the JSX keeps showing it when the parent's state
+// changes, where React computes it again on every render. Reported at build
+// time in development as ERR_PROP_READ_ONCE: a name declared in the body
+// (`const label = …`, `const { title } = post`) whose initializer reads a
+// prop outside a function and outside JSX written in it, and that JSX reads.
+// Not reported:
+// - an alias the compiler reads where it is used (`const label = props.name`,
+//   inlinePropAliases) and a pattern destructured from the props or from
+//   their rest element (`const { name } = props`);
+// - a value read only outside JSX (an effect, a handler declared in the body);
+// - a function (`const label = () => name.toUpperCase()`), a read inside a
+//   function (`untrack(() => name)`) and a read inside JSX (`const title =
+//   <h1>{name}</h1>`), which are live;
+// - what a hook or a What primitive is handed (`useState(initial)`,
+//   `signal(props.value)`), which seeds state once, as React's hooks do;
+// - what a function prop returns, called in the body (`const header =
+//   renderHeader()`): the parent's code built it, usually JSX whose bindings
+//   follow its own state;
+// - `children`, which is JSX built where it is read, and a route's `params`,
+//   `query` and `route`: a page is built again for each URL, and a layout's
+//   read in the body is documented as read once (packages/router/README.md);
+// - a name used as a tag (`const Icon = icons[kind]`, docs/GOTCHAS.md).
+const UNREPORTED_PROPS = new Set(['children', 'params', 'query', 'route']);
+
+export function warnDerivedPropOnce(fnPath, state) {
+  if (process.env.NODE_ENV === 'production' || state.ssr || state.frameworkFile || !isComponentFunction(fnPath) || isRowFunction(fnPath, state)) return;
+  const params = fnPath.node.params;
+  if (params.length === 0 || params.length > 2) return;
+  const body = fnPath.node.body;
+  if (!t.isBlockStatement(body) || !(containsJsx(fnPath.node) || componentWithoutJsx(fnPath, state) !== null)) return;
+  const props = derivedPropReader(fnPath);
+  if (props === null) return;
+  const code = state.file?.code;
+  for (const stmt of fnPath.get('body.body')) {
+    if (!stmt.isVariableDeclaration()) continue;
+    for (const decl of stmt.get('declarations')) {
+      const { id, init } = decl.node;
+      if (!init || seedsOnce(fnPath, init) || props.live(decl) || props.callsProp(decl.get('init'))) continue;
+      const read = firstPropRead(decl.get('init'), props.read);
+      if (read === null) continue;
+      const shown = [...collectNames(id)].find((name) => {
+        const binding = decl.scope.getBinding(name);
+        return binding !== undefined && !binding.referencePaths.some((ref) => ref.isJSXIdentifier() || isCalled(ref))
+          && binding.referencePaths.some((ref) => shownValue(ref, fnPath));
+      });
+      if (shown === undefined) continue;
+      const source = typeof code === 'string' && init.start != null && init.end - init.start <= 60 ? code.slice(init.start, init.end) : null;
+      const text = source !== null && !/[`\n]/.test(source) ? source : null;
+      const fix = t.isIdentifier(id)
+        ? `write the expression in the JSX where it is shown${text === null ? '' : ` (\`{${text}}\`)`}, or make \`${shown}\` a function (\`const ${shown} = () => ${text ?? '…'}\`) and call it there (\`{${shown}()}\`); \`untrack(() => ${read})\` keeps the first value on purpose`
+        : `read it where it is shown${text === null ? '' : ` (\`{${text}.${shown}}\`)`} instead of destructuring it in the body, or make it a function (\`const ${shown} = () => …\`) and call it there (\`{${shown}()}\`)`;
+      warnReadOnce(fnPath, state, decl.node, read, `\`${shown}\` is computed from it in the component body and shown in JSX`, fix);
+    }
+  }
+}
+
+// The props of the component `fnPath`, for derived values: `read` names the
+// prop a path reads (a destructured name, or `props.<key>` of a props
+// parameter), else null; `live` tells a declarator the compiler reads where
+// it is used. Null when the component has no props to read.
+function derivedPropReader(fnPath) {
+  const param = fnPath.node.params[0];
+  const bindings = new Set();
+  const rests = new Set();
+  const add = (pattern) => {
+    for (const p of pattern.properties) {
+      const key = t.isRestElement(p) ? null : propertyName(p.key, p.computed);
+      if (key !== null && UNREPORTED_PROPS.has(key)) continue;
+      for (const name of collectNames(t.isRestElement(p) ? p : p.value)) {
+        const binding = fnPath.scope.getBinding(name);
+        if (!binding) continue;
+        bindings.add(binding);
+        if (t.isRestElement(p)) rests.add(binding);
+      }
+    }
+  };
+  const propsBinding = t.isIdentifier(param) ? fnPath.scope.getBinding(param.name) ?? null : null;
+  if (t.isObjectPattern(param)) add(param);
+  else if (propsBinding === null || propsBinding.kind !== 'param') return null;
+  else {
+    const name = propsBinding.identifier.name;
+    for (const stmt of fnPath.node.body.body) {
+      if (!t.isVariableDeclaration(stmt)) continue;
+      for (const decl of stmt.declarations) if (t.isObjectPattern(decl.id) && t.isIdentifier(decl.init, { name })) add(decl.id);
+    }
+  }
+  const isProps = (node, scope) => propsBinding !== null && t.isIdentifier(node) && scope.getBinding(node.name) === propsBinding;
+  return {
+    read(path) {
+      if (path.isIdentifier() && path.isReferencedIdentifier()) {
+        const binding = path.scope.getBinding(path.node.name);
+        return binding && bindings.has(binding) ? path.node.name : null;
+      }
+      if ((path.isMemberExpression() || path.isOptionalMemberExpression()) && isProps(path.node.object, path.scope)) {
+        const key = propertyName(path.node.property, path.node.computed);
+        return key !== null && !UNREPORTED_PROPS.has(key) ? `props.${key}` : null;
+      }
+      return null;
+    },
+    callsProp(path) {
+      while (path.isTSAsExpression() || path.isTSSatisfiesExpression() || path.isTSNonNullExpression() || path.isParenthesizedExpression()) path = path.get('expression');
+      return (path.isCallExpression() || path.isOptionalCallExpression()) && this.read(path.get('callee')) !== null;
+    },
+    live(decl) {
+      const { id, init } = decl.node;
+      if (!t.isIdentifier(id)) {
+        if (isProps(init, decl.scope)) return true;
+        const binding = t.isIdentifier(init) ? decl.scope.getBinding(init.name) : null;
+        return binding != null && rests.has(binding);
+      }
+      if (decl.parent.kind !== 'const') return false;
+      let node = init;
+      while (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+        if (propertyName(node.property, node.computed) === null) return false;
+        node = node.object;
+      }
+      return node !== init && isProps(node, decl.scope);
+    },
+  };
+}
+
+// A name called anywhere in the component (`draft()`, `register(name)`) holds
+// a function or an accessor the body fetched once, whose value follows by
+// itself: it is not a value read once.
+function isCalled(ref) {
+  const parent = ref.parentPath;
+  return (parent.isCallExpression() || parent.isOptionalCallExpression() || parent.isTaggedTemplateExpression()) && (ref.key === 'callee' || ref.key === 'tag');
+}
+
+// Whether the reference `ref` shows its value in JSX: it stands in JSX (a
+// child, an attribute, or a function written there such as a thunk child or
+// a render prop) as a value. Not when it is:
+// - in an event handler, a ref or a key, which are read once by design (a
+//   handler written directly too) or read when they run;
+// - spread (`{...field}`): props a helper made once;
+// - only read for a field (`card.title`): the field is read where it is shown.
+function shownValue(ref, fnPath) {
+  const parent = ref.parentPath;
+  if (parent.isSpreadElement() || parent.isJSXSpreadAttribute() || parent.isJSXSpreadChild()) return false;
+  if ((parent.isMemberExpression() || parent.isOptionalMemberExpression()) && ref.key === 'object' && !parent.node.computed) {
+    const use = parent.parentPath;
+    if (!((use.isCallExpression() || use.isOptionalCallExpression()) && parent.key === 'callee')) return false;
+  }
+  for (let p = parent; p !== null && p !== fnPath; p = p.parentPath) {
+    if (p.isJSXSpreadAttribute() || p.isJSXSpreadChild()) return true;
+    if (!p.isJSXExpressionContainer()) continue;
+    const attr = p.parentPath;
+    if (!attr.isJSXAttribute()) return true;
+    const name = getAttrName(attr.node);
+    const element = attr.parentPath.node.name;
+    const onDomElement = t.isJSXIdentifier(element) && /^[a-z]/.test(element.name);
+    return name !== 'ref' && name !== 'key' && !/^on[A-Z:]/.test(name) && !(onDomElement && /^on[a-z]+$/.test(name));
+  }
+  return false;
+}
+
+// A call that hands its arguments to a hook (`useState(initial)`) or to a
+// What primitive (`signal(props.value)`), which reads them once by design.
+function seedsOnce(fnPath, init) {
+  while (t.isTSAsExpression(init) || t.isTSSatisfiesExpression(init) || t.isTSNonNullExpression(init) || t.isParenthesizedExpression(init)) init = init.expression;
+  if (!t.isCallExpression(init)) return false;
+  const callee = t.isMemberExpression(init.callee) && !init.callee.computed ? init.callee.property : init.callee;
+  if (!t.isIdentifier(callee)) return false;
+  return /^use[A-Z0-9]/.test(callee.name) || (callee === init.callee && importedWhatName(fnPath, callee) !== null);
+}
+
+// The first prop `read` names in the expression at `path`, outside the
+// functions and the JSX written in it.
+function firstPropRead(path, read) {
+  if (path.isFunction() || path.isJSXElement() || path.isJSXFragment()) return null;
+  let found = read(path);
+  if (found !== null) return found;
+  path.traverse({
+    enter(inner) {
+      if (inner.isFunction() || inner.isJSXElement() || inner.isJSXFragment()) {
+        inner.skip();
+        return;
+      }
+      found = read(inner);
+      if (found !== null) inner.stop();
+    },
+  });
+  return found;
+}
+
 // --- A useEffect cleanup that reads what its run read ---
 // `useEffect(() => { join(roomId); return () => leave(roomId); })`: a
 // component runs once, so `roomId` in the cleanup is read when the cleanup
