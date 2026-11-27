@@ -11,7 +11,7 @@
 // A newer navigation supersedes one still preparing.
 
 import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage } from 'what-core/internal';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage, _devNewContent } from 'what-core/internal';
 import { matchRoute, parseQuery, _comparable } from './match.js';
 
 // --- URL Sanitization ---
@@ -1240,6 +1240,8 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   // fine-grained runtime reconciles only the matched page in place. The globalLayout is rendered ONCE around it
   // (below) so the app shell persists across navigations instead of
   // re-instantiating.
+  /** @type {any} */
+  let shownRoute;
   const renderMatch = () => {
     page();
     const currentUrl = untrack(state.url);
@@ -1250,6 +1252,12 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     if (matched) {
       const { route: r, params } = matched;
       enter(r, params, queryObj);
+      // Development: another route's page is a new page, so what this run
+      // builds again (a route's ErrorBoundary) lost no state of its own.
+      if (__DEV__) {
+        if (shownRoute !== undefined && shownRoute !== r) _devNewContent();
+        shownRoute = r;
+      }
 
       // The verdict the route's preparation decided (a navigation's, or this
       // render's), which this render follows. Middleware is synchronous:

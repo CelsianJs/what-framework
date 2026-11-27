@@ -225,6 +225,8 @@ export function _claimRegion(): [Comment, Comment] | null;
 export function _afterWalk(fn: () => void): boolean;
 /** Development: the component running now holds state outside What's signals (what-react's islands), for ERR_REBUILT_COMPONENT. */
 export function _devHoldsState(): void;
+/** Development: the region running now shows something else than its last run did (what-router's next route), for ERR_REBUILT_COMPONENT. */
+export function _devNewContent(): void;
 /**
  * Whether `value` is a vnode made by h(), the JSX runtime or a boundary: the
  * private brand those producers give it, which JSON, structuredClone and

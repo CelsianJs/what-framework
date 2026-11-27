@@ -3092,6 +3092,7 @@ function executeEffect(e) {
   }
   if (__DEV__) {
     e.devSeen = devSeq;
+    e.devNew = false;
     if (__devtools?.trace) devHook('onEffectBegin', e, causes);
     if (flushing) devRan[devRanLen++] = e;
   }
@@ -3112,7 +3113,7 @@ function executeEffect(e) {
   } else if ((e.flags & STABLE) === 0) {
     purgeDeps(e);
   }
-  if (__DEV__ && held !== null && (e.flags & DISPOSED) === 0) devRebuilt(e, held);
+  if (__DEV__ && held !== null && (e.flags & DISPOSED) === 0 && !e.devNew) devRebuilt(e, held);
   if (__DEV__ && __devtools) devHook('onEffectRun', e, { causes });
 }
 
@@ -4391,6 +4392,15 @@ function devMarkState(where) {
 /** @internal Development: the component running now holds state outside What's signals (what-react's islands). */
 export function _devHoldsState() {
   if (__DEV__) devMarkState(ownerNow());
+}
+
+/**
+ * @internal Development: the region running now shows something else than
+ * its last run did (what-router's next route), so a component it builds
+ * again is a new one, not one whose state was lost.
+ */
+export function _devNewContent() {
+  if (__DEV__ && runningEffect !== null) runningEffect.devNew = true;
 }
 
 function devHeldState(o) {

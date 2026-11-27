@@ -11,7 +11,7 @@ export { _formStatusContext, _formStatus } from '../actions.js';
 // what-router's navigation: progress written outside the transition it may
 // run in (it shows at once), and the commit it waits for there; and the state
 // each <Router> provides to what it renders.
-export { _urgent, _currentTransition, _onCommit, _contextOf, _provide, _devHoldsState } from '../reactive.js';
+export { _urgent, _currentTransition, _onCommit, _contextOf, _provide, _devHoldsState, _devNewContent } from '../reactive.js';
 // The development flag, for sibling packages whose development-only text must
 // fold away in a production build (what-router's error fixes).
 export { __DEV__ } from '../reactive.js';

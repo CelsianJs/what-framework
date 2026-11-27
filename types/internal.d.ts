@@ -217,6 +217,8 @@ declare global {
     devBinding?: Node;
     /** Dev: change stamp of the last run. */
     devSeen?: number;
+    /** Dev: this run shows something else than the last (_devNewContent). */
+    devNew?: boolean;
     /** Set by what-devtools on registration. */
     _devId?: number;
   }
