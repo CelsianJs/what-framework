@@ -101,4 +101,19 @@ describe('useForm dotted names', () => {
     assert.deepEqual(form.formState.values, { email: 'x@y.z', count: 0, hidden: 'h' });
     assert.equal(form.register('email').name, 'email');
   });
+
+  it('a name with a __proto__ segment writes nothing into the values, and never into Object.prototype', async () => {
+    const form = useForm({ defaultValues: { owner: 'Ann' } });
+    form.setValue('__proto__.polluted', 'yes');
+    typed(form, 'account.__proto__.admin', 'true');
+    typed(form, 'account.name', 'Bo');
+    const values = form.formState.values;
+    await new Promise((r) => setTimeout(r, 0));
+    const leaked = { polluted: ({}).polluted, admin: ({}).admin };
+    delete Object.prototype.polluted;
+    delete Object.prototype.admin;
+    assert.deepEqual(leaked, { polluted: undefined, admin: undefined });
+    assert.deepEqual(values, { owner: 'Ann', account: { name: 'Bo' } });
+    assert.equal(Object.getPrototypeOf(values), Object.prototype);
+  });
 });

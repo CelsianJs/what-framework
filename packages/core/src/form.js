@@ -103,9 +103,12 @@ function getIn(obj, path) {
 }
 
 // Writes into an object getAllValues built, making an array where the next
-// segment is an index and an object anywhere else.
+// segment is an index and an object anywhere else. A path through
+// `__proto__` writes nothing: it would write into Object.prototype, the
+// prototype of every object (React Hook Form's set refuses it too).
 function setIn(obj, path, value) {
   const segments = path.split('.');
+  if (segments.includes('__proto__')) return;
   const last = segments.length - 1;
   let cur = obj;
   for (let i = 0; i < last; i++) {
