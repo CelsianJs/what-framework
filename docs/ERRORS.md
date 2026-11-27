@@ -50,7 +50,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_ASYNC_COMPONENT`](#err-async-component) | warning | Component "`component`" returned a promise: an async component renders as text. |
 | [`ERR_ASYNC_EFFECT`](#err-async-effect) | warning | Effect "`effectName`" is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it. |
 | [`ERR_ASYNC_MEMO`](#err-async-memo) | warning | useMemo() returned a promise; useMemo keeps it, so its readers get the promise. |
-| [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | [what-router] Route middleware must be synchronous; received a promise or thenable. |
+| [`ERR_ASYNC_MIDDLEWARE`](#err-async-middleware) | error | Route middleware must be synchronous; received a promise or thenable. |
 | [`ERR_ASYNC_READ_IN_BODY`](#err-async-read-in-body) | error | Component "`component`" read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever. |
 | [`ERR_ASYNC_WITHOUT_SUSPENSE`](#err-async-without-suspense) | warning | Component "`component`" suspended (lazy(), use() or a value that had not landed, read in its body) with no <Suspense> above it: it renders nothing until the promise settles. |
 | [`ERR_CHILDREN_ONLY`](#err-children-only) | error | React.Children.only expected to receive a single React element child. |
@@ -67,7 +67,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_EFFECT_DEP_NOT_FUNCTION`](#err-effect-dep-not-function) | warning | useEffect dependency at index `index` is a plain value, so the effect cannot re-run when it changes. |
 | [`ERR_EFFECT_DEP_NOT_SIGNAL`](#err-effect-dep-not-signal) | warning | useEffect dependency `index` is a function, never read. |
 | [`ERR_FOREIGN_ENGINE_IN_SSR`](#err-foreign-engine-in-ssr) | error | An async value was made by a second copy of what-core during a server render. |
-| [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | [what] <Form> requires an `action` prop: a server action, its id, or a function. |
+| [`ERR_FORM_ACTION_MISSING`](#err-form-action-missing) | error | <Form> requires an `action` prop: a server action, its id, or a function. |
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
 | [`ERR_FORM_RADIO_UNTYPED`](#err-form-radio-untyped) | warning | register("`name`") was spread onto a radio without { type: 'radio' }, which overwrote the radio's value. |
 | [`ERR_FORM_RADIO_WITHOUT_VALUE`](#err-form-radio-without-value) | warning | Radio for field "`name`" has no value, so it cannot record a choice. |
@@ -77,8 +77,8 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_HYDRATION_OWNER_MISMATCH`](#err-hydration-owner-mismatch) | warning | A keyless resource or async value at owner path `path` was rendered by <`server`> on the server and <`client`> on the client, so it fetches instead of adopting the server value. |
 | [`ERR_INFINITE_EFFECT`](#err-infinite-effect) | error | Effect "`effectName`" was stopped after `rounds` re-runs in one flush: it keeps re-triggering itself, likely an infinite loop. |
 | [`ERR_INVALID_HTML_NESTING`](#err-invalid-html-nesting) | error | <`parent`> cannot contain <`child`>: the HTML parser closed the outer tag early, so the rendered tree does not match your JSX. |
-| [`ERR_INVALID_SSR_TAG`](#err-invalid-ssr-tag) | error | [what-server] Invalid tag name in SSR: "`tag`" |
-| [`ERR_ISLAND_STORE_OUTSIDE_RENDER`](#err-island-store-outside-render) | error | [what-server] Island store "`name`" was accessed outside an active server render. |
+| [`ERR_INVALID_SSR_TAG`](#err-invalid-ssr-tag) | error | Invalid tag name in SSR: "`tag`" |
+| [`ERR_ISLAND_STORE_OUTSIDE_RENDER`](#err-island-store-outside-render) | error | Island store "`name`" was accessed outside an active server render. |
 | [`ERR_ISR_MISSING_CLIENT`](#err-isr-missing-client) | error | [what-isr] createRedisStore requires { client } |
 | [`ERR_ISR_VARY_NO_HEADERS`](#err-isr-vary-no-headers) | error | [what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache. |
 | [`ERR_ISR_VARY_UNRESOLVED`](#err-isr-vary-unresolved) | error | [what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request. |
@@ -90,7 +90,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_MOUNT_TARGET_MISSING`](#err-mount-target-missing) | error | `fn`() got no container element. |
 | [`ERR_MOVED_IMPORT`](#err-moved-import) | error | "`name`" is not exported by `source`. `answer` |
 | [`ERR_NESTED_FLUSH_SYNC`](#err-nested-flush-sync) | warning | flushSync() was called while `context` was running, so it did nothing: the effects it would run already run when the current flush reaches them. |
-| [`ERR_NO_SECURE_RANDOM`](#err-no-secure-random) | error | [what] No secure random source available for CSRF token generation. |
+| [`ERR_NO_SECURE_RANDOM`](#err-no-secure-random) | error | No secure random source available for CSRF token generation. |
 | [`ERR_NO_VNODE_RENDERER`](#err-no-vnode-renderer) | error | `what` reached the compiled-JSX runtime, but no vnode renderer is installed. |
 | [`ERR_OPTIMISTIC_OUTSIDE_TRANSITION`](#err-optimistic-outside-transition) | warning | addOptimistic() was called outside a transition, so the optimistic value drops at once instead of lasting until the action finishes. |
 | [`ERR_ORPHAN_EFFECT`](#err-orphan-effect) | warning | Effect "`effectName`" was created after an await, where no owner is current: nothing will dispose it when the component that started the async work goes away. |
@@ -107,7 +107,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_RUNTIME`](#err-runtime) | error | An error surfaced that the framework could not classify, so the message is the original one verbatim. |
 | [`ERR_SIGNAL_WRITE_IN_COMPUTED`](#err-signal-write-in-computed) | warning | Computed "`computedName`" wrote signal "`signalName`". A computed only derives a value; a write from it runs again on every recomputation and can loop. |
 | [`ERR_SIGNAL_WRITE_IN_RENDER`](#err-signal-write-in-render) | error | Signal "`signalName`" written during render of component "`component`". This triggers re-execution. |
-| [`ERR_SSR_INVALID_ID_PREFIX`](#err-ssr-invalid-id-prefix) | error | [what-server] idPrefix `idPrefix` is not a letter followed by letters, digits, "_" or "-". |
+| [`ERR_SSR_INVALID_ID_PREFIX`](#err-ssr-invalid-id-prefix) | error | idPrefix `idPrefix` is not a letter followed by letters, digits, "_" or "-". |
 | [`ERR_SSR_LATE_HEAD`](#err-ssr-late-head) | warning | [what-server] <Head> inside a streamed <Suspense> (boundary `boundaryId`) set head tags after the shell was sent. |
 | [`ERR_SSR_SUSPENSE_TIMEOUT`](#err-ssr-suspense-timeout) | error | [what-server] A resource was still pending after 12 attempts during streaming SSR. |
 | [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] `method`: refusing unsafe redirect target `target`; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT) |
@@ -120,7 +120,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_UNKNOWN`](#err-unknown) | error | createWhatError() was called with a code that is not in this catalogue. |
 | [`ERR_UNKNOWN_TOOL`](#err-unknown-tool) | error | The MCP client called a tool this server does not expose. |
 | [`ERR_UNSAFE_INNERHTML`](#err-unsafe-innerhtml) | warning | innerHTML set on element without using the __html safety marker. |
-| [`ERR_UNSAFE_REDIRECT`](#err-unsafe-redirect) | error | [what-router] redirect() refused an unsafe target: `target` |
+| [`ERR_UNSAFE_REDIRECT`](#err-unsafe-redirect) | error | redirect() refused an unsafe target: `target` |
 | [`ERR_UNSAFE_STATIC_MARKUP`](#err-unsafe-static-markup) | error | Refused unsafe static markup: `message` |
 | [`ERR_USE_INVALID_ARG`](#err-use-invalid-arg) | error | [what-react] use() expects a promise or a context. |
 | [`ERR_USE_UNCACHED_PROMISE`](#err-use-uncached-promise) | error | Component "`component`" keeps suspending on a new promise: use() received a promise made in the component body, which is new on every attempt, so it never finishes. |
@@ -218,7 +218,7 @@ const user = computed(({ signal }) => fetch('/api/users/' + id(), { signal }).th
   ·  **Raised by:** `what-router`
   ·  **Detected:** thrown
 
-> [what-router] Route middleware must be synchronous; received a promise or thenable.
+> Route middleware must be synchronous; received a promise or thenable.
 
 Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.
 
@@ -599,7 +599,7 @@ export default defineConfig({
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what] <Form> requires an `action` prop: a server action, its id, or a function.
+> <Form> requires an `action` prop: a server action, its id, or a function.
 
 Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.
 
@@ -819,7 +819,7 @@ The compiler turns each element into an HTML template string, and the browser pa
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] Invalid tag name in SSR: "{{tag}}"
+> Invalid tag name in SSR: "{{tag}}"
 
 A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a "<" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.
 
@@ -842,7 +842,7 @@ function Heading({ level }) {
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] Island store "{{name}}" was accessed outside an active server render.
+> Island store "{{name}}" was accessed outside an active server render.
 
 A module-scoped island store resolves against the current request, so it can only be read or written from a component rendered by renderDocument/renderPage. Reading one at module scope, or from a background task, has no request to bind to.
 
@@ -1089,7 +1089,7 @@ button.addEventListener('click', () => {
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what] No secure random source available for CSRF token generation.
+> No secure random source available for CSRF token generation.
 
 Neither globalThis.crypto.getRandomValues nor node:crypto was reachable. On Node this means a build older than 18 or a bundler that stripped node:crypto; on an edge runtime it means the Web Crypto global was not provided. A CSRF token from Math.random is not a token, so this refuses rather than degrading.
 
@@ -1495,7 +1495,7 @@ function Counter() {
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] idPrefix {{idPrefix}} is not a letter followed by letters, digits, "_" or "-".
+> idPrefix {{idPrefix}} is not a letter followed by letters, digits, "_" or "-".
 
 The streaming renderer writes idPrefix into element ids, comments and an inline script, so it is validated rather than escaped: a letter, then letters, digits, "_" or "-". It only needs to differ between streams on one page; every stream already adds a random part after it.
 
@@ -1785,7 +1785,7 @@ html`<div>${sanitizedContent}</div>`
   ·  **Raised by:** `what-router`
   ·  **Detected:** thrown
 
-> [what-router] redirect() refused an unsafe target: {{target}}
+> redirect() refused an unsafe target: {{target}}
 
 redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.
 

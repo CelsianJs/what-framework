@@ -11,7 +11,7 @@
 // A newer navigation supersedes one still preparing.
 
 import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic } from 'what-core/internal';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage } from 'what-core/internal';
 import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
@@ -830,8 +830,11 @@ const NAVIGATOR = Symbol.for('what.router.navigate.v1');
 export function redirect(to, options = {}) {
   if (!isSafeUrl(to)) {
     const target = typeof to === 'string' ? to : Object.prototype.toString.call(to);
+    // In development the message reads as a diagnostic prints (what-core
+    // _thrownMessage); production keeps the [what-router] text.
+    const text = `redirect() refused an unsafe target: ${target}`;
     /** @type {Error & { code?: string, suggestion?: string, codeExample?: string }} */
-    const err = new Error(`[what-router] redirect() refused an unsafe target: ${target}`);
+    const err = new Error(__DEV__ ? _thrownMessage('ERR_UNSAFE_REDIRECT', text) : `[what-router] ${text}`);
     err.code = 'ERR_UNSAFE_REDIRECT';
     // The fix and the example are for the developer reading the console: a
     // production build carries the code alone.
@@ -1093,7 +1096,8 @@ function middlewareVerdict(r, context) {
             Reflect.apply(Promise.prototype.then, returned, [ignore, ignore]);
           } catch { /* Non-promise return values need no observation. */ }
         }).catch(() => {});
-        throw Object.assign(new Error('[what-router] Route middleware must be synchronous; received a promise or thenable.'), __DEV__ ? {
+        const text = 'Route middleware must be synchronous; received a promise or thenable.';
+        throw Object.assign(new Error(__DEV__ ? _thrownMessage('ERR_ASYNC_MIDDLEWARE', text) : `[what-router] ${text}`), __DEV__ ? {
           code: 'ERR_ASYNC_MIDDLEWARE',
           suggestion: 'Return true, void, false or a redirect path synchronously. For async authorization, wrap the route component with asyncGuard(check)(Component); promises returned by middleware are not awaited.',
           codeExample: `// Async authorization belongs on the component, not in middleware:

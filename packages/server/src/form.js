@@ -34,7 +34,7 @@
 // it as `csrfToken` and the form carries it.
 
 import { h } from 'what-core';
-import { _formMember, _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
+import { _formMember, _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating, _thrownMessage, __DEV__ } from 'what-core/internal';
 import { _base, _belowBase, _callAction } from './actions.js';
 import { addField, RESERVED_FIELDS } from './fields.js';
 
@@ -47,8 +47,9 @@ function serverActionId(action) {
   if (typeof action === 'string') return action;
   if (typeof action === 'function') return action._actionId || null;
   // ERROR_CODES.FORM_ACTION_MISSING
+  const text = '<Form> requires an `action` prop: a server action, its id, or a function.';
   throw Object.assign(
-    new Error('[what] <Form> requires an `action` prop: a server action, its id, or a function.'),
+    new Error(__DEV__ ? _thrownMessage('ERR_FORM_ACTION_MISSING', text) : `[what] ${text}`),
     { code: 'ERR_FORM_ACTION_MISSING' },
   );
 }

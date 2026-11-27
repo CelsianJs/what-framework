@@ -86,6 +86,8 @@ import {
   runWithServerContext,
   __flushOutsideServerContext,
   isVNode,
+  _thrownMessage,
+  __DEV__,
 } from 'what-core/internal';
 import { childNamespace, stripAndCollapse } from 'what-core/internal/markup-rules';
 import { createRenderContext, ensureServerRuntime, resourcePayload, errorRecord } from './context.js';
@@ -210,9 +212,12 @@ function errorComment(error) {
 }
 
 function defaultOnError(error) {
-  // A coded error leads with its code, as a diagnostic does.
-  if (error != null && typeof error.code === 'string' && error.code.startsWith('ERR_')) console.error(`${error.code} ${error.message}`);
-  else console.error('[what-server] Error during streaming SSR:', error);
+  // A coded error leads with its code, as a diagnostic does: a development
+  // message what-core wrote (_thrownMessage) already does.
+  if (error != null && typeof error.code === 'string' && error.code.startsWith('ERR_')) {
+    const message = String(error.message);
+    console.error(message.startsWith(`[what] ${error.code} `) ? message : `${error.code} ${message}`);
+  } else console.error('[what-server] Error during streaming SSR:', error);
 }
 
 function timeoutError() {
@@ -1305,8 +1310,9 @@ function idPrefixOf(idPrefix) {
   if (idPrefix === undefined) return 'wb';
   if (typeof idPrefix !== 'string' || !ID_PREFIX.test(idPrefix)) {
     // ERROR_CODES.SSR_INVALID_ID_PREFIX
+    const text = `idPrefix ${JSON.stringify(idPrefix)} is not a letter followed by letters, digits, "_" or "-".`;
     throw Object.assign(
-      new TypeError(`[what-server] idPrefix ${JSON.stringify(idPrefix)} is not a letter followed by letters, digits, "_" or "-".`),
+      new TypeError(__DEV__ ? _thrownMessage('ERR_SSR_INVALID_ID_PREFIX', text) : `[what-server] ${text}`),
       { code: 'ERR_SSR_INVALID_ID_PREFIX' },
     );
   }

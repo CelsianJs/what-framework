@@ -566,7 +566,7 @@ function Status() {
   ASYNC_MIDDLEWARE: {
     code: 'ERR_ASYNC_MIDDLEWARE',
     severity: 'error',
-    template: '[what-router] Route middleware must be synchronous; received a promise or thenable.',
+    template: 'Route middleware must be synchronous; received a promise or thenable.',
     suggestion: 'Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.',
     codeExample: `// Bad - an async middleware result cannot authorize a route:
 const routes = [{ path: '/private', component: Component, middleware: [async () => check()] }];
@@ -581,7 +581,7 @@ const Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Comp
   UNSAFE_REDIRECT: {
     code: 'ERR_UNSAFE_REDIRECT',
     severity: 'error',
-    template: '[what-router] redirect() refused an unsafe target: {{target}}',
+    template: 'redirect() refused an unsafe target: {{target}}',
     suggestion: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.',
     codeExample: `// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
@@ -843,7 +843,7 @@ hydrate(<App />, '#app');`,
   NO_SECURE_RANDOM: {
     code: 'ERR_NO_SECURE_RANDOM',
     severity: 'error',
-    template: '[what] No secure random source available for CSRF token generation.',
+    template: 'No secure random source available for CSRF token generation.',
     suggestion: 'Neither globalThis.crypto.getRandomValues nor node:crypto was reachable. On Node this means a build older than 18 or a bundler that stripped node:crypto; on an edge runtime it means the Web Crypto global was not provided. A CSRF token from Math.random is not a token, so this refuses rather than degrading.',
     codeExample: `// Node 18+ exposes Web Crypto globally; nothing to configure.
 // If a bundler dropped it, restore the global before creating the server:
@@ -960,7 +960,7 @@ mount(<App />, document.body);`,
   INVALID_SSR_TAG: {
     code: 'ERR_INVALID_SSR_TAG',
     severity: 'error',
-    template: '[what-server] Invalid tag name in SSR: "{{tag}}"',
+    template: 'Invalid tag name in SSR: "{{tag}}"',
     suggestion: 'A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a "<" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.',
     codeExample: `// Bad — the tag is built from data, and is not an element name:
 function Heading({ level }) {
@@ -1100,7 +1100,7 @@ export function loader({ query, response }) {
   SSR_INVALID_ID_PREFIX: {
     code: 'ERR_SSR_INVALID_ID_PREFIX',
     severity: 'error',
-    template: '[what-server] idPrefix {{idPrefix}} is not a letter followed by letters, digits, "_" or "-".',
+    template: 'idPrefix {{idPrefix}} is not a letter followed by letters, digits, "_" or "-".',
     suggestion: 'The streaming renderer writes idPrefix into element ids, comments and an inline script, so it is validated rather than escaped: a letter, then letters, digits, "_" or "-". It only needs to differ between streams on one page; every stream already adds a random part after it.',
     codeExample: `// Bad — characters that would end the attribute or the comment:
 renderToStream(app, { idPrefix: 'side"bar' });
@@ -1130,7 +1130,7 @@ function Page({ loaderData }) {
   FORM_ACTION_MISSING: {
     code: 'ERR_FORM_ACTION_MISSING',
     severity: 'error',
-    template: '[what] <Form> requires an `action` prop: a server action, its id, or a function.',
+    template: '<Form> requires an `action` prop: a server action, its id, or a function.',
     suggestion: 'Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.',
     codeExample: `// Bad:
 <Form method="post" />
@@ -1143,7 +1143,7 @@ function Page({ loaderData }) {
   ISLAND_STORE_OUTSIDE_RENDER: {
     code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER',
     severity: 'error',
-    template: '[what-server] Island store "{{name}}" was accessed outside an active server render.',
+    template: 'Island store "{{name}}" was accessed outside an active server render.',
     suggestion: 'A module-scoped island store resolves against the current request, so it can only be read or written from a component rendered by renderDocument/renderPage. Reading one at module scope, or from a background task, has no request to bind to.',
     codeExample: `// Bad — runs at import time, with no request in scope:
 const count = cart.items.length;

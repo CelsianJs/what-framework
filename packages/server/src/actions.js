@@ -15,7 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
-import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext } from 'what-core/internal';
+import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext, _thrownMessage } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 import { RESERVED_FIELDS } from './fields.js';
@@ -95,8 +95,9 @@ export function generateCsrfToken() {
   }
   // Last resort — should not be reached in modern environments
   // ERROR_CODES.NO_SECURE_RANDOM
+  const text = 'No secure random source available for CSRF token generation.';
   throw Object.assign(
-    new Error('[what] No secure random source available for CSRF token generation'),
+    new Error(__DEV__ ? _thrownMessage('ERR_NO_SECURE_RANDOM', text) : `[what] ${text}`),
     { code: 'ERR_NO_SECURE_RANDOM' },
   );
 }

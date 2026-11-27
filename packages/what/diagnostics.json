@@ -74,7 +74,7 @@
       "raisedBy": [
         "what-router"
       ],
-      "trigger": "[what-router] Route middleware must be synchronous; received a promise or thenable.",
+      "trigger": "Route middleware must be synchronous; received a promise or thenable.",
       "fix": "Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.",
       "example": "// Bad - an async middleware result cannot authorize a route:\nconst routes = [{ path: '/private', component: Component, middleware: [async () => check()] }];\n\n// Good - the component wrapper waits for the authorization check:\nconst routes = [{ path: '/private', component: asyncGuard(check)(Component) }];\n\n// Optional denial redirect and loading UI:\nconst Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Component);"
     },
@@ -304,7 +304,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what] <Form> requires an `action` prop: a server action, its id, or a function.",
+      "trigger": "<Form> requires an `action` prop: a server action, its id, or a function.",
       "fix": "Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.",
       "example": "// Bad:\n<Form method=\"post\" />\n\n// Good:\n<Form action={save} />;\n<Form action=\"save-user\" />;"
     },
@@ -440,7 +440,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] Invalid tag name in SSR: \"{{tag}}\"",
+      "trigger": "Invalid tag name in SSR: \"{{tag}}\"",
       "fix": "A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a \"<\" in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.",
       "example": "// Bad — the tag is built from data, and is not an element name:\nfunction Heading({ level }) {\n  return h(`h${level} class=\"big\"`, {}, 'Title');\n}\n\n// Good — choose the tag from the ones you allow:\nconst TAGS = { 1: 'h1', 2: 'h2', 3: 'h3' };\nfunction Heading({ level }) {\n  return h(TAGS[level] || 'h2', { class: 'big' }, 'Title');\n}"
     },
@@ -453,7 +453,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] Island store \"{{name}}\" was accessed outside an active server render.",
+      "trigger": "Island store \"{{name}}\" was accessed outside an active server render.",
       "fix": "A module-scoped island store resolves against the current request, so it can only be read or written from a component rendered by renderDocument/renderPage. Reading one at module scope, or from a background task, has no request to bind to.",
       "example": "// Bad — runs at import time, with no request in scope:\nconst count = cart.items.length;\n\n// Good — read it inside a component the server is rendering:\nfunction Cart() { return <span>{cart.items.length}</span>; }"
     },
@@ -614,7 +614,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what] No secure random source available for CSRF token generation.",
+      "trigger": "No secure random source available for CSRF token generation.",
       "fix": "Neither globalThis.crypto.getRandomValues nor node:crypto was reachable. On Node this means a build older than 18 or a bundler that stripped node:crypto; on an edge runtime it means the Web Crypto global was not provided. A CSRF token from Math.random is not a token, so this refuses rather than degrading.",
       "example": "// Node 18+ exposes Web Crypto globally; nothing to configure.\n// If a bundler dropped it, restore the global before creating the server:\nimport { webcrypto } from 'node:crypto';\nglobalThis.crypto ??= webcrypto;"
     },
@@ -839,7 +839,7 @@
       "raisedBy": [
         "what-server"
       ],
-      "trigger": "[what-server] idPrefix {{idPrefix}} is not a letter followed by letters, digits, \"_\" or \"-\".",
+      "trigger": "idPrefix {{idPrefix}} is not a letter followed by letters, digits, \"_\" or \"-\".",
       "fix": "The streaming renderer writes idPrefix into element ids, comments and an inline script, so it is validated rather than escaped: a letter, then letters, digits, \"_\" or \"-\". It only needs to differ between streams on one page; every stream already adds a random part after it.",
       "example": "// Bad — characters that would end the attribute or the comment:\nrenderToStream(app, { idPrefix: 'side\"bar' });\n\n// Good:\nrenderToStream(app, { idPrefix: 'sidebar' });"
     },
@@ -1012,7 +1012,7 @@
       "raisedBy": [
         "what-router"
       ],
-      "trigger": "[what-router] redirect() refused an unsafe target: {{target}}",
+      "trigger": "redirect() refused an unsafe target: {{target}}",
       "fix": "redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (\"//host\"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.",
       "example": "// Bad - a user-controlled target can leave your origin:\nredirect(query.next);\n\n// Good - allowlist the target first:\nredirect(ALLOWED.has(query.next) ? query.next : '/');"
     },

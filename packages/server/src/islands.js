@@ -17,7 +17,7 @@
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
 import { h, mount, hydrate, signal, batch } from 'what-core';
-import { getServerContext, _currentOwnerPath, _currentRowPath, _formMember, _renderSalt, __readHydrationData, isVNode } from 'what-core/internal';
+import { getServerContext, _currentOwnerPath, _currentRowPath, _formMember, _renderSalt, __readHydrationData, isVNode, _thrownMessage, __DEV__ } from 'what-core/internal';
 import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
@@ -130,11 +130,10 @@ function storeHandle(name, initialState) {
     const storeMap = currentStoreMap();
     if (!storeMap) {
       // ERROR_CODES.ISLAND_STORE_OUTSIDE_RENDER
+      const text = `Island store "${name}" was accessed outside an active server render. ` +
+        'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.';
       throw Object.assign(
-        new Error(
-          `[what-server] Island store "${name}" was accessed outside an active server render. ` +
-          'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.'
-        ),
+        new Error(__DEV__ ? _thrownMessage('ERR_ISLAND_STORE_OUTSIDE_RENDER', text) : `[what-server] ${text}`),
         { code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER' },
       );
     }

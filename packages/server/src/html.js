@@ -30,7 +30,7 @@ import {
   CSS_NAME_CACHE_SIZE,
   _cssNames,
 } from 'what-core/internal/markup-rules';
-import { isVNode, _symbolChild } from 'what-core/internal';
+import { isVNode, _symbolChild, _thrownMessage, __DEV__ } from 'what-core/internal';
 import { isHtml, rowKeys } from './compiled.js';
 
 // <ErrorBoundary> and <Suspense> are not elements. They return vnodes carrying
@@ -338,8 +338,9 @@ function refuseTag(tag, vnode) {
     );
   }
   // ERROR_CODES.INVALID_SSR_TAG
+  const text = `Invalid tag name in SSR: ${JSON.stringify(tag)}`;
   throw Object.assign(
-    new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`),
+    new Error(__DEV__ ? _thrownMessage('ERR_INVALID_SSR_TAG', text) : `[what-server] ${text}`),
     { code: 'ERR_INVALID_SSR_TAG' },
   );
 }
