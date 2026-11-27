@@ -193,11 +193,7 @@ function createFormController(options = {}) {
 
   // The default at a key: from defaultValues, or from the item's values for
   // a key under a field array item.
-  function defaultOf(key) {
-    let cur = defaultValues;
-    for (const segment of key.split('.')) cur = segment[0] === '\0' ? bases[segment] : cur == null ? undefined : cur[segment];
-    return cur ?? '';
-  }
+  const defaultOf = (key) => (ext ? ext.d(key, defaultValues) : getIn(defaultValues, key)) ?? '';
 
   function getFieldSignal(key) {
     let sig = fieldSignals[key];
@@ -280,13 +276,13 @@ function createFormController(options = {}) {
   function replaceAllErrors(nextErrors) {
     const normalized = nextErrors || {};
     batch(() => {
-      for (const [key, sig] of Object.entries(errorSignals)) {
+      for (const key in errorSignals) {
         if (!Object.hasOwn(normalized, key)) {
-          sig.set(null);
+          errorSignals[key].set(null);
         }
       }
-      for (const [key, err] of Object.entries(normalized)) {
-        getErrorSignal(key).set(err ?? null);
+      for (const key in normalized) {
+        getErrorSignal(key).set(normalized[key] ?? null);
       }
       errorsState.set({ ...normalized });
     });
@@ -391,14 +387,7 @@ function createFormController(options = {}) {
         if (!gone) pending[k] = fieldSignals[k];
         delete fieldSignals[k];
       }
-      if (!options.keepDefaultValue) {
-        const segments = key.split('.');
-        let at = segments.length;
-        while (at-- > 0 && segments[at][0] !== '\0');
-        if (at < 0) defaultValues = unsetIn(defaultValues, segments);
-        else if (at === segments.length - 1) delete bases[segments[at]];
-        else bases[segments[at]] = unsetIn(bases[segments[at]], segments.slice(at + 1));
-      }
+      if (!options.keepDefaultValue && !(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
     }
     batch(() => {
       for (const [k, sig] of reset) sig.set(defaultOf(k));
@@ -676,16 +665,14 @@ function createFormController(options = {}) {
     batch(() => {
       if (ext) ext.r(defaultValues);
       for (const map of [fieldSignals, pending]) {
-        for (const [key, sig] of Object.entries(map)) {
+        for (const key in map) {
           if (ext && nameOf(key) == null) delete map[key];
-          else sig.set(defaultOf(key));
+          else map[key].set(defaultOf(key));
         }
       }
       counted();
       replaceAllErrors({});
-      for (const sig of Object.values(touchedSignals)) {
-        sig.set(false);
-      }
+      for (const key in touchedSignals) touchedSignals[key].set(false);
       isDirty.set(false);
       isSubmitted.set(false);
     });
@@ -746,7 +733,7 @@ function createFormController(options = {}) {
     // What useFieldArray works with: `x(make)` installs the field array
     // support make() builds over this form's state, once.
     control: {
-      x: (make) => ext ||= make({ arrays, bases, keyOf, forget, getAllValues, isDirty }),
+      x: (make) => ext ||= make(arrays, bases, keyOf, forget, getAllValues, isDirty),
     },
     // Form state
     formState: {
@@ -777,7 +764,7 @@ let itemCount = 0;
 
 // Field array support for one form, installed by its first useFieldArray.
 // An item's segment is '\0' and its id: no name a person writes has it.
-function fieldArrays({ arrays, bases, keyOf, forget, getAllValues, isDirty }) {
+function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
   const add = (value) => {
     const segment = '\0' + (++itemCount).toString(36);
     bases[segment] = value ?? {};
@@ -823,9 +810,33 @@ function fieldArrays({ arrays, bases, keyOf, forget, getAllValues, isDirty }) {
     if (arrays[k]) arrays[k].set(items.map(add));
     else arrays[k] = signal(items.map(add));
   };
+  // The last item segment of a key, and where it is.
+  const lastItem = (segments) => {
+    let at = segments.length;
+    while (at-- > 0 && segments[at][0] !== '\0');
+    return at;
+  };
   return {
     k: key,
     p: nameAt,
+    // A key's default: under an item, from the item's values.
+    d(k, defaults) {
+      const segments = k.split('.');
+      const at = lastItem(segments);
+      let cur = at < 0 ? defaults : bases[segments[at]];
+      for (const segment of segments.slice(at + 1)) cur = cur == null ? undefined : cur[segment];
+      return cur;
+    },
+    // Forget the default of a key under an item, in the item's values.
+    u(k) {
+      const segments = k.split('.');
+      const at = lastItem(segments);
+      if (at < 0) return false;
+      if (!(segments[at] in bases)) return true;
+      if (at === segments.length - 1) delete bases[segments[at]];
+      else bases[segments[at]] = unsetIn(bases[segments[at]], segments.slice(at + 1));
+      return true;
+    },
     // Each array's items, outer arrays first, replace what the defaults hold.
     v(result, tracked) {
       for (const k of Object.keys(arrays).sort((a, b) => a.length - b.length)) {
