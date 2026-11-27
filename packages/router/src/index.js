@@ -99,6 +99,14 @@ function outward(url) {
   return url[0] === '/' ? BASE + url : url;
 }
 
+// What history writes for a URL of the app: the URL below the base, and a
+// path that starts with two slashes ('//x') written '/.//x', which resolves
+// to that path on this origin, where '//x' would name another host.
+function historyUrl(url) {
+  const out = outward(url);
+  return out.startsWith('//') ? '/.' + out : out;
+}
+
 // The URL of the app that a path from the root (with its search and hash)
 // shows: the path without the base ('/app?a' shows '/?a'). Null for one
 // outside the base ('/application').
@@ -605,7 +613,7 @@ export async function navigate(to, opts = {}) {
       const allowed = await waitFor(fn(href, from), nav);
       if (nav !== _navigation) return;
       if (allowed === false) {
-        if (typeof location !== 'undefined' && browserUrl() !== from) history.pushState(null, '', outward(from));
+        if (typeof location !== 'undefined' && browserUrl() !== from) history.pushState(null, '', historyUrl(from));
         return;
       }
     }
@@ -638,7 +646,7 @@ export async function navigate(to, opts = {}) {
         if (typeof window !== 'undefined') {
           scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
         }
-        history[replace ? 'replaceState' : 'pushState'](state, '', outward(href));
+        history[replace ? 'replaceState' : 'pushState'](state, '', historyUrl(href));
       }
       committed = true;
       batch(() => {
@@ -743,7 +751,7 @@ function fragmentNavigation(href, replace, state, fromPopstate) {
   }
   if (!fromPopstate) {
     scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
-    history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', outward(href));
+    history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', historyUrl(href));
   }
   _url.set(browserUrl());
   const target = !fromPopstate && location.hash ? queryFragment(location.hash) : null;
