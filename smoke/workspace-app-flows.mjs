@@ -32,7 +32,7 @@ export const flows = {
   ],
 };
 
-export async function drive(page, { action, name, target, value, selector, expected, max, disappears = false, syncBudget = false }, budgets = false) {
+export async function drive(page, { action, name, target, value, selector, expected, max, syncBudget = false }, budgets = false) {
   const control = target ? page.locator(target).first() : page.getByRole(action === 'link' ? 'link' : 'button', { name, exact: true }).first();
   if (budgets && max != null) {
     await page.waitForFunction(() => typeof window.beginInteractionCapture === 'function');
@@ -46,11 +46,9 @@ export async function drive(page, { action, name, target, value, selector, expec
       element.click();
       await window.endInteractionCapture(max);
     }, max);
-  } else if (action === 'fill') await control.fill(value);
-  else if (action === 'check') await control.check();
-  else if (action === 'enter') { await control.fill(value); await control.press('Enter'); }
+  } else if (action === 'enter') { await control.fill(value); await control.press('Enter'); }
   else await control.click();
-  await page.waitForFunction(({ selector, pattern, flags, disappears }) => [...document.querySelectorAll(selector)].some(el =>
-    new RegExp(pattern, flags).test(el.textContent.trim())) !== disappears, { selector, pattern: expected.source, flags: expected.flags, disappears });
+  await page.waitForFunction(({ selector, pattern, flags }) => [...document.querySelectorAll(selector)].some(el =>
+    new RegExp(pattern, flags).test(el.textContent.trim())), { selector, pattern: expected.source, flags: expected.flags });
   if (budgets && max != null && !syncBudget) await page.evaluate(max => window.endInteractionCapture(max), max);
 }
