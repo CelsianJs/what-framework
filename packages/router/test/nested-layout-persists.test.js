@@ -147,4 +147,33 @@ describe('a nested layout persists across its child routes', () => {
     assert.deepEqual(built, ['A', 'B', 'A']);
     assert.equal(document.querySelector('#a p').textContent, 'a');
   });
+
+  // React Router keeps a parent layout route mounted while its child routes
+  // change, whatever their own layouts. Here /app's layout is rebuilt when
+  // /app/x (chain [App, X]) moves to /app/y (chain [App, Y]), and its state
+  // is gone (development reports ERR_REBUILT_COMPONENT for <App>).
+  it('keeps the layout two chains share while the layouts inside it change', { todo: 'routed builds the whole chain again when any layout in it changes' }, async () => {
+    const built = [];
+    function App({ children }) {
+      built.push('App');
+      const clicks = signal(0);
+      return h('div', { id: 'app-layout' }, h('button', { id: 'app-bump', onClick: () => clicks((c) => c + 1) }, () => `clicks ${clicks()}`), children);
+    }
+    const X = (props) => { built.push('X'); return h('section', null, props.children); };
+    const Y = (props) => { built.push('Y'); return h('section', null, props.children); };
+    const routes = [
+      { path: '/app/_layout', layout: App, component: () => null },
+      { path: '/app/x', component: () => h('p', null, 'x'), layout: X },
+      { path: '/app/y', component: () => h('p', null, 'y'), layout: Y },
+    ];
+    await navigate('/app/x');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    document.getElementById('app-bump').click();
+    await flush();
+    await navigate('/app/y');
+    await flush();
+    assert.deepEqual(built, ['App', 'X', 'Y']);
+    assert.equal(document.getElementById('app-bump').textContent, 'clicks 1');
+  });
 });
