@@ -30,20 +30,20 @@ describe('islands render their content on the server', () => {
   beforeEach(() => { app().innerHTML = ''; });
 
   it('ships the component HTML inside the marker, not an empty div', () => {
-    const html = renderToString(h(Island, { component: Counter, mode: 'idle', start: 7 }));
+    const html = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'idle', start: 7 }));
     assert.match(html, /<button[^>]*>count 7<\/button>/, 'the island content must be server-rendered');
     assert.match(html, /data-island="Counter"/);
     assert.match(html, /data-island-mode="idle"/);
   });
 
   it('renders the same content the undirected component would', () => {
-    const withDirective = renderToString(h(Island, { component: Counter, mode: 'load', start: 3 }));
+    const withDirective = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'load', start: 3 }));
     const without = renderToString(h(Counter, { start: 3 }));
     assert.ok(withDirective.includes(without), 'the directive must not change the rendered output');
   });
 
   it('serializes props onto the marker for the client', () => {
-    const html = renderToString(h(Island, { component: Counter, mode: 'idle', start: 2, label: 'hits' }));
+    const html = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'idle', start: 2, label: 'hits' }));
     const props = JSON.parse(html.match(/data-island-props="([^"]*)"/)[1].replace(/&quot;/g, '"'));
     assert.deepEqual(props, { start: 2, label: 'hits' });
   });
@@ -62,7 +62,7 @@ describe('islands render their content on the server', () => {
 
   it('drops non-serializable props instead of throwing mid-render', () => {
     const html = renderToString(
-      h(Island, { component: Counter, mode: 'idle', start: 1, onSelect: () => {}, missing: undefined })
+      h(Island, { component: Counter, name: 'Counter', mode: 'idle', start: 1, onSelect: () => {}, missing: undefined })
     );
     const props = JSON.parse(html.match(/data-island-props="([^"]*)"/)[1].replace(/&quot;/g, '"'));
     assert.deepEqual(props, { start: 1 }, 'functions and undefined are not transferable');
@@ -71,7 +71,7 @@ describe('islands render their content on the server', () => {
 
   it('renders island children', () => {
     const Panel = ({ children }) => h('section', {}, children);
-    const html = renderToString(h(Island, { component: Panel, mode: 'idle' }, h('p', {}, 'inner')));
+    const html = renderToString(h(Island, { component: Panel, name: 'Panel', mode: 'idle' }, h('p', {}, 'inner')));
     assert.match(html, /<section><p>inner<\/p><\/section>/);
   });
 });
@@ -85,7 +85,7 @@ describe('an island written by hand without a name', () => {
     W.clearDiagnostics();
     try {
       function Gauge() { return h('meter', { value: 1 }); }
-      renderToString(h(Island, { component: Gauge, mode: 'idle' }));
+      assert.match(renderToString(h(Island, { component: Gauge, mode: 'idle' })), /data-island="Gauge"/, 'named after its function');
       renderToString(h(Island, { component: Gauge, mode: 'load' }));
       renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'idle' }));
       mount(h(Island, { component: Counter, name: 'Counter', mode: 'static' }), app());
@@ -102,17 +102,17 @@ describe('islands hydrate on the client', () => {
   beforeEach(() => { app().innerHTML = ''; });
 
   it('renders the component after the trigger fires in a client-only render', async () => {
-    mount(h(Island, { component: Counter, mode: 'load', start: 5 }), '#app');
+    mount(h(Island, { component: Counter, name: 'Counter', mode: 'load', start: 5 }), '#app');
     assert.equal(app().querySelector('button'), null, 'nothing before the trigger');
     await tick();
     assert.match(app().querySelector('button').textContent, /count 5/);
   });
 
   it('reuses the server DOM instead of rebuilding it, and becomes interactive', async () => {
-    app().innerHTML = renderToString(h(Island, { component: Counter, mode: 'load', start: 7 }));
+    app().innerHTML = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'load', start: 7 }));
     const serverButton = app().querySelector('button');
 
-    hydrate(h(Island, { component: Counter, mode: 'load', start: 7 }), app());
+    hydrate(h(Island, { component: Counter, name: 'Counter', mode: 'load', start: 7 }), app());
     await tick();
 
     const buttons = app().querySelectorAll('button');
@@ -127,7 +127,7 @@ describe('islands hydrate on the client', () => {
   it('marks itself hydrated and announces it', async () => {
     let announced = null;
     app().addEventListener('island:hydrated', (e) => { announced = e.detail; });
-    mount(h(Island, { component: Counter, mode: 'load' }), '#app');
+    mount(h(Island, { component: Counter, name: 'Counter', mode: 'load' }), '#app');
     await tick();
 
     const el = app().querySelector('[data-island]');
@@ -137,10 +137,10 @@ describe('islands hydrate on the client', () => {
   });
 
   it('mode "static" ships the HTML and never hydrates', async () => {
-    app().innerHTML = renderToString(h(Island, { component: Counter, mode: 'static', start: 4 }));
+    app().innerHTML = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'static', start: 4 }));
     assert.match(app().innerHTML, /count 4/, 'static islands still render on the server');
 
-    hydrate(h(Island, { component: Counter, mode: 'static', start: 4 }), app());
+    hydrate(h(Island, { component: Counter, name: 'Counter', mode: 'static', start: 4 }), app());
     await tick(50);
 
     const el = app().querySelector('[data-island]');
@@ -151,8 +151,8 @@ describe('islands hydrate on the client', () => {
   });
 
   it('mode "interaction" waits for the user before hydrating', async () => {
-    app().innerHTML = renderToString(h(Island, { component: Counter, mode: 'interaction', start: 1 }));
-    hydrate(h(Island, { component: Counter, mode: 'interaction', start: 1 }), app());
+    app().innerHTML = renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'interaction', start: 1 }));
+    hydrate(h(Island, { component: Counter, name: 'Counter', mode: 'interaction', start: 1 }), app());
     await tick();
 
     const el = app().querySelector('[data-island]');
@@ -165,7 +165,7 @@ describe('islands hydrate on the client', () => {
 
   it('mode "interaction": focusing a control inside it (focus does not bubble) hydrates it, also under <Suspense>', () => {
     const { Suspense } = W;
-    const tree = () => h(Suspense, { fallback: 'loading' }, h(Island, { component: Counter, mode: 'interaction', start: 1 }));
+    const tree = () => h(Suspense, { fallback: 'loading' }, h(Island, { component: Counter, name: 'Counter', mode: 'interaction', start: 1 }));
     app().innerHTML = renderHydratable(tree());
     const stop = hydrate(tree(), app());
     const el = app().querySelector('[data-island]');
@@ -181,7 +181,7 @@ describe('islands hydrate on the client', () => {
   it('mode "interaction": the click that hydrates it reaches the handler it sets, and the handler goes with the island', () => {
     let clicks = 0;
     const Save = () => h('button', { onclick: () => { clicks++; } }, 'save');
-    const tree = () => h(W.Suspense, { fallback: 'loading' }, h(Island, { component: Save, mode: 'interaction' }));
+    const tree = () => h(W.Suspense, { fallback: 'loading' }, h(Island, { component: Save, name: 'Save', mode: 'interaction' }));
     app().innerHTML = renderHydratable(tree());
     const stop = hydrate(tree(), app());
     const button = app().querySelector('button');

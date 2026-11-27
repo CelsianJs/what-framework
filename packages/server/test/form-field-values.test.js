@@ -46,7 +46,7 @@ describe('a value released to null resets to the field default', () => {
       if (ssr) ssr.choice('controlled');
       const wrap = (Field) => {
         const field = wrapper === 'Suspense' ? h(Suspense, { fallback: 'wait' }, h(Field))
-          : wrapper === 'island' ? h(_$Island, { component: Field, mode: 'interaction' }) : h(Field);
+          : wrapper === 'island' ? h(_$Island, { component: Field, name: 'Field', mode: 'interaction' }) : h(Field);
         return h(Form, { action: () => {} }, field);
       };
       const host = document.createElement('div');

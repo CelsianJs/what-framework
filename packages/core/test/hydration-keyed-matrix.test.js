@@ -69,7 +69,7 @@ const BOB = { id: 'b', label: 'Bob', children: ['C'] };
 const wrap = {
   plain: (View) => h(View),
   suspense: (View) => h(Suspense, { fallback: 'loading' }, h(View)),
-  island: (View) => h(_$Island, { component: View, mode: 'interaction' }),
+  island: (View) => h(_$Island, { component: View, name: 'View', mode: 'interaction' }),
 };
 
 async function serverHtml(render, tree) {

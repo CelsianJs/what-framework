@@ -129,7 +129,7 @@ describe('a server-rendered page hydrates without fetching again', () => {
       const [v] = createResource(() => { islandFetches++; return Promise.resolve('WIDGET VALUE'); });
       return h('span', { id: 'widget' }, () => v());
     }
-    const Page = () => h(Suspense, { fallback: '...' }, h('main', null, h(Static, {}), h(Island, { component: Widget, mode: 'load' })));
+    const Page = () => h(Suspense, { fallback: '...' }, h('main', null, h(Static, {}), h(Island, { component: Widget, name: 'Widget', mode: 'load' })));
     const html = await server.renderDocument({ default: Page });
     assert.match(html, /data-island/);
     const fetchesOnServer = islandFetches;
