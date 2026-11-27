@@ -62,7 +62,7 @@ test('current runtime coverage keeps Node 20 explicitly legacy without changing 
   assert.equal(pkg.engines.node, '>=20');
 });
 
-test('documentation metadata, build and Chromium contracts are mandatory; WebKit is native acceptance', () => {
+test('documentation metadata, build and Chromium contracts are mandatory; WebKit and Firefox are native acceptance', () => {
   for (const provider of ['.github']) {
     const ci = read(provider, 'ci');
     const docs = job(ci, 'docs-site');
@@ -76,6 +76,11 @@ test('documentation metadata, build and Chromium contracts are mandatory; WebKit
     assert.match(webkit, /playwright install --with-deps webkit/);
     assert.match(webkit, /node smoke\/native-acceptance\.mjs --browser=webkit/);
     assert.doesNotMatch(webkit, /continue-on-error: true/);
+    const firefox = job(ci, 'firefox-native');
+    assert.match(firefox, /playwright install --with-deps firefox/);
+    assert.match(firefox, /node smoke\/native-acceptance\.mjs --browser=firefox/);
+    assert.match(firefox, /WHAT_SMOKE_BROWSER: firefox\n\s+run: npm run -s smoke:apps/);
+    assert.doesNotMatch(firefox, /continue-on-error: true/);
   }
 });
 

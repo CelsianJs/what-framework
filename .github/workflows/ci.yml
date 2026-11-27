@@ -639,3 +639,30 @@ jobs:
         env:
           WHAT_SMOKE_BROWSER: webkit
         run: npm run -s smoke:apps
+  # The same native slice and app smoke suite in Firefox, as a job of its own
+  # so a Firefox failure shows apart from WebKit's. The heap checks skip here
+  # as in WebKit (no devtools protocol to force a GC).
+  firefox-native:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Firefox
+        run: npx playwright install --with-deps firefox
+      - name: Native hydration, forms and islands acceptance
+        run: node smoke/native-acceptance.mjs --browser=firefox
+      - name: Build packages
+        if: success() || failure()
+        run: npm run -s build
+      - name: App smoke suite in Firefox
+        if: success() || failure()
+        env:
+          WHAT_SMOKE_BROWSER: firefox
+        run: npm run -s smoke:apps
