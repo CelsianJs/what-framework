@@ -443,6 +443,11 @@ pre:hover .copy-btn {
   opacity: 1;
 }
 
+.copy-btn.failed {
+  color: var(--error);
+  opacity: 1;
+}
+
 /* --- Callouts --- */
 .callout {
   padding: 16px 20px;
