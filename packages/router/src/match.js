@@ -95,10 +95,13 @@ function specificity({ paramNames, catchAll, statics }) {
 // its percent escapes in upper case, as the URL parser writes the ones it
 // makes ('/caf%c3%a9' is '/caf%C3%A9', the route '/café'). An escape decodes
 // the same in either case; a '%' that starts none ('/50%off') and the
-// characters after it are left as they are.
+// characters after it are left as they are. A link's path and the URL on
+// screen are compared the same way (index.js Link), as `_comparable`.
 function comparable(path) {
   return path.replace(/([^/])\/+$/, '$1').replace(/%[\da-f]{2}/gi, (escape) => escape.toUpperCase());
 }
+
+export { comparable as _comparable };
 
 export function matchRoute(path, routes) {
   path = comparable(path);

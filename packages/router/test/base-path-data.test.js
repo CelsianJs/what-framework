@@ -6,6 +6,10 @@
 // reads has landed. Before, a query read in a page was on the address bar's
 // path ('/app/users/'), which neither reached.
 //
+// A path's percent escapes are in one case there, as its route matches
+// them: what a page at '/app/caf%c3%a9' reads is on '/caf%C3%A9', the path
+// the URL parser writes for '/café'.
+//
 // Its own file: the router keeps module-scoped URL state and its base.
 
 import { describe, it, after } from 'node:test';
@@ -46,10 +50,20 @@ function Feed() {
   return h('ul', null, () => (items() ?? []).join(','));
 }
 
+const cafe = [];
+function Cafe() {
+  const menu = query(['menu'], () => {
+    const call = withResolvers();
+    cafe.push(call);
+    return call.promise;
+  });
+  return h('p', null, () => (menu() ?? []).join(','));
+}
+
 const app = document.getElementById('app');
 mount(h('div', null,
   h('i', null, () => (route.isNavigating ? 'busy ' : 'idle ')),
-  h(Router, { routes: [{ path: '/users', component: Users }, { path: '/feed', component: Feed }] })), app);
+  h(Router, { routes: [{ path: '/users', component: Users }, { path: '/feed', component: Feed }, { path: '/café', component: Cafe }] })), app);
 
 describe('the data a page reads below a base path', () => {
   it('is refetched by invalidatePath() of the page\'s path as the app writes it', async () => {
@@ -78,5 +92,24 @@ describe('the data a page reads below a base path', () => {
     await going;
     await tick();
     assert.equal(app.textContent, 'idle one');
+  });
+});
+
+describe('the data a page reads at a URL that writes its escapes in lower case', () => {
+  it('is on the path with its escapes in upper case', async () => {
+    const going = navigate('/caf%c3%a9', { transition: false });
+    await tick(5);
+    assert.equal(cafe.length, 1);
+    cafe[0].resolve(['tea']);
+    await going;
+    await tick();
+    assert.equal(app.textContent, 'idle tea');
+    const revalidated = invalidatePath(new URL('http://x/café').pathname);
+    await tick();
+    assert.equal(cafe.length, 2, 'the query refetched');
+    cafe[1].resolve(['tea', 'cake']);
+    await revalidated;
+    await tick();
+    assert.equal(app.textContent, 'idle tea,cake');
   });
 });

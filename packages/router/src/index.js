@@ -12,7 +12,7 @@
 
 import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
 import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage } from 'what-core/internal';
-import { matchRoute, parseQuery } from './match.js';
+import { matchRoute, parseQuery, _comparable } from './match.js';
 
 // --- URL Sanitization ---
 // Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed),
@@ -351,17 +351,12 @@ function pathOf(url) {
   return splitUrl(url).path;
 }
 
-// A path without the slashes that end it after a segment, as matchRoute
-// compares one ('/docs/' is '/docs').
-function withoutSlash(path) {
-  return path.replace(/([^/])\/+$/, '$1');
-}
-
-// A URL's path as routes match it, without a trailing slash: what a link is
-// active for, and the path the data a page reads is on (what-core/data),
-// which invalidatePath() and a server action's `revalidate` name.
+// A URL's path as routes match it, without a trailing slash and with its
+// escapes in one case (match.js): what a link is active for, and the path
+// the data a page reads is on (what-core/data), which invalidatePath() and a
+// server action's `revalidate` name.
 function routePath(url) {
-  return withoutSlash(pathOf(url));
+  return _comparable(pathOf(url));
 }
 
 function noop() {}
@@ -492,7 +487,7 @@ function load(prep, r, params, path, query) {
     // the error instead (see PreloadFailed). One that returns a promise
     // that rejects gives the page that promise, to show when it reads it.
     try {
-      prep.data = _tagQueries(withoutSlash(path), () => r.preload({ params, query, url: prep.url }));
+      prep.data = _tagQueries(_comparable(path), () => r.preload({ params, query, url: prep.url }));
     } catch (err) {
       prep.failed = true;
       prep.error = err;
@@ -1430,10 +1425,11 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   const ownEnter = takeHandler(rest, 'onmouseenter');
 
   // The path the link goes to, as the address bar will show it, compared
-  // without a trailing slash as routes match it; none for another origin's
-  // URL, which is never active. A relative href ('#top', 'setup') resolves
-  // against the URL on screen, as the browser resolves it, so it is resolved
-  // again on each navigation.
+  // with the URL on screen as routes match it (without a trailing slash, its
+  // escapes in one case: '/café' is active at '/caf%c3%a9'); none for another
+  // origin's URL, which is never active. A relative href ('#top', 'setup')
+  // resolves against the URL on screen, as the browser resolves it, so it is
+  // resolved again on each navigation.
   const relative = RELATIVE.test(safeHref);
   const pathTo = () => {
     const target = resolveHref(safeHref);
@@ -1446,7 +1442,7 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   // class passed as an accessor is read here too, so it stays live.
   const baseClass = cls || className;
   const reactiveClass = () => {
-    const currentPath = withoutSlash(route.path);
+    const currentPath = _comparable(route.path);
     const hrefPath = relative ? pathTo() : fixedPath;
     const isActive = hrefPath === null ? false : hrefPath === '/'
       ? currentPath === '/'
