@@ -1,0 +1,37 @@
+:root {
+  --bg: #11161d;
+  --panel: #18202a;
+  --ink: #e5eaf0;
+  --muted: #8794a5;
+  --line: #26303d;
+  --ok: #57b8a8;
+  --warn: #e9b45a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 ui-sans-serif, system-ui, sans-serif; }
+.page { max-width: 900px; margin: 0 auto; padding: 16px; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; height: 100vh; }
+.masthead { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.masthead h1 { margin: 0; font: 600 22px/1 ui-serif, Georgia, serif; }
+.room { color: var(--muted); font-weight: 400; }
+.status { display: flex; gap: 8px; margin: 0; }
+.status div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.status dt { color: var(--muted); font-size: 11px; }
+.status dd { margin: 0; font: 600 13px ui-monospace, monospace; }
+.status .ok { color: var(--ok); }
+.status .down { color: var(--warn); }
+.log-wrap { position: relative; min-height: 0; }
+.log { height: 100%; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.log ol { list-style: none; margin: 0; padding: 6px 0; }
+.msg { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; padding: 2px 12px; }
+.msg .who { color: var(--ok); font-weight: 600; }
+.msg.mine .who { color: var(--warn); }
+.msg.pending { opacity: 0.6; }
+.msg time { color: var(--muted); font: 11px ui-monospace, monospace; }
+.unseen { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font: inherit; border-radius: 16px; border: 1px solid var(--line); background: var(--warn); color: #1b1408; padding: 4px 14px; cursor: pointer; }
+.composer { display: flex; gap: 8px; }
+.composer textarea { flex: 1; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: none; }
+.composer-side { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
+.composer button { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--ok); color: #08130f; padding: 4px 14px; cursor: pointer; }
+.composer button:disabled { opacity: 0.4; cursor: default; }
+.muted { color: var(--muted); }

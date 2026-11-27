@@ -120,6 +120,9 @@ export const CAPABILITIES = {
   'cmp:recursive': { area: 'load', desc: 'one recursive component renders a 10,000-entry tree nested 60+ levels deep; expand all, collapse all and a filter show exactly the entries they should, within a budget' },
   'lifecycle:dispose-at-scale': { area: 'load', desc: 'collapsing a 10,000-component subtree disposes every component, effect and binding it built, and the heap returns to its level' },
   'form:large': { area: 'forms', desc: 'a 300-field form validated as the user types runs only the edited field\'s rules and re-renders only that field, and a summary over every field follows' },
+  'stream:reconnect': { area: 'load', desc: 'a stream from the app\'s own server, dropped cleanly, mid-event and all at once throughout the run, resumes from the last event id with no message lost or repeated' },
+  'list:capped-log': { area: 'load', desc: 'an append-only keyed log of thousands of messages keeps its last N rows in order, follows the bottom (an effect after an append sees the new row), holds still while the reader is scrolled up, and an optimistic row keeps its element when the server confirms it' },
+  'form:input-under-load': { area: 'forms', desc: 'typing into a controlled field while bursts of updates re-render the page around it loses no character and keeps the caret' },
   'form:async-validation': { area: 'forms', desc: 'answers of an async field check that arrive out of order never leave a stale error, and the form reports validating until the last one lands' },
 };
 

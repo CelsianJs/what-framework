@@ -1,0 +1,20 @@
+{
+  "name": "smoke-chat",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Chat smoke app: a room streamed from its own server over server-sent events that drops and reconnects mid-run, appended to a capped keyed log anchored to the bottom, with optimistic sends and a composer typed into during bursts.",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && node server.js",
+    "dev": "vite build && node server.js"
+  },
+  "dependencies": {
+    "what-framework": "0.15.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^7.0.0",
+    "what-compiler": "0.15.0"
+  }
+}
