@@ -137,7 +137,8 @@ export function tween(from, to, options = {}) {
     const t0 = /** @type {number} */ (startTime);
 
     const elapsed = time - t0;
-    const t = Math.min(elapsed / duration, 1);
+    // A zero duration ends on the first frame (0 / 0 would be NaN).
+    const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
     const easedT = easing(t);
     const currentValue = from + (to - from) * easedT;
 
@@ -158,14 +159,19 @@ export function tween(from, to, options = {}) {
 
   rafId = requestAnimationFrame(tick);
 
+  function cancel() {
+    if (rafId) cancelAnimationFrame(rafId);
+    isAnimating.set(false);
+  }
+  // Stop when the owner (the component using the tween) goes away, as a
+  // spring does.
+  onCleanup(cancel);
+
   return {
     progress: () => progress(),
     value: () => value(),
     isAnimating: () => isAnimating(),
-    cancel: () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      isAnimating.set(false);
-    },
+    cancel,
     subscribe: value.subscribe,
   };
 }
@@ -271,6 +277,15 @@ export function useGesture(element, handlers = {}) {
     lastX = touch.clientX;
     lastY = touch.clientY;
     lastTime = performance.now();
+    // A new gesture starts from rest: the last one's travel and velocity
+    // would read as this one's (a tap after a swipe, swiping again).
+    batch(() => {
+      state.currentX.set(touch.clientX);
+      state.currentY.set(touch.clientY);
+      state.deltaX.set(0);
+      state.deltaY.set(0);
+      state.velocity.set({ x: 0, y: 0 });
+    });
 
     state.isDragging.set(true);
     if (onDragStart) onDragStart({ x: state.startX, y: state.startY });
@@ -414,7 +429,7 @@ export function useGesture(element, handlers = {}) {
       return attachListeners(el);
     });
   } else if (element) {
-    attachListeners(element);
+    onCleanup(attachListeners(element));
   }
 
   function attachListeners(el) {
