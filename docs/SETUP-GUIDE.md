@@ -6,7 +6,7 @@ Get up and running with What Framework in under 5 minutes.
 
 ## Prerequisites
 
-- **Node.js 18+** (check: `node -v`)
+- **Node.js 20+** (check: `node -v`)
 - **npm 9+** (check: `npm -v`)
 - A code editor (VS Code recommended)
 
