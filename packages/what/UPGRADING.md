@@ -722,6 +722,35 @@ and navigations that are transitions. Each change below has its migration.
   first scrolling to a hash URL's element, and only once it has landed: a
   back/forward that a guard cancels, or a newer navigation overtakes, no
   longer scrolls the page on screen.
+- **A trailing slash is ignored when matching**, on the client and the
+  server: `/about/` renders the route written `/about` (0.14 showed the
+  fallback, and the request handler answered 404), and active classes ignore
+  it. `route.path` keeps the slash as the address bar has it. This affects an
+  app that listed both `/about` and `/about/` to work around it: one of the
+  two now takes both URLs, so keep one.
+- **A `lazy()` component whose download failed downloads again on the next
+  attempt** (an error boundary's reset, a later render, the next navigation
+  or hover to its route), where `React.lazy` keeps the error until the page
+  reloads. A loader with side effects runs again. A route's `error` page is
+  given `{ error, reset }`, and its `reset` downloads the failed chunk before
+  rebuilding the page.
+- **Below a base, an action's redirect stays below the base without
+  JavaScript too**: `getResponse().redirect('/x')` answers a no-JS post with
+  `/app/x`. `ACTION_ENDPOINT` is still `'/__what_action'`; the base is added
+  where the call is posted.
+- **A relative `redirect('login')` in a server render resolves against the
+  page's URL**, as `navigate()` resolves one, where 0.14 redirected to `/`.
+- **A `routeGroup` route has `middleware` only when it or its group has
+  some**; it was an empty array, which read as guarded.
+- **`reset(values)` makes the values the form's defaults**, as React Hook
+  Form does: `dirtyFields` measures from them and a later `reset()` returns
+  to them, where 0.14 went back to the first `defaultValues`. This affects a
+  form that called `reset(fetched)` and then `reset()` to clear it: pass the
+  values to clear to.
+- **A registered file input's value is its `FileList`**
+  (`values.photo[0]` is the `File`), where 0.14 held the browser's
+  `C:\fakepath\…` string. This affects a resolver or submit handler that
+  read the string: read the file.
 
 ### Lists
 
@@ -1159,8 +1188,8 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9612 B |
-| The create-what counter, runtime JSX | 6702 B | 9638 B |
+| A counter written with `h()` | 6601 B | 9611 B |
+| The create-what counter, runtime JSX | 6702 B | 9633 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
 
 The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
@@ -1171,7 +1200,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3839 B, for the new engine, the engine hooks async
+counter still grows by 3838 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1191,7 +1220,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 21066 B, more than twice the same app mounted without
+  hydrating counter is 20594 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
@@ -1260,6 +1289,14 @@ Beyond that:
     fail. `effect-cleanup`, `no-unsafe-innerhtml`, `no-async-component`,
     `no-promise-in-usememo`, `no-optimistic-snapshot` and
     `prefer-async-computed` warn in `recommended`.
+  - `what/no-camelcase-events` is off in every preset: `onClick` works with
+    or without the compiler. Turned on, it asks for the lowercase name as a
+    style.
+  - `what/reactive-jsx-children` reports any JSX child or element attribute
+    that reads a signal once without the compiler (`{count() * 2}`,
+    `{items().map(...)}`, `class={on() ? 'a' : 'b'}`), where 0.14 reported
+    only `{count()}`, so a lint run on uncompiled JSX can report more. Wrap
+    the expression in a function (`{() => count() * 2}`).
 - **what-devtools**: `subscribe()` events carry ids instead of the registry
   entry. `signal:created` is `{ id, name, componentId }` (0.14 also sent `ref`
   and `createdAt`), `effect:created` is `{ id, name, kind, componentId }`, and

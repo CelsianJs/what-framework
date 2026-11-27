@@ -1138,10 +1138,23 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   base. A URL outside the base is not routed (the catch-all included), and
   `navigate()` and `<Link>` hand it to the browser. `setBase(base)` sets it
   without Vite (another bundler, or a server build that keeps what-router
-  external), and `createRequestHandler({ basePath })` takes the same path,
-  written `'/app'` or `'/app/'`. An app with no base pays about 140 B gzip.
+  external), and `createRequestHandler({ basePath })` and
+  `exportStatic({ basePath })` take the same path, written `'/app'` or
+  `'/app/'`: server actions post to `<base>/__what_action`, `<Form>` writes
+  its action, redirect and permalink below the base, a form posted without
+  JavaScript is redirected below it, and a static export renders each page at
+  its URL below it. An app with no base pays about 140 B gzip.
   `packages/router/test/base-path.test.js`, `base-path-server.test.js`,
   `base-path-vite.test.js`.
+- **eslint-plugin-what: `reactive-jsx-children` reports any JSX child or
+  element attribute that reads a signal once** without the compiler
+  (`{count() * 2}`, `{items().map(...)}`, `{user().name}`, a template
+  literal, `class={on() ? 'a' : 'b'}`), not only a bare `{count()}`. It
+  leaves component props, handlers, refs, keys and JSX made inside a function
+  alone. `packages/eslint-plugin/test/reactive-jsx-expressions.test.js`.
+- **create-what:** the fullstack template's README says where a new page
+  goes (its route and its `matchPage()` row), and every template recommends
+  VS Code's ESLint extension.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
@@ -1198,11 +1211,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   SSR benchmark has a page of 200 small components beside the 1,000-row
   table, measures each hydration against a client render of the same page
   from the same bundle, and puts the hydration tables of the same commit in
-  its RESULTS.md. `npm run smoke:apps` runs fourteen apps in Chromium, or in
+  its RESULTS.md. `npm run smoke:apps` runs fifteen apps in Chromium, or in
   WebKit or Firefox with `WHAT_SMOKE_BROWSER=webkit|firefox` (a check its
   browser cannot run is skipped with its reason; an app whose checks hang
-  fails after five minutes and the run goes on), ten of them under load:
-  twelve code-split chapters whose chunks are delayed, failed, overtaken,
+  fails after five minutes and the run goes on), eleven of them under load:
+  an eight-step quote with a conditional step, dependent fields, nested field
+  arrays moved from the keyboard, four kinds of validation, a draft saved as
+  you type and errors the server maps back to their step, twelve code-split chapters whose chunks are delayed, failed, overtaken,
   prefetched on hover and guarded, a wall redrawn every frame with springs,
   tweens and enter/leave churn whose frame loops are counted, a 10,000-entry file
   tree drawn by one recursive component beside a 300-field form with an
@@ -2154,6 +2169,93 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`no-camelcase-events` leaves a file that imports from React, Preact or
   what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
   correct there.
+- **A spread of `register()` follows `setValue` and `reset` however
+  `register` is called.** `const { register } = useForm(); <select
+  {...register('x')} />`, the idiom the guides show, wrote the value the field
+  had at mount and never updated it, because only `form.register(...)` marked
+  its object as the framework's props: a form filled with `reset(fetched)`
+  showed stale values while it held the new ones.
+  `packages/compiler/test/register-spread-follows-field.test.js`.
+- **A registered file input holds its `FileList`** (`values.photo[0]` is the
+  `File`), as React Hook Form does; it held the browser's fake path
+  (`C:\fakepath\…`), so no file reached the resolver or `handleSubmit`. A
+  file input's `value` prop only ever clears it, where any other value threw
+  as it mounted, so a step with a registered file input went blank when
+  revisited. `packages/core/test/form-file-input.test.js`,
+  `file-input-value.test.js`.
+- **`reset(values)` makes the values the form's defaults**, as React Hook
+  Form does: `dirtyFields` measures from them, a later `reset()` returns to
+  them, and a field registered afterwards starts from them. `dirtyFields`
+  measured from the first defaults, so a form filled from a fetch showed every
+  field changed. `packages/core/test/form-reset-defaults.test.js`.
+- **A keyed row moved while a field in it is being edited keeps the focus,
+  caret and selection** in browsers with `Element.moveBefore` (Chromium,
+  Firefox), and Chromium no longer fires `blur` for the move, which a form
+  validating on blur took for the visitor leaving the field. WebKit, which
+  has no `moveBefore`, still blurs it, and a list in a parent outside the
+  document moves its rows as before.
+  `packages/core/test/reconcile-move-keeps-focus.test.js`.
+- **Hydration adopts text the HTML parser merged with a value** (`Card
+  {id} of {total}`, written with no markers) without splitting it: a value
+  that can change keeps its place in the server's text node until it first
+  changes, and a reactive child that reads nothing reactive keeps no node or
+  marker. The compiled 200-component page of `benchmark/ssr` created 600 text
+  nodes while hydrating; it creates none.
+  `packages/core/test/hydration-reuse.test.js`.
+- **A trailing slash is ignored when matching** (what-router, what-server):
+  `/about/` shows `/about`, a catch-all's param has no trailing slash, and
+  `<Link href="/docs/">` is active on `/docs` and below. `route.path` keeps
+  the slash as the address bar has it, and the request handler matches the
+  same way, so a static export served at `/about/` (GitHub Pages) hydrates
+  onto its page instead of the fallback.
+  `packages/router/test/trailing-slash.test.js`,
+  `packages/server/test/request-handler-trailing-slash.test.js`.
+- **A `lazy()` component whose download failed downloads again** on the next
+  attempt: an error boundary's reset, a later render, or the next navigation
+  or hover to its route, which keeps the old page on screen while it
+  downloads, as a first visit does. A route's error page's `reset` downloads
+  the chunk before rebuilding the page. A loaded component is never loaded
+  again. `packages/core/test/lazy-retry.test.js`,
+  `packages/router/test/lazy-route-retry.test.js`.
+- **`exportStatic` renders each page at its URL**, so a `<Router>` in an
+  exported page shows that page and its loader gets `request`; every file
+  held the root route.
+- **A request outside the request handler's `basePath` is never cached.**
+  `/about` and `/app/about` shared a cache key, so a request outside the base
+  could store the Router's fallback and serve it to every visitor of the page.
+- **Queries a page reads are filed under its path as the app writes it**
+  (no base, no trailing slash), so `invalidatePath()` and an action's
+  `revalidate` refetch them below a base, and a navigation waits for them.
+- **Router:** `navigate('/.//x')` goes to `//x` on this origin instead of
+  throwing in `pushState`; a relative `redirect()` or middleware verdict in a
+  server render resolves against the page's URL instead of going to `/`; a
+  relative middleware redirect to a route with a `loading` component no
+  longer reports a false `ERR_REDIRECT_CYCLE`; a `routeGroup` route without
+  middleware keeps its hover prefetch; and a relative href in a persistent
+  layout is prefetched on every page.
+- **Types:** a signal passed where an accessor is expected gives its value
+  type (`<For each={todos}>` types the item, and `untrack(count)`,
+  `use(count)` and `createSelector(sel)` were `void`);
+  `useRef<HTMLInputElement>(null)` and `useRef<T>()` type-check; and
+  `useForm<Values>()`, or a type inferred from `defaultValues`, types the
+  submit handler, `formState.values` and `reset()`.
+  `packages/core/test/signal-accessor-types.test.js`, `use-ref-types.test.js`,
+  `use-form-types.test.js`.
+- **what-compiler:** importing a router name from `what-framework` fails the
+  build with `ERR_MOVED_IMPORT` and the line to write
+  (`import { Router } from 'what-framework/router'`), where the page was
+  blank with only the browser's missing-export error; and on Vite 8 the first
+  `vite` run no longer prints "Failed to run dependency scan …
+  react/jsx-dev-runtime".
+- **eslint-plugin-what: no preset reports `onClick`.** `no-camelcase-events`
+  said it does not work without the compiler, which is false; the rule is off
+  in every preset and, turned on, asks for the lowercase name as a style.
+- **Docs on the new-user path say what the code does:** a prop that reads a
+  signal stays live, `<For each>` takes an array or a signal's array,
+  `<Show when={props.user}>` follows the prop, the tutorial loads its
+  stylesheet once and every `main.jsx` mounts, TYPESCRIPT.md covers refs,
+  lists and forms without a VS Code extension that does not exist, and the
+  migration guide says which read-once shapes the compiler reports.
 - **`navigate()` to another origin or scheme hands it to the browser**, as
   `<Link>` does: `location.assign`, or `location.replace` with
   `{ replace: true }`, and no guard runs. Middleware and `redirect()` to
@@ -2468,6 +2570,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   compiled 200-component page renders in 0.87× plain and 0.93× hydratable.
   The output is byte for byte the same.
   `packages/server/test/element-tag-kinds.test.js`.
+- A hydrating app that creates no async value no longer carries async
+  adoption: `hydrate()` installs it with the first seed it hands out, so a
+  Vite build drops it. `compiled-hydrate` is 472 B gzip smaller and
+  `mixed-hydrate` 479 B. `packages/core/test/feature-reach.test.js`.
 - A recursive keyed component builds deeper before the stack runs out: a
   tree level costs 17 frames instead of 21, so a file tree holds 302 levels
   in Chromium instead of 210, 2,135 in WebKit instead of 1,801 and 454 in
