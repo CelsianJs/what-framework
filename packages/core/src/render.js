@@ -2538,7 +2538,7 @@ export function _writeClass(el, value, svg) {
     }
     value = '';
   }
-  const cls = typeof value === 'string' ? value : String(value);
+  const cls = String(value);
   if (svg) el.setAttribute('class', cls);
   else el.className = cls;
   if (cl == null) return;
