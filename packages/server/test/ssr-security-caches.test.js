@@ -206,6 +206,7 @@ describe('a style object\'s fast paths', () => {
     }
   });
 
+  // An empty value (left) sets nothing on the client and is left out.
   it('writes the same text as before for names and values of every kind', () => {
     const style = {
       color: 'red', backgroundColor: '#1b1b1b', WebkitLineClamp: 3, msTransform: 'none', '--gap': '4px', '--Mixed-Case': 'a b',
@@ -214,7 +215,7 @@ describe('a style object\'s fast paths', () => {
     };
     assert.equal(renderToString(h('div', { style })),
       '<div style="color:red;background-color:#1b1b1b;-webkit-line-clamp:3;ms-transform:none;--gap:4px;--Mixed-Case:a b;width:calc(100% - 2px);'
-      + 'margin:0 auto;opacity:0.5;font-family:&#39;A B&#39;, serif;transform:translate(-50%, 10px);content:&quot;a;b&quot;;left:"></div>');
+      + 'margin:0 auto;opacity:0.5;font-family:&#39;A B&#39;, serif;transform:translate(-50%, 10px);content:&quot;a;b&quot;"></div>');
   });
 
   it('names that differ only in case are different names, whichever is seen first', () => {

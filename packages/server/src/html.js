@@ -634,7 +634,9 @@ function classAttribute(props, keys) {
 }
 
 // A style object as CSS text: camelCase properties in kebab-case, custom
-// properties (--x) as they are. A declaration the client's CSSOM would refuse
+// properties (--x) as they are. A property whose value is null, undefined, a
+// boolean or empty is left out, as the client sets none for it (React leaves
+// out the same values). A declaration the client's CSSOM would refuse
 // (a name that is not a property or a custom property, a value that ends the
 // declaration or opens a block) is left out, as the client leaves it out: the
 // server must not write `color: red; background: url(//tracker)` from one value.
@@ -733,7 +735,9 @@ function styleText(style) {
   const properties = Object.keys(style);
   for (let i = 0; i < properties.length; i++) {
     const property = properties[i];
-    const text = String(style[property]);
+    const value = style[property];
+    if (value == null || value === '' || typeof value === 'boolean') continue;
+    const text = String(value);
     const name = cssName(property);
     if (name === null || !(PLAIN_CSS_VALUE.test(text) || oneDeclaration(text))) continue;
     css += (css ? ';' : '') + name + ':' + text;

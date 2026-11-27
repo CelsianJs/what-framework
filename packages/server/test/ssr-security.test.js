@@ -418,3 +418,20 @@ describe('SSR style object declarations', () => {
     assert.equal(renderToString(h(mod.View, { style: kept })), expected);
   });
 });
+
+// The client sets no declaration for a null, undefined, boolean or empty value
+// (setStyle writes `value ?? ''`, and the CSSOM refuses a boolean), so the
+// server writes none: not `color:null;margin:undefined;padding:`.
+describe('SSR style object values that set nothing', () => {
+  it('leaves out a property whose value is null, undefined, a boolean or empty, in both SSR paths', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    const style = { color: null, margin: undefined, padding: '', top: false, left: true, width: 0, '--gap': '4px' };
+    const expected = '<div style="width:0;--gap:4px"></div>';
+    assert.equal(renderToString(h('div', { style })), expected);
+    assert.equal(renderToString(h(mod.View, { style })), expected, 'compiled server output writes the same');
+    assert.match(renderToString(h('div', { style: { color: null } })), /^<div(?: style="")?><\/div>$/);
+  });
+});
