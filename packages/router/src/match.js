@@ -48,10 +48,12 @@ export function compilePath(path) {
 const patternCache = new Map();
 const PATTERN_CACHE_MAX = 1000;
 
+// Each entry also holds the route's rank (specificity below).
 function getPattern(path) {
   let compiled = patternCache.get(path);
   if (!compiled) {
     compiled = compilePath(path);
+    compiled.rank = specificity(path, compiled);
     if (patternCache.size >= PATTERN_CACHE_MAX) patternCache.clear();
     patternCache.set(path, compiled);
   }
@@ -75,9 +77,12 @@ function decodeParam(value, isCatchAll) {
   return decoded;
 }
 
-function specificity(path) {
-  const { paramNames, catchAll } = getPattern(path);
-  return paramNames.length + (catchAll === null ? 0 : 100);
+// A route's rank, lower first: fewer params first, a catch-all last, and of
+// two catch-alls the one below more static segments. Two routes that match
+// one URL without a catch-all have as many segments, so the static ones count
+// only between catch-alls.
+function specificity(path, { paramNames, catchAll }) {
+  return 10 * paramNames.length - path.split('/').length + (catchAll === null ? 0 : 1000);
 }
 
 export function matchRoute(path, routes) {
@@ -85,10 +90,9 @@ export function matchRoute(path, routes) {
   // `filter` already copies, so sorting below never touches the caller's array.
   const sorted = routes.filter(r => r.path);
 
-  // Sort routes by specificity (more specific first): fewer params first, a
-  // catch-all last, counted on the compiled pattern, so `[id]` and
-  // `[...rest]` rank as `:id` and `*` do.
-  sorted.sort((a, b) => specificity(a.path) - specificity(b.path));
+  // Sort routes by specificity (more specific first), counted on the compiled
+  // pattern, so `[id]` and `[...rest]` rank as `:id` and `*` do.
+  sorted.sort((a, b) => getPattern(a.path).rank - getPattern(b.path).rank);
 
   for (const route of sorted) {
     const { regex, paramNames, catchAll } = getPattern(route.path);

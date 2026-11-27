@@ -43,7 +43,8 @@ describe('isomorphic matcher', () => {
 
 // A more specific route wins whatever the order the routes are listed in,
 // and whichever syntax names its params: a static segment before a param,
-// fewer params before more, a catch-all last.
+// fewer params before more, a catch-all last, and of two catch-alls the one
+// below more static segments.
 describe('route specificity', () => {
   it('ranks [param] and [...rest] as it ranks :param and *', () => {
     for (const [routes, path, winner] of [
@@ -54,6 +55,10 @@ describe('route specificity', () => {
       [[{ path: '/docs/*' }, { path: '/docs/:page' }], '/docs/intro', '/docs/:page'],
       [[{ path: '/a/[x]/[y]' }, { path: '/a/[x]/b' }], '/a/1/b', '/a/[x]/b'],
       [[{ path: '/docs/[...rest]' }, { path: '/docs/[page]' }], '/docs/a/b', '/docs/[...rest]'],
+      [[{ path: '*' }, { path: '/docs/*' }], '/docs/a/b', '/docs/*'],
+      [[{ path: '/*all' }, { path: '/docs/*slug' }], '/docs/a/b', '/docs/*slug'],
+      [[{ path: '/[...all]' }, { path: '/docs/[...rest]' }], '/docs/a', '/docs/[...rest]'],
+      [[{ path: '/*all' }, { path: '/docs/*slug' }], '/blog/a', '/*all'],
     ]) {
       assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
     }

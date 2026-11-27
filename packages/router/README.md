@@ -69,6 +69,11 @@ const routes = [
 ];
 ```
 
+When several routes match a URL, the most specific wins, whatever order they
+are listed in: a static segment before a param, fewer params before more, a
+catch-all last, and of two catch-alls the one below more static segments
+(`/docs/*` before `*`).
+
 A route object can also carry `layout`, `loading` (shown instead of the page
 being left while a navigation to it is in flight; without one, the old page
 stays), `error` (an error boundary fallback), `middleware` and `preload`
