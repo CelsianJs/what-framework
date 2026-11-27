@@ -207,25 +207,45 @@ function createFormController(options = {}) {
     return dirty;
   });
 
-  // Validation
+  // Validation. Runs are numbered as they start, because an async resolver
+  // (a lookup on a server) answers them in any order: a field's answer is
+  // shown only when no later run of that field or of the whole form started
+  // before it landed, and a whole-form answer leaves alone a field validated
+  // since it started. isValidating holds until the last run in flight lands.
+  let runCount = 0;
+  let formRun = 0;
+  const fieldRuns = Object.create(null);
+  let inFlight = 0;
+
   async function validate(fieldName) {
     if (!resolver) return true;
 
-    isValidating.set(true);
+    const run = ++runCount;
+    if (fieldName) fieldRuns[fieldName] = run;
+    else formRun = run;
+    if (inFlight++ === 0) isValidating.set(true);
     try {
       const result = await resolver(getAllValues());
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
         const nextError = nextErrors[fieldName] ?? null;
-        setFieldError(fieldName, nextError);
+        if (fieldRuns[fieldName] === run && formRun < run) setFieldError(fieldName, nextError);
         return !nextError;
-      } else {
-        replaceAllErrors(nextErrors);
-        return Object.keys(nextErrors).length === 0;
       }
+      if (formRun === run) {
+        const shown = { ...nextErrors };
+        for (const name in fieldRuns) {
+          if (fieldRuns[name] < run) continue;
+          const own = errorSignals[name] ? errorSignals[name].peek() : null;
+          if (own == null) delete shown[name];
+          else shown[name] = own;
+        }
+        replaceAllErrors(shown);
+      }
+      return Object.keys(nextErrors).length === 0;
     } finally {
-      isValidating.set(false);
+      if (--inFlight === 0) isValidating.set(false);
     }
   }
 
