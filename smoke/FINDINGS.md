@@ -907,6 +907,35 @@ warning when a style number is dropped (for a property that is not
 unitless) would catch it on the first render; that is a what-core change
 with a size cost in development builds only, left for a decision.
 
+### L. A `client:*` island eats props named `name`, `mode`, `mediaQuery` and `component`
+
+The compiler lowers `<Card client:load name="Ada" mode="dark" />` to one
+props object for `_$Island` (what-core components.js), and the server target
+to one for `_$ssrIsland` (what-server ssr-runtime.js), holding the caller's
+props and the directive's keys (`component`, `mode`, `mediaQuery`) written
+last. `_$Island` destructures those and `name` out of it, so the component
+gets `name` and `mode` undefined: `name` becomes the island's name and the
+caller's `mode` is replaced by `'load'`. `name` and `mode` are among the
+commonest prop names there are. Found while giving mixed-desk's quote page a
+`client:load` ticket.
+
+The island's name is also the component function's runtime name, and a
+minified client build renames it: the server's `data-island="Ticket"` is
+`data-island="bb"` in the browser, an attribute mismatch on every compiled
+island (the hydration walk writes the client's value). The compiler knows
+the tag's source name and could pass it.
+
+- Failing test, not in the tree: `island-reserved-props.test.js` in the
+  round 7 mixed lane's `keep/` (3 of 3 fail: `undefined|undefined|undefined|t`
+  where the caller wrote `Ada|dark|fieldset|t`, on both targets, and
+  `data-island="bb"`).
+- Why not fixed: the fix changes the shape of what the compiler emits for an
+  island on both targets (the caller's props in an object of their own, beside
+  `component`, `mode`, `mediaQuery` and a `name` taken from the tag), the two
+  runtimes that read it, and the lowering-parity fuzz that builds the same
+  `h(Island, …)` trees; it is a change across three packages, left for a
+  decision.
+
 ### A. The runtime path has no keyed reconciliation at all
 `packages/core/src/dom.js`
 
@@ -1179,6 +1208,7 @@ package.json pins:
 | all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 22–97 ms |
 | 35 route changes while the feed runs (dialogs, toasts, charts, lists, a flow diagram, drag and drop, carousels) | every component, listener, timer, observer and node released; no console noise | all released, 285 React mounts each run; console clean (after 45) |
 | a react-hook-form island in a server-rendered page, typed into before it hydrates | no element created; text, focus and ids kept | 0 created; kept |
+| a `client:load` island (a native ticket hosting a React stepper) on that page, typed into before it hydrates | its nodes kept, React state and callback live | kept; live |
 
 Firefox's table numbers are TanStack Table's: with the table unmounted the
 same write costs 1 ms there, and with only the table on the page 120 ms
