@@ -229,6 +229,8 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
 
           <p>File-based syntax like <code>[id]</code> and <code>[...path]</code> also works: it's converted to <code>:id</code> and catch-all internally.</p>
 
+          <p>A trailing slash is ignored when matching, except on the root: <code>/about/</code> shows the route <code>/about</code> (a static host serves <code>about/index.html</code> there), and <code>route.path</code> keeps the slash as the address bar has it. A link is active the same way, so <code>&lt;Link href="/docs/"&gt;</code> is active on <code>/docs</code> and below it. A server render matches a request the same way.</p>
+
           <h2 id="nested-layouts">Nested Layouts</h2>
           <p>Wrap groups of routes in shared layouts. The layout component receives the matched route's element as <code>children</code>:</p>
 

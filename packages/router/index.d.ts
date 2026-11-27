@@ -374,7 +374,7 @@ export interface CompiledPath {
 /** Compile a path pattern (`/users/:id`, `/posts/*`, `/docs/*slug`, `/[slug]`, `/[...slug]`) to a matcher. */
 export function compilePath(path: string): CompiledPath;
 
-/** Match a pathname against routes, most specific first. */
+/** Match a pathname against routes, most specific first. A trailing slash is ignored, except on the root. */
 export function matchRoute<T extends { path?: string }>(
   path: string,
   routes: T[],

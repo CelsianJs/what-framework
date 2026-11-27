@@ -450,7 +450,8 @@ export function createRequestHandler(options = {}) {
       });
     }
 
-    // Route match
+    // Route match: as the client router matches, so a trailing slash is
+    // ignored ('/about/' renders '/about').
     const matched = matchRoute(pathname, routes);
     if (!matched) {
       const html = notFound ? notFound() : '<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>';
@@ -498,15 +499,6 @@ export function createRequestHandler(options = {}) {
     // NOT embedded in the page here — clients read it from the cookie instead.
     const readOnly = request.method === 'GET' || request.method === 'HEAD';
     if (cache && config.mode !== 'server' && !posted && readOnly) {
-      // The cache key's path has no trailing slash (what-isr normalizePath):
-      // the render a key stores sees the params of that path, not the slash
-      // one visitor sent.
-      const keyPath = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-      const keyed = keyPath === pathname ? null : matchRoute(keyPath, routes);
-      if (keyed && keyed.route === route) {
-        routeMatch.path = keyPath;
-        routeMatch.params = keyed.params;
-      }
       // The cache engine resolves the route's declared `vary` names against
       // these. Without them it fails closed: warns and bypasses on every
       // request, which is how the vary control shipped never executing.

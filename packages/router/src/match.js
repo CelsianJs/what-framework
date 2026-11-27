@@ -10,10 +10,10 @@ export function compilePath(path) {
   // (group) -> route group (ignored in URL)
 
   // Remove route groups from path (they don't affect URL matching)
-  const normalized = path
+  const normalized = withoutSlash(path
     .replace(/\([\w-]+\)\//g, '') // Remove (group)/ prefixes
     .replace(/\[\.\.\.(\w+)\]/g, (_, name) => `*:${name}`) // Preserve catch-all name
-    .replace(/\[(\w+)\]/g, ':$1'); // File-based [param] to :param
+    .replace(/\[(\w+)\]/g, ':$1')); // File-based [param] to :param
 
   const paramNames = [];
   /** @type {string | null} */
@@ -85,7 +85,15 @@ function specificity(path, { paramNames, catchAll }) {
   return 10 * paramNames.length - path.split('/').length + (catchAll === null ? 0 : 1000);
 }
 
+// A path without the slashes that end it after a segment: '/about/' is
+// matched as '/about', as a static host serves about/index.html at both. The
+// root, and '//', are as they are.
+function withoutSlash(path) {
+  return path.replace(/([^/])\/+$/, '$1');
+}
+
 export function matchRoute(path, routes) {
+  path = withoutSlash(path);
   // Filter out routes without a path (layout-only routes, etc.)
   // `filter` already copies, so sorting below never touches the caller's array.
   const sorted = routes.filter(r => r.path);

@@ -74,6 +74,12 @@ are listed in: a static segment before a param, fewer params before more, a
 catch-all last, and of two catch-alls the one below more static segments
 (`/docs/*` before `*`).
 
+A trailing slash is ignored when matching, except on the root: `/about/` shows
+the route `/about` (a static host serves `about/index.html` there), and
+`route.path` keeps the slash as the address bar has it. A link is active the
+same way, so `<Link href="/docs/">` is active on `/docs` and below it.
+what-server matches a request the same way.
+
 A route object can also carry `layout`, `loading` (shown instead of the page
 being left while a navigation to it is in flight; without one, the old page
 stays), `error` (an error boundary fallback), `middleware` and `preload`

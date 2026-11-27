@@ -315,6 +315,12 @@ function pathOf(url) {
   return splitUrl(url).path;
 }
 
+// A path without the slashes that end it after a segment, as matchRoute
+// compares one ('/docs/' is '/docs').
+function withoutSlash(path) {
+  return path.replace(/([^/])\/+$/, '$1');
+}
+
 function noop() {}
 
 // A lazy() component's chunk, loading: calling the wrapper starts the load and
@@ -1335,14 +1341,15 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   const ownClick = takeHandler(rest, 'onclick');
   const ownEnter = takeHandler(rest, 'onmouseenter');
 
-  // The path the link goes to, as the address bar will show it; none for
-  // another origin's URL, which is never active. A relative href ('#top',
-  // 'setup') resolves against the URL on screen, as the browser resolves it,
-  // so it is resolved again on each navigation.
+  // The path the link goes to, as the address bar will show it, compared
+  // without a trailing slash as routes match it; none for another origin's
+  // URL, which is never active. A relative href ('#top', 'setup') resolves
+  // against the URL on screen, as the browser resolves it, so it is resolved
+  // again on each navigation.
   const relative = RELATIVE.test(safeHref);
   const pathTo = () => {
     const target = resolveHref(safeHref);
-    return target === null ? null : pathOf(target);
+    return target === null ? null : withoutSlash(pathOf(target));
   };
   const fixedPath = relative ? null : pathTo();
 
@@ -1351,7 +1358,7 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   // class passed as an accessor is read here too, so it stays live.
   const baseClass = cls || className;
   const reactiveClass = () => {
-    const currentPath = route.path;
+    const currentPath = withoutSlash(route.path);
     const hrefPath = relative ? pathTo() : fixedPath;
     const isActive = hrefPath === null ? false : hrefPath === '/'
       ? currentPath === '/'
