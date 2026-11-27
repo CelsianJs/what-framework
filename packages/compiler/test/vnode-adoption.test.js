@@ -38,7 +38,7 @@ describe('the vnode adoption stand-in', () => {
 
   it('stands in for what-core\'s file in a client build compiled for hydration, from its source or a dist tier', () => {
     assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /from '\.\/render\.js'/);
-    assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /export var adoptVNodeKinds;/);
+    assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /export var adoptVNodeKinds, adoptVNodeRows;/);
     const minified = loadFor({ hydratable: true }, path.join(REPO, 'packages/core/dist/vnode-adoption.min.js'));
     assert.match(minified, /from '\.\/render\.min\.js'/);
     assert.match(minified, /from '\.\/vnode-renderer\.min\.js'/);
@@ -52,14 +52,16 @@ describe('the vnode adoption stand-in', () => {
 });
 
 // The page: a component written with h(), whose vnodes are the kinds the
-// stand-in installs the adoption of. The client entry is compiled JSX, as an
+// stand-in installs the adoption of, keyed rows included. The client entry is compiled JSX, as an
 // app's is.
 const APP_SOURCE = `
   import { h, signal, Suspense, ErrorBoundary, Portal } from ${JSON.stringify(CORE_INDEX)};
   export function App() {
     const count = signal(0);
+    const items = signal(['a', 'b']);
     return h('main', { class: 'app', 'data-kind': 'element' },
       h('button', { id: 'inc', onClick: () => count(count() + 1) }, () => String(count())),
+      h('ul', null, () => items().map((item) => h('li', { key: item, id: 'item-' + item }, item))),
       h(Suspense, { fallback: h('p', null, 'loading') }, h('p', { id: 'in-suspense' }, 'ready')),
       h(ErrorBoundary, { fallback: () => h('p', null, 'failed') }, h('p', { id: 'in-boundary' }, 'fine')),
       h(Portal, { target: '#portal' }, h('p', { id: 'portaled' }, 'elsewhere')),
@@ -105,7 +107,7 @@ async function buildClient(entrySource) {
 }
 
 describe('a client built with the stand-in hydrates the vnodes it makes', () => {
-  it('keeps the server\'s nodes for h() elements, <Suspense>, <ErrorBoundary> and a <Portal>, and binds them', async () => {
+  it('keeps the server\'s nodes for h() elements, keyed rows, <Suspense>, <ErrorBoundary> and a <Portal>, and binds them', async () => {
     const { h } = await import(pathToFileURL(CORE_INDEX).href);
     const { renderToString } = await import('../../server/src/index.js');
     const appFile = path.join(tmpDir, 'app-server.mjs');
@@ -123,14 +125,15 @@ describe('a client built with the stand-in hydrates the vnodes it makes', () => 
     document.body.innerHTML = '<div id="app"></div><div id="portal"></div>';
     const container = /** @type {HTMLElement} */ (document.getElementById('app'));
     container.innerHTML = renderToString(h(App));
-    const server = ['main', '#inc', '#in-suspense', '#in-boundary'].map((selector) => container.querySelector(selector));
+    const kept = ['main', '#inc', '#item-a', '#item-b', '#in-suspense', '#in-boundary'];
+    const server = kept.map((selector) => container.querySelector(selector));
     assert.ok(server.every((node) => node !== null), 'the server rendered every part');
 
     await import(pathToFileURL(client.file).href);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.deepEqual(/** @type {any} */ (globalThis).__mismatches, []);
-    ['main', '#inc', '#in-suspense', '#in-boundary'].forEach((selector, i) => {
+    kept.forEach((selector, i) => {
       assert.equal(container.querySelector(selector), server[i], `the server's ${selector} is kept`);
     });
     assert.equal(document.querySelector('#portal #portaled').textContent, 'elsewhere');

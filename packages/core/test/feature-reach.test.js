@@ -42,7 +42,8 @@
 //     reached from isServerRender(), which useEffect and onMount ask
 //   the hydration of every vnode but a component's (render.js
 //     _adoptVNodeKinds: an h() element, <Suspense>, <ErrorBoundary>, a
-//     <Portal>): reached from hydrate(), except in a client build
+//     <Portal>; _adoptVNodeRows: a region's keyed h() rows): reached from
+//     hydrate(), except in a client build
 //     what-compiler/vite compiles for hydration, where the first vnode
 //     producer installs it (the plugin's stand-in for vnode-adoption.js)
 //
@@ -128,7 +129,7 @@ const LAZY_PROPS = ['_installLazyChildren', 'readLazy', 'lazyProps'];
 const SELECT_CODE = ['selectProp', '_setSelectValue', 'markOptions', 'setSelectDefault', 'refollow'];
 const PULL_PHASE = ['checkDirty', 'updateComputed', 'settleDeferred', 'markPending', 'unwatched'];
 const SEEDING = ['seedFrom', 'trackRun', 'makeAsync'];
-const VNODE_KINDS = ['_adoptVNodeKinds', 'hydrateSuspense', 'hydrateErrorBoundary', 'hydrateElementProps', 'awaitStream'];
+const VNODE_KINDS = ['_adoptVNodeKinds', 'hydrateSuspense', 'hydrateErrorBoundary', 'hydrateElementProps', 'awaitStream', '_adoptVNodeRows', 'vnodeKey'];
 
 describe('feature reach in production bundles', () => {
   it('an app of signals and effects carries no pull phase', async () => {

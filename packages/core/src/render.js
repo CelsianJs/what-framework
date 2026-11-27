@@ -15,7 +15,7 @@ import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_
 import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation, _thrownMessage } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
-import { adoptVNodeKinds } from './vnode-adoption.js';
+import { adoptVNodeKinds, adoptVNodeRows } from './vnode-adoption.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
 // package's elements in a program that has none of what-core's: what-react's
 // mixed mode places its elements, and keeps a hole's keyed rows, through it.
@@ -4556,10 +4556,13 @@ function adoptRegion(fn, devName) {
   start._rangeEnd = end;
 }
 
-// h() keyed rows (_vnodeRows), adopted: each row hydrates its vnode in a root
-// of its own under the owner the region was created under, as a built row
-// would be, and the server's closing array marker is the rows' end.
-function adoptVNodeRows(value, scope) {
+/**
+ * @internal h() keyed rows (_vnodeRows), adopted: each row hydrates its vnode
+ * in a root of its own under the owner the region was created under, as a
+ * built row would be, and the server's closing array marker is the rows' end.
+ * Reached through vnode-adoption.js, as _adoptVNodeKinds is.
+ */
+export function _adoptVNodeRows(value, scope) {
   const c = cur;
   const at = nextOwn(c);
   const close = at !== null && isMarker(at, ARRAY_OPEN) ? closeOf(at, ARRAY_CLOSE) : null;

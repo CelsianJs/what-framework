@@ -676,8 +676,9 @@ the reuse is lost. A hydratable build carries the hydration runtime (about
 10.8 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
 the same app mounted); a build without the option carries none of it. The
 adoption of every vnode but a component's (an `h()` or JSX-runtime element,
-`<Suspense>`, `<ErrorBoundary>`, a `<Portal>`: render.js `_adoptVNodeKinds`)
-is reached through `vnode-adoption.js`: from `hydrate()` in any build, and in
+`<Suspense>`, `<ErrorBoundary>`, a `<Portal>`: render.js `_adoptVNodeKinds`;
+a region's keyed `h()` rows: `_adoptVNodeRows`) is reached through
+`vnode-adoption.js`: from `hydrate()` in any build, and in
 a client build what-compiler/vite compiles for hydration, from the vnode
 renderer's install instead (the plugin serves a stand-in for that file, and
 every vnode producer installs the renderer). An app whose JSX is all compiled
