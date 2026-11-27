@@ -3001,7 +3001,9 @@ const NOT_COPIED = new Set(['type', 'currentTarget', 'defaultPrevented', 'native
 
 /**
  * The fields a native event's prototypes declare (enumerable accessors and
- * constants: for-in sees them), once per prototype.
+ * constants: for-in sees them), once per prototype. Firefox's vendor fields
+ * (`mozPressure`, `mozInputSource`) are left out: they are deprecated, and
+ * Firefox logs a warning when one is read. React's event has neither.
  * @type {WeakMap<object, string[]>}
  */
 const eventFields = new WeakMap();
@@ -3012,7 +3014,7 @@ function fieldsOf(native) {
   if (fields === undefined) {
     fields = [];
     for (const key in native) {
-      if (NOT_COPIED.has(key) || Object.prototype.hasOwnProperty.call(native, key)) continue;
+      if (NOT_COPIED.has(key) || key.startsWith('moz') || Object.prototype.hasOwnProperty.call(native, key)) continue;
       if (typeof native[key] !== 'function') fields.push(key);
     }
     eventFields.set(proto, fields);
