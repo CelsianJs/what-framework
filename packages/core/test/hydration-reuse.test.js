@@ -144,3 +144,83 @@ describe('compiled lists keep the server\'s nodes', () => {
     stop();
   });
 });
+
+// The server writes a plain value as text with no markers, so the parser
+// merges it with the static text around it: `Card 1 of 2.` is one text node.
+// Each part claims its share of it in place, and a value that can change
+// later gets a node of its own only when it first does.
+const mergedSource = `import { signal } from 'what-framework';
+  export function make(items) {
+    const cards = signal(items);
+    const live = signal('on');
+    function Card(props) {
+      return <p>Card {props.card.n} of {props.total}, {props.live}.</p>;
+    }
+    function Page(props) {
+      return <main>{cards().map((card) => <Card key={card.id} card={card} total={props.items.length} live={live()} />)}</main>;
+    }
+    function Fields() {
+      return <ul>{cards().map((card) => <li key={card.id}>#{card.id} {card.n}!</li>)}</ul>;
+    }
+    return { Page, Fields, cards, live };
+  }`;
+const mergedClient = await loadCompiled(mergedSource, { pluginOptions: { hydratable: true } });
+const mergedServer = await loadCompiled(mergedSource, { pluginOptions: { generate: 'ssr' } });
+
+describe('text the parser merged with a value is adopted without new nodes', () => {
+  const items = () => [{ id: 1, n: 'a' }, { id: 2, n: 'b' }];
+
+  it('a component\'s text from its props: no node added, and each part still updates', () => {
+    const app = mergedClient.make(items());
+    const html = server.renderToHydratableString(h(mergedServer.make(items()).Page, { items: items() }));
+    const { host, reports, added, stop } = adopt(html, h(app.Page, { items: items() }));
+    const [first, second] = host.querySelectorAll('p');
+    assert.equal(first.childNodes.length, 1, html);
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, []);
+    assert.equal(first.textContent, 'Card a of 2, on.');
+    app.cards([{ id: 1, n: 'xyz' }, { id: 2, n: 'b' }]);
+    flushSync();
+    assert.equal(first.textContent, 'Card xyz of 2, on.');
+    assert.equal(second.textContent, 'Card b of 2, on.');
+    app.live('off');
+    flushSync();
+    assert.equal(first.textContent, 'Card xyz of 2, off.');
+    assert.equal(second.textContent, 'Card b of 2, off.');
+    app.cards([{ id: 1, n: 'q' }, { id: 2, n: 'r' }]);
+    app.live('');
+    flushSync();
+    assert.equal(first.textContent, 'Card q of 2, .');
+    assert.equal(second.textContent, 'Card r of 2, .');
+    stop();
+  });
+
+  it('a reactive child that read nothing reactive keeps no markers of its own; one that did keeps them', () => {
+    const count = signal(1);
+    const tree = () => h('main', null, () => h('b', null, 'static'), () => h('i', null, count()));
+    const { host, reports, added, stop } = adopt(server.renderToString(h(tree)), h(tree));
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, ['<!--$-->', '<!--/$-->']);
+    count(2);
+    flushSync();
+    assert.equal(host.querySelector('main').innerHTML, '<b>static</b><!--$--><i>2</i><!--/$-->');
+    stop();
+  });
+
+  it('a keyed row\'s fields of its item: no node added, and each field still updates', () => {
+    const app = mergedClient.make(items());
+    const { host, reports, added, stop } = adopt(server.renderToHydratableString(h(mergedServer.make(items()).Fields)), h(app.Fields));
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, []);
+    const [first, second] = host.querySelectorAll('li');
+    assert.equal(first.textContent, '#1 a!');
+    app.cards([{ id: 1, n: 'long' }, { id: 2, n: '' }]);
+    flushSync();
+    assert.equal(first.textContent, '#1 long!');
+    assert.equal(second.textContent, '#2 !');
+    app.cards([{ id: 2, n: 'z' }, { id: 1, n: 'y' }]);
+    flushSync();
+    assert.deepEqual([...host.querySelectorAll('li')].map((li) => li.textContent), ['#2 z!', '#1 y!']);
+    stop();
+  });
+});

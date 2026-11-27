@@ -547,12 +547,18 @@ or mounting into a container that holds a root disposes that root first.
 - **Elements and text** are claimed at the cursor. The region and array
   markers are transparent to a claim, and a text claim reads across what the
   HTML parser merged: `Hello {name}!` arrives as one text node, and each part
-  claims its share of it, so merged text is never a mismatch.
+  claims its share of it, so merged text is never a mismatch and adds no node.
+  A part that can change (a region's text, a keyed row's field) keeps its place
+  in the server's node and is split off into a node of its own when it is
+  first written.
 - **A reactive child** claims what lies between its `<!--$-->` and `<!--/$-->`
   and keeps the markers as its range. Its function runs once: the region's
-  effect adopts on its first run instead of rendering again. Markup without
-  markers (`renderToString`, hand-written) is adopted too, the region making
-  its two markers around what it claimed.
+  effect adopts on its first run instead of rendering again, and a child whose
+  first run read nothing reactive (a prop handed a plain value) keeps nothing
+  after it. Markup without markers (`renderToString`, hand-written) is adopted
+  too: text stays the server's text node, or its part of one, until the value
+  is anything but text, and any other value takes two markers around what it
+  claimed.
 - **A keyed list** (`<For>`, a keyed `.map()` or `?.map()` of vnodes or
   compiled rows, a nested one in a row included) adopts each row's server
   nodes as that row, so the first reorder moves the server's nodes rather than
@@ -582,7 +588,8 @@ or mounting into a container that holds a root disposes that root first.
   rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a
   text node of its own that the row's item cell rewrites when the row gets a
   new item: no effect, region or marker per field; the server writes it as
-  plain text and the walk claims that text node.
+  plain text and the walk claims that text node, or the field's part of the
+  text the parser merged it with.
 - **An array** a component or a reactive child returned is walked between
   its markers, so what follows it (a boundary, a region) starts after the
   closing one. A component given one child gets the child itself on both

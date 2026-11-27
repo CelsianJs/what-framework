@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _tracking, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { isServerRender } from './server-context.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
@@ -819,7 +819,10 @@ function textAt(parent, str, marker) {
 }
 
 // The text node of the row field at `i`. A field that is its element's only
-// content holds the element (textAt) until its node is first needed.
+// content holds the element (textAt) until its node is first needed. One
+// hydration claimed inside the server's merged text holds its part of it
+// (claimOwnText), which answers as such an element does: its first child is
+// the node it becomes.
 function fieldNode(fields, i) {
   const node = fields[i];
   if (node.nodeType !== 1) return node;
@@ -2934,8 +2937,9 @@ export function classList(el, classes) {
 // (renderToString, a page written by hand) is adopted by position: the
 // client's own values say how much of the server's DOM each part takes, and a
 // region makes the markers it needs. Text the HTML parser merged (a static run
-// next to a plain value) is read across, never split, unless a region needs
-// its text as a node of its own.
+// next to a plain value) is read across, never split: a value in it that can
+// change keeps its part of the server's node until it first does
+// (claimOwnText).
 //
 // Where the server's DOM is not what the client renders, the walk reports one
 // ERR_HYDRATION_MISMATCH per region in development (kind, owner path, DOM
@@ -4387,13 +4391,15 @@ function adoptOutput(result) {
 // A reactive child: one effect whose first run adopts what the server
 // rendered for it, between the server's markers, and whose later runs render
 // before the closing marker as any region does. The child is evaluated once
-// per run, the first included. Without markers (markup the server wrote as
+// per run, the first included. A child whose first run read nothing reactive
+// never runs again: it adopts what it renders and keeps nothing, neither a
+// node nor a marker of its own. Without markers (markup the server wrote as
 // plain text, as h() writes a text child), a region whose value is text is the
-// text node it claimed, updated in place, until its value is anything but
-// text: only then does it take the markers a region needs. Its text is
-// compared with the text the node held when it was claimed, then with what
-// the region wrote last (region()), so a first write corrects server text
-// that differs.
+// text node it claimed, or its part of text the parser merged it with
+// (claimOwnText), updated in place, until its value is anything but text: only
+// then does it take the markers a region needs. Its text is compared with the
+// text the node held when it was claimed, then with what the region wrote
+// last (region()), so a first write corrects server text that differs.
 function adoptRegion(fn, devName) {
   const c = cur;
   const parent = c.p;
@@ -4404,6 +4410,12 @@ function adoptRegion(fn, devName) {
   let start = null;
   /** @type {any} */
   let end = close;
+  // Without markers: where the region starts, in the server's text it starts
+  // inside of when `startAt` > 0, which is split there only once the region
+  // needs a node of its own.
+  /** @type {any} */
+  const startNode = c.n;
+  const startAt = c.o;
   /** @type {any} */
   let anchor = null;
   if (close !== null) {
@@ -4411,8 +4423,7 @@ function adoptRegion(fn, devName) {
     outer.push(c);
     cur = { p: parent, n: start.nextSibling, o: 0, x: false, e: close, h: true, t: null };
   } else {
-    splitHere(c);
-    anchor = anchorOf(c);
+    anchor = startAt > 0 ? startNode : anchorOf(c);
   }
   const scope = vnodeRows !== null ? getOwner() : null;
   /** @type {any} */
@@ -4420,8 +4431,9 @@ function adoptRegion(fn, devName) {
   /** @type {any} */
   let rows = null;
   let first = true;
+  let keep = true;
   let text = false;
-  /** @type {Text | null} */
+  /** @type {any} */
   let textNode = null;
   let written = '';
   try {
@@ -4442,22 +4454,26 @@ function adoptRegion(fn, devName) {
           }
           throw error;
         }
+        keep = _tracking();
+        const w = cur;
+        text = (typeof value === 'string' && value !== '') || typeof value === 'number';
+        if (keep && text && close === null && w.n === startNode && w.o === startAt && (textNode = claimOwnText(w, written = String(value))) !== null) return;
         if (vnodeRows !== null && keyedVNodes(value) && value.length > 0) {
-          const open = nextOwn(cur);
+          const open = nextOwn(w);
           rows = adoptVNodeRows(value, scope);
           if (isMarker(open, ARRAY_OPEN)) current = open;
-        } else if (close === null && (value == null || value === false || value === '') && nextOwn(cur) !== null && cur.n.nodeType === 3) {
+        } else if (close === null && (value == null || value === false || value === '') && nextOwn(w) !== null && w.n.nodeType === 3) {
           // Without markers, text where an empty region stands is the
           // server's value for it.
-          replaceText(cur, '');
+          replaceText(w, '');
         } else {
-          text = (typeof value === 'string' && value !== '') || typeof value === 'number';
           adopt(value);
         }
         return;
       }
       const value = fn();
       if (textNode !== null) {
+        if (textNode.nodeType === 1) textNode = partNode(textNode);
         if (typeof value === 'string' || typeof value === 'number') {
           const data = String(value);
           if (data !== written) textNode.data = written = data;
@@ -4497,7 +4513,17 @@ function adoptRegion(fn, devName) {
     c.n = close.nextSibling;
     c.o = 0;
     c.x = false;
+    if (!keep) return;
   } else {
+    if (!keep || textNode !== null) return;
+    // The server's text it starts inside of, split where it starts.
+    if (startAt > 0 && startNode.data.length > startAt) {
+      const rest = startNode.splitText(startAt);
+      if (c.n === startNode) {
+        c.n = rest;
+        c.o -= startAt;
+      }
+    }
     splitHere(c);
     const node = afterAnchor(c, anchor);
     if (text && rows === null && node !== c.n && node.nodeType === 3 && node.nextSibling === c.n) {
@@ -5586,28 +5612,75 @@ export function _$hplain(parent, read, flag, devName) {
   _$plain(parent, read, marker, devName);
 }
 
-// The server's text for a field, as a text node of its own (split from text
-// the parser merged it with); the client's text in its place where it
-// differs, and a node of its own where the server wrote none.
+// The server's text for a field: its text node, or its part of text the
+// parser merged it with (claimOwnText), which becomes a node of its own when the
+// field is first written; the client's text in its place where it differs,
+// and a node of its own where the server wrote none.
 function claimField(c, text) {
   pendingKey = null;
   const want = text.indexOf('\r') >= 0 ? text.replace(/\r\n?/g, '\n') : text;
   if (c.x && want !== '') dropDiffering(c, want);
+  const own = claimOwnText(c, want);
+  if (own !== null) return own;
   splitHere(c);
   const n = next(c);
-  if (want !== '' && n !== null && n.nodeType === 3) {
-    const node = /** @type {Text} */ (n);
-    if (node.data.startsWith(want)) {
-      if (node.data.length > want.length) node.splitText(want.length);
-      c.n = node.nextSibling;
-      return node;
-    }
-    if (!frozen()) return /** @type {Text} */ (replaceText(c, text));
-  }
+  if (want !== '' && n !== null && n.nodeType === 3 && !frozen()) return /** @type {Text} */ (replaceText(c, text));
   const node = document.createTextNode(text);
   if (want === '') c.p.insertBefore(node, c.n);
   else recover(c, node, JSON.stringify(short(text)), n === null ? 'missing' : 'text');
   return node;
+}
+
+// --- Parts of merged text ---
+// The server writes a plain value as text with no markers, so the parser
+// merges it with the text around it (`Card 1 of 3` is one text node). A field
+// or a region whose text lies inside such a node claims its part of it in
+// place: `{ n: node, a: offset, t: text, r: null }`, listed on the node
+// (`$p`), with no node split off until the value is first written (partNode),
+// so a value that never changes adds no node at all. A part answers as the
+// element a field that is its element's only content holds does (fieldNode):
+// `nodeType` 1, and its first child the node it becomes. The walk only splits
+// text at the cursor, after every part already claimed, so a node keeps the
+// text before the cursor and each part's offset into it.
+
+/** The server's text at the cursor when it is `text`: its text node when that is all the node holds, else `text`'s part of it; the cursor moved past it. Null when the server's text there is not `text`. */
+function claimOwnText(c, text) {
+  const n = next(c);
+  const at = c.o;
+  if (text === '' || n === null || n.nodeType !== 3 || !n.data.startsWith(text, at)) return null;
+  if (at === 0 && n.data.length === text.length) {
+    c.n = n.nextSibling;
+    return n;
+  }
+  const part = { n, a: at, t: text, r: null, nodeType: 1, get firstChild() { return partNode(this); } };
+  (n.$p ??= []).push(part);
+  if ((c.o = at + text.length) === n.data.length) {
+    c.n = n.nextSibling;
+    c.o = 0;
+  }
+  return part;
+}
+
+// The node of its own a part becomes. Every part of its text node is split
+// off at once, the last first, so each earlier part's offset still holds. A
+// part whose text is no longer there (something other than What changed the
+// node) writes a node of its own, which is not in the document.
+function partNode(part) {
+  if (part.r === null) {
+    const node = part.n;
+    const parts = node.$p;
+    node.$p = undefined;
+    for (let k = parts.length - 1; k >= 0; k--) {
+      const p = parts[k];
+      const end = p.a + p.t.length;
+      if (!node.data.startsWith(p.t, p.a)) p.r = document.createTextNode(p.t);
+      else {
+        if (end < node.data.length) node.splitText(end);
+        p.r = p.a > 0 ? node.splitText(p.a) : node;
+      }
+    }
+  }
+  return part.r;
 }
 
 /** Leave the entered element: while hydrating, its remaining static children are claimed and leftovers removed. */
