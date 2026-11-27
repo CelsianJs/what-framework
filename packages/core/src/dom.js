@@ -605,6 +605,18 @@ export function _handleNavigationSignal(error) {
   return true;
 }
 
+// Compiled JSX's lazy children and slots (_$lazyChildren, _$slots) reach a
+// component the vnode renderer runs only on a vnode render.js componentVNode
+// made (the root compiled JSX hands to hydrate()), which installs their
+// reading here first: a program with no compiled JSX does not carry it.
+/** @type {(...args: Parameters<typeof _installLazyChildren>) => ReturnType<typeof _installLazyChildren>} */
+let vnodeLazyProps = () => null;
+
+/** @internal What makes a component vnode with compiled JSX's lazy children or slots calls this first. */
+export function _installVNodeLazyProps() {
+  vnodeLazyProps = _installLazyChildren;
+}
+
 function createComponent(vnode, parent, isSvg) {
   const { props, children } = vnode;
   const Component = _toFunctionComponent(vnode.tag);
@@ -613,7 +625,7 @@ function createComponent(vnode, parent, isSvg) {
   if (children.length > 0) _setOwnProp(mergedProps, 'children', children.length === 1 ? children[0] : children);
   const lazyChildren = props && props._$lazyChildren;
   const slots = props && props._$slots;
-  const endChildrenPass = lazyChildren || slots ? _installLazyChildren(Component, mergedProps, lazyChildren, slots) : null;
+  const endChildrenPass = lazyChildren || slots ? vnodeLazyProps(Component, mergedProps, lazyChildren, slots) : null;
   if (__DEV__ && vnode._loc) return _renderComponent(Component, mergedProps, endChildrenPass, isSvg, vnode._loc);
   return _renderComponent(Component, mergedProps, endChildrenPass, isSvg);
 }

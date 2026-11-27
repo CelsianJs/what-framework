@@ -10,7 +10,7 @@
 import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _tracking, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { isServerRender } from './server-context.js';
 import { __resetIdCounter } from './a11y.js';
-import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
+import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor, _installVNodeLazyProps } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation, _thrownMessage } from './diagnostics.js';
@@ -155,6 +155,8 @@ function componentVNode(Component, props, children) {
   const slots = props != null ? props._$slots : undefined;
   const lazy = typeof children === 'function';
   if (lazy || slots !== undefined) {
+    // The vnode renderer reads the markers too (dom.js createComponent).
+    _installVNodeLazyProps();
     // Copy first. The lazy marker is an expando, and `props` may be a
     // user-owned object (a lone JSX spread, or a hand-written call).
     props = _copyProps(props);

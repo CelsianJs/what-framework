@@ -186,4 +186,39 @@ describe('lazy component children', () => {
     assert.equal(seen.className, 'kid');
     host.remove();
   });
+
+  // The root compiled JSX hands to hydrate() is a component vnode
+  // (_$componentVNode) carrying its children factory and its slots. Rendered by
+  // the vnode renderer (mount(), or a page h() is on), the component still reads
+  // them: that vnode installs their reading in the renderer.
+  it('reach a component the vnode renderer runs from a compiled component vnode', async () => {
+    const { _$componentVNode, _$slots } = await import('../src/render.js');
+    const { mount } = await import('../src/dom.js');
+    await import('../src/h.js');
+
+    let header;
+    let children;
+    const Wrapper = (props) => {
+      header = props.header;
+      children = props.children;
+      const el = document.createElement('section');
+      el.append(props.header, props.children);
+      return el;
+    };
+    const vnode = _$componentVNode(
+      Wrapper,
+      _$slots({}, { header: () => Object.assign(document.createElement('h2'), { textContent: 'Title' }) }),
+      () => [Object.assign(document.createElement('p'), { textContent: 'Body' })],
+    );
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const unmount = mount(vnode, host);
+
+    assert.equal(header?.textContent, 'Title', 'the slot reaches the component');
+    assert.equal(children?.textContent, 'Body', 'the children reach the component');
+    assert.equal(host.innerHTML, '<section><h2>Title</h2><p>Body</p></section>');
+    unmount();
+    host.remove();
+  });
 });
