@@ -160,8 +160,9 @@ async function prepare(name, work) {
         return new Response(body, { status, headers: { 'content-type': type } });
       },
     };
-  } else if (name === 'package-demos/02-what-router') {
-    const demo = join(examples, name);
+  } else if (name === 'router-demo') {
+    // A single module that imports what-core and what-router directly.
+    const demo = join(root, 'smoke/fixtures/router-demo');
     auditImports(demo);
     symlinkSync(join(root, 'node_modules'), join(work, 'node_modules'), 'dir');
     copyFileSync(join(demo, 'main.jsx'), join(work, 'main.jsx'));

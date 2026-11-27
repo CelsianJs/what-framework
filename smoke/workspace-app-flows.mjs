@@ -20,7 +20,7 @@ export const flows = {
     { action: 'link', name: /Settings/, selector: '.settings-nav-item.active', expected: /^Profile$/ },
     click('Toggle theme', '.toast', /Switched to light theme/),
   ],
-  'package-demos/02-what-router': [{ action: 'link', name: 'About', selector: 'h2', expected: /^About$/ }],
+  'router-demo': [{ action: 'link', name: 'About', selector: 'h2', expected: /^About$/ }],
   'blog': [{ action: 'link', name: /New Post/i, selector: 'h1', expected: /New post/i }],
   // "Add to cart" is a plain form post from a cached product page (no token
   // in its shared HTML): the browser's own headers carry it past the CSRF check.
