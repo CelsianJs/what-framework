@@ -1594,22 +1594,24 @@ export function asyncGuard(check, options = {}) {
 // <Router> matches for `href` starts downloading, so the navigation that
 // follows need not wait for it, and the browser is hinted to fetch the URL.
 // A route behind middleware is left to the navigation, which downloads it
-// only once the middleware admits it.
+// only once the middleware admits it. Each page once: a relative href is the
+// page it resolves to now, which a link that stays mounted sees change.
 
 const prefetchedUrls = new Set();
 
 export function prefetch(href) {
   if (typeof document === 'undefined') return;
-  if (prefetchedUrls.has(href)) return;
-  prefetchedUrls.add(href);
-
   const target = resolveHref(href);
+  const url = target === null ? outward(href) : historyUrl(pageOf(target));
+  if (prefetchedUrls.has(url)) return;
+  prefetchedUrls.add(url);
+
   const matched = target !== null && _routes !== null ? matchRoute(pathOf(target), _routes) : null;
   if (matched && !matched.route.middleware) chunkOf(matched.route.component);
 
   const link = document.createElement('link');
   link.rel = 'prefetch';
-  link.href = outward(href);
+  link.href = url;
   document.head.appendChild(link);
 }
 
