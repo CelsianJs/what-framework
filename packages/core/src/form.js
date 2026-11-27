@@ -650,6 +650,17 @@ export function simpleResolver(rules) {
   };
 }
 
+// The number a value stands for, for min and max: a number as it is, and a
+// numeric string as the number it spells, because a registered
+// <input type="number"> gives the form its value as a string. A blank or
+// non-numeric string stands for none; required and pattern judge those.
+function numberOf(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const n = Number(value);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 // Built-in validation rules
 export const rules = {
   required: (message = 'This field is required') => (value) => {
@@ -671,13 +682,15 @@ export const rules = {
   },
 
   min: (min, message) => (value) => {
-    if (typeof value === 'number' && value < min) {
+    const n = numberOf(value);
+    if (n !== undefined && n < min) {
       return message || `Must be at least ${min}`;
     }
   },
 
   max: (max, message) => (value) => {
-    if (typeof value === 'number' && value > max) {
+    const n = numberOf(value);
+    if (n !== undefined && n > max) {
       return message || `Must be at most ${max}`;
     }
   },
