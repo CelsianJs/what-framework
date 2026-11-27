@@ -2450,6 +2450,7 @@ export function _whatContext(inst, context, missing) {
     if (p._nativeOwner === undefined) continue;
     const map = p._nativeOwner === null ? null : runWithOwner(p._nativeOwner, () => _contextOf(context));
     if (map === null) return missing;
+    /** @type {any} */
     const value = map.get(context);
     return value && value._signal ? value() : value;
   }
