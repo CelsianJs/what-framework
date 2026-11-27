@@ -176,12 +176,13 @@ function createFormController(options = {}) {
   // under a field array item.
   let defaultAt = getIn;
 
-  // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
+  // Per-field signals for granular reactivity (avoids full-form re-renders
+  // on each keystroke), made by the first read or write of a field.
   const fieldSignals = map();
-  // The signals of fields read but not written: a reader of a field nothing
-  // wrote yet (or that was unregistered) follows it, and the field joins the
-  // values when something writes it.
-  const pending = map();
+  // The fields written, which the values hold. A reader of a field nothing
+  // wrote yet (or that was unregistered) follows its signal, and the field
+  // joins the values when something writes it.
+  const known = map();
   // Fields forgotten with their defaults kept: left out of the values until
   // something writes them again.
   const hidden = map();
@@ -199,23 +200,25 @@ function createFormController(options = {}) {
 
   const defaultOf = (key) => defaultAt(defaultValues, key) ?? '';
 
+  const signalOf = (key) => (fieldSignals[key] ||= signal(defaultOf(key)));
+
+  // A field's signal, the field written.
   function getFieldSignal(key) {
-    let sig = fieldSignals[key];
-    if (sig === undefined) {
-      sig = fieldSignals[key] = pending[key] || signal(defaultOf(key));
-      delete pending[key];
+    const sig = signalOf(key);
+    if (!known[key]) {
+      known[key] = true;
       delete hidden[key];
       counted();
     }
     return sig;
   }
 
-  const readKey = (key) => (fieldSignals[key] || (pending[key] ||= signal(defaultOf(key))))();
+  const readKey = (key) => signalOf(key)();
 
   // A name that holds other fields (a field array, an object of fields) is
   // read from the whole values; a field's own name from its signal.
   function readName(key) {
-    if (fieldSignals[key] === undefined && (arrays[key] || isContainer(defaultOf(key)) || Object.keys(fieldSignals).some((k) => k.startsWith(key + '.')))) {
+    if (!known[key] && (arrays[key] || isContainer(defaultOf(key)) || Object.keys(known).some((k) => k.startsWith(key + '.')))) {
       const name = nameOf(key);
       return name == null ? '' : getIn(getAllValues(), name) ?? '';
     }
@@ -252,7 +255,7 @@ function createFormController(options = {}) {
       const name = nameOf(key);
       if (name != null) unsetIn(result, name.split('.'));
     }
-    for (const key in fieldSignals) {
+    for (const key in known) {
       const name = nameOf(key);
       if (name != null) setIn(result, name, fieldSignals[key]());
     }
@@ -303,7 +306,7 @@ function createFormController(options = {}) {
   const dirtyFields = computed(() => {
     fieldCount();
     const out = {};
-    for (const key in fieldSignals) {
+    for (const key in known) {
       if (fieldSignals[key]() === defaultOf(key)) continue;
       const name = nameOf(key);
       if (name != null) out[name] = true;
@@ -395,11 +398,12 @@ function createFormController(options = {}) {
           if (!arrays[key]) hidden[key] = true;
         } else if (!ext?.u(key)) unsetIn(defaultValues = clone(defaultValues), key.split('.'));
         each(hidden, () => {});
+        // Every field written has a signal, so one walk unmarks the fields
+        // and gives their signals the default.
         each(fieldSignals, (k, sig) => {
-          pending[k] = sig;
-          delete fieldSignals[k];
+          delete known[k];
+          sig.set(defaultOf(k));
         });
-        each(pending, (k, sig) => sig.set(defaultOf(k)));
       }
       if (!options.keepError) each(errorSignals, (k) => setFieldError(k, null));
       if (!options.keepTouched) each(touchedSignals, (k, sig) => sig.set(false));
@@ -409,7 +413,7 @@ function createFormController(options = {}) {
 
   // Forget fields by name (React Hook Form's unregister), or every field.
   function unregister(names, options) {
-    const keys = names == null ? Object.keys(fieldSignals) : [].concat(names).map(keyOf);
+    const keys = names == null ? Object.keys(known) : [].concat(names).map(keyOf);
     batch(() => { for (const key of keys) forget(key, options); });
   }
 
@@ -661,10 +665,11 @@ function createFormController(options = {}) {
     if (newValues !== undefined) defaultValues = newValues;
     batch(() => {
       ext?.r(defaultValues);
-      for (const map of [fieldSignals, pending]) {
-        for (const key in map) {
-          if (nameOf(key) == null) delete map[key];
-          else map[key].set(defaultOf(key));
+      for (const key in fieldSignals) {
+        if (nameOf(key) != null) fieldSignals[key].set(defaultOf(key));
+        else {
+          delete fieldSignals[key];
+          delete known[key];
         }
       }
       for (const key in hidden) delete hidden[key];
