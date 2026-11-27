@@ -1,5 +1,5 @@
-// A controlled field under real input, in Chromium and in WebKit (where
-// WebKit launches: CI installs Chromium only), development and production:
+// A controlled field under real input, in Chromium, WebKit and Firefox (where
+// they launch: CI installs Chromium only), development and production:
 // the handlers a field's path holds decide when it is put back, and a form's
 // reset and the form kit see what the user did.
 //
@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { compileJSX } from '../../../test-utils/compile.js';
 
@@ -104,7 +104,7 @@ async function launches(type) {
   }
 }
 
-const engines = [['Chromium', chromium], ['WebKit', webkit]];
+const engines = [['Chromium', chromium], ['WebKit', webkit], ['Firefox', firefox]];
 const available = new Map();
 for (const [, type] of engines) available.set(type, await launches(type));
 

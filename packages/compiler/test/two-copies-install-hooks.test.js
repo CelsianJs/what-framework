@@ -44,7 +44,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { compileJSX } from '../../../test-utils/compile.js';
 
@@ -222,7 +222,7 @@ async function launches(type) {
   }
 }
 
-const engines = [['Chromium', chromium], ['WebKit', webkit]];
+const engines = [['Chromium', chromium], ['WebKit', webkit], ['Firefox', firefox]];
 const available = new Map();
 for (const [, type] of engines) available.set(type, await launches(type));
 
