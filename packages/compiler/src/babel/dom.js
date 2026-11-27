@@ -2097,11 +2097,12 @@ function transformForFineGrained(path, state) {
   // <For each={data} key={item => item.id}>{(item) => <Row />}</For>
   // → mapArray(data, (item) => ..., { key: item => item.id })
   //
-  // NOTE: <For> is supported but .map() with a key prop is the preferred
-  // pattern for list rendering. The compiler lowers .map() to _$mapArray with
-  // the row reading its item through an accessor, so a row keeps its DOM and
-  // follows an item replaced under the same key, as a <For> row does.
-  if (process.env.NODE_ENV !== 'production') {
+  // <For> and .map() with a key prop compile to the same keyed rows: the
+  // compiler lowers .map() to _$mapArray with the row reading its item through
+  // an accessor, so a row keeps its DOM and follows an item replaced under the
+  // same key, as a <For> row does. Saying so is a note on correct code,
+  // printed only when asked for (the `verbose` option).
+  if (process.env.NODE_ENV !== 'production' && state.opts?.verbose === true && !state.opts?.production) {
     const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
     if (!_forInfoWarned.has(fileName)) {
       _forInfoWarned.add(fileName);

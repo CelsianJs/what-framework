@@ -51,6 +51,14 @@ export interface WhatBabelPluginOptions {
    */
   autoSelector?: boolean;
   /**
+   * Development builds: print the compiler's notes on correct code with
+   * `console.info` (each comparison the auto-selector rewrote, and that a
+   * `<For>` compiles to the same keyed rows as a `.map()` with a key), once
+   * per file. Warnings about code that misbehaves print either way. Defaults
+   * to false.
+   */
+  verbose?: boolean;
+  /**
    * DOM back end: output that `hydrate()` adopts server-rendered markup with.
    * Each template claims the node the hydration walk stands on instead of
    * cloning one, and is reached in document order rather than by path.

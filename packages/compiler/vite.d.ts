@@ -46,6 +46,12 @@ export interface WhatVitePluginOptions {
    */
   autoSelector?: boolean;
   /**
+   * Print the compiler's notes on correct code in development (what the
+   * auto-selector rewrote, that `<For>` and a keyed `.map()` compile alike).
+   * Warnings about code that misbehaves print either way. Defaults to false.
+   */
+  verbose?: boolean;
+  /**
    * Compile client JSX so that `hydrate()` adopts server-rendered markup
    * (what-compiler's `hydratable` option). `'auto'`, the default, does when
    * the config says the project renders on the server: `appType: 'custom'`,

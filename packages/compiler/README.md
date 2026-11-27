@@ -43,6 +43,7 @@ what({
   ssr: true,                  // Compile server transforms with the server target (default: true)
   ssrGuard: true,             // false: compile every server transform for the DOM, whatever ssr says (default: true)
   hydratable: 'auto',         // Client output that hydrate() adopts server markup with (default: 'auto')
+  verbose: false,             // Also print notes on correct code: auto-selector rewrites, <For> (default: false)
 })
 ```
 
@@ -142,6 +143,7 @@ export default {
 | `devMetadata` | `false` | Development only: names and `path:line:column` locations for components, What's `signal`/`effect`, and bindings. Format in `babel.d.ts`. |
 | `projectRoot` | Babel's cwd | Root that locations and server action ids are relative to. |
 | `autoSelector` | `true` | DOM target: `selected() === row.id` in keyed rows becomes a `createSelector` lookup. |
+| `verbose` | `false` | Development: print notes on correct code (each auto-selector rewrite, that `<For>` and a keyed `.map()` compile alike) once per file. Warnings print either way. |
 | `onActionId` | none | Called with every server action id. |
 
 Both targets reject markup the HTML parser would restructure (a `<div>` in a

@@ -152,7 +152,9 @@ export function lowerRowSelectors(rowJsx, mapFn, state) {
     if (state.file && state.file.metadata) {
       (state.file.metadata.whatAutoSelectors ||= []).push(record);
     }
-    if (process.env.NODE_ENV === 'production' || state.opts?.production) return;
+    // A note on correct code, printed only when asked for (the `verbose`
+    // option): the file metadata above lists every rewrite either way.
+    if (process.env.NODE_ENV === 'production' || state.opts?.production || state.opts?.verbose !== true) return;
     const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
     if (_selectorInfoWarned.has(fileName)) return;
     _selectorInfoWarned.add(fileName);

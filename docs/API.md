@@ -180,8 +180,8 @@ imported accessor declared outside the row and never reassigned, and the other
 operand reads the row without calling anything. Opt out with
 `/* @what-no-selector */` before the comparison or the `.map()` call, or for a
 whole build with the compiler option `autoSelector: false` (`what({ autoSelector:
-false })` in the Vite config). In development the compiler logs each file it
-rewrites once.
+false })` in the Vite config). With `what({ verbose: true })` a development
+build logs the first rewrite in each file.
 
 ---
 

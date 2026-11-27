@@ -273,7 +273,13 @@ describe('auto-selector: opting out', () => {
 });
 
 describe('auto-selector: diagnostics', () => {
-  it('explains the rewrite once per file in development', () => {
+  it('stays quiet by default: the rewrite is correct code', () => {
+    const { code, logged } = compile(TABLE(`class={selected() === row.id ? 'on' : ''}`), { filename: 'diag-quiet.jsx' });
+    assert.ok(rewritten(code));
+    assert.deepEqual(logged, []);
+  });
+
+  it('explains the rewrite once per file in development with the verbose option', () => {
     const { logged } = compile(`
       import { signal } from 'what-framework';
       export function T() {
@@ -281,7 +287,7 @@ describe('auto-selector: diagnostics', () => {
         const rows = signal([]);
         return <ul>{rows().map(row => <li key={row.id} class={selected() === row.id ? 'on' : ''} title={selected() === row.id ? 't' : ''} />)}</ul>;
       }
-    `, { filename: 'diag-once.jsx' });
+    `, { filename: 'diag-once.jsx', pluginOptions: { verbose: true } });
     assert.equal(logged.length, 1);
     assert.match(logged[0], /auto-selector: `selected\(\) === row\.id`/);
     assert.match(logged[0], /diag-once\.jsx:\d+:\d+/);
@@ -289,7 +295,7 @@ describe('auto-selector: diagnostics', () => {
   });
 
   it('stays quiet in production builds', () => {
-    const { logged } = compile(TABLE(`class={selected() === row.id ? 'on' : ''}`), { production: true, filename: 'diag-prod.jsx' });
+    const { logged } = compile(TABLE(`class={selected() === row.id ? 'on' : ''}`), { production: true, filename: 'diag-prod.jsx', pluginOptions: { verbose: true } });
     assert.equal(logged.length, 0);
   });
 

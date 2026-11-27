@@ -237,6 +237,10 @@ export default function whatVitePlugin(options = {}) {
     // Compile client JSX so that hydrate() adopts server-rendered markup.
     // 'auto' does when the project renders on the server. See "Hydration".
     hydratable = 'auto',
+    // Print the compiler's notes on correct code (what the auto-selector
+    // rewrote, that <For> and a keyed .map() compile alike). Warnings about
+    // code that misbehaves print either way.
+    verbose = false,
   } = options;
 
   let rootDir = '';
@@ -417,6 +421,7 @@ export default function whatVitePlugin(options = {}) {
               devMetadata: isDevMode && !production,
               sourceLoc: isDevMode && !production ? sourceLocFor(this) : undefined,
               autoSelector,
+              verbose,
               projectRoot: rootDir || process.cwd(),
               onActionId: registerActionId,
               appSource: optedIn,
