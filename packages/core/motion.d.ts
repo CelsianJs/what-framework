@@ -60,7 +60,9 @@ export function tween(from: number, to: number, config?: TweenConfig): TweenValu
 export const easings: Record<string, (t: number) => number>;
 /**
  * Drives a 0..1 progress value over `duration`. Named useTween so that
- * useTransition can mean what it means in React.
+ * useTransition can mean what it means in React. One run at a time: start()
+ * stops the run in flight (its promise resolves, its callback does not run),
+ * and the owner going away stops it.
  */
 export function useTween(options?: { duration?: number; easing?: (t: number) => number }): {
   isTransitioning: () => boolean;

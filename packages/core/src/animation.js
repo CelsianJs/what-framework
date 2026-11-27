@@ -199,36 +199,54 @@ export const easings = {
 };
 
 // --- useTween ---
-// Progress from 0 to 1 over `duration`, eased, as a signal.
+// Progress from 0 to 1 over `duration`, eased, as a signal. One run at a
+// time: start() stops the run in flight (its promise resolves, its callback
+// does not run), and the owner going away stops it.
 
 export function useTween(options = {}) {
   const { duration = 300, easing = easings.easeOutQuad } = options;
 
   const isTransitioning = signal(false);
   const progress = signal(0);
+  /** @type {{ frame: number, resolve: () => void } | null} */
+  let run = null;
+
+  const stopRun = () => {
+    const stopped = run;
+    if (stopped === null) return;
+    run = null;
+    cancelAnimationFrame(stopped.frame);
+    stopped.resolve();
+  };
+  onCleanup(stopRun);
 
   async function start(callback) {
+    stopRun();
     isTransitioning.set(true);
     progress.set(0);
 
     return /** @type {Promise<void>} */ (new Promise((resolve) => {
       const startTime = performance.now();
+      const own = { frame: 0, resolve };
+      run = own;
 
       function tick(time) {
+        if (run !== own) return;
         const elapsed = time - startTime;
         const t = Math.min(elapsed / duration, 1);
         progress.set(easing(t));
 
         if (t < 1) {
-          requestAnimationFrame(tick);
+          own.frame = requestAnimationFrame(tick);
         } else {
+          run = null;
           isTransitioning.set(false);
           if (callback) callback();
           resolve();
         }
       }
 
-      requestAnimationFrame(tick);
+      own.frame = requestAnimationFrame(tick);
     }));
   }
 
