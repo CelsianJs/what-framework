@@ -108,17 +108,34 @@ function createFormController(options = {}) {
   const errorSignals = {};
   const touchedSignals = {};
   const errorsState = signal({});
+  // Counts the field and touched signals made so far. A reader of the whole
+  // form (values, watch(), dirtyFields, touched) reads it, so one that ran
+  // before a field existed (a summary rendered above the fields) runs again
+  // when the field comes into being and subscribes to it then. Only what
+  // writes a field (register, setValue, a blur) makes one known; a read of a
+  // field nothing wrote yet sees its default either way.
+  const fieldCount = signal(0);
 
-  function getFieldSignal(name) {
-    return fieldSignals[name] ||= signal(defaultValues[name] ?? '');
+  function getFieldSignal(name, known) {
+    let sig = fieldSignals[name];
+    if (sig === undefined) {
+      sig = fieldSignals[name] = signal(defaultValues[name] ?? '');
+      if (known) fieldCount.set((n) => n + 1);
+    }
+    return sig;
   }
 
   function getErrorSignal(name) {
     return errorSignals[name] ||= signal(null);
   }
 
-  function getTouchedSignal(name) {
-    return touchedSignals[name] ||= signal(false);
+  function getTouchedSignal(name, known) {
+    let sig = touchedSignals[name];
+    if (sig === undefined) {
+      sig = touchedSignals[name] = signal(false);
+      if (known) fieldCount.set((n) => n + 1);
+    }
+    return sig;
   }
 
   // Aggregate signals for bulk operations
@@ -131,6 +148,7 @@ function createFormController(options = {}) {
   // Helper: get all current values as a plain object.
   // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
   function getAllValues(tracked) {
+    if (tracked) fieldCount();
     const result = { ...defaultValues };
     for (const [name, sig] of Object.entries(fieldSignals)) {
       result[name] = tracked ? sig() : sig.peek();
@@ -179,6 +197,7 @@ function createFormController(options = {}) {
   const isValid = computed(() => Object.keys(getAllErrors(true)).length === 0);
 
   const dirtyFields = computed(() => {
+    fieldCount();
     const dirty = {};
     for (const [name, sig] of Object.entries(fieldSignals)) {
       if (sig() !== (defaultValues[name] ?? '')) {
@@ -212,7 +231,7 @@ function createFormController(options = {}) {
 
   // Register a field — only subscribes to THIS field's signal
   function register(name, options = {}) {
-    const fieldSig = getFieldSignal(name);
+    const fieldSig = getFieldSignal(name, true);
     const isRadio = options.type === 'radio';
     const isCheckbox = options.type === 'checkbox';
     // A radio does NOT store its own checkedness: every radio in a group shares
@@ -293,7 +312,7 @@ function createFormController(options = {}) {
     const result = {
       name,
       onBlur: () => {
-        getTouchedSignal(name).set(true);
+        getTouchedSignal(name, true).set(true);
 
         if (mode === 'onBlur' || (isSubmitted.peek() && reValidateMode === 'onBlur')) {
           validate(name);
@@ -399,7 +418,7 @@ function createFormController(options = {}) {
   function setValue(name, value, options = {}) {
     const { shouldValidate = false, shouldDirty = true } = options;
 
-    getFieldSignal(name).set(value);
+    getFieldSignal(name, true).set(value);
     if (shouldDirty) isDirty.set(true);
 
     if (shouldValidate) {
@@ -495,6 +514,7 @@ function createFormController(options = {}) {
       get errors() { return getAllErrors(true); },
       error: (name) => getErrorSignal(name)(),
       get touched() {
+        fieldCount();
         const result = {};
         for (const [name, sig] of Object.entries(touchedSignals)) {
           if (sig()) result[name] = true;
