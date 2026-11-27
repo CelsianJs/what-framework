@@ -50,11 +50,20 @@ async function lintRules(code, ruleFilter, root, filename) {
     try { plugin = (await import('eslint-plugin-what')).default; } catch { /* other project rules can still run */ }
   }
 
+  // A project config that fails to load (it throws, or names a plugin that
+  // is not installed) is an answer like any other failure, not a bare string.
   if (!ruleFilter?.length) {
-    const eslint = new eslintModule.ESLint({ cwd: root });
-    if (await eslint.findConfigFile(filename)) {
-      const [result] = await eslint.lintText(code, { filePath: filename });
-      return lintResult(result.messages, plugin);
+    try {
+      const eslint = new eslintModule.ESLint({ cwd: root });
+      if (await eslint.findConfigFile(filename)) {
+        const [result] = await eslint.lintText(code, { filePath: filename });
+        return lintResult(result.messages, plugin);
+      }
+    } catch (e) {
+      return {
+        error: `The project ESLint config failed to load: ${e && e.message ? e.message : String(e)}`,
+        hint: 'Fix the config, or pass rules (eslint-plugin-what rule names) to lint with those rules alone, without the project config.',
+      };
     }
   }
   if (!plugin) return { lint: 'skipped', issues: [], note: 'eslint-plugin-what is not installed where the MCP server runs.' };
@@ -343,7 +352,7 @@ export function registerAgentTools(server, bridge, { root = process.cwd() } = {}
       const fromRoot = relative(root, filename);
       if (isAbsolute(name) || !fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) return fail('filePath must be a file inside the project.');
       const linted = await lintRules(code, ruleFilter, root, filename);
-      if (linted.error) return fail(linted.error, `Available: ${linted.available.join(', ')}`);
+      if (linted.error) return fail(linted.error, linted.hint ?? `Available: ${linted.available.join(', ')}`);
       const issues = [...linted.issues];
       const out = { lint: linted.lint };
       const notes = linted.note ? [linted.note] : [];

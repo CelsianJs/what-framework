@@ -150,6 +150,17 @@ function App() {
       assert.deepEqual(outsideSrc.parsed.issues, []);
     });
 
+    it('answers { error, hint } when the project config fails to load', async (t) => {
+      const dir = mkdtempSync(join(tmpdir(), 'what-lint-'));
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      writeFileSync(join(dir, 'eslint.config.mjs'), "throw new Error('config exploded');");
+      ({ client, server } = await setupMcp(dir));
+      const result = await callTool(client, 'what_lint', { code: 'alert("test");', filePath: 'src/example.js' });
+      assert.equal(result.isError, true);
+      assert.match(result.parsed.error, /ESLint config.*config exploded/);
+      assert.match(result.parsed.hint, /rules/);
+    });
+
     for (const [code, input] of [
       ['ERR_DUPLICATE_ACTION_ID', "import { action } from 'what-framework/server'; export const a = action(fn, { id: 'save' }); export const b = action(fn, { id: 'save' });"],
       ['ERR_INVALID_HTML_NESTING', 'export const App = () => <p><div>Block</div></p>;'],
