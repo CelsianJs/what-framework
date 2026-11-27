@@ -40,6 +40,11 @@
 //     without it (_$spread, _$setProp, _$setValue)
 //   the server render store (server-context.js store, renderOwner): not
 //     reached from isServerRender(), which useEffect and onMount ask
+//   the hydration of every vnode but a component's (render.js
+//     _adoptVNodeKinds: an h() element, <Suspense>, <ErrorBoundary>, a
+//     <Portal>): reached from hydrate(), except in a client build
+//     what-compiler/vite compiles for hydration, where the first vnode
+//     producer installs it (the plugin's stand-in for vnode-adoption.js)
 //
 // Bundled from the source with the production tier's define and dev-flag
 // plugin, unminified, so the functions keep their names.
@@ -91,6 +96,31 @@ async function viteBundle(source) {
   return (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk').map((c) => c.code).join('\n');
 }
 const RENDER = JSON.stringify(path.join(SRC, 'render.js'));
+
+// A JSX app bundled by a production `vite build` with what-compiler/vite, from
+// the source, unminified: the plugin compiles its JSX (for hydration with
+// `hydratable`) and serves what it serves a client build.
+async function compilerBundle(source, { hydratable = true } = {}) {
+  const { build: viteBuild } = await import('vite');
+  const { default: what } = await import('../../compiler/src/vite-plugin.js');
+  const entry = path.join(SRC, '__feature-reach-entry.jsx');
+  const output = await viteBuild({
+    configFile: false,
+    root: SRC,
+    logLevel: 'silent',
+    mode: 'production',
+    plugins: [
+      { name: 'entry', enforce: 'pre', resolveId: (id) => (id === entry ? entry : null), load: (id) => (id === entry ? source : null) },
+      what({ hydratable, prodBundles: false }),
+    ],
+    resolve: { alias: [
+      { find: /^what-framework\/render$/, replacement: path.join(SRC, 'render.js') },
+      { find: /^what-framework$/, replacement: path.join(SRC, 'index.js') },
+    ] },
+    build: { write: false, minify: false, target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
+  });
+  return (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk').map((c) => c.code).join('\n');
+}
 // A compiled module as a production build bundles it, from the source.
 const compiled = (jsx) => bundle(compileJSX(jsx, { production: true })
   .replace(/(['"])what-framework(\/render)?\1/g, (_, _quote, render) => (render ? RENDER : INDEX)));
@@ -98,6 +128,7 @@ const LAZY_PROPS = ['_installLazyChildren', 'readLazy', 'lazyProps'];
 const SELECT_CODE = ['selectProp', '_setSelectValue', 'markOptions', 'setSelectDefault', 'refollow'];
 const PULL_PHASE = ['checkDirty', 'updateComputed', 'settleDeferred', 'markPending', 'unwatched'];
 const SEEDING = ['seedFrom', 'trackRun', 'makeAsync'];
+const VNODE_KINDS = ['_adoptVNodeKinds', 'hydrateSuspense', 'hydrateErrorBoundary', 'hydrateElementProps', 'awaitStream'];
 
 describe('feature reach in production bundles', () => {
   it('an app of signals and effects carries no pull phase', async () => {
@@ -182,6 +213,46 @@ describe('feature reach in production bundles', () => {
     `);
     assert.deepEqual(SEEDING.filter((name) => !has(code, name)), []);
   });
+
+  it('hydrate() brings the hydration of every kind of vnode', async () => {
+    const code = await bundle(`import { hydrate } from ${INDEX}; hydrate(() => null, document.body);`);
+    assert.deepEqual(VNODE_KINDS.filter((name) => !has(code, name)), []);
+  });
+
+  it('an app that mounts h() elements and boundaries does not carry their hydration', async () => {
+    const code = await bundle(`
+      import { h, mount, Suspense, ErrorBoundary } from ${INDEX};
+      mount(h(ErrorBoundary, { fallback: 'x' }, h(Suspense, { fallback: 'y' }, h('p', {}, 'z'))), document.body);
+    `);
+    assert.ok(has(code, 'createDOM'));
+    assert.deepEqual(VNODE_KINDS.filter((name) => has(code, name)), []);
+  });
+
+  it('a compiled app built for hydration that makes no vnode carries the hydration of none (what-compiler/vite)', async () => {
+    const code = await compilerBundle(`
+      import { hydrate, signal } from 'what-framework';
+      function App() { const n = signal(0); return <main><button onClick={() => n((c) => c + 1)}>{n()}</button></main>; }
+      hydrate(<App />, document.body);
+    `);
+    assert.ok(has(code, 'adoptComponent'), 'its root, a component vnode, is adopted');
+    assert.deepEqual(VNODE_KINDS.filter((name) => has(code, name)), []);
+  });
+
+  for (const [what, name, jsx] of [
+    ['<Suspense>', 'Suspense', '<Suspense fallback={<p>wait</p>}><p>{n()}</p></Suspense>'],
+    ['<ErrorBoundary>', 'ErrorBoundary', '<ErrorBoundary fallback={<p>failed</p>}><p>{n()}</p></ErrorBoundary>'],
+    ['a <Portal>', 'Portal', '<Portal><p>{n()}</p></Portal>'],
+    ['an h() element', 'h', "<div>{h('p', {}, () => n())}</div>"],
+  ]) {
+    it(`one with ${what} brings it (what-compiler/vite)`, async () => {
+      const code = await compilerBundle(`
+        import { hydrate, signal, ${name} } from 'what-framework';
+        function App() { const n = signal(0); return ${jsx}; }
+        hydrate(<App />, document.body);
+      `);
+      assert.deepEqual(VNODE_KINDS.filter((kind) => !has(code, kind)), []);
+    });
+  }
 
   it('starting a server render brings the server store', async () => {
     const code = await bundle(`

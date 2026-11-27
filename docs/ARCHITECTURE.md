@@ -674,7 +674,15 @@ can claim anything: `hydrate()` puts it in place of the server's copy and
 reports one `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`. The page works;
 the reuse is lost. A hydratable build carries the hydration runtime (about
 10.8 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
-the same app mounted); a build without the option carries none of it.
+the same app mounted); a build without the option carries none of it. The
+adoption of every vnode but a component's (an `h()` or JSX-runtime element,
+`<Suspense>`, `<ErrorBoundary>`, a `<Portal>`: render.js `_adoptVNodeKinds`)
+is reached through `vnode-adoption.js`: from `hydrate()` in any build, and in
+a client build what-compiler/vite compiles for hydration, from the vnode
+renderer's install instead (the plugin serves a stand-in for that file, and
+every vnode producer installs the renderer). An app whose JSX is all compiled
+makes no such vnode, so it carries none of that adoption; an app that makes
+one carries it with the renderer.
 
 **Mismatches** are reported, never silently rewritten: one record per region
 (a marked region, else the element the walk is in),
@@ -802,6 +810,7 @@ packages/
 |       +-- selector.js     createSelector (O(1) keyed selection)
 |       +-- dom.js          mount, the vnode renderer (createDOM), the portal renderer, SSR frames
 |       +-- vnode-renderer.js  Slot through which render.js reaches createDOM
+|       +-- vnode-adoption.js  How hydrate() reaches the adoption of h() elements, boundaries and portals
 |       +-- h.js            JSX factory (h, Fragment, html tagged template); installs the vnode renderer
 |       +-- hooks.js        React-compatible hooks backed by signals
 |       +-- components.js   memo, lazy, Suspense, ErrorBoundary (and their client renderers), Show, For

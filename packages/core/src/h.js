@@ -7,7 +7,8 @@
 
 import { createDOM, _setVNodeProp, _isUnsafeAttr } from './dom.js';
 import { _vnodeRows, _isSvgParent } from './render.js';
-import { VNode, _installVNodeRuntime } from './vnode-renderer.js';
+import { VNode } from './vnode-renderer.js';
+import { installVNodeRuntime } from './vnode-adoption.js';
 import { _symbolChild, __DEV__ } from './reactive.js';
 import { isServerRender } from './server-context.js';
 
@@ -31,7 +32,7 @@ function vnodeProducer(produce) {
   // it: a linked or monorepo copy) has not defined createDOM or _vnodeRows yet.
   // Installed as they are, they would stay undefined and every vnode would
   // throw "vnodeRows is not a function".
-  _installVNodeRuntime(
+  installVNodeRuntime(
     // `inParent` 1: a vnode rendered as a value of `parent` (render.js
     // valuesToNodes) is SVG in an SVG element, which only this renderer asks,
     // so a program that makes no vnode does not carry the question.

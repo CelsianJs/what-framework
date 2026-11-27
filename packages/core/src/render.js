@@ -15,6 +15,7 @@ import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_
 import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation, _thrownMessage } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
+import { adoptVNodeKinds } from './vnode-adoption.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
 // package's elements in a program that has none of what-core's: what-react's
 // mixed mode places its elements, and keeps a hole's keyed rows, through it.
@@ -4188,12 +4189,19 @@ function notHydratable() {
   session.reported.add(region);
 }
 
+// A vnode. A component's is adopted here: the JSX handed to hydrate() lowers
+// to one (_$componentVNode). Every other kind comes from a vnode producer
+// (h.js) and is adopted by _adoptVNodeKinds, reached through
+// vnode-adoption.js, so a build that compiles all of its JSX for hydration
+// can leave that out (see there).
 function adoptVNode(vnode) {
+  if (typeof vnode.tag === 'function') adoptComponent(...componentArgs(vnode), undefined, vnode._loc);
+  else adoptVNodeKinds(vnode);
+}
+
+/** @internal An h() element, boundary or portal vnode, adopted at the cursor (adoptVNode). */
+export function _adoptVNodeKinds(vnode) {
   const tag = vnode.tag;
-  if (typeof tag === 'function') {
-    adoptComponent(...componentArgs(vnode), undefined, vnode._loc);
-    return;
-  }
   if (tag === '__errorBoundary') {
     hydrateErrorBoundary(vnode);
     return;

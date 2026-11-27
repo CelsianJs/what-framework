@@ -193,6 +193,37 @@ function ssrGuardError(id) {
   );
 }
 
+// --- Vnode adoption ---
+//
+// Compiled JSX makes no vnode but the component one a hydrate() root lowers
+// to. Every other kind (an h() element, <Suspense>, <ErrorBoundary>, a
+// <Portal>) is made by what-core's vnode producers (h.js), and hydrate()
+// reaches their adoption (render.js _adoptVNodeKinds) through
+// src/vnode-adoption.js, so every program that hydrates carries it. In a
+// client build compiled for hydration, this stand-in takes that file's place
+// (in any copy of what-core, from its source or either dist tier): installing
+// the vnode renderer, which every producer does when it is defined, installs
+// the adoption too. A program whose code makes no such vnode bundles none of
+// it, and one that does adopts its vnodes as before. The adoption is a var: a
+// producer installs it while the import cycle this module is in may not have
+// evaluated the module yet.
+const VNODE_ADOPTION_FILE = /[\\/](?:src|dist)[\\/]vnode-adoption(\.min)?\.js$/;
+
+function vnodeAdoptionStandIn(id) {
+  const file = id.replace(/[?#].*$/, '');
+  const match = VNODE_ADOPTION_FILE.exec(file);
+  if (match === null || !isFrameworkFile(file, fs, 'what-core')) return null;
+  const ext = match[1] ? '.min.js' : '.js';
+  return `import { _adoptVNodeKinds } from './render${ext}';
+import { _installVNodeRuntime } from './vnode-renderer${ext}';
+export var adoptVNodeKinds;
+export function installVNodeRuntime(render, keyedRows, setProp, refuses) {
+  adoptVNodeKinds = _adoptVNodeKinds;
+  _installVNodeRuntime(render, keyedRows, setProp, refuses);
+}
+`;
+}
+
 // Vite reports "this transform is for the server" in two ways depending on its
 // major: the third `transform` argument (`{ ssr: true }`) on every version, and
 // the Environment API (`this.environment.name === 'ssr'`) from Vite 6. Read both
@@ -326,11 +357,13 @@ export default function whatVitePlugin(options = {}) {
       }
     },
 
-    // Generate the routes module
-    load(id) {
+    // Generate the routes module; in a client build compiled for hydration,
+    // what-core's vnode adoption stands in (see "Vnode adoption").
+    load(id, loadOptions) {
       if (id === RESOLVED_VIRTUAL_ID) {
         return generateRoutesModule(pagesDir, rootDir);
       }
+      if (hydratableOutput && !isSsrTransform(loadOptions, this)) return vnodeAdoptionStandIn(id);
     },
 
     // Transform JSX files

@@ -26,7 +26,7 @@ const WHAT_PACKAGES = new Set([
   'eslint-plugin-what', 'what-framework-cli', 'create-what',
 ]);
 
-/** @type {Map<string, { root: string, files: RegExp[] | null } | null>} directory → the What package it is in */
+/** @type {Map<string, { name: string, root: string, files: RegExp[] | null } | null>} directory → the What package it is in */
 const packages = new Map();
 
 function parentOf(dir) {
@@ -47,7 +47,7 @@ function filePattern(entry) {
 
 function packageAt(dir, fs) {
   if (packages.has(dir)) return packages.get(dir);
-  /** @type {{ root: string, files: RegExp[] | null } | null} */
+  /** @type {{ name: string, root: string, files: RegExp[] | null } | null} */
   let found;
   /** @type {any} */
   let pkg = null;
@@ -60,7 +60,7 @@ function packageAt(dir, fs) {
   if (pkg !== null && typeof pkg.name === 'string') {
     // The nearest package with a name is the file's package: What's, or not.
     found = WHAT_PACKAGES.has(pkg.name)
-      ? { root: dir, files: Array.isArray(pkg.files) ? pkg.files.map(filePattern) : null }
+      ? { name: pkg.name, root: dir, files: Array.isArray(pkg.files) ? pkg.files.map(filePattern) : null }
       : null;
   } else {
     // A package.json with no name (`{ "type": "module" }` in a directory)
@@ -73,19 +73,20 @@ function packageAt(dir, fs) {
 }
 
 /**
- * Whether `file` is one of the files a package of What's publishes.
- * `fs` is node:fs; without it, false.
+ * Whether `file` is one of the files a package of What's publishes (the
+ * package named `name`, when given). `fs` is node:fs; without it, false.
  * @param {string | null | undefined} file
  * @param {any} fs
+ * @param {string} [name]
  * @returns {boolean}
  */
-export function isFrameworkFile(file, fs) {
+export function isFrameworkFile(file, fs, name) {
   if (!fs || !file) return false;
   const clean = String(file).replace(/[?#].*$/, '').replace(/\\/g, '/');
   if (clean.startsWith('\0') || !clean.includes('/')) return false;
   const dir = parentOf(clean);
   const found = dir === null ? null : packageAt(dir, fs);
-  if (found === null) return false;
+  if (found === null || (name !== undefined && found.name !== name)) return false;
   const rel = clean.slice(found.root.length + 1);
   if (rel.startsWith('node_modules/') || rel.includes('/node_modules/')) return false;
   return found.files === null || found.files.some((pattern) => pattern.test(rel));
