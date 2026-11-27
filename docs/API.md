@@ -706,7 +706,7 @@ Imported from `what-framework/form`.
 | `useForm(options?)` | Form state + validation |
 | `useField(name, options?)` | Single-field primitive |
 | `rules` | Built-in validation rules |
-| `simpleResolver(ruleMap)` | Rule-map resolver |
+| `simpleResolver(ruleMap)` | Rule-map resolver. A field's own validation (a keystroke in `mode: 'onChange'`) runs that field's rules only; a resolver of your own is told which field in `options.names`, its third argument |
 | `zodResolver(schema)` | Zod resolver adapter |
 | `yupResolver(schema)` | Yup resolver adapter |
 | `Input` / `Textarea` / `Select` / `Checkbox` / `Radio` | Bound field components |

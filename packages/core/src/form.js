@@ -207,11 +207,15 @@ function createFormController(options = {}) {
     return dirty;
   });
 
-  // Validation. Runs are numbered as they start, because an async resolver
-  // (a lookup on a server) answers them in any order: a field's answer is
-  // shown only when no later run of that field or of the whole form started
-  // before it landed, and a whole-form answer leaves alone a field validated
-  // since it started. isValidating holds until the last run in flight lands.
+  // Validation. The resolver is handed every value, and, for a field's own
+  // validation, `{ names: [field] }` (React Hook Form's resolver options), so
+  // one that can (simpleResolver) checks only that field: a keystroke in a
+  // 300-field form runs one field's rules.
+  // Runs are numbered as they start, because an async resolver (a lookup on
+  // a server) answers them in any order: a field's answer is shown only when
+  // no later run of that field or of the whole form started before it
+  // landed, and a whole-form answer leaves alone a field validated since it
+  // started. isValidating holds until the last run in flight lands.
   let runCount = 0;
   let formRun = 0;
   const fieldRuns = Object.create(null);
@@ -225,7 +229,7 @@ function createFormController(options = {}) {
     else formRun = run;
     if (inFlight++ === 0) isValidating.set(true);
     try {
-      const result = await resolver(getAllValues());
+      const result = await resolver(getAllValues(), undefined, fieldName ? { names: [fieldName] } : {});
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
@@ -649,12 +653,15 @@ export function yupResolver(schema) {
   };
 }
 
-// Simple validation resolver
+// Simple validation resolver. Given `{ names }` (a field's own validation),
+// it runs the rules of those fields only; every rule still reads all values.
 export function simpleResolver(rules) {
-  return async (values) => {
+  return async (values, _context, options) => {
     const errors = {};
+    const names = options?.names;
 
     for (const [field, fieldRules] of Object.entries(rules)) {
+      if (names && !names.includes(field)) continue;
       const value = values[field];
 
       for (const rule of fieldRules) {

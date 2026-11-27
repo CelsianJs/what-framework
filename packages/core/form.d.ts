@@ -86,8 +86,18 @@ export function useForm(options?: {
   defaultValues?: Record<string, any>;
   mode?: 'onSubmit' | 'onChange' | 'onBlur';
   reValidateMode?: 'onChange' | 'onBlur';
-  resolver?: (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
+  /**
+   * Given every value; for one field's own validation (a keystroke in
+   * `mode: 'onChange'`), also `{ names: [field] }`, so a resolver can check
+   * that field alone.
+   */
+  resolver?: (values: Record<string, any>, context?: undefined, options?: ResolverOptions) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
 }): UseFormReturn;
+
+/** What a resolver is told about a validation: `names` is set when it is for those fields only. */
+export interface ResolverOptions {
+  names?: string[];
+}
 
 export function useField(name: string, options?: {
   validate?: (value: any) => string | null | Promise<string | null>;
@@ -119,7 +129,7 @@ export const rules: {
 };
 
 export function simpleResolver(ruleMap: Record<string, Array<(value: any, values: Record<string, any>) => string | void>>):
-  (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
+  (values: Record<string, any>, context?: unknown, options?: ResolverOptions) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
 
 export function zodResolver(schema: { parseAsync: (values: any) => Promise<any> }):
   (values: Record<string, any>) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
