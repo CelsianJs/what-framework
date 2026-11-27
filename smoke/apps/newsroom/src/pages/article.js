@@ -9,6 +9,9 @@
 //   contents rail  client:media        only on screens wide enough to show it
 //   reading now    client:visible      polls the server, so only once seen
 //   share menu     client:interaction  only for the reader who opens it
+//
+// Each island is written by hand, so each gets a `name`: a minifier renames
+// the component's function, and the server and the browser must agree.
 
 import { h, Head, signal, useLoaderData } from 'what-framework';
 import { _$Island as Island } from 'what-framework/render';
@@ -68,7 +71,7 @@ export default function ArticlePage() {
     }),
     h(Masthead, {}),
     h('div', { class: 'container article-layout' },
-      h(Island, { component: Contents, mode: 'media', mediaQuery: '(min-width: 1100px)', sections }),
+      h(Island, { component: Contents, name: 'Contents', mode: 'media', mediaQuery: '(min-width: 1100px)', sections }),
       h('main', { class: 'article', 'data-article': article.slug },
         h('p', { class: 'kicker' }, article.section),
         h('h1', { 'data-headline': '' }, article.headline),
@@ -82,20 +85,20 @@ export default function ArticlePage() {
             'aria-pressed': () => String(saved()),
             onclick: () => saved.set((s) => !s),
           }, () => (saved() ? 'Saved' : 'Save for later')),
-          h(Island, { component: ShareMenu, mode: 'interaction', slug: article.slug, headline: article.headline }),
-          h(Island, { component: TextSize, mode: 'idle' }),
+          h(Island, { component: ShareMenu, name: 'ShareMenu', mode: 'interaction', slug: article.slug, headline: article.headline }),
+          h(Island, { component: TextSize, name: 'TextSize', mode: 'idle' }),
         ),
         h('div', { class: 'article-body', 'data-article-body': '' },
           article.blocks.map((block) => h(Block, { block })),
         ),
-        h(Island, { component: ReadingNow, mode: 'visible', slug: article.slug }),
+        h(Island, { component: ReadingNow, name: 'ReadingNow', mode: 'visible', slug: article.slug }),
         h('section', { id: 'comments', class: 'comments', 'aria-labelledby': 'comments-heading' },
           h('h2', { id: 'comments-heading' }, `Comments (${comments.length})`),
           h('ol', { class: 'comment-list', 'data-comment-list': '' },
             comments.map((c) => h('li', { 'data-comment': String(c.id) },
               h('p', { class: 'comment-author' }, c.author),
               h('p', { class: 'comment-body' }, c.body)))),
-          h(Island, { component: CommentForm, mode: 'load', slug: article.slug }),
+          h(Island, { component: CommentForm, name: 'CommentForm', mode: 'load', slug: article.slug }),
         ),
       ),
     ),
