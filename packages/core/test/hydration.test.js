@@ -147,15 +147,15 @@ describe('hydrate() with attributes', () => {
 describe('hydrate() mismatch handling', () => {
   it('should handle tag name mismatch by falling back to client render', () => {
     const container = getContainer();
-    container.innerHTML = '<span>Mismatch</span>';
+    container.innerHTML = '<span>Old</span>';
 
     // Hydrate with a div instead of span
-    const vnode = h('div', null, 'Mismatch');
+    const vnode = h('div', null, 'New');
     hydrate(vnode, container);
 
     // Should fall back and create the correct element
     assert.equal(container.firstChild.tagName, 'DIV');
-    assert.equal(container.firstChild.textContent, 'Mismatch');
+    assert.equal(container.firstChild.textContent, 'New');
   });
 
   it('should handle empty container gracefully', () => {

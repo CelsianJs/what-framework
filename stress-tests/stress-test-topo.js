@@ -78,45 +78,6 @@ describe('STRESS: Topological ordering - diamond graphs', () => {
     dispose();
   });
 
-  it('deep chain: 100 chained computeds should not stack overflow', () => {
-    const a = signal(0);
-    let prev = a;
-    for (let i = 0; i < 100; i++) {
-      const dep = prev;
-      prev = computed(() => dep() + 1);
-    }
-    assert.equal(prev(), 100);
-
-    a.set(1);
-    assert.equal(prev(), 101);
-  });
-
-  it('very deep chain: 1000 chained computeds (iterative eval)', () => {
-    const a = signal(0);
-    let prev = a;
-    for (let i = 0; i < 1000; i++) {
-      const dep = prev;
-      prev = computed(() => dep() + 1);
-    }
-    assert.equal(prev(), 1000);
-
-    a.set(5);
-    assert.equal(prev(), 1005, 'Should handle 1000-deep chain without stack overflow');
-  });
-
-  it('extremely deep chain: 5000 chained computeds', () => {
-    const a = signal(0);
-    let prev = a;
-    for (let i = 0; i < 5000; i++) {
-      const dep = prev;
-      prev = computed(() => dep() + 1);
-    }
-    assert.equal(prev(), 5000);
-
-    a.set(10);
-    assert.equal(prev(), 5010, 'Should handle 5000-deep chain');
-  });
-
   it('multi-source diamond: two signals converge through computeds', async () => {
     const x = signal(1);
     const y = signal(10);

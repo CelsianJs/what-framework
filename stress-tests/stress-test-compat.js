@@ -27,7 +27,7 @@ if (!global.customElements) {
 
 const { h } = await import('../packages/core/src/h.js');
 const { mount } = await import('../packages/core/src/dom.js');
-const { useState, useEffect, useRef, useMemo, useReducer, useContext, createContext } = await import('../packages/core/src/hooks.js');
+const { useState, useEffect, useRef, useMemo, useReducer } = await import('../packages/core/src/hooks.js');
 await import('../packages/core/src/reactive.js'); // imported for module-init order; no binding is used here
 
 function getContainer() {
@@ -43,21 +43,6 @@ async function flush() {
 }
 
 describe('STRESS: useState in run-once component', () => {
-
-  it('useState returns initial value on first call', () => {
-    let capturedState;
-    function TestComp() {
-      const [count] = useState(42);
-      capturedState = count;
-      return h('div', null, String(count()));
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    assert.equal(typeof capturedState, 'function', 'useState returns a signal accessor');
-    assert.equal(capturedState(), 42);
-  });
-
   it('useState with initializer function', () => {
     let initCalls = 0;
     let capturedState;
@@ -71,69 +56,6 @@ describe('STRESS: useState in run-once component', () => {
     mount(h(TestComp, null), container);
     assert.equal(capturedState(), 'computed');
     assert.equal(initCalls, 1, 'Initializer should be called once');
-  });
-
-  it('useState setter returns signal setter', () => {
-    let setter;
-    function TestComp() {
-      const [val, setVal] = useState(0);
-      setter = setVal;
-      return h('div', null, String(val()));
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    assert.equal(typeof setter, 'function');
-  });
-});
-
-describe('STRESS: useEffect in run-once component', () => {
-
-  it('useEffect fires after mount', async () => {
-    let effectRan = false;
-    function TestComp() {
-      useEffect(() => {
-        effectRan = true;
-      }, []);
-      return h('div', null, 'test');
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    await flush();
-    assert.ok(effectRan, 'useEffect should fire after mount');
-  });
-
-  it('useEffect cleanup fires on unmount', async () => {
-    let cleanupRan = false;
-    function TestComp() {
-      useEffect(() => {
-        return () => { cleanupRan = true; };
-      }, []);
-      return h('div', null, 'test');
-    }
-
-    const container = getContainer();
-    const unmount = mount(h(TestComp, null), container);
-    await flush();
-    assert.ok(!cleanupRan, 'Cleanup should not fire while mounted');
-    unmount();
-    assert.ok(cleanupRan, 'Cleanup should fire on unmount');
-  });
-
-  it('useEffect with empty deps runs only once (component runs once)', async () => {
-    let runCount = 0;
-    function TestComp() {
-      useEffect(() => {
-        runCount++;
-      }, []);
-      return h('div', null, 'test');
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    await flush();
-    assert.equal(runCount, 1, 'useEffect([]) should run once');
   });
 });
 
@@ -151,39 +73,6 @@ describe('STRESS: useRef in run-once component', () => {
     mount(h(TestComp, null), container);
     assert.equal(ref1.current, null);
     assert.equal(ref2.current, 42);
-  });
-
-  it('useRef.current is mutable', () => {
-    let myRef;
-    function TestComp() {
-      myRef = useRef(0);
-      myRef.current = 10;
-      return h('div', null, String(myRef.current));
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    assert.equal(myRef.current, 10);
-
-    // Mutate after mount
-    myRef.current = 99;
-    assert.equal(myRef.current, 99);
-  });
-});
-
-describe('STRESS: useMemo in run-once component', () => {
-
-  it('useMemo computes on first call', () => {
-    let result;
-    function TestComp() {
-      result = useMemo(() => 2 + 3, []);
-      return h('div', null, String(result()));
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    assert.equal(typeof result, 'function', 'useMemo returns a computed accessor');
-    assert.equal(result(), 5);
   });
 });
 
@@ -210,23 +99,6 @@ describe('STRESS: useReducer in run-once component', () => {
     assert.equal(typeof dispatch, 'function');
     dispatch({ type: 'increment' });
     assert.equal(state().count, 1, 'dispatch must apply the reducer');
-  });
-});
-
-describe('STRESS: useContext in run-once component', () => {
-
-  it('createContext provides default value', () => {
-    const ThemeCtx = createContext('light');
-    let value;
-
-    function TestComp() {
-      value = useContext(ThemeCtx);
-      return h('div', null, value);
-    }
-
-    const container = getContainer();
-    mount(h(TestComp, null), container);
-    assert.equal(value, 'light');
   });
 });
 

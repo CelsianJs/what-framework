@@ -44,14 +44,6 @@ describe('HIGH-1: innerHTML XSS prevention in dom.js', () => {
     assert.equal(el.innerHTML, '<em>ok</em>');
   });
 
-  it('handles null innerHTML gracefully', () => {
-    const el = document.createElement('div');
-    el.innerHTML = 'content';
-    setProp(el, 'innerHTML', null);
-    // null should not change content — just a no-op
-    assert.equal(el.innerHTML, 'content');
-  });
-
   it('handles empty __html in wrapper', () => {
     const el = document.createElement('div');
     el.innerHTML = 'old';

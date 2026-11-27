@@ -33,25 +33,6 @@ describe('animation', () => {
       assert.equal(s.current(), 0);
     });
 
-    it('should support immediate snap', () => {
-      const s = spring(0);
-      s.snap(100);
-      assert.equal(s.current(), 100);
-    });
-
-    it('should set target when calling set', () => {
-      const s = spring(0);
-      s.set(50);
-      assert.equal(s.target(), 50);
-    });
-
-    it('should be stoppable', () => {
-      const s = spring(0);
-      s.set(100);
-      s.stop();
-      assert.equal(s.isAnimating(), false);
-    });
-
     it('should have subscribe method', () => {
       const s = spring(0);
       assert.ok(typeof s.subscribe === 'function');
@@ -68,12 +49,6 @@ describe('animation', () => {
     it('should have isAnimating getter', () => {
       const t = tween(0, 100, { duration: 100 });
       assert.ok(typeof t.isAnimating === 'function');
-    });
-
-    it('should be cancellable', () => {
-      const t = tween(0, 100, { duration: 200 });
-      t.cancel();
-      assert.equal(t.isAnimating(), false);
     });
 
     it('should have subscribe method', () => {

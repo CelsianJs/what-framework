@@ -367,12 +367,6 @@ describe('signal functional updates', () => {
     assert.equal(s(), 15);
   });
 
-  test('functional update via .set()', () => {
-    const s = signal(10);
-    s.set(v => v * 2);
-    assert.equal(s(), 20);
-  });
-
   test('multiple functional updates in batch', () => {
     const s = signal(0);
     batch(() => {

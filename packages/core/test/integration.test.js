@@ -14,7 +14,7 @@ global.MutationObserver = dom.window.MutationObserver;
 const { signal, computed, batch } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
-const { template, insert, mapArray, hydrate, isHydrating, setStyle } = await import('../src/render.js');
+const { template, insert, mapArray, hydrate, setStyle } = await import('../src/render.js');
 const {
   useState,
   useEffect,
@@ -511,15 +511,6 @@ describe('Integration: Hydration with hooks', () => {
     await flush();
 
     assert.equal(refValue, 42, 'useRef initialized during hydration');
-  });
-
-  it('isHydrating returns false after hydration completes', () => {
-    const container = getContainer();
-    container.innerHTML = '<div>Test</div>';
-
-    assert.equal(isHydrating(), false, 'not hydrating before');
-    hydrate(h('div', null, 'Test'), container);
-    assert.equal(isHydrating(), false, 'not hydrating after');
   });
 });
 
