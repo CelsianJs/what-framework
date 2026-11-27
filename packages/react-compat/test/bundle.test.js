@@ -346,8 +346,12 @@ test('Vite dev server over installed packages: one engine, every subpath loads, 
     const text = () => page.evaluate(() => ['count', 'bears', 'clicks'].map((id) => document.getElementById(id).textContent));
     assert.deepEqual(await text(), ['0', '0 bears', 'clicks 0']);
     for (const id of ['inc', 'add', 'clicks']) await page.click('#' + id);
-    await page.waitForFunction(() => document.getElementById('clicks').textContent === 'clicks 1', null, { timeout: 10000 });
-    assert.deepEqual(await text(), ['1', '1 bears', 'clicks 1']);
+    // Each click's update lands on its own schedule (a store's subscriber, a
+    // state setter), so wait for all three, not the last one clicked.
+    const after = ['1', '1 bears', 'clicks 1'];
+    await page.waitForFunction((want) => ['count', 'bears', 'clicks'].every((id, i) => document.getElementById(id).textContent === want[i]), after, { timeout: 10000 })
+      .catch(() => {});
+    assert.deepEqual(await text(), after);
 
     // The framework packages are served as source: a pre-bundled
     // what-framework would carry a second what-core.
