@@ -236,8 +236,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   not with its node's: text that something outside What wrote into the node
   stays until the value changes, as in Solid. Hydration starts from the text
   it claimed, so a client value that differs from the server's is still
-  written. *Migration:* render text from state rather than writing into a
-  node What renders. `packages/core/test/text-last-written.test.js`.
+  written. A keyed row's plain field (`{row.label}`, written with no
+  effect) does the same when the row is handed a new item: it keeps the text
+  it wrote last, and touches its node only when the value differs.
+  *Migration:* render text from state rather than writing into a node What
+  renders. `packages/core/test/text-last-written.test.js`,
+  `packages/compiler/test/row-field-last-text.test.js`.
 - **A component that returns one element is that element in the DOM.** No
   `<!--c:start-->` and `<!--c:end-->` comments are put around it, so a list
   row that is a component is one node, as a row written inline is. A
@@ -881,6 +885,31 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   full-stack template, now removed. `npm run smoke:scaffold` lints a
   TypeScript file in each template and checks that an unused local is
   reported. `packages/create-what/test/scaffold-eslint.test.js`.
+- **Hydration reports an attribute it corrects, in development.** Where a
+  claimed element's attribute differs between the server's markup and the
+  client's first write, the client's value is written, as before, and is now
+  reported once the walk is done as an `ERR_HYDRATION_MISMATCH` of kind
+  `attribute`, with the attribute's name, both values, the element's path
+  and the owner (`recovery: 'client-value'`). Compared: a template's static
+  attributes and the ones its bindings own, an `h()` element's props, and any
+  other attribute the server wrote that the client writes again, as written
+  (class tokens in another order, or a URL written otherwise, differ); a
+  boolean attribute present on both sides, the same style declarations, and
+  an empty `class` or text-field value against none are equal. An attribute
+  the client does not write (`data-hk`, a stale one), a custom element's own
+  and what the user changed in a form field are not compared.
+  `onHydrationError` hears the same records as before, in every build, and
+  production carries none of it. `what_fix` takes kind `attribute`. The five
+  server-rendered smoke apps, hydrated in development (18 pages), report
+  nothing. `packages/core/test/hydration-attribute-mismatch.test.js`.
+- **`ERR_SYMBOL_CHILD` (development).** A Symbol given as a child renders
+  nothing, and development now says so (React warns), with the Symbol, the
+  component and the path it was dropped on (`client`, `server` or
+  `hydration`), once for each component and Symbol on each path: compiled
+  JSX (a plain child, a reactive one, a keyed row's field), `h()` children
+  and function children, what-server's string and compiled renderers, and
+  the hydration walk. Production builds carry none of it.
+  `packages/core/test/symbol-child-diagnostic.test.js`.
 
 - **`live(source)`**, a read-only live view of the object an accessor returns:
   `view.name` reads the current value's `name`, through getters What reads as
@@ -1100,7 +1129,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
-  `what-framework/testing`. A catalogue of 78 codes, each with a fix and an
+  `what-framework/testing`. A catalogue of 79 codes, each with a fix and an
   example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
   page, and the `diagnostics.json` and generated `skills/` that ship in
   what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
@@ -1161,7 +1190,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   chained workflows cross back/forward and a reload, the same workspace
   rendered on the server with server-side guards and 40 concurrent visitors,
   and a streamed news site with ISR articles, five islands, 100 concurrent
-  requests and the server's heap across 2,000 requests.
+  requests and the server's heap across 2,000 requests. CI runs it in both
+  browsers. `npm run lint` fails on `no-uncalled-signals` and the three
+  read-once rules in the example apps and sites, and
+  `npm run smoke:workspace-apps` serves sites/showcase through its
+  `serve.js` and drives it.
 
 ### Fixed
 
@@ -1290,6 +1323,45 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   never lowers one** (what-server): it changed only the first, and its
   default of 100 lowered a `load` island.
   `packages/server/test/island-scheduling.test.js`.
+- **`draggable`, `spellcheck` and `contenteditable` write `"true"` and
+  `"false"`** on every path (`h()`, compiled JSX, the server).
+  `draggable={true}` wrote `draggable=""`, which HTML reads as `auto`, so a
+  `<div>` could not be dragged, and `false` removed the attribute, so an
+  inherited spellcheck or contenteditable stayed on.
+  `packages/server/test/markup-rules-parity.test.js`.
+- **`useScheduledEffect(readFn, writeFn)` runs again when a signal `readFn`
+  read changes.** `readFn` ran outside tracking, so the effect never ran a
+  second time. Any number of changes before the next frame make one read, in
+  the frame's read phase, and one write, in its write phase; disposing it,
+  or its owner, cancels a frame still to come. It reads in the first frame,
+  where it took two, and its type carries `readFn`'s result to `writeFn`.
+  `packages/core/test/scheduled-effect.test.js`.
+- **A route guard's re-check no longer replaces a navigation the app started
+  after it** (what-router). Writing a signal the current route's middleware
+  reads and then calling `navigate()` in the same tick (reset a wizard's
+  draft, then go to the project it created; sign out, then go to sign-in)
+  ended on the guard's redirect. The page being left keeps its verdict while
+  a navigation to another page is in flight: a navigation that is cancelled,
+  or that its destination's guard sends back, still gets the redirect, and
+  a guard that re-runs with no navigation in flight redirects at once.
+  `packages/router/test/guard-recheck-supersedes-navigate.test.js`.
+- **`no-uncalled-signals` and `signal-call-in-jsx` leave React state alone**
+  (eslint-plugin-what): `const [open] = useState(false)` imported from
+  `'react'`, Preact or what-react holds a value, and the rules went by the
+  hook's name. Each now reports only a name a What hook or signal declaration
+  made. `packages/eslint-plugin/test/accessor-as-data.test.js`,
+  `packages/eslint-plugin/test/flat-config.test.js`.
+- **`what_lint` answers `{ error, hint }` when the project's ESLint config
+  fails to load** (a config that throws, or names a plugin that is not
+  installed), where it answered the bare error text.
+  `packages/devtools-mcp/test/tools-agent.test.js`.
+- **Examples and sites.** sites/showcase boots (its `serve.js` resolves the
+  framework's imports through the packages' `exports` and `imports` maps,
+  where `#env` failed to resolve) and reads its state the What way, where
+  its clock threw on each tick; what-starter's
+  empty state branches where it renders; react-compat's filter buttons and
+  benchmark cards have keys; the playground's Effects example stops its
+  interval in the effect's cleanup.
 - **Docs.** what-server's ISR wiring example no longer passes `render` to
   `createRequestHandler`, which made `mode: 'server'` routes wait for the
   whole page (first chunk 1,204 ms where it is 26 ms, on a page with a
@@ -2143,8 +2215,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   back**, and only text in an `<option>`, an `<optgroup>` or a `<select>`
   reaches the select code. krausest's update of every 10th row 0.240 ms to
   0.185 ms of script (0.79 of the time, 12 interleaved rounds, every round
-  faster). Size: +39 to +71 B gzip in the compiled scenarios.
-  `packages/core/test/text-last-written.test.js`.
+  faster). Size: +39 to +71 B gzip in the compiled scenarios. A keyed row's
+  plain field compares with the text it wrote last too, so a row handed a new
+  item with the same label neither looks its text node up nor reads it: the
+  partial update of a krausest variant whose rows are immutable items (the
+  label a row field) 0.94 of the script time, 0.87 at 4x CPU throttling (20
+  interleaved rounds; the stock app's labels are regions, which do not take
+  this path). `packages/core/test/text-last-written.test.js`,
+  `packages/compiler/test/row-field-last-text.test.js`.
 - **A keyed list's swap and its removals update its row arrays in place**,
   where every diff past the prefix and suffix scan allocated two arrays of
   the list's length and copied the rows through them. krausest swap 0.91

@@ -385,6 +385,13 @@ are the differences from 0.14.
 - **A Symbol child renders nothing**, as `null` and booleans do, on the
   server, the client and in hydration. 0.14 rendered its text
   (`Symbol(x)`).
+- **`draggable`, `spellcheck` and `contenteditable` given a boolean write
+  `"true"` or `"false"`**, on the server, in compiled JSX and with `h()`.
+  0.14 wrote `draggable=""` for `true`, which HTML reads as `auto` (a
+  `<div>` is not draggable), and removed the attribute for `false`, so an
+  inherited spellcheck or contenteditable stayed on. This affects CSS or
+  code that matched `[draggable=""]` or the attribute's absence: match
+  `"true"` or `"false"`.
 - **A function in a `useEffect` dependency array that is not a signal is
   reported.** A dependency array re-runs the effect for the signals and
   computeds in it. Any other function was, and is, never called (the array
@@ -416,6 +423,13 @@ are the differences from 0.14.
   `style({ '--mainColor': 'red' })` writes `--mainColor`, as the `style` prop
   does, where 0.14 wrote `--main-color`. This affects CSS that matched the
   0.14 output: rename a custom property your stylesheet reads in kebab case.
+- **`useScheduledEffect(readFn, writeFn)` runs again when a signal `readFn`
+  read changes**: once per frame for any number of changes, `readFn` in the
+  frame's read phase and `writeFn` in its write phase. 0.14 ran `readFn`
+  outside tracking, so it ran once and never again. It also reads in the
+  first frame, where 0.14 read in the second. Disposing it, or its owner,
+  cancels a frame still to come. This affects code that relied on it running
+  once: read the values that should not re-run it with `untrack()`.
 - **`FocusTrap` and `useFocusTrap` move focus on every Tab themselves**,
   through the trap's focusable elements (buttons, links with an `href`,
   enabled fields, and elements with a `tabindex` other than `-1`) in
@@ -592,6 +606,15 @@ and navigations that are transitions. Each change below has its migration.
   `navigate()` supersedes its own navigation, and the route it was asked about
   is not prepared. This affects middleware with side effects that expected a
   second call at render.
+- **A guard whose signal changes while the app navigates away decides when
+  that navigation ends.** When the app writes a signal the current route's
+  middleware reads and calls `navigate()` in the same tick (sign out, then go
+  to sign-in), the page being left keeps its verdict while the navigation is
+  in flight, and the app's navigation lands, as in 0.14. If that navigation
+  is cancelled (`beforeNavigate` returns `false`), the guard's redirect then
+  applies, where 0.14 dropped it and stayed on the page the guard now
+  declines. This affects an app that relied on staying there: let the guard
+  allow the page.
 - **The router commits the URL the address bar commits**, dot segments
   resolved (`/old/../find` is `/find`), and splits it as `URL` does (`??a=1`
   is the key `?a`). A path that starts `//` is that path, not another host.
