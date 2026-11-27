@@ -431,10 +431,10 @@ function Benchmarks() {
   // of the nine operations vs vanilla JS (lower is better).
   const benchmarks = [
     { x: '1.00x', lib: 'Vanilla JS', met: 'Baseline (script time)' },
-    { x: '1.37x', lib: 'What', met: 'Script time vs vanilla' },
-    { x: '1.49x', lib: 'Solid 1.9', met: 'Script time vs vanilla' },
-    { x: '1.60x', lib: 'Solid 2.0', met: 'Script time vs vanilla' },
-    { x: '5.50x', lib: 'React 19', met: 'Script time vs vanilla' },
+    { x: '1.42x', lib: 'What', met: 'Script time vs vanilla' },
+    { x: '1.61x', lib: 'Solid 1.9', met: 'Script time vs vanilla' },
+    { x: '1.62x', lib: 'Solid 2.0', met: 'Script time vs vanilla' },
+    { x: '5.68x', lib: 'React 19', met: 'Script time vs vanilla' },
   ];
 
   return (
@@ -443,7 +443,7 @@ function Benchmarks() {
         <div class="reveal" ref={headerRef}>
           <div class="section-label">Performance</div>
           <h2 class="section-title">Signals, Not Diffing.</h2>
-          <p class="section-desc" style="margin: 0 auto;">In our own krausest-style keyed benchmark, What's script time is 1.37x vanilla JS's (geometric mean of nine operations, no CPU throttling, median of 10 samples in headless Chromium), against Solid 1.9 at 1.49x, Solid 2.0 at 1.60x and React 19 at 5.50x in the same harness. Counted to the next frame, with style and layout, all five land between 1.00x and 1.07x of vanilla. This is an internal relative measurement, not the official js-framework-benchmark: fewer samples, in-page timing. Use it for relative ordering only.</p>
+          <p class="section-desc" style="margin: 0 auto;">In our own krausest-style keyed benchmark, What's script time is 1.42x vanilla JS's (geometric mean of nine operations, no CPU throttling, median of 10 samples in headless Chromium), against Solid 1.9 at 1.61x, Solid 2.0 at 1.62x and React 19 at 5.68x in the same harness. Counted to the next frame, with style and layout, all five land between 0.97x and 1.03x of vanilla. This is an internal relative measurement, not the official js-framework-benchmark: fewer samples, in-page timing. Use it for relative ordering only.</p>
         </div>
         <div class="bench-cards stagger" ref={cardsRef}>
           {benchmarks.map(b => (
