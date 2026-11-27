@@ -79,6 +79,12 @@ export function startDrag(e, id) {
   if (e.button !== 0 || drag) return;
   const el = e.currentTarget;
   const list = el.parentElement;
+  // The press is the drag's alone: no text selection or native drag starts
+  // from it (a browser that starts one cancels the pointer, and the release
+  // never comes), and the card holds the pointer, so the release reaches the
+  // window wherever it happens.
+  e.preventDefault();
+  try { el.setPointerCapture(e.pointerId); } catch { /* a pointer the browser no longer tracks */ }
   drag = {
     id,
     el,

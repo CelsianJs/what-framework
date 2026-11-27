@@ -26,11 +26,13 @@ const FRAME_BOUND = 250;
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const ms = (n) => (n < 0 ? 'never' : `${n.toFixed(1)}ms`);
-// The waits that ran out (__awaitPlaced): the event never came, or the card never landed.
+// The waits that ran out (__awaitPlaced): the event never came, the browser
+// cancelled the pointer, or the card never landed.
 const missed = (times) => {
   const silent = times.filter((t) => t === -2).length;
+  const cancelled = times.filter((t) => t === -3).length;
   const unplaced = times.filter((t) => t === -1).length;
-  return silent + unplaced === 0 ? '' : `; no event ${silent}, not placed ${unplaced}`;
+  return silent + cancelled + unplaced === 0 ? '' : `; no event ${silent}, pointer cancelled ${cancelled}, not placed ${unplaced}`;
 };
 
 function mulberry32(seed) {
@@ -82,11 +84,14 @@ const INIT = `
     // from that event until the DOM shows card \`id\` at \`index\` of \`col\`.
     // A timer, not the frames, keeps the five-second deadline, so it answers
     // even when the page stops painting or the event never comes: -1 when the
-    // event came and the card did not land, -2 when the event never came.
+    // event came and the card did not land, -2 when the event never came, -3
+    // when the browser cancelled the pointer instead of releasing it.
     window.__awaitPlaced = (type, id, col, index) => new Promise((resolve) => {
       let t0 = -1;
+      let cancelled = false;
       const placed = () => list(col).children[index]?.dataset.card === id;
-      const deadline = setTimeout(() => resolve(t0 < 0 ? -2 : -1), 5000);
+      const deadline = setTimeout(() => resolve(t0 >= 0 ? -1 : cancelled ? -3 : -2), 5000);
+      if (type === 'pointerup') window.addEventListener('pointercancel', () => { cancelled = true; }, { capture: true, once: true });
       const poll = () => {
         if (!placed()) return requestAnimationFrame(poll);
         clearTimeout(deadline);
