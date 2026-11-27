@@ -1898,6 +1898,9 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     return;
   }
 
+  // --- Fast path: a window that slid (slideRows) ---
+  if (keyFn.length < 2 && slideRows(parent, endMarker, oldItems, newItems, start, oldEnd, newEnd, mappedNodes, disposeFns, newMapped, newDispose, mapFn, keyFn, keyedSignals)) return;
+
   if (small) {
     // --- Fast path B: Single item relocated ---
     // One item removed from position `from` and inserted at position `to`,
@@ -2123,6 +2126,65 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     }
     ref = rowStart;
   }
+}
+
+// A list that slid like a window over a stream: rows dropped at the start
+// and items added at the end (a capped log, a chat), or items added at the
+// start and rows dropped at the end (a newest-first feed). The rows of the
+// middle range that stay hold the same items in the same order, so none
+// moves: the dropped rows are removed and the added items built, with no map
+// of keys and no positioning walk. Returns false, having changed nothing, for
+// any other change, and for one the general path would answer otherwise.
+function slideRows(parent, endMarker, oldItems, newItems, start, oldEnd, newEnd, mappedNodes, disposeFns, newMapped, newDispose, mapFn, keyFn, keyedSignals) {
+  // The kept run starts at `o` in the old range and at `n` in the new one:
+  // one of them is `start`, and the other run reaches its range's end.
+  let o = start;
+  let n = start;
+  while (++o <= oldEnd && oldItems[o] !== newItems[start]);
+  if (o > oldEnd) {
+    o = start;
+    while (++n <= newEnd && newItems[n] !== oldItems[start]);
+    if (n > newEnd) return false;
+  }
+  const late = o > start;
+  if (late !== oldEnd - o < newEnd - n) return false;
+  const kept = Math.min(oldEnd - o, newEnd - n) + 1;
+  for (let j = 1; j < kept; j++) if (oldItems[o + j] !== newItems[n + j]) return false;
+  const dropFrom = late ? start : o + kept;
+  const dropTo = late ? o - 1 : oldEnd;
+  const addFrom = late ? n + kept : start;
+  const addTo = late ? newEnd : n - 1;
+  // A dropped item added again moved: not a slide.
+  for (let i = dropFrom; i <= dropTo; i++) if (oldItems[i] === newItems[addFrom]) return false;
+  // The general path claims old rows for new items by key, in order. It
+  // agrees only when no dropped row's key is in the new range and, with
+  // items added at the start, no added item shares a key with a kept one
+  // (the added item, coming first, would claim that row).
+  const dropped = new Set();
+  for (let i = dropFrom; i <= dropTo; i++) dropped.add(keyFn(oldItems[i], i));
+  const added = late ? null : new Set();
+  for (let i = start; i <= newEnd; i++) {
+    const key = keyFn(newItems[i], i);
+    if (dropped.has(key)) return false;
+    if (added !== null) {
+      if (i < n) added.add(key);
+      else if (added.has(key)) return false;
+    }
+  }
+
+  // The added rows go after the last kept row, or before the first.
+  const ref = late ? (oldEnd + 1 < mappedNodes.length ? mappedNodes[oldEnd + 1] : endMarker) : mappedNodes[start];
+  for (let i = dropFrom; i <= dropTo; i++) removeKeyedRow(parent, endMarker, mappedNodes[i], disposeFns[i]);
+  // newMapped and newDispose hold the prefix and the suffix already.
+  for (let j = 0; j < kept; j++) {
+    newMapped[n + j] = mappedNodes[o + j];
+    newDispose[n + j] = disposeFns[o + j];
+  }
+  for (let i = addFrom; i <= addTo; i++) {
+    parent.insertBefore(buildKeyedRow(endMarker, newItems[i], i, keyedSignals, mapFn, newMapped, newDispose), ref);
+  }
+  _copyBack(mappedNodes, disposeFns, newMapped, newDispose, newItems.length);
+  return true;
 }
 
 function removeKeyedRow(parent, endMarker, start, dispose) {
