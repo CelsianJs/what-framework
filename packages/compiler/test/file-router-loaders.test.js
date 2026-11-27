@@ -84,3 +84,26 @@ describe('codegen', () => {
     assert.deepEqual(imported.routes[0].loader(), { hello: 'world' });
   });
 });
+
+describe('codegen: nested _layout files', () => {
+  it('gives a page every layout above it, outermost first, in both modules', () => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+    write('_layout.jsx', 'export default function Root({ children }) { return children; }');
+    write('org/[orgId]/_layout.jsx', 'export default function Org({ children }) { return children; }');
+    write('org/[orgId]/projects/_layout.jsx', 'export default function Projects({ children }) { return children; }');
+    write('org/[orgId]/members.jsx', 'export default function Members() {}');
+    write('org/[orgId]/projects/[projectId]/issues.jsx', 'export default function Issues() {}');
+    write('about.jsx', 'export default function About() {}');
+    for (const mod of [generateRoutesModule(TMP, TMP), generateServerRoutesModule(TMP, TMP)]) {
+      const vars = {};
+      for (const [, name, file] of mod.matchAll(/import (_layout\d+) from '([^']+)'/g)) vars[file] = name;
+      const root = vars['/_layout.jsx'];
+      const org = vars['/org/[orgId]/_layout.jsx'];
+      const projects = vars['/org/[orgId]/projects/_layout.jsx'];
+      const line = (p) => mod.split('\n').find((l) => l.includes(`path: '${p}'`));
+      assert.ok(line('/org/:orgId/projects/:projectId/issues').includes(`layout: [${root}, ${org}, ${projects}]`), line('/org/:orgId/projects/:projectId/issues'));
+      assert.ok(line('/org/:orgId/members').includes(`layout: [${root}, ${org}]`), line('/org/:orgId/members'));
+      assert.ok(line('/about').includes(`layout: ${root} `), line('/about'));
+    }
+  });
+});
