@@ -5,7 +5,8 @@
 // element, <Suspense>, <ErrorBoundary>, a <Portal>) is made by a vnode
 // producer (h.js), and is adopted by render.js _adoptVNodeKinds (a region's
 // keyed vnode rows by _adoptVNodeRows), which render.js reaches through this
-// module, as h.js installs the vnode renderer through it.
+// module, as h.js installs the vnode renderer through it (and so does
+// render.js's _installVNodeRuntime, what-react's mixed mode's install).
 //
 // Here both are what they name, so a program that hydrates carries the
 // adoption of every kind. In a client build it compiles for hydration,

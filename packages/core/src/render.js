@@ -19,7 +19,10 @@ import { adoptVNodeKinds, adoptVNodeRows } from './vnode-adoption.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
 // package's elements in a program that has none of what-core's: what-react's
 // mixed mode places its elements, and keeps a hole's keyed rows, through it.
-export { _installVNodeRuntime } from './vnode-renderer.js';
+// Installed through vnode-adoption.js, as h.js installs what-core's, so where
+// a build serves that module's stand-in, hydration adopts the vnodes it
+// renders too.
+export { installVNodeRuntime as _installVNodeRuntime } from './vnode-adoption.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
 export { effect, untrack };
 // The eager memo, for compiled output (branch memoization: the compiler emits

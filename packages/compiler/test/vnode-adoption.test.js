@@ -165,4 +165,34 @@ describe('a client built with the stand-in hydrates the vnodes it makes', () => 
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(p.textContent, 'hi 1');
   });
+
+  it('a renderer installed through what-core/render\'s _installVNodeRuntime, as what-react\'s mixed mode installs its own, has its vnodes adopted', async () => {
+    const { h } = await import(pathToFileURL(CORE_INDEX).href);
+    const { renderToString } = await import('../../server/src/index.js');
+    const client = await buildClient(`
+      import { hydrate } from 'what-framework';
+      import { _installVNodeRuntime } from 'what-framework/render';
+      import { VNode } from ${JSON.stringify(path.join(CORE_SRC, 'vnode-renderer.js'))};
+      _installVNodeRuntime((vnode) => document.createElement(vnode.tag), null, (el, key, value) => el.setAttribute(key, value), () => false);
+      const App = () => new VNode('p', { title: 'kept' }, ['made by another renderer'], undefined);
+      globalThis.__mismatches = [];
+      hydrate(<App />, document.getElementById('app'), { onHydrationError: (info) => globalThis.__mismatches.push(info.kind) });
+    `);
+    assert.equal(client.standIns.length, 1, 'the build is served the stand-in');
+    document.body.innerHTML = '<div id="app"></div>';
+    const container = /** @type {HTMLElement} */ (document.getElementById('app'));
+    container.innerHTML = renderToString(h(() => h('p', { title: 'kept' }, 'made by another renderer')));
+    const p = container.firstChild;
+    const errors = [];
+    const originalError = console.error;
+    console.error = (...args) => errors.push(args.map(String).join(' '));
+    try {
+      await import(pathToFileURL(client.file).href);
+    } finally {
+      console.error = originalError;
+    }
+    assert.deepEqual(errors, []);
+    assert.deepEqual(/** @type {any} */ (globalThis).__mismatches, []);
+    assert.equal(container.firstChild, p, 'the server\'s element is kept');
+  });
 });
