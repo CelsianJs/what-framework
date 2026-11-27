@@ -81,6 +81,13 @@ dirties the demo.
 | `newsroom` | buildless server-rendered news site under load | a streamed front page whose first byte beats its slow query, out-of-order Suspense boundaries, query-string pagination, 3,000-word ISR articles that hydrate without creating a node, all five island modes on one page, text typed before hydration surviving it, comments as server actions with and without JavaScript and their tag revalidation, 100 concurrent renders each with only its own content, a level server heap over 2,000 requests |
 | `workspace-ssr` | the workspace's routes, server-rendered (Vite client and `--ssr` builds) and hydrated | middleware redirects that are real 3xx responses, a deep link to a nested route rendered on the server, a layout chain that hydrates onto the server's nodes and stays through client navigation, a wizard reload rendered from the visitor's cookies, 40 concurrent visitors each with their own state |
 
+The buildless apps (`storefront`, `newsroom`, `ops-console`, `scrollytelling`)
+run the framework's development tier in the browser, as `npm run dev` does for
+someone working on them: outside `NODE_ENV=production` their server sets
+`globalThis.__WHAT_DEV__ = true` in the page before the framework loads. So the
+console checks see the development diagnostics, a hydration mismatch report
+among them, and not only what production code logs.
+
 ## Writing a new app
 
 1. Build the app under `smoke/apps/<name>/`. Make it something you would show

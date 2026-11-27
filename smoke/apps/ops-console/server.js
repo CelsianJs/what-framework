@@ -60,13 +60,20 @@ const importMap = {
   },
 };
 
+// A buildless page has no bundler to pick the framework's development build,
+// so outside production the page sets its development flag before the
+// framework loads, as create-what's full-stack template does: the
+// development diagnostics (hydration mismatches among them) reach the
+// browser console. NODE_ENV=production serves the production tier.
+const devFlagScript = process.env.NODE_ENV === 'production' ? '' : '<script>globalThis.__WHAT_DEV__=true</script>';
+
 const sharedHead =
   '<link rel="stylesheet" href="/src/styles.css">' +
   '<link rel="icon" type="image/svg+xml" href="/favicon.svg">';
 
 const hydratedDocument = {
   clientEntry: '/src/entry-client.js',
-  head: `<script type="importmap">${JSON.stringify(importMap)}</script>${sharedHead}`,
+  head: `<script type="importmap">${JSON.stringify(importMap)}</script>${devFlagScript}${sharedHead}`,
 };
 
 // No client entry and no import map: a page that ships zero JavaScript should
