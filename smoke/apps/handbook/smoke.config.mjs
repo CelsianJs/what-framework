@@ -148,6 +148,13 @@ export default {
       await page.click(selector);
       return page.evaluate(() => window.__watched);
     };
+    // The same from the link's own click() in the page: no pointer, so no
+    // hover, and none of the waiting a Playwright click does around it
+    // (about 350 ms a click here), for the walks that make many.
+    const tap = async (selector, want) => {
+      await page.evaluate(([sel, w]) => { window.__watch(w); document.querySelector(sel).click(); }, [selector, want]);
+      return page.evaluate(() => window.__watched);
+    };
     const traverse = async (step, want) => {
       await page.evaluate((w) => window.__watch(w), want);
       await page.evaluate((n) => history.go(n), step);
@@ -255,7 +262,7 @@ export default {
       const revisit = await go('[data-nav="security"]', '[data-chapter-failed]');
       const onRevisit = requested('security') - before;
       await Promise.all([page.waitForEvent('load'), page.click('[data-retry]')]);
-      const retried = await page.waitForSelector(chapterSel('security'), { timeout: 8000 }).then(() => true, () => false);
+      const retried = await page.waitForSelector(chapterSel('security'), { timeout: 5000 }).then(() => true, () => false);
       // A new document: its pages have built nothing yet.
       for (const slug of Object.keys(visits)) delete visits[slug];
       if (retried) visited('security');
@@ -307,7 +314,7 @@ export default {
       for (let w = 0; w < WALKS; w++) {
         const from = requests.length;
         for (const c of walked) {
-          const r = await go(`[data-nav="${c.slug}"]`, chapterSel(c.slug));
+          const r = await tap(`[data-nav="${c.slug}"]`, chapterSel(c.slug));
           visited(c.slug);
           if (w > 0) times.push(r.ms);
         }
