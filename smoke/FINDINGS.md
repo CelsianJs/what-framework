@@ -767,38 +767,41 @@ streaming for the handler's server routes (27).
 
 ### G. A keyed component row whose body reads its item is rebuilt on every replacement
 
-A row component is handed its item as a getter over the row's item cell with
-no field named (`get item() { return _$item(cell); }`), so a read in the
-component's body (`const id = item.id`, kept in the body when a hook or a
-cleanup sits beside it) records the whole item, and any replacement of the
-item under its key rebuilds the row with its state, though API.md and
-GOTCHAS say a body read records the field. chat found it: a pending message
-replaced by the server's echo lost its element. In board, a column written
-`const id = column.id; onCleanup(...)` rebuilt both columns and all 400 of
-their cards on one move between them (the shipped columns read their column
-only in JSX). Repro: `function Row({ item }) { const [on, setOn] =
-useState(false); const id = item.id; return <li data-id={id} onClick={() =>
-setOn(true)}>{on() ? 'on' : item.title}</li>; }` in a keyed `.map()`; click,
-then replace the item with a copy: `on` is back to false. Fixing it means
-telling a body read's field across the component boundary (a compiler
-rewrite of member reads of props, or a recording view handed during the
-build), which changes what a component receives, so it is left for a
-decision. API.md and GOTCHAS now say what happens and how to write a row
-that keeps its nodes (read the item in JSX, pass the fields the body needs
-as props, or pass a `live()` view);
-`packages/compiler/test/row-component-item-reads.test.js` pins the four
-cases.
+Fixed. A row component is handed its item as a getter over the row's item
+cell with no field named (`get item() { return _$item(cell); }`), so a read
+in the component's body (`const id = item.id`, beside a hook or a cleanup)
+recorded the whole item, and any replacement of the item under its key
+rebuilt the row with its state. chat found it (a pending message replaced by
+the server's echo lost its element); in board, a column written `const id =
+column.id; onCleanup(...)` rebuilt both columns and all 400 of their cards on
+one move between them. A member read of a prop in a component's run
+(`props.item.id` or a destructured `item.id` in the body or in a function of
+it, `<Title text={item.title} />` handed to a child) now compiles to
+`_$propField(props, "item", "id")`, which records the field `id` when the
+getter returns the row's item itself, and the whole item when it returns
+something made from it. A read of the whole item (a method call, handing it
+to a function, destructuring it) still rebuilds the row on any replacement,
+as API.md says. `packages/compiler/test/row-component-item-reads.test.js`
+pins the cases.
 
-### H. Recursion depth: a recursive component overflows the stack near 230 levels in Chromium
+### H. Recursion depth: a recursive component overflows the stack near 300 levels in Chromium
 
-Each level of a recursive component costs 21 stack frames while it is built
-(counted with `new Error().stack` in the production build). explorer's
-chain overflows between 200 and 250 levels in Chromium and between 1,200 and
-2,000 in WebKit; the branch then renders nothing and logs `RangeError:
-Maximum call stack size exceeded`, and the rest of the page keeps working.
-File trees and comment threads stay far below; a JSON viewer of a deeply
-nested document does not. explorer pins 101 levels, so a rise in frames per
-level shows.
+Each level of a recursive component holds its frames while the levels below
+it are built. A keyed file tree (a component that renders a keyed list of
+itself behind a condition) held 21 frames a level and overflowed near 210
+levels in Chromium; it now holds 17 (counted with `new Error().stack` in the
+production build): `insert()` starts a reactive child's effect itself, a
+row's callback runs straight from its item scope, and the row of an empty
+list stands on a small reconcileKeyed frame, the general path, with its
+dozens of locals, being a function of its own. Deepest tree that builds:
+Chromium 210 -> 302 levels, WebKit 1,801 -> 2,135, Firefox 350 -> 454. The
+branch that overflows renders nothing and logs `RangeError: Maximum call
+stack size exceeded`; the rest of the page keeps working. File trees and
+comment threads stay far below; a JSON viewer of a deeply nested document
+may not. What is left is a frame per function boundary that does work (the
+component's owner and run, the region's and the list's effects, the row's
+scope, the compiled callbacks). `packages/core/test/recursion-depth.test.js`
+counts frames per level, and explorer pins 101 levels.
 
 ## The load apps: what they measured
 
