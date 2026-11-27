@@ -581,7 +581,11 @@ export const App = () => <Router routes={routes} />;
 - **Revalidation**: the queries a `preload` makes are tagged with the route's
   path, so `invalidatePath(path)` (a server action's `revalidate`) refetches
   the route data, inside the action's transition. (`navigation-transition.test.js`,
-  "invalidatePath(path) refetches the route data")
+  "invalidatePath(path) refetches the route data") With a router, that path
+  and the path of every query a page reads are the page's path as the app
+  writes it: without the base path and without a trailing slash, so
+  `invalidatePath('/users')` reaches the page at `/app/users/`.
+  (`base-path-data.test.js`)
 
 ## Response status, headers and redirects from the render tree
 

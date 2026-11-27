@@ -334,6 +334,13 @@ function withoutSlash(path) {
   return path.replace(/([^/])\/+$/, '$1');
 }
 
+// A URL's path as routes match it, without a trailing slash: what a link is
+// active for, and the path the data a page reads is on (what-core/data),
+// which invalidatePath() and a server action's `revalidate` name.
+function routePath(url) {
+  return withoutSlash(pathOf(url));
+}
+
 function noop() {}
 
 // A lazy() component's chunk, loading, or null once loaded: what-core's
@@ -460,7 +467,7 @@ function load(prep, r, params, path, query) {
     // the error instead (see PreloadFailed). One that returns a promise
     // that rejects gives the page that promise, to show when it reads it.
     try {
-      prep.data = _tagQueries(path, () => r.preload({ params, query, url: prep.url }));
+      prep.data = _tagQueries(withoutSlash(path), () => r.preload({ params, query, url: prep.url }));
     } catch (err) {
       prep.failed = true;
       prep.error = err;
@@ -661,7 +668,7 @@ export async function navigate(to, opts = {}) {
       if (t !== null) {
         committing = true;
         _onCommit(t, () => queueMicrotask(() => {
-          landed = _pathLoaded(pathOf(href)).then(() => {
+          landed = _pathLoaded(routePath(href)).then(() => {
             if (nav === _navigation) _navigating.set(false);
           });
         }));
@@ -875,6 +882,9 @@ let _listening = false;
 function listenToHistory() {
   if (_listening || typeof window === 'undefined') return;
   _listening = true;
+  // A query a page reads is on the page's path as route data is
+  // (what-core/data reads it under this key).
+  /** @type {any} */ (globalThis)[Symbol.for('what.router.path.v1')] = () => routePath(_url.peek());
   window.addEventListener('popstate', () => {
     // Save scroll position for the URL we're leaving
     scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
@@ -1379,7 +1389,7 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   const relative = RELATIVE.test(safeHref);
   const pathTo = () => {
     const target = resolveHref(safeHref);
-    return target === null ? null : withoutSlash(pathOf(target));
+    return target === null ? null : routePath(target);
   };
   const fixedPath = relative ? null : pathTo();
 

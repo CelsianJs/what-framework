@@ -612,6 +612,12 @@ function dropEntry(e) {
 
 let pathTag = /** @type {string | null} */ (null);
 
+// The path of the page a query is read on outside route data: what-router's,
+// which it registers under this key once it is in use (the page's path as
+// the app writes it, without the base, as route data is), else the address
+// bar's.
+const PAGE_PATH = Symbol.for('what.router.path.v1');
+
 /**
  * @internal Run `fn` and tag the entries its observers read with `path`, so
  * invalidatePath(path) reaches them (the router's route data).
@@ -659,7 +665,7 @@ function acquire(e, o) {
   e.src = o;
   e.conf = o.conf;
   e.key = o.key;
-  const path = o.path ?? (typeof location !== 'undefined' ? location.pathname : null);
+  const path = o.path ?? /** @type {any} */ (globalThis)[PAGE_PATH]?.() ?? (typeof location !== 'undefined' ? location.pathname : null);
   if (path != null) (e.paths || (e.paths = new Set())).add(path);
 }
 

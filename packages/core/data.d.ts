@@ -256,8 +256,9 @@ export function invalidateQueries(
  * The client side of a revalidated path: the entries read on `path` (a
  * route's preload data, and every query read while the page was at that
  * path) are invalidated, and the onRevalidate callbacks for it run. A server
- * action with `revalidate: [path]` calls it. Resolves once the refetches have
- * landed.
+ * action with `revalidate: [path]` calls it. With what-router, a page's path
+ * is as the app writes it, without the base path and a trailing slash.
+ * Resolves once the refetches have landed.
  */
 export function invalidatePath(path: string): Promise<void>;
 
