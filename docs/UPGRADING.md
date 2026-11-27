@@ -703,7 +703,10 @@ and navigations that are transitions. Each change below has its migration.
 - **`navigate()` to another origin or scheme leaves the page**, as a
   `<Link>` to one does: `location.assign`, or `location.replace` with
   `{ replace: true }`, and no guard runs. Middleware and `redirect()` to
-  another origin replace the entry. 0.14 did nothing.
+  another origin replace the entry, and in a server render they answer a
+  `Location` to it. 0.14 did nothing. A URL that carries credentials
+  (`https://trusted.example@evil.example`) is refused in the browser as on
+  the server, a `<Link>` to one included.
 - **Hovering a `<Link>` downloads the `lazy()` chunk of the route it goes
   to**, as `prefetch(href)` and `prefetchRoute(href)` do, beside the
   `<link rel="prefetch">` they add; a route behind middleware is left for the
@@ -937,8 +940,11 @@ The [what-server README](../packages/server/README.md) documents each of these.
   `getResponse()` from `what-framework`. `response.redirect(path, status =
   302)` takes a same-origin path only, so it is safe to hand request data;
   leaving the site is `response.redirectExternal(url, status)`, for an
-  absolute `http:` or `https:` URL. A target that either method refuses
-  redirects to `/` instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
+  absolute `http:`, `https:`, `mailto:` or `tel:` URL. Below a `basePath` the
+  path is the app's: `redirect('/login')` answers `/app/login`, so a target
+  that already names the base (`/app/login`) answers `/app/app/login`; drop
+  the base from it. A target that either method refuses redirects to the
+  app's root instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
   Under a `<Router>`, a `redirect()` thrown from a component body, route
   middleware that redirects (a path, or `redirect()`), `<Redirect>` and a
   `guard()` path fallback redirect the render's response. To redirect from a
@@ -1004,7 +1010,9 @@ The [what-server README](../packages/server/README.md) documents each of these.
   a page that sets any status but 200 is not written, since a static host
   cannot send it, and is listed in `skipped`, with a warning. This affects
   build scripts that read the result. Read `result.pages`, and check
-  `result.skipped`
+  `result.skipped`. Each page renders at the URL its file is served at,
+  `/about/` for `about/index.html`, so `route.path` reads `/about/` there as
+  it does in the browser
   ([Static export](../packages/server/README.md#static-export-any-cdn-nginx-s3-github-pages-netlify)).
 
 ### The compiler
@@ -1240,8 +1248,8 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9609 B |
-| The create-what counter, runtime JSX | 6702 B | 9633 B |
+| A counter written with `h()` | 6601 B | 9654 B |
+| The create-what counter, runtime JSX | 6702 B | 9680 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
 
 The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
@@ -1252,7 +1260,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3836 B, for the new engine, the engine hooks async
+counter still grows by 3881 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1272,7 +1280,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 17177 B, more than twice the same app mounted without
+  hydrating counter is 17206 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each

@@ -1271,6 +1271,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   read-once rules in the example apps and sites, and
   `npm run smoke:workspace-apps` serves sites/showcase through its
   `serve.js` and drives it.
+- **`ERR_ISLAND_WITHOUT_NAME`** (development only): a hand-written
+  `h(_$Island, { component })` without `name` is named after the
+  component's runtime name, which a minified build renames, so the server's
+  `data-island` and the browser's differ. Compiled `client:*` islands always
+  carry one.
+- **`createCacheEngine({ basePath })`** (what-isr), the base a CDN purge and
+  a regeneration with no request render below; `createRequestHandler` hands
+  its `basePath` to an engine with none. Cloudflare's purge adapter takes
+  `baseUrl`.
 
 ### Fixed
 
@@ -2242,6 +2251,92 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **A React island rendered on the server reads a What context with
   `useContext`**, so it hydrates without a mismatch, and `use(context)` reads
   one too (what-react).
+- **A redirect path is the app's, answered below the base by the response
+  alone** (what-server, what-router): under `basePath: '/app'`, a loader's
+  `response.redirect('/login')` and a component's
+  `getResponse().redirect('/login')` answer `Location: /app/login`, as a
+  server action's and what-router's `redirect()` do. The response adds the
+  base once for every caller (a loader redirecting to `/app/x` answers
+  `/app/app/x`), an action's `X-What-Redirect` carries the URL below the
+  base as its 303 does, and a refused target goes to the app's root.
+  `packages/server/test/request-handler-base-path.test.js`.
+- **A server-rendered app below a base needs no `setBase` on the server**
+  (what-server, what-router): `createRequestHandler({ basePath })` and
+  `exportStatic({ basePath })` give what-router their base for each render
+  when the app set none of its own (Vite's, or `setBase`, `setBase('')`
+  included). Without it, a server build that kept what-router external
+  rendered the fallback and links without the base while the browser showed
+  the page. Two handlers with different bases in one process each render
+  their own. `packages/server/test/base-path-router-default.test.js`.
+- **A server render's redirect off the site follows the browser's rule**
+  (what-router, what-server): `redirect()`, `navigate()` and a middleware
+  verdict to an `http(s)`, `mailto:` or `tel:` URL of another origin answer a
+  `Location` there, as they leave the page in the browser; the server sent
+  the visitor to `/` instead. `response.redirectExternal()` takes `mailto:`
+  and `tel:`. An unsafe target is refused on both sides with its code, and
+  a URL with credentials (`https://trusted.example@evil.example`) is refused
+  in the browser as on the server. `packages/router/test/server-redirect-external.test.js`.
+- **A CDN purge names the page's URL below the base** (what-isr,
+  what-server): `revalidatePath('/x')` under `basePath: '/app'` purged `/x`.
+  `createCacheEngine({ basePath })` sets an engine's base, and
+  `createRequestHandler` hands its own to an engine with none. Fastly's
+  `baseUrl` keeps its path (`https://example.com/app`), and Cloudflare takes
+  a `baseUrl` for the absolute URLs its API needs. `packages/cache/test/cdn.test.js`.
+- **A base written `'app'`, `'app/'` or `'/app/'` is `/app`** in `setBase`,
+  `createRequestHandler` and `exportStatic`, and `''` or `'/'` is none.
+  Without the leading slash the server bypassed the cache for every request
+  and answered a relative 303 `Location`, and the router used no base.
+- **`exportStatic` renders a page at the URL its file is served at**:
+  `/about/` for `about/index.html`, as a static host serves it, so
+  `route.path` and relative links agree with hydration (the export rendered
+  `/about`, and hydration reported the difference).
+  `packages/server/test/static-export-trailing-slash.test.js`.
+- **A fragment or query navigation at the base itself keeps the path the
+  address bar shows** (what-router): at `/app`, `navigate('#x')`,
+  `navigate('?q=1')`, `<Link href="#x">` and `<Link href="?q=1">` wrote
+  `/app/#x` and `/app/?q=1`, so relative URLs resolved differently after.
+- **A percent escape matches a route in either case** (what-router): a URL
+  written `/caf%c3%a9` matches the route `/café`, on the client, on a server
+  and in a static export, and its param still reads `café`.
+  `packages/router/test/match.test.js`.
+- **A `lazy()` component whose hover prefetch failed downloads again on its
+  first render**, wherever it renders: a failure is kept only for a download
+  a render or a navigation waited on. `packages/router/test/lazy-route-retry.test.js`.
+- **`ERR_PROP_READ_ONCE` no longer reports a value a keyed row component
+  derives from a field of its item** (`const label = item.title.toUpperCase()`),
+  which the row rebuilds when the field changes. In Vite dev the page
+  reports that shape where the component renders outside such a row.
+- **In Vite dev, stack traces and the diagnostics located from them name the
+  line of the `.jsx` source**, and development locations name the column
+  written: the compiler keeps each statement on its source line, and Vite's
+  own transformer, which had nothing to do for a `.jsx` file, no longer
+  reprints it first (an app's own `oxc.exclude` or `esbuild.exclude` is
+  kept). Measured: a diagnostic at source line 14 read 23, a throw at line 6
+  read 14. A `.tsx` file still goes through the transformer for its types.
+  `packages/compiler/test/vite-dev-locations.test.js`.
+- **A value that renders nothing where the server's text starts no longer
+  reports a false `ERR_HYDRATION_MISMATCH`** or rebuilds the text after it
+  (`<p>{props.icon}{props.label}</p>` with no icon, `{props.prefix}static
+  text` with an empty prefix): what the next part reads decides whose text
+  it is. A value the server did render is still reported, with only its own
+  text, and removed. `packages/core/test/hydration-reuse.test.js`.
+- **A live prop that renders nothing no longer takes the markers of the
+  reactive child after it** (`<p>{props.icon}{count()}</p>`), which reported
+  extra and missing nodes and rebuilt the child.
+- **A keyed list rendered with `h()` moves its rows with `moveBefore`**
+  where the browser has it, as compiled lists do, so a field being edited in
+  a moved row keeps the focus and caret (Chromium, Firefox).
+  `packages/core/test/reconcile-move-keeps-focus.test.js`.
+- **`what-core/render`'s `_installVNodeRuntime` (what-react's mixed mode)
+  installs vnode adoption** in a client compiled for hydration, as `h()`
+  does.
+- **A form field named `constructor`, `toString` or `valueOf` registers,
+  edits, validates, resets and submits like any other name**: its first edit
+  threw `getFieldSignal(...).set is not a function`, its default read as
+  `Object`, and a zod or yup issue on it became a root error. The form's
+  maps have no prototype, and a path reads each segment as the object's own
+  entry. A field named `__proto__` still writes nothing.
+  `packages/core/test/form-prototype-names.test.js`.
 - **what-router and what-server errors thrown with a catalogue code read
   `[what] ERR_…` and the fix line in development**, as what-core's do;
   production keeps the `[what-router]` and `[what-server]` text.
@@ -2412,6 +2507,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **useForm is 166 B smaller with the same behaviour, and a field array's
+  values read about twice as fast.** The hooks app measured by
+  `check:size` went from 16,530 B to 16,401 B gzip, the fix for fields named
+  `constructor` included: field arrays install the lookups they need when
+  `useFieldArray` is called, one map holds every field signal, and a field's
+  ref uses render.js's. A keystroke plus a full values read with 1,000 items
+  of 5 fields went from about 3.3 ms to 1.7 ms (jsdom, interleaved runs): a
+  field's name in an array is kept until the array gets new items.
 - **what-react carries only what an app uses.** Measured by `npm run
   check:size` (Node 22.13.1) against 90c91c40: a React counter on what-react
   22,160 B to 16,175 B gzip (React 19.3.1 ships 67,599 B for it); a native
