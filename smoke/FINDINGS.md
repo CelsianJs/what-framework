@@ -23,8 +23,10 @@ Three waves, in this order.
   keyed log fed by a server stream that drops) and `board` (cards dragged
   between keyed lists). Four are in `useForm`, which no app had used at more
   than a handful of fields; one is the cost of every update to a capped log.
-- **35** came from `handbook`, an app of code-split routes whose chunks the
-  check delays, fails and overtakes, and from running every app in Firefox.
+- **35 to 37** came from two apps with loads the suite lacked: `handbook`
+  (code-split routes whose chunks the check delays, fails and overtakes) and
+  `pulse` (something moving every frame, with the frame loops counted), and
+  from running every app in Firefox.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -719,6 +721,36 @@ chunk is requested on hover and the click shows the page in 5 to 23 ms
 - Test: `packages/router/test/lazy-route-prefetch.test.js` (3 of 4 fail
   before).
 
+### 36. `useAnimatedValue` ran every animation it was asked for at once
+`packages/core/src/animation.js` (`useAnimatedValue`)
+
+Each `spring()` or `timing()` started a frame loop and left the one before
+running, so the loops took turns writing the value and the older target
+could win (a spring to 0 started while one to 100 moved ended at 100, in a
+unit test). The spring's effect was never disposed, and an animation started
+from an event handler had no owner, so a component that unmounted left its
+loop running. pulse re-aimed its gauge needle twice while it moved: 3
+spring loops ran at once. One animation is in flight now: starting one
+stops the one before, and each runs in a root of its own, disposed when it
+settles, completes or is stopped, or when the owner goes away. After: one
+loop while the needle moves, none once it rests on the last reading.
+- Test: `packages/core/test/animation-interrupt.test.js` (3 of 4 fail
+  before).
+
+### 37. `useTween().start()` ran on beside the run it replaced
+`packages/core/src/animation.js` (`useTween`)
+
+`start()` began a frame loop and left the one before running: both wrote
+the progress each frame, `isTransitioning` went false when the first loop
+ended while the second still ran, and the first start's callback ran
+although a newer start had replaced it. The loop also ran on after its
+component unmounted. pulse's refresh ring, pressed three times 200 ms
+apart, went backwards, stopped saying it was busy while it filled, and
+reported 3 refreshes for one fill. `start()` now stops the run in flight
+(its promise resolves, its callback does not run), and the owner going
+away stops it.
+- Test: `packages/core/test/tween-restart.test.js` (3 of 3 fail before).
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -917,6 +949,19 @@ from the click event to the mutation that shows the page:
 | a chunk that fails: the route's error page, then the next link | no uncaught error | 32 / 17 / 11 ms; 52 / 15 / 17 ms |
 | back three, forward three through loaded chapters | 150 ms each, no request | 1–8 ms, 0 requests |
 | 24 navigations between loaded chapters | 150 ms (95th percentile) | 20 / 18 / 11 ms |
+
+### Motion
+
+`pulse` (Chromium / WebKit / Firefox), frames measured in the page:
+
+| measure | bound | measured |
+|---|---|---|
+| SVG chart redrawn every frame for 2 s: frames, nodes kept | every node kept, none created | 121 / 117 / 120 frames, 27 of 27 kept |
+| its 99th-percentile frame | 100 ms | 17 / 34 / 17 ms |
+| threshold dragged and let go | settles on the drop, no loop left | 170 ms of 170, 1 loop (the chart's) |
+| needle re-aimed twice mid-spring | ends on the last reading, one loop | 70 of 70; 2 loops while moving (3 springs before 36) |
+| ring restarted twice mid-fill | one fill from 0, one refresh | 1 / 1 (went back, 3 refreshes before 37) |
+| panel closed mid-spring 40 times; 150 alerts in and out | nothing left | 0 nodes, components, timers, extra loops |
 
 ## Browsers
 
