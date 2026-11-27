@@ -175,7 +175,7 @@ export function _trackRoot(container, dispose) {
 
 export function createDOM(vnode, parent, isSvg) {
   // Null/false/true → placeholder comment (preserves child indices for reconciliation)
-  if (vnode == null || vnode === false || vnode === true || typeof vnode === 'symbol') {
+  if (vnode == null || typeof vnode === 'boolean' || typeof vnode === 'symbol') {
     if (__DEV__ && typeof vnode === 'symbol') _symbolChild(vnode, 'client');
     return document.createComment('');
   }
