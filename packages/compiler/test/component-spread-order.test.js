@@ -260,7 +260,7 @@ describe('island spread ordering', () => {
     const { props, host } = await islandPropsSeenBy(
       `<Chart client:load {...{ mode: 'static', component: 'x', name: 'n', mediaQuery: 'q' }} />`
     );
-    // The island hydrated Chart on its directive's trigger, under Chart's
+    // The island hydrated Chart on its directive's trigger, under its tag's
     // name, and Chart got every key of the spread.
     const island = host.querySelector('[data-island]');
     assert.equal(island.getAttribute('data-island'), 'Chart');

@@ -959,13 +959,18 @@ the tag's source name and could pass it.
   `h(Island, …)` trees; it is a change across three packages, left for a
   decision.
 
-Fixed in round 8. Both targets compile an island to `{ component, mode,
-mediaQuery, props }`: the caller's props are an object of their own, so any
-name reaches the component. Called by hand without `props`, `_$Island` still
-takes every other key as a prop. mixed-desk's ticket takes a `mode` prop
-now, which before the fix it showed on neither side.
-`packages/compiler/test/island-props.test.js` (both targets) and the islands
-arms of `lowering-parity-fuzz.test.js` fail before.
+Fixed in round 8. Both targets compile an island to `{ component, name,
+mode, mediaQuery, props }`: the caller's props are an object of their own,
+so any name reaches the component, and `name` is the tag as written
+(`"Ticket"`, `"ui.Card"`), which the minified client build keeps. Called by
+hand without `props`, `_$Island` still takes every other key as a prop.
+mixed-desk's ticket takes a `mode` prop now, and its check reads the
+island's name before and after hydration: in Chromium, before the fix,
+`Ticket` became `Sb` (one attribute rewrite) and the ticket showed no mode
+on either side; after it, `Ticket` stays and both sides show `limit`.
+`packages/compiler/test/island-props.test.js` (both targets, and a client
+build whose function is renamed hydrating the server's island) and the
+islands arms of `lowering-parity-fuzz.test.js` fail before.
 
 ### A. The runtime path has no keyed reconciliation at all
 `packages/core/src/dom.js`

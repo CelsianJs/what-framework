@@ -134,6 +134,7 @@ export interface IslandProps {
   component: Component<any>;
   mode: 'load' | 'idle' | 'visible' | 'interaction' | 'media' | 'action' | 'static';
   mediaQuery?: string;
+  /** The island's data-island; the component function's name when left out. */
   name?: string;
   /** The component's props. Without it, every other key is a prop. */
   props?: Record<string, any>;
@@ -142,7 +143,7 @@ export interface IslandProps {
 
 /**
  * What `<Counter client:idle start={1} />` compiles to:
- * `h(_$Island, { component: Counter, mode: 'idle', props: { start: 1 } })`,
+ * `h(_$Island, { component: Counter, name: 'Counter', mode: 'idle', props: { start: 1 } })`,
  * an island that hydrates itself when its trigger fires (`mode`). The public
  * island component, which hydrates through the island registry, is
  * what-framework/server's Island.

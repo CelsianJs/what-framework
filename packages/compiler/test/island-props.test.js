@@ -4,7 +4,8 @@
 // than serialized as an empty object. `client:media` takes its query from an
 // expression as well as from a string. The island's options travel apart from
 // the component's props, so a prop may be called `name`, `mode`, `mediaQuery`
-// or `component`.
+// or `component`; and the island is named by its tag as written, which a
+// minified client build keeps, so hydration finds the server's name.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ import { compileJSX } from '../../../test-utils/compile.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
 import { installDOM } from '../../../test-utils/dom.js';
 
-installDOM();
+const { dom } = installDOM();
 
 const TARGETS = ['dom', 'ssr'];
 const compile = (source, generate) => compileJSX(source, { filename: '/app/src/Page.jsx', pluginOptions: { generate } });
@@ -70,7 +71,7 @@ describe('islands: props named like the island\'s options', () => {
     globalThis.__optionCard = function Card(props) { return `${props.name}|${props.mode}|${props.component}|${props.mediaQuery}|${props.title}`; };
     const mod = await loadCompiled(card, { pluginOptions: { generate: 'ssr' } });
     const html = renderToString(mod.page());
-    assert.match(html, /data-island-mode="media"/);
+    assert.match(html, /data-island="Card" data-island-mode="media"/);
     assert.match(html, />Ada\|dark\|fieldset\|print\|t</);
   });
 
@@ -89,6 +90,55 @@ describe('islands: props named like the island\'s options', () => {
       assert.deepEqual([seen[0].name, seen[0].mode, seen[0].component, seen[0].mediaQuery, seen[0].title], ['Ada', 'dark', 'fieldset', 'print', 't']);
       assert.equal(host.querySelector('[data-island]').getAttribute('data-island-mode'), 'media');
     } finally {
+      host.remove();
+    }
+  });
+});
+
+describe('islands: named by the tag as written', () => {
+  // `function bb` is what a minifier leaves of `function Ticket`.
+  const ticket = (fn, extra = '') => `${extra}
+    const Ticket = function ${fn}(props) { return <b>{props.symbol}</b>; };
+    const ui = { Card: function cc() { return <i>card</i>; } };
+    export const Page = () => <main><Ticket client:load symbol="ACME" /><ui.Card client:idle /></main>;`;
+
+  for (const generate of TARGETS) {
+    it(`${generate}: data-island is the tag, whatever the function is called`, async () => {
+      let html;
+      if (generate === 'ssr') {
+        const { renderToString } = await import('../../server/src/index.js');
+        const { h } = await import('what-framework');
+        html = renderToString(h((await loadCompiled(ticket('bb'), { pluginOptions: { generate } })).Page, {}));
+      } else {
+        html = (await loadCompiled(ticket('bb'))).Page().outerHTML;
+      }
+      assert.deepEqual([...html.matchAll(/data-island="([^"]*)"/g)].map((m) => m[1]), ['Ticket', 'ui.Card']);
+    });
+  }
+
+  it('a client build whose function was renamed hydrates the server\'s island without rewriting its attributes', async () => {
+    const { renderToString } = await import('../../server/src/index.js');
+    const { h } = await import('what-framework');
+    const server = await loadCompiled(ticket('Ticket'), { pluginOptions: { generate: 'ssr' } });
+    const client = await loadCompiled(ticket('bb', "import { hydrate } from 'what-framework'; export const run = (el, onHydrationError) => hydrate(<Page />, el, { onHydrationError });"), { pluginOptions: { hydratable: true } });
+    const host = document.createElement('div');
+    host.innerHTML = renderToString(h(server.Page, {}));
+    document.body.appendChild(host);
+    const changed = [];
+    const observer = new dom.window.MutationObserver((records) => { for (const r of records) changed.push(r.attributeName); });
+    observer.observe(host, { attributes: true, subtree: true });
+    const mismatches = [];
+    try {
+      const b = host.querySelector('b');
+      client.run(host, (m) => mismatches.push(m));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const r of observer.takeRecords()) changed.push(r.attributeName);
+      assert.deepEqual(mismatches, []);
+      assert.equal(host.querySelector('b'), b, 'the island adopted the server\'s nodes');
+      assert.ok(!changed.includes('data-island') && !changed.includes('data-island-mode'), `rewritten: ${changed.join(', ')}`);
+      assert.deepEqual([...host.querySelectorAll('[data-island]')].map((el) => el.getAttribute('data-island')), ['Ticket', 'ui.Card']);
+    } finally {
+      observer.disconnect();
       host.remove();
     }
   });

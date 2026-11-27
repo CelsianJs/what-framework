@@ -123,6 +123,7 @@ const a = _$ssrComponent(Suspense, {
 import { ssrIsland as _$ssrIsland } from "what-framework/ssr-runtime";
 const a = _$ssrIsland({
   component: Counter,
+  name: "Counter",
   mode: "idle",
   props: {
     start: 1

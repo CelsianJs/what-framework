@@ -567,13 +567,13 @@ function emitH(spec) {
       return `h(${spec.comp}, {__proto__: null${props ? ', ' : ''}${props}}${kids ? `, ${kids}` : ''})`;
     }
     // An island IS a component: the directive only decides WHEN it hydrates.
-    // `component` and `mode` come from the tag and the directive, and
+    // `component`, `name` and `mode` come from the tag and the directive, and
     // the caller's props are an object of their own beside them, so a prop
     // called `mode` or `component`, written or spread, is the component's.
     case 'island': {
       const props = emitPropsH(spec.items);
       const kids = spec.children.map(emitH).join(', ');
-      const island = `{"component": Chart, "mode": "load", "props": {${props}}}`;
+      const island = `{"component": Chart, "name": "Chart", "mode": "load", "props": {${props}}}`;
       return `h(Island, ${island}${kids ? `, ${kids}` : ''})`;
     }
     default: {

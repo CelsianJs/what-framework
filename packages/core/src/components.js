@@ -589,13 +589,14 @@ export const Match = /* @__PURE__ */ lowered(function Match(props) {
 // Islands architecture: the content ships as server-rendered HTML and only the
 // *interactivity* is deferred to a client trigger. The babel plugin compiles
 // `<Counter client:idle start={1} />` into
-// h(_$Island, { component: Counter, mode: 'idle', props: { start: 1 } }),
+// h(_$Island, { component: Counter, name: 'Counter', mode: 'idle', props: { start: 1 } }),
 // importing it from what-framework/render: the island's options and the
 // component's props are two objects, so a prop called `name`, `mode`,
-// `mediaQuery` or `component` reaches the component. Called without `props`,
-// every key that is not an option is a prop. The public island component,
-// which hydrates through the island registry, is what-framework/server's
-// Island.
+// `mediaQuery` or `component` reaches the component, and the name is the tag
+// as written, which a minifier leaves alone (the function's own name is the
+// fallback). Called without `props`, every key that is not an option is a
+// prop. The public island component, which hydrates through the island
+// registry, is what-framework/server's Island.
 
 // Island props cross the server/client boundary as JSON, so anything that is not
 // representable is dropped rather than throwing mid-render. Functions in

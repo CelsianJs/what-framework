@@ -669,11 +669,20 @@ async function hydrationChecks(browser, base, { check, reporter }) {
         new MutationObserver((records) => {
           for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1) window.__created += 1 + n.getElementsByTagName('*').length;
         }).observe(root, { childList: true, subtree: true });
+        // The island's name and trigger, as the server wrote them, are what
+        // the minified client build writes too: hydration rewrites neither.
+        const island = root.querySelector('[data-ticket]')?.parentElement;
+        window.__islandRewrites = 0;
+        if (island) {
+          new MutationObserver((records) => { window.__islandRewrites += records.length; })
+            .observe(island, { attributes: true, attributeFilter: ['data-island', 'data-island-mode'] });
+        }
         return {
           form: !!window.__server.form,
           label: root.querySelector('[data-qr-label]')?.getAttribute('for'),
           id: window.__server.input?.id,
-          island: root.querySelector('[data-ticket]')?.parentElement.getAttribute('data-island-mode'),
+          island: island?.getAttribute('data-island-mode'),
+          islandName: island?.getAttribute('data-island'),
           islandSize: window.__server.size?.textContent,
           ticketMode: root.querySelector('[data-ticket-mode]')?.textContent,
         };
@@ -683,8 +692,7 @@ async function hydrationChecks(browser, base, { check, reporter }) {
       await page.click('[data-qr-size]');
       await page.keyboard.type('250');
       await page.evaluate(() => window.__hydrate());
-      // The island element is the ticket's parent (its data-island names the
-      // component, which a minified client build renames).
+      // The island element is the ticket's parent.
       await page.waitForFunction(() => window.__hydrated === true && document.querySelector('[data-ticket]').parentElement.hasAttribute('data-island-hydrated'));
       await sleep(100);
       const after = await page.evaluate(() => {
@@ -703,6 +711,8 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           sameNote: root.querySelector('[data-ticket-note]') === window.__server.note,
           sameSize: root.querySelector('[data-step-size]') === window.__server.size,
           note: root.querySelector('[data-ticket-note]').value,
+          islandName: root.querySelector('[data-ticket]').parentElement.getAttribute('data-island'),
+          islandRewrites: window.__islandRewrites,
           ticketMode: root.querySelector('[data-ticket-mode]').textContent,
         };
       });
@@ -733,9 +743,10 @@ async function hydrationChecks(browser, base, { check, reporter }) {
       check('react:island-hydration',
         server.island === 'load' && server.islandSize === '500' && after.sameNote && after.sameSize && after.note === 'urgent'
           && ticket.size === '700' && ticket.fills === '700'
+          && server.islandName === 'Ticket' && after.islandName === 'Ticket' && after.islandRewrites === 0
           && server.ticketMode === 'limit' && after.ticketMode === 'limit',
-        'a client:load island (a native ticket hosting a React stepper) is rendered on the server, hydrates onto its nodes keeping a note typed before, and its React state and callback work; its prop called `mode` reaches it on both sides',
-        `mode=${server.island} prop-mode ${server.ticketMode}->${after.ticketMode} server-size=${server.islandSize} same-note=${after.sameNote} same-size=${after.sameSize} note="${after.note}" size=${ticket.size} fills=${ticket.fills}`);
+        'a client:load island (a native ticket hosting a React stepper) is rendered on the server, hydrates onto its nodes keeping a note typed before, and its React state and callback work; it keeps the name the server gave it (the minified client build writes the same), and its prop called `mode` reaches it on both sides',
+        `mode=${server.island} name ${server.islandName}->${after.islandName} rewrites=${after.islandRewrites} prop-mode ${server.ticketMode}->${after.ticketMode} server-size=${server.islandSize} same-note=${after.sameNote} same-size=${after.sameSize} note="${after.note}" size=${ticket.size} fills=${ticket.fills}`);
     }, { context });
   } finally {
     await context.close();

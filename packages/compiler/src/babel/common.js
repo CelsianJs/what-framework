@@ -492,12 +492,15 @@ export function componentCallee(name) {
 }
 
 // What a `client:*` island hands _$Island (what-core components.js), on both
-// targets: the component, the trigger and its media query, and the
-// component's props as an object of their own (`props`, left out when there
-// are none), so a prop may have any name, `name` and `mode` included.
+// targets: the component, the island's name, the trigger and its media query,
+// and the component's props as an object of their own (`props`, left out when
+// there are none), so a prop may have any name, `name` and `mode` included.
+// The name is the tag as written, which a minifier leaves alone, so the
+// server and the browser write the same data-island.
 export function islandOptions(tag, mode, mediaQuery, props) {
   const options = [
     t.objectProperty(t.identifier('component'), componentCallee(tag)),
+    t.objectProperty(t.identifier('name'), t.stringLiteral(jsxTagName(tag))),
     t.objectProperty(t.identifier('mode'), t.stringLiteral(mode)),
   ];
   if (mediaQuery) options.push(t.objectProperty(t.identifier('mediaQuery'), mediaQuery));
