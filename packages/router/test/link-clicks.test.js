@@ -2,10 +2,12 @@
 // it: a modifier key or another button, a target other than _self, a
 // download, another origin (another site, mailto:). The caller's own
 // onClick runs first, and a click it prevents is not routed, as in React
-// Router. Before, a Link with target="_blank" or download was routed in the
-// same tab, a Link to another site did nothing, and a Link given an onClick
-// lost its routing (the caller's handler replaced the link's, so the click
-// loaded the whole document).
+// Router. Hovering a link prefetches a page of this origin, never another
+// site. Before, a Link with target="_blank" or download was routed in the
+// same tab, a Link to another site did nothing, a Link given an onClick lost
+// its routing (the caller's handler replaced the link's, so the click loaded
+// the whole document), and hovering a link to another site asked that site
+// for the page.
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -78,14 +80,19 @@ describe('a click on a <Link>', () => {
     assert.deepEqual(await click({ href: '/a', id: 'prevented', onClick: (e) => e.preventDefault() }), { routed: '/', prevented: true });
   });
 
-  it('runs the caller\'s onMouseEnter as well as its own prefetch', async () => {
-    links = [{ href: '/a', id: 'enter', onMouseEnter: () => log.push('enter') }];
+  it('runs the caller\'s onMouseEnter as well as its own prefetch, which asks only this origin', async () => {
+    links = [
+      { href: '/a', id: 'enter', onMouseEnter: () => log.push('enter') },
+      { href: 'https://example.com/x', id: 'away' },
+      { href: 'mailto:team@example.com', id: 'mailto' },
+    ];
     const app = document.getElementById('app');
     app.textContent = '';
     const unmount = mount(h(Router, { routes }), app);
     await flush();
-    document.getElementById('enter').dispatchEvent(new window.MouseEvent('mouseenter'));
+    for (const id of ['enter', 'away', 'mailto']) document.getElementById(id).dispatchEvent(new window.MouseEvent('mouseenter'));
     assert.deepEqual(log, ['enter']);
+    assert.deepEqual([...document.head.querySelectorAll('link[rel=prefetch]')].map((l) => l.getAttribute('href')), ['/a']);
     unmount();
   });
 });

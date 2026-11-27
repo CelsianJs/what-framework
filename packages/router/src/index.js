@@ -1320,9 +1320,11 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
       e.preventDefault();
       navigate(safeHref, { replace: rep, transition });
     },
+    // A page of this origin is prefetched; another site is not asked for
+    // anything before the visitor goes there.
     onmouseenter: shouldPrefetch || ownEnter ? (e) => {
       if (ownEnter) ownEnter(e);
-      if (shouldPrefetch) prefetch(safeHref);
+      if (shouldPrefetch && !blocked && resolveHref(safeHref) !== null) prefetch(safeHref);
     } : undefined,
   }, ...(Array.isArray(children) ? children : [children]));
 }, { _deferChildren: true });
