@@ -14,7 +14,6 @@ import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
-import { setupErrorOverlay } from './error-overlay.js';
 import { IMPORT_CHANGES } from './tables/import-changes.js';
 import { runtimeMismatch } from './release.js';
 import { isFrameworkFile } from './framework-files.js';
@@ -290,9 +289,6 @@ export default function whatVitePlugin(options = {}) {
     },
 
     configureServer(devServer) {
-      // Set up What-branded error overlay
-      setupErrorOverlay(devServer);
-
       // Watch the pages directory for file additions/removals
       devServer.watcher.on('add', (file) => {
         if (file.startsWith(pagesDir)) {

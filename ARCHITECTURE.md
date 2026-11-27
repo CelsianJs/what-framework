@@ -145,8 +145,8 @@ JSX source
                           attributes    →  setClass / setAttr / setProp
                           components    →  _$createComponent(Comp, props)
                           events        →  $$click prop + delegateEvents(['click'])
-  └─ vite-plugin.js       wires the transform, HMR, the error overlay,
-                          and the server-action id registry
+  └─ vite-plugin.js       wires the transform, HMR and the server-action
+                          id registry
   └─ file-router.js       pages/ directory → route table
   └─ runtime.js           the helpers compiled output imports
 ```
