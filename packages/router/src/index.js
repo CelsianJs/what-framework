@@ -847,9 +847,11 @@ function listenToHistory() {
     // Use _fromPopstate flag so navigate() skips pushState (browser already
     // updated URL). An entry outside the base is the browser's to load.
     navigate(location.href, { replace: true, _fromPopstate: true, transition: false }).then(() => {
-      // Restore saved scroll position for the URL we're arriving at
+      // Restore the position saved for the URL arrived at, once it is the one
+      // on screen: a back/forward a guard cancelled, or a newer navigation
+      // superseded, leaves the scroll to the page shown.
       const saved = scrollPositions.get(newUrl);
-      if (saved) {
+      if (saved && _url.peek() === newUrl) {
         requestAnimationFrame(() => scrollToPoint(saved.x, saved.y));
       }
     });
