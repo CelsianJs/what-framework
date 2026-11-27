@@ -253,6 +253,7 @@ function _isDomNode(value) {
 // way the client renders it. A DOM node is client output that reached a
 // server renderer, which assertSafeTag explains, never text.
 function _plainText(value) {
+  if (typeof value === 'symbol') return '';
   if (_isDomNode(value)) assertSafeTag(undefined, value);
   return escapeHtml(String(value));
 }
@@ -765,7 +766,7 @@ function _afterOpen(tag, ns) {
 function textOf(tag, value) {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'bigint') return String(value);
-  if (value == null || typeof value === 'boolean') return '';
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return '';
   if (typeof value === 'function') {
     try {
       return textOf(tag, value());

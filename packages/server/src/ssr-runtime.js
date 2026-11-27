@@ -357,7 +357,7 @@ export function ssrRow(t) {
 export function ssrText(v) {
   if (typeof v === 'string') return escapeHtml(v);
   if (typeof v === 'number') return '' + v;
-  if (v == null || typeof v === 'boolean') return '';
+  if (v == null || typeof v === 'boolean' || typeof v === 'symbol') return '';
   if (typeof v === 'function' || isHtml(v) || isVNode(v)) return v;
   if (Array.isArray(v)) {
     const m = new Markup('', false, false);
@@ -800,7 +800,7 @@ class RawText extends Html {
 }
 
 function collect(value, out) {
-  if (value == null || typeof value === 'boolean') return;
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return;
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) collect(value[i], out);
   } else if (typeof value === 'function' || isVNode(value) || isHtml(value) || (typeof value === 'object' && typeof value.nodeType === 'number')) {

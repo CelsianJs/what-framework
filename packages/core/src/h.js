@@ -131,7 +131,7 @@ export const Fragment = /* @__PURE__ */ lowered(function Fragment({ children }) 
 
 // Fast path for single child (most common case)
 function _flattenSingle(child) {
-  if (child == null || child === false || child === true) return EMPTY_ARR;
+  if (child == null || child === false || child === true || typeof child === 'symbol') return EMPTY_ARR;
   if (Array.isArray(child)) {
     const out = [];
     _flattenInto(child, out);
@@ -143,7 +143,7 @@ function _flattenSingle(child) {
 
 // Flatten a child (or array of children) into the output array
 function _flattenInto(child, out) {
-  if (child == null || child === false || child === true) return;
+  if (child == null || child === false || child === true || typeof child === 'symbol') return;
   if (Array.isArray(child)) {
     for (let i = 0; i < child.length; i++) {
       _flattenInto(child[i], out);

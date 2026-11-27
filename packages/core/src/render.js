@@ -843,7 +843,7 @@ export function _$plain(parent, read, marker, devName) {
 function bindPlain(value, source, read, parent, marker, owner) {
   if (source === null) {
     const type = typeof value;
-    if (value == null || type === 'boolean') return null;
+    if (value == null || type === 'boolean' || type === 'symbol') return null;
     if (type === 'string' || type === 'number') {
       const str = String(value);
       textAt(parent, str, marker);
@@ -1226,7 +1226,7 @@ function asNodeArray(value) {
 // are flattened, because inserting a fragment empties it and a later reconcile
 // must still be able to find and remove the nodes it carried.
 function valuesToNodes(value, parent, out, isSvg) {
-  if (value == null || typeof value === 'boolean') return out;
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return out;
 
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
@@ -3766,7 +3766,7 @@ function hydrateReactiveProp(el, key, value, svg, name) {
 // Adopt `value` at the cursor: what the client renders for it claims the
 // server's nodes for it, in document order.
 function adopt(value) {
-  if (value == null || typeof value === 'boolean') return;
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return;
   const type = typeof value;
   if (type === 'string' || type === 'number') {
     claimText(String(value));
@@ -5328,7 +5328,7 @@ function fieldText(value) {
   const type = typeof value;
   if (type === 'string') return value;
   if (type === 'number') return String(value);
-  return value == null || type === 'boolean' ? '' : null;
+  return value == null || type === 'boolean' || type === 'symbol' ? '' : null;
 }
 
 function writeField(fields, i, item) {
