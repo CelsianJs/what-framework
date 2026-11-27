@@ -143,30 +143,31 @@ function browserUrl() {
 // own, so it never writes its parent's. Outside every Router a reader sees
 // the tab's or the request's.
 //
-// The tab's state is module signals: one tab, one URL. The 'what-router:*'
-// debug names let devtools report it (what_route, what_navigate) separately
-// from the address bar. Nothing a server render reaches reads or writes the
+// The tab's state is module signals: one tab, one URL. Their 'what-router:*'
+// debug names, given in development only (a production signal has no name),
+// let devtools report it (what_route, what_navigate) separately from the
+// address bar. Nothing a server render reaches reads or writes the
 // module: a server never navigates (navigate() redirects the response), and
 // it has route state of its own, so overlapping requests cannot see each
 // other's URL, params or query.
 
-const _url = signal(typeof location !== 'undefined' ? browserUrl() : '/', 'what-router:url');
-const _params = signal({}, 'what-router:params');
-const _query = signal({}, 'what-router:query');
+const _url = signal(typeof location !== 'undefined' ? browserUrl() : '/', __DEV__ ? 'what-router:url' : undefined);
+const _params = signal({}, __DEV__ ? 'what-router:params' : undefined);
+const _query = signal({}, __DEV__ ? 'what-router:query' : undefined);
 // A navigation runs from navigate() until the data its new page reads first
 // has landed (route.isNavigating, and what_navigate's "settled"); it prepares
 // until it commits, and while it prepares the destination's `loading:` shows.
-const _navigating = signal(false, 'what-router:navigating');
-const _preparing = signal(false, 'what-router:preparing');
+const _navigating = signal(false, __DEV__ ? 'what-router:navigating' : undefined);
+const _preparing = signal(false, __DEV__ ? 'what-router:preparing' : undefined);
 // The URL a navigation is heading TO, live for the duration of the navigation.
 // _url only commits at the very end, so during an awaited guard the router still
 // matches the route being LEFT. Without this, a destination route's `loading:`
 // component could never be shown: the only `loading:` in scope belonged to the
 // page the user was leaving.
-const _pendingUrl = signal(null, 'what-router:pendingUrl');
-const _navigationError = signal(null, 'what-router:error');
+const _pendingUrl = signal(null, __DEV__ ? 'what-router:pendingUrl' : undefined);
+const _navigationError = signal(null, __DEV__ ? 'what-router:error' : undefined);
 // The route pattern the outermost <Router> matched last ('/users/:id'), or null.
-const _pattern = signal(null, 'what-router:pattern');
+const _pattern = signal(null, __DEV__ ? 'what-router:pattern' : undefined);
 
 /** The tab's route state. */
 const tab = { url: readUrl, params: _params, query: _query };
