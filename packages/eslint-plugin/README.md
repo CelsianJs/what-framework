@@ -423,9 +423,12 @@ function Title() {
 
 ### `what/reactive-jsx-children`
 
-Without the What compiler, JSX becomes `h()` calls, and a signal read as a JSX
-child (`{count()}`) is evaluated once, when the component runs: the text never
-updates. The rule flags such a read; it reports this component:
+Without the What compiler, JSX becomes `h()` calls, and a JSX child or an
+element's attribute is evaluated once, when the element is made. A signal read
+there keeps its first value, alone (`{count()}`) or inside an expression
+(`{count() * 2}`, `{items().map(...)}`, `{user().name}`,
+`class={on() ? 'on' : 'off'}`). The rule flags such a read; it reports this
+component:
 
 ```jsx
 import { signal } from 'what-framework';
@@ -437,8 +440,10 @@ function Count() {
 }
 ```
 
-Without the compiler, wrap the read in a function, which becomes a binding that
-updates:
+Without the compiler, wrap the read, or the whole expression, in a function,
+which becomes a binding that updates. A component's prop is not reported
+(wrapping it would hand the component a function), nor JSX made inside such a
+function, which is made again each time it runs:
 
 ```jsx
 import { signal } from 'what-framework';
