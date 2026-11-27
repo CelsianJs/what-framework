@@ -16,8 +16,9 @@
 // - a navigation overtaken by a newer one never shows, even once its chunk
 //   lands, and leaves one history entry, the newer one's;
 // - a chunk that fails shows the route's error page inside the layout, the
-//   rest of the handbook keeps working, and "Try again" loads the chapter
-//   once the network is back;
+//   rest of the handbook keeps working, a later visit downloads it again,
+//   and "Try again" downloads it while the error page stays and shows the
+//   chapter once the network is back, in the same document;
 // - back and forward through chapters already loaded need no request;
 // - the guard keeps a guest from the desk without downloading it;
 // - every page left releases its timer and its component.
@@ -254,24 +255,43 @@ export default {
         'a chapter whose chunk fails shows the route\'s error page inside the layout, with no uncaught error, and the next link works',
         `error page after ${failed.ms.toFixed(0)}ms at ${failedView.path} ("${failedView.message.slice(0, 60)}"); next chapter ${onward.ms.toFixed(0)}ms; errors=${errors.length}`);
 
-      // The network is back. lazy() keeps the failed download's error, so a
-      // second visit shows the error page again and downloads nothing; the
-      // page's "Try again" loads the page again, which downloads the chapter.
-      rules.delete('security');
+      // A later visit is a new attempt: lazy() asks for the chunk again, and
+      // the error page shows again while the network still fails.
       const before = requested('security');
+      const loads = async () => (await stats()).loads.security ?? 0;
+      const loadsBefore = await loads();
       const revisit = await go('[data-nav="security"]', '[data-chapter-failed]');
-      const onRevisit = requested('security') - before;
-      await Promise.all([page.waitForEvent('load'), page.click('[data-retry]')]);
-      const retried = await page.waitForSelector(chapterSel('security'), { timeout: 5000 }).then(() => true, () => false);
-      // A new document: its pages have built nothing yet.
-      for (const slug of Object.keys(visits)) delete visits[slug];
-      if (retried) visited('security');
-      const retryName = 'once the network is back, the error page\'s "Try again" loads the page again and the chapter shows';
-      const retryDetail = `second visit: ${revisit.ms >= 0 ? 'the error page again' : 'no error page'}, ${onRevisit} downloads; after the retry (${requested('security') - before - onRevisit} downloads): ${retried ? 'the chapter' : await page.evaluate(() => window.__shown())}`;
+      const onRevisit = { requests: requested('security') - before, loads: (await loads()) - loadsBefore };
+      // The network is back, slowly. "Try again" (the boundary's reset) asks
+      // for the chunk again while the error page stays, in the same document,
+      // and shows the chapter once it has downloaded.
+      rules.set('security', { delay: CHUNK_DELAY });
+      await page.evaluate(() => { window.__sameDocument = true; });
+      await page.evaluate((w) => window.__watch(w), chapterSel('security'));
+      await page.click('[data-retry]');
+      await sleep(CHUNK_DELAY / 2);
+      const during = await page.evaluate(() => window.__shown());
+      // WebKit fails the import again with no request (below): no chapter to
+      // wait for.
+      const retried = browserName === 'webkit' ? (await sleep(CHUNK_DELAY), { ms: -1, blank: false }) : await page.evaluate(() => window.__watched);
+      const sameDocument = await page.evaluate(() => window.__sameDocument === true);
+      const onRetry = { requests: requested('security') - before - onRevisit.requests, loads: (await loads()) - loadsBefore - onRevisit.loads };
+      rules.delete('security');
+      if (retried.ms >= 0) visited('security');
+      const retryDetail = `second visit: ${revisit.ms >= 0 ? 'the error page again' : 'no error page'}, chunk asked for ${onRevisit.loads}x, ${onRevisit.requests} requests; during the retry: ${during}; retry asked for it ${onRetry.loads}x, ${onRetry.requests} requests; chapter after ${retried.ms.toFixed(0)}ms (chunk ${CHUNK_DELAY}ms) blank=${retried.blank}; same document: ${sameDocument}`;
+      check('route:chunk-error',
+        revisit.ms >= 0 && onRevisit.loads === 1 && onRetry.loads === 1 && during === 'chapterFailed' && sameDocument && errors.length === 0,
+        'a later visit and the error page\'s "Try again" each ask for a failed chunk again, the error page staying on screen, without loading the page again',
+        retryDetail);
+      const shownName = 'once the network is back, the later visit and "Try again" download the chunk, and the chapter replaces the error page';
       if (browserName === 'webkit') {
-        skip('route:chunk-error', retryName, `WebKit under Playwright's request routing does not request a chunk whose download failed again after a reload, so the reloaded page fails the import with no request (${retryDetail})`);
+        // Vite preloads a chunk that has imports of its own with <link
+        // rel="modulepreload">. Once that failed, WebKit fails every import()
+        // of the chunk with no request, in the page and after a reload
+        // (measured in a page of its own; Chromium and Firefox request it).
+        skip('route:chunk-error', shownName, `WebKit makes no request for a module whose modulepreload failed, and fails its import again (${retryDetail})`);
       } else {
-        check('route:chunk-error', revisit.ms >= 0 && retried && onRevisit === 0 && requested('security') === before + 1 && errors.length === 0, retryName, retryDetail);
+        check('route:chunk-error', onRevisit.requests === 1 && onRetry.requests === 1 && retried.ms >= CHUNK_DELAY * 0.8 && !retried.blank, shownName, retryDetail);
       }
 
       // === Back and forward ================================================
@@ -305,10 +325,10 @@ export default {
         `guest: ${guarded.path}, desk requested ${guarded.desk}x; signed in: ${toDesk.path} (desk ${requested('desk')}x, built ${signedIn.deskMounts}); signed out: ${out.path}, desk live ${signedOut.deskMounts}`);
 
       // === Walk every chapter, three times =================================
-      // The first walk downloads what the reloaded page has not; the others
-      // are timed, between chapters all loaded.
+      // The first walk downloads what no visit has yet; the others are timed,
+      // between chapters all loaded.
       rules.clear();
-      const walked = CHAPTERS.filter((c) => c.slug !== 'security' || retried);
+      const walked = CHAPTERS.filter((c) => c.slug !== 'security' || retried.ms >= 0);
       const times = [];
       let walkRequests = 0;
       for (let w = 0; w < WALKS; w++) {

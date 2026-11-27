@@ -938,24 +938,30 @@ component's owner and run, the region's and the list's effects, the row's
 scope, the compiled callbacks). `packages/core/test/recursion-depth.test.js`
 counts frames per level, and explorer pins 101 levels.
 
-### I. A `lazy()` component whose download failed can never load again in that page
+### I. A `lazy()` component whose download failed could never load again in that page
 
-`lazy()` keeps the error of a failed download and throws it on every later
-render, as React's `lazy` does. So a route's error page cannot recover in
-place: its `reset` ("Try again") builds the page again and gets the same
-error, and so does a later visit, until the page is loaded again. The
+`lazy()` kept the error of a failed download and threw it on every later
+render, as React's `lazy` does. So a route's error page could not recover in
+place: its `reset` ("Try again") built the page again and got the same
+error, and so did a later visit, until the page was loaded again. The
 browsers do not require that: after a failed `import()`, a second `import()`
 of the same URL in the same page downloads it again in Chromium, WebKit and
 Firefox (measured with page routing aborting the first request). A chunk
 lost to a network blip, or replaced by a deploy, is the common case of a
-failed download. handbook's error page reloads the page to try again.
-- Failing test, not in the tree: `lazy-retry.test.js` in the round 5
-  Firefox lane's `keep/` (3 of 4 fail): a reset downloads again and shows
-  the page, a retry that fails again downloads nothing more on its own, a
-  component rendered again later downloads again.
-- Why not fixed: whether to differ from React here, and how a navigation
-  that meets a failed chunk should retry (keep the old page while it
-  downloads again, as a first visit does), is a design decision.
+failed download.
+
+Fixed in round 6. `lazy()` shows a failed download's error to the renders
+that waited on it, then downloads again on the next render (an error
+boundary's reset, the component rendered again later) and on the next
+navigation to its route or hover of a link to it, which keeps the page being
+left on screen as a first visit does. A route's error page's `reset`
+downloads the chunk while the error page stays, then shows the page, or the
+error page with the new error. A chunk that loaded is never downloaded
+again. handbook's "Try again" is that reset now: in Chromium and Firefox a
+later visit and the retry each download the chunk, and the chapter replaces
+the error page in the same document. In WebKit they ask for it and get the
+failure again, below. `packages/core/test/lazy-retry.test.js` and
+`packages/router/test/lazy-route-retry.test.js` pin it.
 
 ### J. `useForm` cannot forget a field: no `unregister`, no field arrays
 
@@ -1133,8 +1139,16 @@ slower than that; the check waits two frames after a move.
 Moving a node with `insertBefore` blurs a focused field in every browser,
 and Chromium alone fires `blur` and `focusout` for it (40).
 
-And one in WebKit, seen under Playwright's request routing only: a chunk
-whose download failed is not requested again after a reload, so the
-reloaded page fails the import with no request. handbook skips its reload
-retry in WebKit with that reason.
+And one in WebKit. Vite preloads a chunk that has imports of its own with
+`<link rel="modulepreload">` (its preload list holds the chunk itself), and
+once that preload failed, WebKit fails every `import()` of the chunk with no
+request, in the page and after a reload. Measured in a page of its own, with
+page routing aborting the first request: after a failed modulepreload,
+Chromium and Firefox request the module on the next `import()` and WebKit
+does not, in the page or after a reload; after a failed `import()` with no
+preload, all three request it again. So in WebKit `lazy()` asks for the
+chunk again and gets the same failure. handbook checks that it asks, and
+skips the download in WebKit with that reason. Built with
+`build: { modulePreload: false }`, handbook in WebKit requests the chunk on
+the later visit and on the retry, and the chapter shows.
 

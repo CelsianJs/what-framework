@@ -58,15 +58,15 @@ export function NotFound() {
 }
 
 // A route's error page. A chunk that failed to download lands here, inside
-// the layout, so the sidebar keeps working. lazy() keeps a failed download's
-// error (as React's lazy does), so the page cannot load it again in place:
-// trying again loads the page again.
-export function ChapterFailed({ error }) {
+// the layout, so the sidebar keeps working. Trying again is the boundary's
+// reset: the router downloads the chunk again while this page stays, then
+// shows the chapter (or this page with the new error).
+export function ChapterFailed({ error, reset }) {
   return (
     <section class="failed" data-chapter-failed role="alert">
       <h1>This page did not load</h1>
       <p class="muted" data-failed-message>{String(error?.message ?? error)}</p>
-      <button data-retry onClick={() => location.reload()}>Try again</button>
+      <button data-retry onClick={() => reset()}>Try again</button>
     </section>
   );
 }

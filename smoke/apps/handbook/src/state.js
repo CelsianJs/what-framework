@@ -3,7 +3,8 @@
 // again on every visit; what they show from here is what the reader left.
 //
 // `stats` counts what the pages build and release, so the smoke check can
-// see that leaving a page releases its timer and its component.
+// see that leaving a page releases its timer and its component, and how many
+// times each chapter's chunk was asked for (`loads`).
 
 import { signal } from 'what-framework';
 
@@ -20,5 +21,5 @@ export function toggleRead(slug) {
   readMarks((marks) => ({ ...marks, [slug]: !marks[slug] }));
 }
 
-export const stats = { mounts: {}, live: 0, timers: 0, deskMounts: 0 };
+export const stats = { mounts: {}, loads: {}, live: 0, timers: 0, deskMounts: 0 };
 if (typeof window !== 'undefined') window.__handbook = { stats };
