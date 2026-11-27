@@ -85,7 +85,7 @@ class Markup extends Html {
     for (let i = 0; i < p.length; i++) {
       const part = p[i];
       if (typeof part === 'string') html += part;
-      else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs, true);
+      else if (!isMarkupPart(part)) html += renderChild(part, partNs, true);
       else if (part instanceof AttrSlot) {
         html += part.take(p, i);
         i += part.n;
@@ -106,7 +106,7 @@ class Markup extends Html {
       for (let i = 0; i < p.length; i++) {
         const part = p[i];
         if (typeof part === 'string') html += hk.key !== null ? claim(hk, part) : part;
-        else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs, true);
+        else if (!isMarkupPart(part)) html += renderChild(part, partNs, true);
         else if (part instanceof AttrSlot) {
           html += keyed(hk, part.take(p, i));
           i += part.n;
@@ -205,9 +205,17 @@ function append(m, hole) {
   else defer(m, hole);
 }
 
-// append(m, ssrText(v)), with one brand check for markup or a vnode.
+// append(m, ssrText(v)), with one brand check for markup or a vnode. An
+// object that is no Html instance (a component's vnode: a list of components
+// defers one per row) is asked whether it is a vnode first, so it costs no
+// markup brand check that misses. No object is both, so the order decides
+// nothing.
 function appendText(m, v) {
   if (typeof v === 'object' && v !== null) {
+    if (!(v instanceof Html) && isVNode(v)) {
+      defer(m, v);
+      return;
+    }
     if (Html.is(v)) {
       if (v instanceof Markup && !v.list) inline(m, v);
       else defer(m, v);
@@ -219,6 +227,17 @@ function appendText(m, v) {
     }
   }
   append(m, ssrText(v));
+}
+
+// Whether a part of compiled markup that is not a string is markup (isHtml)
+// rather than a child to render. Such parts are mostly markup (a reactive
+// attribute's slot, a nested template) or a component's vnode: an Html
+// instance is asked for its brand, any other object whether it is a vnode
+// first, so neither costs a brand check that misses. No object is both.
+function isMarkupPart(part) {
+  if (typeof part !== 'object' || part === null) return false;
+  if (part instanceof Html) return isHtml(part);
+  return !isVNode(part) && isHtml(part);
 }
 
 // How many parts that can render a component (anything but a reactive
