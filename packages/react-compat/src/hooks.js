@@ -653,20 +653,3 @@ export function use(usable) {
     { code: 'ERR_USE_INVALID_ARG' },
   );
 }
-
-// ---- useSignal (escape hatch) ----
-// Bridge helper for mixed codebases: subscribe a compat component to a
-// what-core signal. Re-renders this component when the signal changes.
-
-export function useWhatSignal(sig) {
-  return useSyncExternalStore(
-    (notify) => {
-      // what-core signals don't expose subscribe directly; poll via effect-free
-      // microtask comparison is wasteful — use sig.subscribe if present.
-      if (typeof sig.subscribe === 'function') return sig.subscribe(notify);
-      // Fallback: no subscription available; value still read each render.
-      return () => {};
-    },
-    () => sig(),
-  );
-}
