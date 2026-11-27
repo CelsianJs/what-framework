@@ -38,6 +38,7 @@ export const CAPABILITIES = {
   'route:lazy-chunk': { area: 'routing', desc: "a code-split route downloads its chunk on the first navigation to it while the page being left stays, and a revisit downloads nothing" },
   'route:prefetch': { area: 'routing', desc: "hovering a link downloads its route's chunk, so the click shows the page without waiting for the network" },
   'route:lazy-race': { area: 'routing', desc: 'a navigation to a slow chunk that a newer navigation overtakes never shows, even after its chunk lands' },
+  'route:conditional-step': { area: 'routing', desc: 'a step that an earlier answer adds or skips appears in and leaves the progress indicator, and a deep link to a step goes there only once the steps before it are done' },
   'route:chunk-error': { area: 'routing', desc: "a route whose chunk fails to download shows its error page inside the layout, the app keeps navigating, and a retry loads it once the network is back" },
 
   // --- State --------------------------------------------------------------
@@ -132,6 +133,11 @@ export const CAPABILITIES = {
   'list:capped-log': { area: 'load', desc: 'an append-only keyed log of thousands of messages keeps its last N rows in order, follows the bottom (an effect after an append sees the new row), holds still while the reader is scrolled up, and an optimistic row keeps its element when the server confirms it' },
   'list:cross-parent-move': { area: 'load', desc: 'cards dragged with pointer events within and between keyed lists of 1,000 land exactly where the model puts them, one element per key; a move within a list keeps the element, undo and redo restore the exact order, and an untouched list keeps its elements' },
   'form:input-under-load': { area: 'forms', desc: 'typing into a controlled field while bursts of updates re-render the page around it loses no character and keeps the caret' },
+  'form:field-array': { area: 'forms', desc: 'a field array adds, duplicates, removes, reorders and nests items with rules per item; the field being edited keeps the focus and caret through a move, and a removed item takes its errors, components, bindings and listeners with it' },
+  'form:draft-persist': { area: 'forms', desc: 'a multi-step form saved to storage as the user types (debounced) comes back exactly on a reload mid-step, right after a keystroke, nested field arrays and their order included' },
+  'form:dependent-fields': { area: 'forms', desc: 'a select whose options load for another field (answers out of order) follows the last choice, a field shown only while another holds a value comes and goes, and a rule that reads another field judges again when that field changes' },
+  'form:server-errors': { area: 'forms', desc: 'a validation error the server returns on submit is shown on its field, on the step that holds it, which the user is taken to with the field focused' },
+  'form:fast-typing': { area: 'forms', desc: '200 characters typed at full speed into fields validated on every keystroke (one checked on a server) arrive exactly, and text typed mid-field lands at the caret' },
   'form:async-validation': { area: 'forms', desc: 'answers of an async field check that arrive out of order never leave a stale error, and the form reports validating until the last one lands' },
 };
 
