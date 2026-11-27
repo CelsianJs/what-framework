@@ -72,7 +72,17 @@ function unrefTimer(timer) {
 // are one entry, and every entry point (invalidateQueries, getQueryData, the
 // predicate a caller writes) sees the same spelling. Segments escape ':' so
 // ['user', 'a:b'] cannot collide with ['user', 'a', 'b'].
+// A function in a key array (a signal, a thunk) is read as part of the key:
+// it names the entry of its current value, and, read where the key is
+// tracked, moves the reader to a new entry when it changes.
+function keyParts(key) {
+  return Array.isArray(key) && key.some((part) => typeof part === 'function')
+    ? key.map((part) => (typeof part === 'function' ? part() : part))
+    : key;
+}
+
 function normalizeQueryKey(key) {
+  key = keyParts(key);
   if (!Array.isArray(key)) return String(key);
   return key
     .map((part) => (typeof part === 'string' ? part : JSON.stringify(part) ?? String(part)))
@@ -713,11 +723,12 @@ function holdFromRead(o, e) {
 }
 
 function readKey(keyFn, lenient) {
-  if (!lenient) return keyFn();
-  // SWR's contract: a key function that throws (its input is not there yet)
-  // means "not now", like a null key.
+  if (!lenient) return keyParts(keyFn());
+  // SWR's contract: a key function (or a function in a key array) that
+  // throws, because its input is not there yet, means "not now", like a null
+  // key.
   try {
-    return keyFn();
+    return keyParts(keyFn());
   } catch {
     return null;
   }
@@ -1418,6 +1429,7 @@ export function invalidatePath(path) {
  * `staleTime`, and resolve with it. Rejects with a failed fetch's error.
  */
 export function prefetchQuery(key, fetcher, options = {}) {
+  key = keyParts(key);
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
   // Its fetch calls its own fetcher with its own key, whoever else reads the
   // entry; with no reader, the cache's own fetches use them too.
@@ -1440,6 +1452,7 @@ export function prefetchQuery(key, fetcher, options = {}) {
 
 /** Put `updater` (a value, or a function of the current one) in the cache now. */
 export function setQueryData(key, updater) {
+  key = keyParts(key);
   const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
   setEntry(e, typeof updater === 'function' ? updater(valueOf(e)) : updater);
   armGc(e);

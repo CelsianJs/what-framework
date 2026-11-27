@@ -2114,6 +2114,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **A refetch caused by a signal a query's fetcher reads runs `onSuccess` and
   `onSettled`**, as a refetch after an invalidation does.
   `packages/core/test/query-invalidation-lifecycle.test.js`.
+- **A function in a query key array is read as part of the key.**
+  `useQuery({ queryKey: ['search', term] })` with `term` a signal, or
+  `['search', () => term()]`, names the entry of `term`'s current value,
+  follows it to a new entry when it changes and hands the fetcher the values,
+  as a function key does; `setQueryData`, `getQueryData`, `prefetchQuery` and
+  `invalidateQueries` read it the same way, and in `useSWR` a part that throws
+  means no key yet. Before, the function's source text was hashed into the
+  key, so the key never changed, and the fetcher got the function.
+  `packages/core/test/query-key-function-parts.test.js`.
 - **`useGesture` attaches to a ref object, a ref function or a signal once the
   element exists.** It read the ref while the component ran, before the
   element existed, and attached nothing. A long press is no longer also a
