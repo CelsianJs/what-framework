@@ -21,9 +21,9 @@ const DRAFT = { name: 'Orchard', owner: 'Bo Lindqvist', kind: 'research', member
 export default {
   description: 'Workspace, server-rendered and hydrated: server-side guard redirects, a nested layout that hydrates onto the server DOM, a wizard reload rendered from cookies, concurrent visitors.',
 
-  // server.js renders from the --ssr build and serves dist/client; the app
-  // has no `dev` script and no dev server.
-  dev: 'no dev path: server.js renders from the --ssr build, and there is no `dev` script',
+  // WHAT_SMOKE_MODE=dev runs `npm run dev` (server.js --dev): the pages
+  // rendered from the source through Vite's dev server (smoke/README.md).
+  dev: true,
 
   covers: [
     'render:server',
@@ -38,13 +38,15 @@ export default {
     'route:layout-hydrates',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog) && (buildLog.match(/built in/g) || []).length === 2,
-      'vite built the client and the server bundles', buildLog.trim().split('\n').pop());
+    if (mode !== 'dev') {
+      const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
+      reporter.assert(/built in/.test(buildLog) && (buildLog.match(/built in/g) || []).length === 2,
+        'vite built the client and the server bundles', buildLog.trim().split('\n').pop());
+    }
 
-    const server = startProcess('node', ['server.js'], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
+    const server = startProcess('node', ['server.js', ...(mode === 'dev' ? ['--dev'] : [])], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
     await waitForHttp(`${base}/signin`, { child: server });
 
     const get = (path, cookie) => fetch(`${base}${path}`, { redirect: 'manual', headers: cookie ? { cookie } : {} });
@@ -87,7 +89,7 @@ export default {
     page.on('console', (m) => { if (m.type() === 'error') diag.errors.push(m.text()); if (m.type() === 'warning') diag.warnings.push(m.text()); });
     let release;
     const gate = new Promise((r) => { release = r; });
-    await page.route('**/assets/entry-client-*.js', async (route) => { await gate; await route.continue(); });
+    await page.route(mode === 'dev' ? '**/src/entry-client.jsx' : '**/assets/entry-client-*.js', async (route) => { await gate; await route.continue(); });
     try {
       await page.goto(`${base}/new/team`, { waitUntil: 'commit' });
       await page.waitForSelector('[data-wizard]');

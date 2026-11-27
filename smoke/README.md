@@ -139,10 +139,12 @@ WHAT_SMOKE_MODE=dev node smoke/run.mjs --apps=handbook
 - An app whose checks serve it with `serveViteApp` from the harness declares
   `dev: true`, and in dev mode that call starts the app's own dev server (its
   `vite.config.js`, its installed Vite, `harness/vite-dev-server.mjs`) on the
-  app's port, with the HMR socket on that same port.
+  app's port, with the HMR socket on that same port. `workspace-ssr` runs its
+  `npm run dev` (`server.js --dev`: Vite in middleware mode renders the pages
+  from the source, its HMR socket on the server's port).
 - An app with no dev server says why in `dev`, a string printed as the skip:
-  the buildless apps already run their development tier in either mode,
-  `chat` and `workspace-ssr` serve only their build.
+  the buildless apps already run their development tier in either mode, and
+  `chat` serves only its build.
 - A check that means nothing on a dev server reads `mode` from the check's
   arguments and calls `skip(capability, name, reason)` there, as a WebKit or
   Firefox skip does (mixed-desk's quote page, rendered from the `--ssr` build).

@@ -6,7 +6,8 @@
   "description": "Workspace, server-rendered and hydrated: a guarded deep link redirected on the server, nested layouts that hydrate onto the server's DOM, a wizard whose draft survives a reload because the server renders it.",
   "scripts": {
     "build": "vite build && vite build --ssr src/entry-server.jsx --outDir dist/server",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js --dev"
   },
   "dependencies": {
     "what-framework": "0.15.0",
