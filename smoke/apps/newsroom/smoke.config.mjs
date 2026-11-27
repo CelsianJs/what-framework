@@ -365,8 +365,8 @@ export default {
     // === The action without JavaScript ========================================
     {
       const noJsSlug = 'story-03';
-      const context = await browser.newContext({ javaScriptEnabled: false });
-      const page = await context.newPage();
+      let context = await browser.newContext({ javaScriptEnabled: false });
+      let page = await context.newPage();
       try {
         await page.goto(`${base}/article/${noJsSlug}`);
         const text = 'Posted from a browser with scripting off.';
@@ -381,6 +381,13 @@ export default {
           `landed=${landed.pathname}${landed.hash} comments=${comments.length} has-new=${comments.includes(text)}`);
 
         // The error path without JavaScript, then the server is still serving.
+        // It opens the article in a context of its own: in the context that
+        // just posted to it, Firefox loads the article twice (the second load
+        // a revalidation), and Playwright waits for that load to commit
+        // forever.
+        await context.close();
+        context = await browser.newContext({ javaScriptEnabled: false });
+        page = await context.newPage();
         await page.goto(`${base}/article/${noJsSlug}`);
         await page.fill('[data-comment-body]', '');
         const refused = await Promise.all([page.waitForNavigation(), page.click('[data-comment-submit]')]).then(([res]) => res?.status());
