@@ -1140,6 +1140,21 @@ function Page({ loaderData }) {
 <Form action="save-user" />;`,
   },
 
+  ISLAND_WITHOUT_NAME: {
+    code: 'ERR_ISLAND_WITHOUT_NAME',
+    severity: 'warning',
+    template: 'Island <{{component}}> has no `name`: a minified build renames its function, so the server and the browser name the island differently.',
+    suggestion: 'what-compiler names a `client:*` island by its tag as written (`<Counter client:idle />` is "Counter"). An island written by hand, `h(_$Island, { component: Counter })`, takes its function\'s name instead, which a minifier renames in one bundle and not the other: the server marks the island "Counter" and the browser calls it "a", in its `data-island` attribute and in the `island:hydrated` event\'s `detail.name`. Pass `name`, the same string in both builds, or write the island as `<Counter client:idle />`. Reported in development only.',
+    codeExample: `// Bad — a minified browser bundle renames Counter:
+h(_$Island, { component: Counter, mode: 'idle' });
+
+// Good — a name both builds share:
+h(_$Island, { component: Counter, name: 'Counter', mode: 'idle' });
+
+// Good — the compiler names it by its tag:
+<Counter client:idle />;`,
+  },
+
   ISLAND_STORE_OUTSIDE_RENDER: {
     code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER',
     severity: 'error',

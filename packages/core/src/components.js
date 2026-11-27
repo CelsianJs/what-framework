@@ -612,7 +612,9 @@ export const Match = /* @__PURE__ */ lowered(function Match(props) {
 // as written, which a minifier leaves alone (the function's own name is the
 // fallback). Called without `props`, every key that is not an option is a
 // prop. The public island component, which hydrates through the island
-// registry, is what-framework/server's Island.
+// registry, is what-framework/server's Island. An island written by hand
+// without `name` is reported in development (ERR_ISLAND_WITHOUT_NAME): a
+// minifier renames its function in one bundle and not the other.
 
 // Island props cross the server/client boundary as JSON, so anything that is not
 // representable is dropped rather than throwing mid-render. Functions in
@@ -634,6 +636,10 @@ function serializeIslandProps(props) {
 
 export const _$Island = /* @__PURE__ */ deferChildren(function Island({ component: Component, mode, mediaQuery, name, props: own, children, ...rest }) {
   const props = own === undefined ? rest : own;
+  if (__DEV__ && !name) {
+    const component = Component?.name || 'anonymous';
+    report('ERR_ISLAND_WITHOUT_NAME', { data: { component }, subject: { kind: 'component', name: component } });
+  }
   const islandName = name || Component?.name || 'Island';
   const resolvedMode = mode || 'idle';
 

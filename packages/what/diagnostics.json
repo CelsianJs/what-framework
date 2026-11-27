@@ -458,6 +458,19 @@
       "example": "// Bad — runs at import time, with no request in scope:\nconst count = cart.items.length;\n\n// Good — read it inside a component the server is rendering:\nfunction Cart() { return <span>{cart.items.length}</span>; }"
     },
     {
+      "code": "ERR_ISLAND_WITHOUT_NAME",
+      "severity": "warning",
+      "detects": [
+        "reported"
+      ],
+      "raisedBy": [
+        "what-core"
+      ],
+      "trigger": "Island <{{component}}> has no `name`: a minified build renames its function, so the server and the browser name the island differently.",
+      "fix": "what-compiler names a `client:*` island by its tag as written (`<Counter client:idle />` is \"Counter\"). An island written by hand, `h(_$Island, { component: Counter })`, takes its function's name instead, which a minifier renames in one bundle and not the other: the server marks the island \"Counter\" and the browser calls it \"a\", in its `data-island` attribute and in the `island:hydrated` event's `detail.name`. Pass `name`, the same string in both builds, or write the island as `<Counter client:idle />`. Reported in development only.",
+      "example": "// Bad — a minified browser bundle renames Counter:\nh(_$Island, { component: Counter, mode: 'idle' });\n\n// Good — a name both builds share:\nh(_$Island, { component: Counter, name: 'Counter', mode: 'idle' });\n\n// Good — the compiler names it by its tag:\n<Counter client:idle />;"
+    },
+    {
       "code": "ERR_ISR_MISSING_CLIENT",
       "severity": "error",
       "detects": [

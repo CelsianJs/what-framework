@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 79 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 80 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 79 of them: 44 errors and 35 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 80 of them: 44 errors and 36 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -105,6 +105,7 @@
             <li><a href="#ERR_INVALID_HTML_NESTING">ERR_INVALID_HTML_NESTING</a></li>
             <li><a href="#ERR_INVALID_SSR_TAG">ERR_INVALID_SSR_TAG</a></li>
             <li><a href="#ERR_ISLAND_STORE_OUTSIDE_RENDER">ERR_ISLAND_STORE_OUTSIDE_RENDER</a></li>
+            <li><a href="#ERR_ISLAND_WITHOUT_NAME">ERR_ISLAND_WITHOUT_NAME</a></li>
             <li><a href="#ERR_ISR_MISSING_CLIENT">ERR_ISR_MISSING_CLIENT</a></li>
             <li><a href="#ERR_ISR_VARY_NO_HEADERS">ERR_ISR_VARY_NO_HEADERS</a></li>
             <li><a href="#ERR_ISR_VARY_UNRESOLVED">ERR_ISR_VARY_UNRESOLVED</a></li>
@@ -616,6 +617,19 @@ const count = cart.items.length;
 
 // Good — read it inside a component the server is rendering:
 function Cart() { return &lt;span&gt;{cart.items.length}&lt;/span&gt;; }</code></pre>
+
+          <h2 id="ERR_ISLAND_WITHOUT_NAME">ERR_ISLAND_WITHOUT_NAME</h2>
+          <p class="subtitle">Island &lt;component&gt; has no `name`: a minified build renames its function, so the server and the browser name the island differently.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>what-compiler names a `client:*` island by its tag as written (`&lt;Counter client:idle /&gt;` is &quot;Counter&quot;). An island written by hand, `h(_$Island, { component: Counter })`, takes its function's name instead, which a minifier renames in one bundle and not the other: the server marks the island &quot;Counter&quot; and the browser calls it &quot;a&quot;, in its `data-island` attribute and in the `island:hydrated` event's `detail.name`. Pass `name`, the same string in both builds, or write the island as `&lt;Counter client:idle /&gt;`. Reported in development only.</p>
+<pre><code>// Bad — a minified browser bundle renames Counter:
+h(_$Island, { component: Counter, mode: 'idle' });
+
+// Good — a name both builds share:
+h(_$Island, { component: Counter, name: 'Counter', mode: 'idle' });
+
+// Good — the compiler names it by its tag:
+&lt;Counter client:idle /&gt;;</code></pre>
 
           <h2 id="ERR_ISR_MISSING_CLIENT">ERR_ISR_MISSING_CLIENT</h2>
           <p class="subtitle">[what-isr] createRedisStore requires { client }</p>

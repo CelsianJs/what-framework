@@ -72,7 +72,7 @@ export function createStorefront({ fetchStock, fetchDelivery, fetchRating, saveL
           <input id="name" value={name} onInput={event => name(event.target.value)} />
           <output id="name-preview">{name}</output>
         </form>
-        <Island component={Cart} mode="load" />
+        <Island component={Cart} name="Cart" mode="load" />
         <Likes />
         <Suspense fallback={<p id="stock-fallback">Checking stock</p>}>
           <Stock />

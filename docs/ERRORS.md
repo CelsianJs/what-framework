@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 79 of them: 44 errors and 35 warnings.
+Every code in What's error catalogue, all 80 of them: 44 errors and 36 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -79,6 +79,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_INVALID_HTML_NESTING`](#err-invalid-html-nesting) | error | <`parent`> cannot contain <`child`>: the HTML parser closed the outer tag early, so the rendered tree does not match your JSX. |
 | [`ERR_INVALID_SSR_TAG`](#err-invalid-ssr-tag) | error | Invalid tag name in SSR: "`tag`" |
 | [`ERR_ISLAND_STORE_OUTSIDE_RENDER`](#err-island-store-outside-render) | error | Island store "`name`" was accessed outside an active server render. |
+| [`ERR_ISLAND_WITHOUT_NAME`](#err-island-without-name) | warning | Island <`component`> has no `name`: a minified build renames its function, so the server and the browser name the island differently. |
 | [`ERR_ISR_MISSING_CLIENT`](#err-isr-missing-client) | error | [what-isr] createRedisStore requires { client } |
 | [`ERR_ISR_VARY_NO_HEADERS`](#err-isr-vary-no-headers) | error | [what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache. |
 | [`ERR_ISR_VARY_UNRESOLVED`](#err-isr-vary-unresolved) | error | [what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request. |
@@ -852,6 +853,27 @@ const count = cart.items.length;
 
 // Good — read it inside a component the server is rendering:
 function Cart() { return <span>{cart.items.length}</span>; }
+```
+
+## ERR_ISLAND_WITHOUT_NAME
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> Island <{{component}}> has no `name`: a minified build renames its function, so the server and the browser name the island differently.
+
+what-compiler names a `client:*` island by its tag as written (`<Counter client:idle />` is "Counter"). An island written by hand, `h(_$Island, { component: Counter })`, takes its function's name instead, which a minifier renames in one bundle and not the other: the server marks the island "Counter" and the browser calls it "a", in its `data-island` attribute and in the `island:hydrated` event's `detail.name`. Pass `name`, the same string in both builds, or write the island as `<Counter client:idle />`. Reported in development only.
+
+```jsx
+// Bad — a minified browser bundle renames Counter:
+h(_$Island, { component: Counter, mode: 'idle' });
+
+// Good — a name both builds share:
+h(_$Island, { component: Counter, name: 'Counter', mode: 'idle' });
+
+// Good — the compiler names it by its tag:
+<Counter client:idle />;
 ```
 
 ## ERR_ISR_MISSING_CLIENT

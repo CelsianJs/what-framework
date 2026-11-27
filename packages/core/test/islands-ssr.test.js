@@ -76,6 +76,28 @@ describe('islands render their content on the server', () => {
   });
 });
 
+// A minifier renames an island's function in one bundle and not the other,
+// so only a `name` given to it is the same on the server and in the browser.
+describe('an island written by hand without a name', () => {
+  it('is reported in development, once per component; one with a name is not', () => {
+    const warn = console.warn;
+    console.warn = () => {};
+    W.clearDiagnostics();
+    try {
+      function Gauge() { return h('meter', { value: 1 }); }
+      renderToString(h(Island, { component: Gauge, mode: 'idle' }));
+      renderToString(h(Island, { component: Gauge, mode: 'load' }));
+      renderToString(h(Island, { component: Counter, name: 'Counter', mode: 'idle' }));
+      mount(h(Island, { component: Counter, name: 'Counter', mode: 'static' }), app());
+    } finally {
+      console.warn = warn;
+    }
+    const reported = W.getDiagnostics().events.filter((e) => e.code === 'ERR_ISLAND_WITHOUT_NAME');
+    assert.deepEqual(reported.map((e) => [e.data.component, e.count]), [['Gauge', 2]]);
+    assert.match(reported[0].message, /Island <Gauge> has no `name`/);
+  });
+});
+
 describe('islands hydrate on the client', () => {
   beforeEach(() => { app().innerHTML = ''; });
 
