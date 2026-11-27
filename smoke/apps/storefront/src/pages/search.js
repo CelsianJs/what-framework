@@ -25,15 +25,17 @@ export default function Search() {
   const term = signal('', 'search:term');
   const refetches = signal(0, 'search:refetches');
 
-  // Key is an ARRAY: ['products', 'search', term]. invalidateQueries(['products'])
-  // must reach it as a prefix.
+  // Key is an ARRAY: ['products', 'search', term], read through a function so
+  // each term has its own entry. invalidateQueries(['products']) must reach it
+  // as a prefix.
   const query = useQuery({
-    queryKey: ['products', 'search', () => term()],
-    queryFn: async () => {
-      refetches((n) => n + 1);
-      return fetchSearch(term());
-    },
+    queryKey: () => ['products', 'search', term()],
+    queryFn: ({ queryKey }) => fetchSearch(queryKey[2]),
     staleTime: 0,
+    // Counted as each fetch settles. The fetcher runs inside the query's
+    // computed, the first time while the page hydrates, so a write from it
+    // would be a write in a computed and a count the server's HTML lacks.
+    onSettled: () => refetches((n) => n + 1),
   });
 
   const onInput = debounce((event) => term(event.target.value), 80);
