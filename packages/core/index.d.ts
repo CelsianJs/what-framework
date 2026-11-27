@@ -388,8 +388,11 @@ export function createResource<T = any, S = any>(
 // --- Components ---
 
 /**
- * A component loaded on first render. Typed by the component the loader
- * resolves to, so its props are inferred through
+ * A component loaded on first render, and kept once loaded. A download that
+ * fails goes to the error boundary of each render that waited on it; the
+ * next render (the boundary's `reset`, the component rendered again) and the
+ * next navigation to its route call `loader` again. Typed by the component
+ * the loader resolves to, so its props are inferred through
  * `import('./Chart').then((m) => ({ default: m.Chart }))` as well.
  */
 export function lazy<C extends (props: never) => VNodeChild>(loader: () => Promise<{ default: C }>): C;

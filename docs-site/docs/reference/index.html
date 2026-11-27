@@ -134,7 +134,7 @@
               <tr><td><code>&lt;ErrorBoundary fallback onError&gt;</code></td><td>Catch errors in child components</td></tr>
               <tr><td><code>&lt;Suspense fallback&gt;</code></td><td>Show the fallback until the async values and lazy components under it have first shown. After that a refresh keeps the content up, and a component that suspends again (<code>lazy()</code>, <code>use(promise)</code>) shows the fallback with the content kept mounted behind it</td></tr>
               <tr><td><code>memo(Component, areEqual)</code></td><td>No-op pass-through wrapper, kept for React source compatibility. There is no re-render to skip in the run-once model, and <code>areEqual</code> is never called</td></tr>
-              <tr><td><code>lazy(loader)</code></td><td>Code-split a component. Works with Suspense on the client. Under SSR <code>renderToStream</code>, <code>renderToStringAsync</code> and <code>renderDocument</code> wait for it; the synchronous <code>renderToString</code> emits the Suspense fallback</td></tr>
+              <tr><td><code>lazy(loader)</code></td><td>Code-split a component. Works with Suspense on the client. A failed download's error goes to the error boundary of each render that waited on it; the next render (the boundary's <code>reset</code>) and the next navigation to its route download again, and a loaded component is kept for good. Under SSR <code>renderToStream</code>, <code>renderToStringAsync</code> and <code>renderDocument</code> wait for it; the synchronous <code>renderToString</code> emits the Suspense fallback</td></tr>
             </tbody>
           </table>
 

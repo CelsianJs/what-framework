@@ -317,7 +317,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Users /></Suspense>, '#app');
 | Export | Notes |
 |---|---|
 | `memo(component, areEqual?)` | Kept for React code: components run once, so there is no re-render to skip; it wraps the component and ignores `areEqual` |
-| `lazy(loader)` | Lazy component loader |
+| `lazy(loader)` | Lazy component loader. A failed download's error goes to the error boundary of each render that waited on it; the next render (the boundary's `reset`) and the next navigation to its route download again. A loaded component is kept for good |
 | `Suspense` | Shows `fallback` until the async values and lazy components under it have first shown (a value computed from another async value included), then reveals everything at once. After that a refresh keeps the content up; a component that suspends again (`lazy()`, `use(promise)`) shows the fallback with the content kept mounted behind it. `onMount`/`useEffect` under it first run at the reveal. A server-rendered one is adopted as it is ([ASYNC.md](ASYNC.md)) |
 | `ErrorBoundary` | Error capture boundary: catches what its children throw while they are built and afterwards (effect re-runs and cleanups, bindings, list rows, components created later, async values that rejected) and shows `fallback({ error, reset })`; `reset()` fetches again the async value runs whose errors it caught and builds the children again. An error in the fallback goes to the boundary above; with no boundary an error is logged and the app keeps running |
 | `Show` | Conditional component |

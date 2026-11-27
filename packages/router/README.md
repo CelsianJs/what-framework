@@ -82,8 +82,12 @@ what-server matches a request the same way.
 
 A route object can also carry `layout`, `loading` (shown instead of the page
 being left while a navigation to it is in flight; without one, the old page
-stays), `error` (an error boundary fallback), `middleware` and `preload`
-(below).
+stays), `error` (an error boundary fallback, given `{ error, reset }`),
+`middleware` and `preload` (below). A `lazy()` route whose chunk failed to
+download shows its `error` page; the next navigation to it downloads the
+chunk again, the page being left on screen meanwhile, and the error page's
+`reset` downloads it again while the error page stays, then shows the page
+(or the error page with the new error).
 `<Router>` takes `routes`, `fallback` (the 404 page, and what a middleware that
 returns `false` shows) and `globalLayout` (rendered once around every page).
 

@@ -32,36 +32,59 @@ export function memo(Component, _areEqual) {
 }
 
 // --- lazy ---
-// Code-split a component. Returns a wrapper that loads on first render.
+// Code-split a component. Returns a wrapper that loads on first render, and
+// keeps what it loaded for good. A download that failed is shown to the
+// renders that waited on it (the nearest error boundary gets its error), and
+// then forgotten: the next render (an error boundary's reset, the component
+// rendered again) downloads again, as does the next navigation to its route
+// (`_load`, which what-router's navigation and prefetch wait on). React's
+// lazy keeps the error until the page is reloaded.
 
 export function lazy(loader) {
   _enableSuspense();
   let Component = null;
-  let loadPromise = null;
-  let loadError = null;
+  // The download in flight, or the last one; `failed` holds the error of the
+  // last one until it has been shown.
+  /** @type {Promise<void> | null} */
+  let loading = null;
+  /** @type {{ error: any } | null} */
+  let failed = null;
   const listeners = new Set();
 
+  // A download, which settles once the module has loaded or the download has
+  // failed: never with the failure, which a render shows.
+  function load() {
+    failed = null;
+    return loading = loader().then((mod) => {
+      Component = mod.default || mod;
+      // Notify all waiting instances
+      listeners.forEach(fn => fn());
+      listeners.clear();
+    }, (error) => {
+      failed = { error };
+    });
+  }
+
   function LazyWrapper(props) {
-    if (loadError) throw loadError;
     if (Component) return h(Component, props);
-
-    if (!loadPromise) {
-      loadPromise = loader()
-        .then(mod => {
-          Component = mod.default || mod;
-          // Notify all waiting instances
-          listeners.forEach(fn => fn());
-          listeners.clear();
-        })
-        .catch(err => { loadError = err; });
+    if (failed !== null) {
+      // Every render that waited on the download is rendered again in the
+      // same turn and shows its error; after that turn it is forgotten.
+      const shown = failed;
+      queueMicrotask(() => {
+        if (failed === shown) failed = loading = null;
+      });
+      throw shown.error;
     }
-
     // Throw promise for Suspense to catch
-    throw loadPromise;
+    throw loading || load();
   }
 
   LazyWrapper.displayName = 'Lazy';
   LazyWrapper._lazy = true;
+  // What a navigation to it waits for: the download in flight, or a new one
+  // (none yet, or the last one failed); null once loaded.
+  LazyWrapper._load = () => (Component ? null : loading === null || failed !== null ? load() : loading);
   LazyWrapper._onLoad = (fn) => {
     if (Component) fn();
     else listeners.add(fn);

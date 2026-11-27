@@ -328,10 +328,13 @@ function withoutSlash(path) {
 
 function noop() {}
 
-// A lazy() component's chunk, loading: calling the wrapper starts the load and
-// throws its promise until it has settled.
+// A lazy() component's chunk, loading, or null once loaded: what-core's
+// lazy() downloads it again when the last download failed, so a navigation
+// to its route (or a hover) is a new attempt. Another lazy (React's, through
+// what-react) is called: it throws its promise until that has settled.
 function chunkOf(component) {
   if (!component || !component._lazy) return null;
+  if (component._load) return component._load();
   try {
     component({});
     return null;
@@ -764,6 +767,20 @@ let scrolledTo = null;
 /** @returns {never} */
 function PreloadFailed({ error }) {
   throw error;
+}
+
+// The error page of route `r`, whose `reset` ("Try again") downloads a lazy()
+// chunk that failed again before it builds the page again: the error page
+// stays on screen meanwhile, as the page being left does on a navigation.
+function errorPage(r) {
+  return ({ error, reset }) => h(r.error, {
+    error,
+    reset: () => {
+      const chunk = chunkOf(r.component);
+      if (chunk === null) reset();
+      else chunk.then(reset, reset);
+    },
+  });
 }
 
 // A navigation that is not going to commit stops.
@@ -1210,7 +1227,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
 
       // Wrap with per-route error boundary if specified
       if (r.error) {
-        element = h(ErrorBoundary, { fallback: r.error }, element);
+        element = h(ErrorBoundary, { fallback: errorPage(r) }, element);
       }
 
       // The route's layouts are around this region (`routed` below).
