@@ -59,7 +59,7 @@
         <ul class="sidebar-links">
           <li><a href="#data-fetching">query / useQuery / useSWR</a></li>
           <li><a href="#data-fetching">useInfiniteQuery</a></li>
-          <li><a href="#forms">useForm / useField</a></li>
+          <li><a href="#forms">useForm / useFieldArray / useField</a></li>
           <li><a href="#stores">createStore / derived</a></li>
         </ul>
       </div>
@@ -213,7 +213,8 @@
               <tr><th>Function</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>useForm(options)</code></td><td>Complete form management: register, handleSubmit, validate, formState (values, errors, <code>error(name)</code>, touched, isDirty, isValid, isValidating, isSubmitting, isSubmitted, submitCount, dirtyFields)</td></tr>
+              <tr><td><code>useForm(options)</code></td><td>Complete form management: register, unregister, handleSubmit, validate, control, formState (values, errors, <code>error(name)</code>, touched, isDirty, isValid, isValidating, isSubmitting, isSubmitted, submitCount, dirtyFields). A field's name is a path: <code>register('vehicles.0.vin')</code> is <code>values.vehicles[0].vin</code>; errors stay keyed by the name</td></tr>
+              <tr><td><code>useFieldArray({ control, name })</code></td><td>The items of an array field: <code>fields()</code> (each with an <code>id</code> for its row's key), append, prepend, insert, remove, move, swap, update, replace. An item's values, errors and touched state move with it and go when it is removed (<a href="../learn/forms.html#field-arrays">Field arrays</a>)</td></tr>
               <tr><td><code>useField(name, opts)</code></td><td>Individual field control: value(), error(), inputProps(). Both <code>inputProps()</code> and <code>register()</code> bind the input's value ONE WAY today: typing updates form state, but a programmatic <code>setValue()</code> or <code>reset()</code> moves the state without moving the DOM input, so a form that writes its own fields has to set <code>el.value</code> itself</td></tr>
               <tr><td><code>zodResolver(schema)</code></td><td>Zod validation schema adapter</td></tr>
               <tr><td><code>yupResolver(schema)</code></td><td>Yup validation schema adapter</td></tr>
@@ -422,7 +423,7 @@
 
 <span class="comment">// Forms</span>
 <span class="keyword">import</span> {
-  useForm, useField, rules, zodResolver, yupResolver,
+  useForm, useFieldArray, useField, rules, zodResolver, yupResolver,
   simpleResolver, Input, Textarea, Select, Checkbox, Radio,
   ErrorMessage,
 } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;

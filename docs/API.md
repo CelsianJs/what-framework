@@ -716,7 +716,8 @@ Imported from `what-framework/form`.
 
 | Export | Notes |
 |---|---|
-| `useForm(options?)` | Form state + validation |
+| `useForm(options?)` | Form state + validation. A field's name is a path (`vehicles.0.vin`); `unregister(name \| names, options?)` forgets fields; `shouldUnregister` (on useForm or register) forgets a field when what registered it goes |
+| `useFieldArray({ control \| form, name })` | The items of an array field: `fields()`, `append`, `prepend`, `insert`, `remove`, `move`, `swap`, `update`, `replace` |
 | `useField(name, options?)` | Single-field primitive |
 | `rules` | Built-in validation rules |
 | `simpleResolver(ruleMap)` | Rule-map resolver. A field's own validation (a keystroke in `mode: 'onChange'`) runs that field's rules only; a resolver of your own is told which field in `options.names`, its third argument |
@@ -745,6 +746,116 @@ as an accessor after the spread:
 h(Input, { register, name: 'email' });
 h('input', { ...register('email'), value: () => getValue('email') });
 ```
+
+### Names are paths
+
+As in React Hook Form, a field's name is a path: `register('vehicles.0.vin')`
+reads and writes `values.vehicles[0].vin`, and `register('address.city')`
+`values.address.city`. `formState.values`, `watch()`, what `handleSubmit`
+hands over and what a resolver is given are nested, so a schema describes
+the form's arrays and objects as they are. A field starts from the default
+at its path. `formState.errors`, `formState.error(name)`, `touched` and
+`dirtyFields` stay keyed by the field's name (`errors['vehicles.0.vin']`),
+which is how `zodResolver` and `yupResolver` name a nested issue.
+`getValue('vehicles')` reads the array, and `simpleResolver` and
+`rules.match` read a dotted name at its path. A name without a dot is a key,
+as it always was.
+
+```js
+import { z } from 'zod';
+import { useForm, zodResolver } from 'what-framework/form';
+
+const schema = z.object({
+  vehicles: z.array(z.object({ vin: z.string().length(17, 'A VIN has 17 characters') })).min(1),
+});
+
+const { register, formState } = useForm({
+  resolver: zodResolver(schema),
+  defaultValues: { vehicles: [{ vin: '' }] },
+});
+register('vehicles.0.vin');
+formState.error('vehicles.0.vin'); // the issue at path ['vehicles', 0, 'vin']
+```
+
+### `unregister(name | names, options?)`
+
+Forgets fields, or every field when called with no name: the value leaves
+`formState.values` and what `handleSubmit` hands over, along with its
+default; its error leaves `formState.errors`, so `isValid` follows; its
+touched state goes; and a validation of it still in flight never lands.
+`{ keepValue, keepError, keepTouched, keepDefaultValue }` keep what they
+name, as React Hook Form's options do. An input that still shows the field
+shows its default, and the next edit in it brings the field back.
+`register(name, { shouldUnregister: true })`, or `useForm({ shouldUnregister:
+true })` for every field, unregisters a field when the component (or scope)
+that registered it goes: a field inside `<Show>` leaves the values when it is
+hidden.
+
+### Field arrays: `useFieldArray`
+
+`useFieldArray({ control: form.control, name })` (or `{ form, name }`) keeps
+the items of an array field. `fields()` lists them, each with an `id` to key
+its row by. `append`, `prepend` and `insert` take an item or an array of
+items; `remove(index | indexes)` removes those items, or every item with no
+argument; `move(from, to)` and `swap(a, b)` reorder; `update(index, item)`
+makes the item at `index` a new one (its row is built again) and
+`replace(items)` replaces them all. An item's values, errors and touched
+state belong to the item, not its index: they move with it, and a removed
+item's go with it. `reset()` takes the items from the defaults again.
+
+A row is built once, so the `index` the row was built with is its place at
+that moment. `register`, `watch(name)` and a nested `useFieldArray` take the
+name when they are called and keep that item while rows move around it (an
+input's `name` attribute follows the item's place). Anything read again
+later, such as the row's label or its error, reads the place now:
+`fields().findIndex((f) => f.id === field.id)`. A row built after its parent
+moved (an incident added to a driver who was moved) names the parent by its
+place now, too.
+
+```jsx
+import { useForm, useFieldArray } from 'what-framework/form';
+
+function DriverRow({ field, index, form, drivers }) {
+  // Built once: `index` is the row's place when it was built.
+  const place = () => drivers.fields().findIndex((f) => f.id === field.id);
+  return (
+    <li>
+      <label>{() => `Driver ${place() + 1}`} <input {...form.register(`drivers.${index}.name`)} /></label>
+      <button type="button" onClick={() => place() > 0 && drivers.move(place(), place() - 1)}>Up</button>
+      <button type="button" onClick={() => drivers.remove(place())}>Remove</button>
+      <span role="alert">{() => form.formState.error(`drivers.${place()}.name`)?.message ?? ''}</span>
+    </li>
+  );
+}
+
+export function Drivers() {
+  const form = useForm({
+    defaultValues: { drivers: [{ name: 'Ada' }, { name: 'Grace' }] },
+    resolver: async (values) => {
+      const errors = {};
+      values.drivers.forEach((driver, i) => {
+        if (!driver.name.trim()) errors[`drivers.${i}.name`] = { type: 'required', message: 'Enter a name' };
+      });
+      return { values, errors };
+    },
+  });
+  const drivers = useFieldArray({ control: form.control, name: 'drivers' });
+  return (
+    <form onSubmit={form.handleSubmit((values) => console.log(values.drivers))}>
+      <ul>
+        {drivers.fields().map((field, index) => <DriverRow key={field.id} field={field} index={index} form={form} drivers={drivers} />)}
+      </ul>
+      <button type="button" onClick={() => drivers.append({ name: '' })}>Add a driver</button>
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+```
+
+`move` keeps the row's elements, so the field being typed in keeps its focus
+and caret where the browser has `Element.moveBefore` (Chromium, Firefox).
+React Hook Form's `append` focuses the new item's first field; What's does
+not, so focus it yourself if you want that.
 
 ### Correct error access
 

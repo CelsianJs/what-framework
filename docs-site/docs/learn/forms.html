@@ -217,9 +217,10 @@
   mode: <span class="string">'onSubmit'</span>,        <span class="comment">// 'onSubmit' | 'onChange' | 'onBlur'</span>
   reValidateMode: <span class="string">'onChange'</span>,
   resolver: <span class="keyword">undefined</span>,     <span class="comment">// no resolver means no validation at all</span>
+  shouldUnregister: <span class="keyword">false</span>, <span class="comment">// true: a field leaves the values when its component goes</span>
 });</code></pre>
 
-          <p>All validation lives in <code>resolver</code>. Without one, <code>validate()</code> resolves <code>true</code> immediately and <code>handleSubmit</code> always takes the valid branch, which leaves <code>mode</code> and <code>reValidateMode</code> with nothing to do. Per-field rules in the second argument to <code>register</code> (the React Hook Form shape, <code>register('email', { required: true })</code>) are not supported: <code>register</code> reads only <code>type</code>, <code>value</code>, and <code>ref</code> from its options and ignores the rest.</p>
+          <p>All validation lives in <code>resolver</code>. Without one, <code>validate()</code> resolves <code>true</code> immediately and <code>handleSubmit</code> always takes the valid branch, which leaves <code>mode</code> and <code>reValidateMode</code> with nothing to do. Per-field rules in the second argument to <code>register</code> (the React Hook Form shape, <code>register('email', { required: true })</code>) are not supported: <code>register</code> reads only <code>type</code>, <code>value</code>, <code>ref</code> and <code>shouldUnregister</code> from its options and ignores the rest.</p>
 
           <h3 id="use-form-returns">Return Value</h3>
           <p><code>useForm</code> returns an object with the following properties:</p>
@@ -232,7 +233,8 @@
               </tr>
             </thead>
             <tbody>
-              <tr><td><code>register(name, opts?)</code></td><td>Connect a field to the form</td></tr>
+              <tr><td><code>register(name, opts?)</code></td><td>Connect a field to the form. The name is a path (<a href="#names-are-paths">Names are paths</a>)</td></tr>
+              <tr><td><code>unregister(name?, opts?)</code></td><td>Forget fields, or every field (<a href="#unregister">unregister</a>)</td></tr>
               <tr><td><code>handleSubmit(onValid, onInvalid?)</code></td><td>Returns a submit handler that validates first</td></tr>
               <tr><td><code>setValue(name, value, opts?)</code></td><td>Set a field value in form state</td></tr>
               <tr><td><code>getValue(name)</code></td><td>Read a field's current value</td></tr>
@@ -242,6 +244,7 @@
               <tr><td><code>reset(newValues?)</code></td><td>Reset form state to the defaults, or to new values, which become the defaults (<code>dirtyFields</code> is measured from them and a later <code>reset()</code> returns to them), as in React Hook Form</td></tr>
               <tr><td><code>watch(name?)</code></td><td>Returns a computed signal for one field or all values</td></tr>
               <tr><td><code>validate(name?)</code></td><td>Trigger validation for one field or the entire form</td></tr>
+              <tr><td><code>control</code></td><td>What <a href="#use-field-array"><code>useFieldArray</code></a> takes</td></tr>
               <tr><td><code>formState</code></td><td>Reactive state object (see below)</td></tr>
             </tbody>
           </table>
@@ -258,8 +261,8 @@
               </tr>
             </thead>
             <tbody>
-              <tr><td><code>values</code></td><td>object</td><td>All current field values</td></tr>
-              <tr><td><code>errors</code></td><td>object</td><td>All current errors keyed by field name</td></tr>
+              <tr><td><code>values</code></td><td>object</td><td>All current field values, nested by the fields' paths</td></tr>
+              <tr><td><code>errors</code></td><td>object</td><td>All current errors keyed by field name (<code>'vehicles.0.vin'</code>)</td></tr>
               <tr><td><code>error(name)</code></td><td>object | null</td><td>The <code>{ type, message }</code> error for one field, or <code>null</code></td></tr>
               <tr><td><code>touched</code></td><td>object</td><td>Fields the user has interacted with</td></tr>
               <tr><td><code>isDirty()</code></td><td>boolean</td><td>Whether any field has been modified</td></tr>
@@ -450,6 +453,77 @@
             <p>A resolver is any async function that accepts <code>values</code> and returns <code>{ values, errors }</code>. Use <code>simpleResolver(rules)</code> for lightweight validation without pulling in Zod or Yup.</p>
           </div>
 
+          <h2 id="field-arrays">Field arrays</h2>
+          <p>Forms that hold a list (vehicles, drivers, line items) name each item's fields by its place and keep the items with <code>useFieldArray</code>, as in React Hook Form.</p>
+
+          <h3 id="names-are-paths">Names are paths</h3>
+          <p>A field's name is a path: <code>register('vehicles.0.vin')</code> reads and writes <code>values.vehicles[0].vin</code>, and <code>register('address.city')</code> <code>values.address.city</code>. <code>formState.values</code>, <code>watch()</code>, what <code>handleSubmit</code> hands over and what a resolver is given are nested, so a schema describes the form's arrays and objects as they are. A field starts from the default at its path. <code>formState.errors</code>, <code>formState.error(name)</code>, <code>touched</code> and <code>dirtyFields</code> stay keyed by the field's name (<code>errors['vehicles.0.vin']</code>), which is how <code>zodResolver</code> and <code>yupResolver</code> name a nested issue. A name without a dot is a key, as it always was.</p>
+
+<pre><code><span class="keyword">import</span> { z } <span class="keyword">from</span> <span class="string">'zod'</span>;
+<span class="keyword">import</span> { useForm, zodResolver } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">const</span> schema = z.object({
+  vehicles: z.array(z.object({ vin: z.string().length(17, <span class="string">'A VIN has 17 characters'</span>) })).min(1),
+});
+
+<span class="keyword">const</span> { register, formState } = useForm({
+  resolver: zodResolver(schema),
+  defaultValues: { vehicles: [{ vin: <span class="string">''</span> }] },
+});
+register(<span class="string">'vehicles.0.vin'</span>);
+formState.error(<span class="string">'vehicles.0.vin'</span>); <span class="comment">// the issue at path ['vehicles', 0, 'vin']</span></code></pre>
+
+          <h3 id="unregister">Forgetting a field: unregister</h3>
+          <p><code>unregister(name | names, options?)</code> forgets fields, or every field when called with no name: the value leaves <code>formState.values</code> and what <code>handleSubmit</code> hands over, along with its default; its error leaves <code>formState.errors</code>, so <code>isValid</code> follows; its touched state goes; and a validation of it still in flight never lands. <code>{ keepValue, keepError, keepTouched, keepDefaultValue }</code> keep what they name. An input that still shows the field shows its default, and the next edit in it brings the field back. <code>register(name, { shouldUnregister: true })</code>, or <code>useForm({ shouldUnregister: true })</code> for every field, unregisters a field when the component that registered it goes: a field inside <code>&lt;Show&gt;</code> leaves the values when it is hidden.</p>
+
+          <h3 id="use-field-array">useFieldArray</h3>
+          <p><code>useFieldArray({ control: form.control, name })</code> (or <code>{ form, name }</code>) keeps the items of an array field. <code>fields()</code> lists them, each with an <code>id</code> to key its row by. <code>append</code>, <code>prepend</code> and <code>insert</code> take an item or an array of items; <code>remove(index | indexes)</code> removes those items, or every item with no argument; <code>move(from, to)</code> and <code>swap(a, b)</code> reorder; <code>update(index, item)</code> makes the item at <code>index</code> a new one (its row is built again) and <code>replace(items)</code> replaces them all. An item's values, errors and touched state belong to the item, not its index: they move with it, and a removed item's go with it. <code>reset()</code> takes the items from the defaults again.</p>
+
+<pre><code><span class="keyword">import</span> { useForm, useFieldArray } <span class="keyword">from</span> <span class="string">'what-framework/form'</span>;
+
+<span class="keyword">function</span> DriverRow({ field, index, form, drivers }) {
+  <span class="comment">// Built once: `index` is the row's place when it was built.</span>
+  <span class="keyword">const</span> place = () =&gt; drivers.fields().findIndex((f) =&gt; f.id === field.id);
+  <span class="keyword">return</span> (
+    &lt;li&gt;
+      &lt;label&gt;{() =&gt; <span class="string">`Driver ${place() + 1}`</span>} &lt;input {...form.register(<span class="string">`drivers.${index}.name`</span>)} /&gt;&lt;/label&gt;
+      &lt;button type="button" onClick={() =&gt; place() &gt; 0 &amp;&amp; drivers.move(place(), place() - 1)}&gt;Up&lt;/button&gt;
+      &lt;button type="button" onClick={() =&gt; drivers.remove(place())}&gt;Remove&lt;/button&gt;
+      &lt;span role="alert"&gt;{() =&gt; form.formState.error(<span class="string">`drivers.${place()}.name`</span>)?.message ?? <span class="string">''</span>}&lt;/span&gt;
+    &lt;/li&gt;
+  );
+}
+
+<span class="keyword">export</span> <span class="keyword">function</span> Drivers() {
+  <span class="keyword">const</span> form = useForm({
+    defaultValues: { drivers: [{ name: <span class="string">'Ada'</span> }, { name: <span class="string">'Grace'</span> }] },
+    resolver: <span class="keyword">async</span> (values) =&gt; {
+      <span class="keyword">const</span> errors = {};
+      values.drivers.forEach((driver, i) =&gt; {
+        if (!driver.name.trim()) errors[<span class="string">`drivers.${i}.name`</span>] = { type: <span class="string">'required'</span>, message: <span class="string">'Enter a name'</span> };
+      });
+      <span class="keyword">return</span> { values, errors };
+    },
+  });
+  <span class="keyword">const</span> drivers = useFieldArray({ control: form.control, name: <span class="string">'drivers'</span> });
+  <span class="keyword">return</span> (
+    &lt;form onSubmit={form.handleSubmit((values) =&gt; console.log(values.drivers))}&gt;
+      &lt;ul&gt;
+        {drivers.fields().map((field, index) =&gt; &lt;DriverRow key={field.id} field={field} index={index} form={form} drivers={drivers} /&gt;)}
+      &lt;/ul&gt;
+      &lt;button type="button" onClick={() =&gt; drivers.append({ name: <span class="string">''</span> })}&gt;Add a driver&lt;/button&gt;
+      &lt;button type="submit"&gt;Save&lt;/button&gt;
+    &lt;/form&gt;
+  );
+}</code></pre>
+
+          <div class="callout callout-note">
+            <p class="callout-title">A row is built once</p>
+            <p>The <code>index</code> a row is built with is its place at that moment. <code>register</code>, <code>watch(name)</code> and a nested <code>useFieldArray</code> take the name when they are called and keep that item while rows move around it; an input's <code>name</code> attribute follows the item's place. Anything read again later, such as the row's label or its error, reads the place now: <code>fields().findIndex((f) =&gt; f.id === field.id)</code>. A row built after its parent moved (an incident added to a driver who was moved) names the parent by its place now, too.</p>
+          </div>
+
+          <p><code>move</code> and <code>swap</code> keep each row's elements, so the field being typed in keeps its focus and caret where the browser has <code>Element.moveBefore</code> (Chromium, Firefox). React Hook Form's <code>append</code> focuses the new item's first field; What's does not, so focus it yourself if you want that.</p>
+
           <h2 id="use-field">useField</h2>
           <p><code>useField</code> gives you standalone control over a single field without a parent <code>useForm</code>. This is useful for isolated inputs like search bars, inline edits, or fields managed outside a form context.</p>
 
@@ -627,6 +701,10 @@
             <li><a href="#built-in-rules" class="toc-h3">Built-in Rules</a></li>
             <li><a href="#error-display" class="toc-h3">Displaying Errors</a></li>
             <li><a href="#schema-validation">Schema Validation</a></li>
+            <li><a href="#field-arrays">Field arrays</a></li>
+            <li><a href="#names-are-paths" class="toc-h3">Names are paths</a></li>
+            <li><a href="#unregister" class="toc-h3">unregister</a></li>
+            <li><a href="#use-field-array" class="toc-h3">useFieldArray</a></li>
             <li><a href="#use-field">useField</a></li>
             <li><a href="#form-components">Form Components</a></li>
           </ul>

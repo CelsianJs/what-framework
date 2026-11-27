@@ -207,6 +207,7 @@ mount(<Suspense fallback={<p>Loading…</p>}><Todos /></Suspense>, '#app');
 
 ## Forms (\`what-framework/form\`)
 - \`useForm({ defaultValues, resolver, mode })\`: returns \`{ register, handleSubmit, setValue, getValue, reset, formState }\`; spread \`register('email')\` onto an input; \`handleSubmit(onValid)\` validates then calls it; \`formState.error('email')\`, \`formState.isSubmitting()\`
+- A field's name is a path: \`register('vehicles.0.vin')\` is \`values.vehicles[0].vin\` (errors stay keyed by the name). \`useFieldArray({ control: form.control, name: 'vehicles' })\` gives \`fields()\` (key rows by \`field.id\`) and \`append\`/\`remove\`/\`move\`/\`swap\`/\`insert\`/\`update\`/\`replace\`; \`unregister(name)\` forgets a field
 - \`simpleResolver({ field: [rules...] })\` with \`rules.required(msg)\` / \`rules.email(msg)\` / \`rules.minLength(n, msg)\` etc.
 - \`zodResolver(schema)\` / \`yupResolver(schema)\`: schema validation adapters
 - \`useField(name, { defaultValue, validate })\`: one standalone field
