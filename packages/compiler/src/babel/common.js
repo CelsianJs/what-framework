@@ -491,6 +491,20 @@ export function componentCallee(name) {
   return t.identifier(name.name);
 }
 
+// What a `client:*` island hands _$Island (what-core components.js), on both
+// targets: the component, the trigger and its media query, and the
+// component's props as an object of their own (`props`, left out when there
+// are none), so a prop may have any name, `name` and `mode` included.
+export function islandOptions(tag, mode, mediaQuery, props) {
+  const options = [
+    t.objectProperty(t.identifier('component'), componentCallee(tag)),
+    t.objectProperty(t.identifier('mode'), t.stringLiteral(mode)),
+  ];
+  if (mediaQuery) options.push(t.objectProperty(t.identifier('mediaQuery'), mediaQuery));
+  if (props) options.push(t.objectProperty(t.identifier('props'), props));
+  return t.objectExpression(options);
+}
+
 // --- Props a component reads where it uses them ---
 // Compiled JSX hands a component JSX as a getter that builds it when read:
 // its children (dom.js _installLazyChildren), and the JSX it passes in any

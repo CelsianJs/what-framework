@@ -47,7 +47,7 @@ import {
   componentCallee, createEventHandler, getAttrName, getAttributeValue, getBindingProperty, hasEventModifiers,
   controlFlowTag, helper, helperLocals, isBindingAttribute, isComponentElement, isEventAttrName,
   isSlotAttribute, normalizeJsxText, parseEventModifiers, propKey, readSwitch, uniqueName, unsafeMarkup,
-  checkIslandProp, directiveValue, renderFunctionChild,
+  checkIslandProp, directiveValue, islandOptions, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
 import { findMappedJsx, isKeyedRow, keyIndex, listSlot, markRowItemReads, rowField } from './lists.js';
@@ -706,12 +706,10 @@ function componentValue(node, state) {
   const meta = componentMetadata(node, state);
 
   if (directive) {
-    // The directive's keys come last, so nothing a caller spreads in can
-    // replace the component or the mode (the DOM back end's rule).
-    properties.push(t.objectProperty(t.identifier('component'), componentCallee(opening.name)));
-    properties.push(t.objectProperty(t.identifier('mode'), t.stringLiteral(directive.mode)));
-    if (directive.mediaQuery) properties.push(t.objectProperty(t.identifier('mediaQuery'), directive.mediaQuery));
-    const args = [t.objectExpression(properties), children];
+    // The props travel apart from the island's own options, as on the DOM
+    // target (common.js islandOptions).
+    const props = properties.length ? t.objectExpression(properties) : null;
+    const args = [islandOptions(opening.name, directive.mode, directive.mediaQuery, props), children];
     if (meta) args.push(meta);
     return call(state, '_$ssrIsland', args);
   }

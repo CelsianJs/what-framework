@@ -122,9 +122,11 @@ const a = _$ssrComponent(Suspense, {
   ["island", String.raw`const a = <Counter client:idle start={1} />;`, String.raw`
 import { ssrIsland as _$ssrIsland } from "what-framework/ssr-runtime";
 const a = _$ssrIsland({
-  start: 1,
   component: Counter,
-  mode: "idle"
+  mode: "idle",
+  props: {
+    start: 1
+  }
 }, []);`],
   ["show", String.raw`import { Show } from 'what-framework'; const a = <Show when={user()} fallback={<i>none</i>}><b>hi</b></Show>;`, String.raw`
 import { ssr as _$ssr } from "what-framework/ssr-runtime";

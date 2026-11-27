@@ -48,6 +48,18 @@ describe('islands render their content on the server', () => {
     assert.deepEqual(props, { start: 2, label: 'hits' });
   });
 
+  it('takes the component\'s props apart from its options under `props`, where any name is a prop', () => {
+    const Card = (p) => h('b', {}, `${p.name}|${p.mode}|${p.component}|${p.mediaQuery}`);
+    const html = renderToString(h(Island, {
+      component: Card, mode: 'idle',
+      props: { name: 'Ada', mode: 'dark', component: 'fieldset', mediaQuery: 'print' },
+    }));
+    assert.match(html, /data-island-mode="idle"/);
+    assert.match(html, /<b>Ada\|dark\|fieldset\|print<\/b>/);
+    const props = JSON.parse(html.match(/data-island-props="([^"]*)"/)[1].replace(/&quot;/g, '"'));
+    assert.deepEqual(props, { name: 'Ada', mode: 'dark', component: 'fieldset', mediaQuery: 'print' });
+  });
+
   it('drops non-serializable props instead of throwing mid-render', () => {
     const html = renderToString(
       h(Island, { component: Counter, mode: 'idle', start: 1, onSelect: () => {}, missing: undefined })

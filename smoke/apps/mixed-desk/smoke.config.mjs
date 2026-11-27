@@ -675,6 +675,7 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           id: window.__server.input?.id,
           island: root.querySelector('[data-ticket]')?.parentElement.getAttribute('data-island-mode'),
           islandSize: window.__server.size?.textContent,
+          ticketMode: root.querySelector('[data-ticket-mode]')?.textContent,
         };
       });
       await page.click('[data-ticket-note]');
@@ -702,6 +703,7 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           sameNote: root.querySelector('[data-ticket-note]') === window.__server.note,
           sameSize: root.querySelector('[data-step-size]') === window.__server.size,
           note: root.querySelector('[data-ticket-note]').value,
+          ticketMode: root.querySelector('[data-ticket-mode]').textContent,
         };
       });
       await page.click('[data-step-up]');
@@ -730,9 +732,10 @@ async function hydrationChecks(browser, base, { check, reporter }) {
         `same-input=${after.sameInput} created=${after.created} elements ${after.serverElements}->${after.elements} value="${after.value}" focused=${after.focused} id ${server.id}/${after.id} label=${after.label} side=${live.side} ping="${live.ping}" request="${live.request}" console=${noise.slice(0, 2).join(' | ') || 'clean'}`);
       check('react:island-hydration',
         server.island === 'load' && server.islandSize === '500' && after.sameNote && after.sameSize && after.note === 'urgent'
-          && ticket.size === '700' && ticket.fills === '700',
-        'a client:load island (a native ticket hosting a React stepper) is rendered on the server, hydrates onto its nodes keeping a note typed before, and its React state and callback work',
-        `mode=${server.island} server-size=${server.islandSize} same-note=${after.sameNote} same-size=${after.sameSize} note="${after.note}" size=${ticket.size} fills=${ticket.fills}`);
+          && ticket.size === '700' && ticket.fills === '700'
+          && server.ticketMode === 'limit' && after.ticketMode === 'limit',
+        'a client:load island (a native ticket hosting a React stepper) is rendered on the server, hydrates onto its nodes keeping a note typed before, and its React state and callback work; its prop called `mode` reaches it on both sides',
+        `mode=${server.island} prop-mode ${server.ticketMode}->${after.ticketMode} server-size=${server.islandSize} same-note=${after.sameNote} same-size=${after.sameSize} note="${after.note}" size=${ticket.size} fills=${ticket.fills}`);
     }, { context });
   } finally {
     await context.close();

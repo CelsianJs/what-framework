@@ -11,7 +11,7 @@ import {
   isVoidHtmlElement, normalizeJsxText, parseEventModifiers, propKey,
   addImports, helper, helperLocals, readSwitch, uniqueName,
   checkElementName, checkIslandProp, checkStaticAttribute, checkStaticRawText, directiveValue,
-  renderFunctionChild,
+  islandOptions, renderFunctionChild,
 } from './common.js';
 import {
   buildEachValue, buildWhenCondition, isPotentiallyReactive, isSignalIdentifier, isUncertainReactive,
@@ -1665,23 +1665,13 @@ function transformComponentFineGrained(path, state) {
   }
 
   if (clientDirective) {
-
-    // The directive's own machinery, kept apart from user data because it is
-    // always applied LAST: `component` comes from the tag and `mode` from the
-    // directive, so nothing a caller spreads in can reach either one.
-    const directiveProps = [
-      t.objectProperty(t.identifier('component'), componentRef),
-      t.objectProperty(t.identifier('mode'), t.stringLiteral(clientDirective.type)),
-    ];
-
-    if (clientDirective.value) {
-      directiveProps.push(t.objectProperty(t.identifier('mediaQuery'), clientDirective.value));
-    }
-
     // User props in source order — same rule, and the same reasons, as the
     // regular component path below. An island IS a component, so
     // `<Chart client:load {...a} {...b} />` has to mean `{ ...a, ...b }` for
-    // exactly the reason `<Chart {...a} {...b} />` does.
+    // exactly the reason `<Chart {...a} {...b} />` does. They travel apart
+    // from the island's own options (common.js islandOptions), so no prop
+    // name, and nothing a caller spreads in, can reach the component or the
+    // mode.
     const islandParts = [];
     let islandUserProps = [];
     const flushIslandUserProps = () => {
@@ -1708,35 +1698,25 @@ function transformComponentFineGrained(path, state) {
       if (attrName === 'key') continue;
       checkIslandProp(attrName, attr.value, node, state);
       const value = getAttributeValue(attr.value);
-      // `data-x` and `aria-label` are not identifiers. Emitting one as a bare
-      // key produced `{data-x: "1"}`, which is a SYNTAX ERROR: babel does not
-      // validate what its builders are handed, so the compiler exited 0 and
-      // wrote a file that no parser would accept. `<Chart client:load
-      // aria-label="..." />` is an ordinary thing to write, and it took the
-      // whole build down with an error pointing at generated output.
-      //
-      // The regular component branch below has always tested the name first;
-      // this branch is the copy that did not.
+      // `data-x` and `aria-label` are not identifiers: propKey quotes them.
       islandUserProps.push(t.objectProperty(propKey(attrName), value));
     }
 
-    let islandPropsExpr;
+    let islandPropsExpr = null;
     if (islandParts.length === 0) {
-      // No spread anywhere: one object literal, directive keys written last so
-      // they still win. This is the shape nearly every island has, and keeping
-      // it a literal keeps the emitted output byte-identical to before.
-      islandPropsExpr = t.objectExpression([...islandUserProps, ...directiveProps]);
+      // No spread anywhere: one object literal, the shape nearly every island has.
+      if (islandUserProps.length > 0) islandPropsExpr = t.objectExpression(islandUserProps);
     } else {
       flushIslandUserProps();
       islandPropsExpr = t.callExpression(
         t.memberExpression(t.identifier('Object'), t.identifier('assign')),
-        [t.objectExpression([]), ...islandParts, t.objectExpression(directiveProps)]
+        [t.objectExpression([]), ...islandParts]
       );
     }
 
     const islandChildren = transformComponentChildren();
     if (!isEmptyArray(islandChildren)) state.needsLazyProps = true;
-    const islandArgs = [helper(state, '_$Island'), islandPropsExpr, islandChildren];
+    const islandArgs = [helper(state, '_$Island'), islandOptions(openingElement.name, clientDirective.type, clientDirective.value, islandPropsExpr), islandChildren];
     const islandMeta = componentMetadata(node, state);
     // Hydratable output's component call takes the JSX's number before its
     // development location (below); an island has none, as on the server.

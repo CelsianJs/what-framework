@@ -400,11 +400,10 @@ describe('component output', () => {
       }
     `);
 
-    const merged = code.slice(code.indexOf('Object.assign'));
-    assert.ok(
-      merged.indexOf('mode: "load"') > merged.indexOf('cfg'),
-      'the hydration mode comes from the directive, not from spread data'
-    );
+    // The spread is the component's props, an object beside the island's
+    // options, so no key of it can stand for the mode.
+    assert.match(code, /mode: "load",\s*props: Object\.assign\(\{\}, _props\.cfg\)/,
+      'the hydration mode comes from the directive, not from spread data');
   });
 
   it('escapes < and > in attribute values', () => {

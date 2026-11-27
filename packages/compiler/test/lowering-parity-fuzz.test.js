@@ -120,6 +120,9 @@ const FIXTURE = path.resolve(__dirname, 'fixtures/fuzz-components.js');
 // is one `t.identifier()` away from being lost — which is exactly the state the
 // island branch was in.
 const PROP_NAMES = ['label', 'extra', 'value', 'data-x', 'aria-label'];
+// An island's props also take the names of the island's own options: they are
+// the component's, as on any component.
+const ISLAND_PROP_NAMES = [...PROP_NAMES, 'name', 'mode', 'component', 'mediaQuery'];
 
 // Imported bindings. The compiler sees an import only by name, so a string
 // constant, a signal, a computed and a plain function all look the same to it,
@@ -171,7 +174,7 @@ function makeGenerator(seed) {
 // before attach) and in this compiler (a lone non-literal spread is
 // Object.assign'd). The fuzzer still inlines so a lowering divergence cannot
 // be a props-identity accident.
-function makePropItems(gen, signalCount) {
+function makePropItems(gen, signalCount, names = PROP_NAMES) {
   const { pick, int, rnd } = gen;
   const items = [];
   const count = int(5);
@@ -181,7 +184,7 @@ function makePropItems(gen, signalCount) {
       const used = new Set();
       const entryCount = 1 + int(3);
       for (let e = 0; e < entryCount; e += 1) {
-        const name = pick(PROP_NAMES);
+        const name = pick(names);
         // One object literal cannot carry a key twice and mean both, so a
         // repeat inside a SINGLE spread is dropped rather than emitted.
         if (used.has(name)) continue;
@@ -193,7 +196,7 @@ function makePropItems(gen, signalCount) {
         continue;
       }
     }
-    const name = pick(PROP_NAMES);
+    const name = pick(names);
     const roll = rnd();
     // `label={s0()}` — read once, when the props object is built. The compiler
     // does not auto-thunk a component PROP the way it auto-thunks an element
@@ -324,7 +327,7 @@ function makeIslandSpec(gen, signalCount) {
     attrs: [],
     children: [{
       kind: 'island',
-      items: makePropItems(gen, signalCount),
+      items: makePropItems(gen, signalCount, ISLAND_PROP_NAMES),
       children: Array.from({ length: int(3) }, () => makeSpec(gen, 1, signalCount)),
     }],
   };
@@ -564,15 +567,14 @@ function emitH(spec) {
       return `h(${spec.comp}, {__proto__: null${props ? ', ' : ''}${props}}${kids ? `, ${kids}` : ''})`;
     }
     // An island IS a component: the directive only decides WHEN it hydrates.
-    // `component` and `mode` come from the tag and the directive rather than
-    // from the caller, so they are written LAST, which is also the rule that
-    // keeps a caller from reaching the hydration machinery by spreading a key
-    // called `component` over it.
+    // `component` and `mode` come from the tag and the directive, and
+    // the caller's props are an object of their own beside them, so a prop
+    // called `mode` or `component`, written or spread, is the component's.
     case 'island': {
       const props = emitPropsH(spec.items);
       const kids = spec.children.map(emitH).join(', ');
-      const merged = `{${props}${props ? ', ' : ''}"component": Chart, "mode": "load"}`;
-      return `h(Island, ${merged}${kids ? `, ${kids}` : ''})`;
+      const island = `{"component": Chart, "mode": "load", "props": {${props}}}`;
+      return `h(Island, ${island}${kids ? `, ${kids}` : ''})`;
     }
     default: {
       const props = spec.attrs.map(a => {
@@ -811,6 +813,9 @@ function shapesIn(spec, found = new Set()) {
     if (items.some(i => i.spread && i.spread.some(e => e.name.includes('-')))) {
       found.add('hyphenated-in-spread');
     }
+    const optionNamed = name => ISLAND_PROP_NAMES.indexOf(name) >= PROP_NAMES.length;
+    if (items.some(i => optionNamed(i.name))) found.add('option-named-prop');
+    if (items.some(i => i.spread && i.spread.some(e => optionNamed(e.name)))) found.add('option-named-in-spread');
     if (items.length === 1 && items[0].spread && spec.children.length > 0) {
       found.add('lone-spread-with-children');
     }
@@ -888,6 +893,7 @@ describe('compiler lowering parity (fuzz)', () => {
     assertCorpusCovers(specs, [
       'explicit-then-spread', 'spread-then-explicit', 'spread-then-spread',
       'multi-key-spread', 'accessor-prop', 'hyphenated-prop',
+      'option-named-prop', 'option-named-in-spread',
     ]);
     reportDivergence(divergent, ISLAND_CASES);
   });

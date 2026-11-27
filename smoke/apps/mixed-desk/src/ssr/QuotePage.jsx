@@ -16,7 +16,7 @@ export function QuotePage(props) {
       <h1>Quote request · <span data-qp-symbol>{props.symbol}</span></h1>
       <button type="button" data-qp-ping onClick={() => pings(pings() + 1)}>native ping {pings()}</button>
       <QuoteRequest symbol={props.symbol} onRequest={(r) => requests([...requests(), r])} />
-      <Ticket client:load symbol={props.symbol} start={500} />
+      <Ticket client:load symbol={props.symbol} start={500} mode="limit" />
       <ul data-qp-requests>{requests().map((r, i) => <li key={i}>{r.side} {r.size} {r.symbol}</li>)}</ul>
     </main>
   );

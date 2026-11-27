@@ -135,13 +135,17 @@ export interface IslandProps {
   mode: 'load' | 'idle' | 'visible' | 'interaction' | 'media' | 'action' | 'static';
   mediaQuery?: string;
   name?: string;
+  /** The component's props. Without it, every other key is a prop. */
+  props?: Record<string, any>;
   [key: string]: any;
 }
 
 /**
- * What `<Counter client:idle />` compiles to: an island that hydrates itself
- * when its trigger fires (`mode`). The public island component, which
- * hydrates through the island registry, is what-framework/server's Island.
+ * What `<Counter client:idle start={1} />` compiles to:
+ * `h(_$Island, { component: Counter, mode: 'idle', props: { start: 1 } })`,
+ * an island that hydrates itself when its trigger fires (`mode`). The public
+ * island component, which hydrates through the island registry, is
+ * what-framework/server's Island.
  */
 export function _$Island(props: IslandProps): VNode;
 /** @internal What what-compiler found while compiling a module (development builds), reported when it loads. */
