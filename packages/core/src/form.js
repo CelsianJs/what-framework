@@ -323,8 +323,9 @@ function createFormController(options = {}) {
   // no later run of that field or of the whole form started before it
   // landed, and a whole-form answer leaves alone a field validated since it
   // started. A field unregistered or removed counts as validated when it
-  // goes, so no answer started before lands on it. isValidating holds until
-  // the last run in flight lands; the runs are forgotten then.
+  // goes, so no answer started before lands on it. A field's last number
+  // is kept: numbers only grow, so it never outranks a run that starts
+  // later. isValidating holds until the last run in flight lands.
   let runCount = 0;
   let formRun = 0;
   const fieldRuns = map();
@@ -362,10 +363,7 @@ function createFormController(options = {}) {
       }
       return Object.keys(nextErrors).length === 0;
     } finally {
-      if (--inFlight === 0) {
-        isValidating.set(false);
-        for (const at in fieldRuns) delete fieldRuns[at];
-      }
+      if (--inFlight === 0) isValidating.set(false);
     }
   }
 
