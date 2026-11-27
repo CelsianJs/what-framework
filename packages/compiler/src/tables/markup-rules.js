@@ -135,14 +135,17 @@ export function selectedOptions(values, value) {
 // ARIA attributes and `role` take enumerated string values, never HTML boolean
 // syntax: an absent aria-expanded means "unsupported" and aria-expanded="false"
 // means "collapsed". data-* attributes are strings too, so `[data-open="false"]`
-// keeps matching. Everything else follows HTML boolean semantics: true writes
-// the bare name, false omits it.
+// keeps matching. HTML's own "true"/"false" attributes are enumerated as well:
+// draggable="" is the auto state (a <div> is not draggable), and an absent
+// spellcheck or contenteditable inherits from the parent, so `false` has to be
+// written out. Everything else follows HTML boolean semantics: true writes the
+// bare name, false omits it.
 export function isAriaAttr(name) {
   return name === 'role' || name.startsWith('aria-');
 }
 
 export function isEnumeratedAttr(name) {
-  return isAriaAttr(name) || name.startsWith('data-');
+  return isAriaAttr(name) || name.startsWith('data-') || /^(draggable|spellcheck|contenteditable)$/i.test(name);
 }
 
 export const VOID_ELEMENTS = /* @__PURE__ */ new Set([

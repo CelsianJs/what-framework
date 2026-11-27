@@ -5,7 +5,7 @@ import { report, setNextBinding } from './diagnostics.js';
 
 import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _serverComponentOwner, _enterFrame, _exitFrame, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
-import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
+import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isEnumeratedAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode, SVG_TAG } from './vnode-renderer.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -1410,17 +1410,14 @@ function setProp(el, key, value, isSvg) {
     return;
   }
 
-  // aria-*/role BEFORE the boolean fast-path: these are enumerated string
-  // attributes, so a boolean has to serialize as "true"/"false", never as HTML
-  // boolean syntax. See _isAriaAttr above.
-  // data-* joins aria-* here rather than falling through to the boolean branch
-  // below. Both are enumerated: `data-open="false"` is a distinct state from an
-  // absent `data-open`, and `[data-open="false"]` is an ordinary CSS selector,
-  // so collapsing false to "remove the attribute" throws information away.
-  // The compiled path in render.js has always stringified these, so keeping the
-  // generic boolean branch first is also what made an SSR page disagree with
-  // its own compiled client on hydration.
-  if (isAriaAttr(key) || key.startsWith('data-')) {
+  // Enumerated attributes BEFORE the boolean fast-path: aria-*, role, data-*,
+  // draggable, spellcheck and contenteditable take string values, so a
+  // boolean has to serialize as "true"/"false", never as HTML boolean syntax.
+  // `data-open="false"` is a distinct state from an absent `data-open`, and
+  // `draggable=""` leaves a <div> undraggable (markup-rules.js
+  // isEnumeratedAttr). render.js and the server apply the same rule, so an SSR
+  // page and its compiled client agree on hydration.
+  if (isEnumeratedAttr(key)) {
     el.setAttribute(key, typeof value === 'boolean' ? String(value) : value);
     return;
   }

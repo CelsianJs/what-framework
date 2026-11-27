@@ -232,7 +232,16 @@ describe('markup rules: prop names that write another attribute (ATTRIBUTE_ALIAS
 });
 
 describe('markup rules: enumerated and boolean attributes (isEnumeratedAttr)', () => {
-  for (const name of ['aria-expanded', 'role', 'data-open', 'hidden']) {
+  // HTML's "true"/"false" attributes are enumerated: draggable="" is the auto
+  // state (a <div> stays undraggable), and an absent spellcheck or
+  // contenteditable inherits, so false has to be written out.
+  it('draggable, spellcheck and contenteditable are enumerated, hidden is boolean', () => {
+    for (const name of ['draggable', 'spellcheck', 'contenteditable', 'contentEditable', 'spellCheck']) {
+      assert.equal(rules.isEnumeratedAttr(name), true, name);
+    }
+    assert.equal(rules.isEnumeratedAttr('hidden'), false);
+  });
+  for (const name of ['aria-expanded', 'role', 'data-open', 'hidden', 'draggable', 'spellcheck', 'contenteditable']) {
     const enumerated = rules.isEnumeratedAttr(name);
     it(`${name} is ${enumerated ? 'enumerated: true and false are written out' : 'boolean: true is bare, false omits it'}`, async () => {
       const expected = {
