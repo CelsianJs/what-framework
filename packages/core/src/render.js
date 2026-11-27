@@ -717,7 +717,9 @@ export function insert(parent, child, marker, devName) {
     if (child._mapArray) return child(parent, marker || null);
     // Deferred component children: realize once, no reactive wrapper.
     if (child._lazyChildren) return insert(parent, child(), marker);
-    insertReactive(parent, child, marker, devName);
+    // insertReactive, written out: a frame fewer under each level of a
+    // recursive component.
+    effect(region(parent, child, marker, vnodeRows !== null ? getOwner() : null), __DEV__ ? { name: devName || 'children', binding: parent } : undefined);
     return;
   }
 
