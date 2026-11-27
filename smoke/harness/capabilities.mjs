@@ -91,6 +91,10 @@ export const CAPABILITIES = {
   'anim:intersect': { area: 'animation', desc: 'onIntersect reveals elements as they enter the viewport' },
   'anim:spring-tween': { area: 'animation', desc: 'spring/tween animate a value over time' },
   'anim:transition': { area: 'animation', desc: 'an enter/leave transition runs on a mount/unmount' },
+  'anim:raf-frame': { area: 'animation', desc: 'an SVG chart redrawn every animation frame from a signal keeps its nodes and stays within a frame budget' },
+  'anim:drag-spring': { area: 'animation', desc: 'a handle dragged with pointer events follows a spring and settles exactly where it is let go, leaving no frame loop running' },
+  'anim:interrupt': { area: 'animation', desc: 'an animation started again mid-flight, or whose component unmounts, gives up its frame loop, and the value ends on the newest target' },
+  'anim:enter-leave-churn': { area: 'animation', desc: 'hundreds of elements entering and leaving with CSS transitions leave no node, component, timer or frame loop behind' },
 
   // --- Forms & a11y -------------------------------------------------------
   'form:validation': { area: 'forms', desc: 'useForm rejects invalid input and surfaces field errors' },
