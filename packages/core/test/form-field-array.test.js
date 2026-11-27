@@ -144,6 +144,25 @@ describe('useFieldArray', () => {
     assert.equal(form.getValue('vehicles.1.vin'), 'Y');
   });
 
+  it('unregister on the array\'s name removes its items, and the array takes new ones', () => {
+    const { form, array } = setup();
+    typed(form.register('vehicles.0.vin'), 'edited');
+    form.setError('vehicles.1.vin', { message: 'bad' });
+    form.unregister('vehicles');
+    assert.deepEqual(form.formState.values, { owner: 'Ann', vehicles: [] });
+    assert.deepEqual(array.fields(), []);
+    assert.deepEqual(form.formState.errors, {});
+    array.append({ vin: 'N' });
+    assert.deepEqual(form.formState.values.vehicles, [{ vin: 'N' }]);
+
+    const kept = setup(undefined, { shouldUnregister: true });
+    kept.form.unregister('vehicles');
+    kept.array.append({ vin: 'K' });
+    assert.deepEqual(kept.form.formState.values.vehicles, [{ vin: 'K' }], 'a form that keeps defaults shows the new items too');
+    kept.form.reset();
+    assert.deepEqual(kept.form.formState.values.vehicles, [{ vin: 'A' }, { vin: 'B' }, { vin: 'C' }]);
+  });
+
   it('reset gives the array its items from the defaults again', () => {
     const { form, array } = setup();
     array.remove(0);

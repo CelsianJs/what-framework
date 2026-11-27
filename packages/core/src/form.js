@@ -384,9 +384,14 @@ function createFormController(options = {}) {
   // item, which nothing can name again: their signals are dropped.
   function forget(key, options = {}, gone) {
     const under = (k) => k === key || k.startsWith(key + '.');
-    if (inFlight) fieldRuns[key] = ++runCount;
+    if (inFlight) {
+      for (const k in fieldRuns) if (under(k)) fieldRuns[k] = ++runCount;
+      fieldRuns[key] = ++runCount;
+    }
     const reset = [];
     if (!options.keepValue) {
+      // A field array's name: its items go, each with its state.
+      if (ext && arrays[key]) ext.a(key, []);
       for (const k in pending) {
         if (!under(k)) continue;
         reset.push([k, pending[k]]);
@@ -399,8 +404,9 @@ function createFormController(options = {}) {
         delete fieldSignals[k];
       }
       for (const k in hidden) if (gone && under(k)) delete hidden[k];
-      if (!gone && (options.keepDefaultValue || shouldUnregister)) hidden[key] = true;
-      else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
+      if (!gone && (options.keepDefaultValue || shouldUnregister)) {
+        if (!arrays[key]) hidden[key] = true;
+      } else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
     }
     batch(() => {
       for (const [k, sig] of reset) sig.set(defaultOf(k));
@@ -797,6 +803,9 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     }
     return out;
   };
+  // Each array's items by their place, so a key's name is found without
+  // searching the items.
+  const places = {};
   const nameAt = (k) => {
     if (!k.includes('\0')) return k;
     let at = '';
@@ -812,9 +821,6 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     }
     return out;
   };
-  // Each array's items by their place, so a key's name is found without
-  // searching the items.
-  const places = {};
   // Forget an item and the field arrays inside it.
   const drop = (k) => {
     forget(k, {}, true);
