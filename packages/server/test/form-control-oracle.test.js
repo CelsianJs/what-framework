@@ -9,117 +9,63 @@
 //
 // Widen or reseed nothing here: the space is enumerated, not sampled.
 // form-control-oracle-chromium.test.js runs part of it in a real browser.
+//
+// The shapes are dealt round-robin to worker threads (fixtures/
+// form-oracle-shard.js has the cases), each with its own JSDOM and its own
+// compile of its shapes, and the findings are merged back into the order one
+// thread would have found them in. Each case renders, mounts and hydrates its
+// own form in a host of its own, so which other cases ran before it in the
+// same document does not enter the result.
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDOM } from '../../../test-utils/dom.js';
-import { loadCompiled } from '../../../test-utils/load-compiled.js';
-import { shapes, jsxModule, hComponent, runClient, checkServerHtml, editsEarly } from './fixtures/form-oracle.js';
+import { availableParallelism } from 'node:os';
+import { Worker } from 'node:worker_threads';
+import { shapes } from './fixtures/form-oracle.js';
 
-installDOM();
-const { h, mount, hydrate, flushSync, signal, For, Show } = await import('../../core/src/index.js');
-const { _resetForm, _changedFields } = await import('../../core/src/dom.js');
-const { renderToString, renderToHydratableString, renderToStream } = await import('../src/index.js');
-
-const changedFields = (el) => {
-  const out = [];
-  _changedFields(el, out, new WeakSet());
-  return out.length;
-};
-const env = { h, mount, hydrate, flushSync, signal, resetForm: _resetForm, changedFields, For, Show, document };
 const SHAPES = shapes();
+const SHARDS = Math.max(1, Math.min(4, availableParallelism() - 1, SHAPES.length));
 
-async function stream(view) {
-  let html = '';
-  for await (const chunk of renderToStream(view)) html += chunk;
-  return html;
+function runShard(ids) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./fixtures/form-oracle-shard.js', import.meta.url), { workerData: { ids } });
+    let result = null;
+    worker.once('message', (message) => { result = JSON.parse(message); });
+    worker.once('error', reject);
+    worker.once('exit', (code) => (result ? resolve(result) : reject(new Error(`oracle shard exited (${code}) without a result`))));
+  });
 }
 
-const RENDERERS = { string: renderToString, hydratable: renderToHydratableString, stream };
-
-// One module per build holds every shape's components (C<id>, S<id>).
-let client;
-let hydratableClient;
-let server;
-
-before(async () => {
-  const source = jsxModule(SHAPES);
-  [client, hydratableClient, server] = await Promise.all([
-    loadCompiled(source),
-    loadCompiled(source, { pluginOptions: { hydratable: true } }),
-    loadCompiled(source, { pluginOptions: { generate: 'ssr' } }),
-  ]);
-});
-
-// The component of `shape` an authoring builds: 'h', 'compiled', 'spread',
-// 'wrapped'.
-const LETTER = { compiled: 'C', spread: 'S', wrapped: 'W' };
-function component(shape, authoring, build) {
-  if (authoring === 'h') return hComponent(h, shape, env);
-  return build[`${LETTER[authoring]}${shape.id}`];
+// The findings of every shard, in the order of SHAPES (a shape's own findings
+// keep the order its cases ran in).
+function merge(results, part) {
+  const position = new Map(SHAPES.map((shape, i) => [shape.id, i]));
+  const findings = results.flatMap((r) => r[part].findings);
+  findings.sort((a, b) => position.get(a.shape.id) - position.get(b.shape.id));
+  return { cases: results.reduce((n, r) => n + r[part].cases, 0), findings };
 }
-
-// The server markup each authoring hydrates: the others all render the same
-// form; a wrapped field's wrappers render elements of their own.
-const SOURCES = ['h:hydratable', 'h:stream', 'compiled:hydratable', 'spread:hydratable'];
-const sourcesFor = (authoring) => (authoring === 'wrapped' ? ['wrapped:hydratable', 'wrapped:stream'] : SOURCES);
 
 function report(findings, total) {
   const lines = findings.slice(0, 12).map((f) => JSON.stringify(f));
   return `${findings.length} of ${total} cases diverge:\n${lines.join('\n')}`;
 }
 
+let results;
+
+before(async () => {
+  const shards = Array.from({ length: SHARDS }, (_, k) => SHAPES.filter((_, i) => i % SHARDS === k).map((shape) => shape.id));
+  results = await Promise.all(shards.map(runShard));
+});
+
 describe('form-control oracle', () => {
-  it('every server renderer shows each field as its equivalent static HTML before hydration', async () => {
-    const findings = [];
-    let cases = 0;
-    // A select whose options come later shows none before hydration.
-    for (const shape of SHAPES.filter(editsEarly)) {
-      for (const authoring of ['h', 'compiled', 'spread', 'wrapped']) {
-        for (const [renderer, render] of Object.entries(RENDERERS)) {
-          cases++;
-          const v = shape.binding === 'signal' || shape.binding === 'accessor' ? signal(shape.initial) : undefined;
-          let html;
-          try {
-            html = await render(h(component(shape, authoring, server), { v, o: signal(true), l: signal(false) }));
-          } catch (error) {
-            findings.push({ shape, authoring, renderer, problem: `threw: ${error.message}` });
-            continue;
-          }
-          const found = checkServerHtml(env, shape, html);
-          if (found) findings.push({ shape, authoring, renderer, ...found });
-        }
-      }
-    }
+  it('every server renderer shows each field as its equivalent static HTML before hydration', () => {
+    const { cases, findings } = merge(results, 'server');
     console.log(`form oracle: ${cases} server cases, ${findings.length} findings`);
     assert.equal(findings.length, 0, report(findings, cases));
   });
 
-  it('every client path follows the reference model through mount, hydration, writes, edits, resets and release', async () => {
-    const findings = [];
-    let cases = 0;
-    const markup = async (shape, source) => {
-      const [authoring, renderer] = source.split(':');
-      const v = shape.binding === 'signal' || shape.binding === 'accessor' ? signal(shape.initial) : undefined;
-      return RENDERERS[renderer](h(component(shape, authoring, server), { v, o: signal(shape.late === undefined), l: signal(false) }));
-    };
-    for (const shape of SHAPES) {
-      for (const authoring of ['h', 'compiled', 'spread', 'wrapped']) {
-        cases++;
-        const mounted = await runClient(env, shape, component(shape, authoring, client));
-        if (mounted) findings.push({ shape, path: `${authoring} mount`, ...mounted });
-        for (const source of sourcesFor(authoring)) {
-          cases++;
-          const html = await markup(shape, source);
-          const found = await runClient(env, shape, component(shape, authoring, hydratableClient), html);
-          if (found) findings.push({ shape, path: `${authoring} hydrating ${source}`, html, ...found });
-          if (!editsEarly(shape)) continue;
-          cases++;
-          const early = await runClient(env, shape, component(shape, authoring, hydratableClient), html, true);
-          if (early) findings.push({ shape, path: `${authoring} hydrating ${source}, edited before`, html, ...early });
-        }
-      }
-    }
+  it('every client path follows the reference model through mount, hydration, writes, edits, resets and release', () => {
+    const { cases, findings } = merge(results, 'client');
     console.log(`form oracle: ${cases} client cases, ${findings.length} findings`);
     assert.equal(findings.length, 0, report(findings, cases));
   });
