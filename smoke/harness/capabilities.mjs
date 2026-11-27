@@ -35,6 +35,10 @@ export const CAPABILITIES = {
   'route:server-redirect': { area: 'routing', desc: 'a route middleware redirect rendered on the server is a real 3xx with its Location' },
   'route:layout-hydrates': { area: 'routing', desc: "a server-rendered layout chain hydrates onto the server's DOM and stays through client navigation" },
   'route:history': { area: 'routing', desc: 'browser back/forward walk a session of routes, each showing the state it had' },
+  'route:lazy-chunk': { area: 'routing', desc: "a code-split route downloads its chunk on the first navigation to it while the page being left stays, and a revisit downloads nothing" },
+  'route:prefetch': { area: 'routing', desc: "hovering a link downloads its route's chunk, so the click shows the page without waiting for the network" },
+  'route:lazy-race': { area: 'routing', desc: 'a navigation to a slow chunk that a newer navigation overtakes never shows, even after its chunk lands' },
+  'route:chunk-error': { area: 'routing', desc: "a route whose chunk fails to download shows its error page inside the layout, the app keeps navigating, and a retry loads it once the network is back" },
 
   // --- State --------------------------------------------------------------
   'state:signal': { area: 'state', desc: 'local signal state updates the DOM' },
