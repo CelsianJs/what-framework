@@ -897,7 +897,12 @@ and navigations that are transitions. Each change below has its migration.
   that is still built before it is placed (in a variable, read by a component
   that inspects it, given to an `h()` component) is reported as
   `ERR_HYDRATION_MISMATCH` of kind `prebuilt`, and what the user changed in a
-  form control there is kept. `hydrate()` and `mount()` given no element throw
+  form control there is kept. A form field made by hand
+  (`document.createElement('input')` returned from a component) gets it only
+  when the program also has a compiled module that builds a field, inner
+  HTML or a tag held in a binding, or renders `h()`, a `<Router>` or a
+  boundary; otherwise it takes the server's place as built. Return the field
+  as JSX to keep what was typed. `hydrate()` and `mount()` given no element throw
   `ERR_MOUNT_TARGET_MISSING`; the full-page document what-server renders is
   hydrated with `hydrate(<App />, document.body)`.
 
@@ -952,7 +957,12 @@ The [what-server README](https://github.com/CelsianJs/what-framework/blob/main/p
   server render, call `getResponse().redirect('/login')`; the deploy adapters answer with the
   3xx, and a custom server passes a `createResponse()` in and reads it back:
   `renderToString(vnode, { response })` takes one, and `renderToStringAsync`
-  returns it as `response`
+  returns it as `response`. A component's `redirect()` outside any
+  `<Router>` redirects that response in every renderer, where
+  `renderToString` threw it to its caller: read `response.location`
+  instead of catching `RouterRedirect`. In a server action, what-router's
+  `redirect()` redirects the call's response, as `getResponse().redirect()`
+  does
   ([Loaders, status and redirects](https://github.com/CelsianJs/what-framework/blob/main/packages/server/README.md#loaders-status-and-redirects)).
 - **A `mode: 'server'` route streams.** The deploy adapters send a
   server-mode route's document shell-first (`renderDocumentStream()`); 0.14
@@ -1249,11 +1259,11 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9654 B |
-| The create-what counter, runtime JSX | 6702 B | 9680 B |
-| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
+| A counter written with `h()` | 6601 B | 9266 B |
+| The create-what counter, runtime JSX | 6702 B | 9290 B |
+| The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5509 B |
 
-The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
+The compiled counter, what the scaffold ships, is 2222 B (29%) smaller in
 0.15: compiled output no longer carries the vnode reconciler, an app that
 makes no computed no longer carries the engine's pull phase, and a compiled
 module imports only the runtime its JSX uses (no lazy children when no
@@ -1261,7 +1271,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3881 B, for the new engine, the engine hooks async
+counter still grows by 3493 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1273,7 +1283,7 @@ same app bundled from source, and a compiled app with no `h()`, boundary or
 portal leaves the vnode renderer out.
 Loading the dist straight into a browser without a bundler fetches more,
 smaller files. This affects an app written with `h()` that has a size budget:
-compiled with what-compiler, the same counter is 5514 B.
+compiled with what-compiler, the same counter is 5509 B.
 
 Three kinds of app grow more than the counters:
 
@@ -1281,7 +1291,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 17206 B, more than twice the same app mounted without
+  hydrating counter is 16264 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each

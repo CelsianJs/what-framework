@@ -1280,6 +1280,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   a regeneration with no request render below; `createRequestHandler` hands
   its `basePath` to an engine with none. Cloudflare's purge adapter takes
   `baseUrl`.
+- **`WHAT_SMOKE_MODE=dev`** runs the Vite smoke apps' checks on their Vite
+  dev servers, and CI's `app-smoke-dev` job runs it in Chromium: an app's
+  console warnings from `[what]` and `[vite]` fail it unless it lists them,
+  and admin-dashboard saves an edit and waits for the reload. workspace-ssr,
+  mixed-desk and chat gain `npm run dev`.
 
 ### Fixed
 
@@ -2337,6 +2342,70 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   maps have no prototype, and a path reads each segment as the object's own
   entry. A field named `__proto__` still writes nothing.
   `packages/core/test/form-prototype-names.test.js`.
+- **A server action that returns nothing resolves with `undefined` on the
+  client** (what-server): the call read the empty body as JSON and rejected
+  with "Unexpected end of JSON input", so `action(async (f) => { await
+  save(f) })` failed on every call made with JavaScript, `<Form>`
+  submissions included, and a redirect it made was never followed.
+  `packages/server/test/action-no-result-client.test.js`.
+- **A caught `redirect()` is not reported as an error** (what-server): a
+  component's `redirect()` in a server render went to the render's `onError`
+  (`console.error` by default) as `ERR_REDIRECT_NOT_CAUGHT` on every guarded
+  page, streamed, buffered or cached. `renderToString` and
+  `renderToHydratableString` redirect the response for a component outside
+  a `<Router>` too, as `renderToStringAsync` and the stream do, and
+  `ERR_REDIRECT_NOT_CAUGHT` says to pass `renderToString` a response.
+  `packages/server/test/redirect-signal-not-an-error.test.js`.
+- **what-router's `redirect()` in a server action redirects the call's
+  response** (`X-What-Redirect`, or a 303 without JavaScript), below the
+  base, as Next.js's does, and the action's revalidation still runs; it was
+  a 500. `packages/server/test/action-router-redirect.test.js`.
+- **A custom server's action endpoint below a base** (`nodeActionMiddleware`,
+  `fetchActionHandler`) answers an action's redirect below it with no
+  `setBase` on the server: the endpoint's own path names the base.
+- **A server render redirects to the URL the browser would go to**
+  (what-router): a relative target that climbs out of the base (`'../../x'`
+  at `/app/a/b`) answers `/x`, as the browser, `navigate()` and `<Link>` go,
+  where the server refused it; a path that would name another host is still
+  refused. A redirect to the page being rendered (a guard sending `/login`
+  to itself, `redirect('')`) is none, where it answered a 302 to itself that
+  the browser followed until it gave up. `ERR_SSR_UNSAFE_REDIRECT` names the
+  root it goes to. `packages/router/test/server-redirect-relative.test.js`.
+- **`revalidatePath` purges a page with and without its trailing slash**
+  (what-isr), as the request handler serves both, and the Cloudflare and
+  Fastly adapters skip a path when `baseUrl` is missing, with one warning:
+  Cloudflare's API refused the local paths and failed the whole purge.
+- **`<Link href="/café">` is active at `/caf%c3%a9`**, and only a real
+  percent escape (`%` and two hex digits) matches in either case: at
+  `/x%/about` the route `/x%/:page` read the param `About`. `prefetch()`
+  never asks another site for anything. (what-router)
+- **`ERR_PROP_READ_ONCE` is not reported for a prop whose getter reads
+  nothing reactive** (`<TreeNode node={nodes[0]} />` of a plain array), and
+  `ERR_REBUILT_COMPONENT` is not reported for the next route's
+  `ErrorBoundary` after a navigation to another route (development only).
+- **In Vite dev, a `.tsx` file names its source lines** in stack traces and
+  diagnostics when `@babel/plugin-transform-typescript` (or
+  `@babel/preset-typescript`) is installed: the plugin strips the types in
+  its own pass with each statement on its line ([TYPESCRIPT.md](docs/TYPESCRIPT.md)).
+- **A hydrated keyed row whose text a value holds survives hiding and
+  reordering** (`<For>` or a keyed `.map()` of `<Label text={on ? label :
+  null} />`, a `<Show>` per row, a component returning a function, rows from
+  `renderToString`): removed text came back on the page ("abd" for "ad"), or
+  a reorder threw NotFoundError and left the list in its old order, and a
+  matching filtered list reported a false `ERR_HYDRATION_MISMATCH`. A row's
+  walk claims its own markers, and a list the server rendered with other
+  keys builds its rows as a client render does. `packages/core/test/hydration-reuse.test.js`.
+- **An update to a value adopted inside merged server text shows**: a region
+  without markers that starts inside the server's text kept the parts its
+  children claimed there in a detached node (`h('p', null, 'st', () => [() =>
+  a(), ' ', b()])` from `renderToString`; `a('Q')` showed nothing).
+- **Two values side by side in `<title>`, `<textarea>`, `<style>` or
+  `<script>` render in order** (what-compiler): a client render showed a
+  literal `<!>` between them (`<Head><title>{a()}{b()}</title></Head>` set
+  the page title to "A<!>B"), and `{a()}{b()}{a()}` in a textarea threw.
+- **`unregister` after `reset()` leaves `dirtyFields` alone**: it put every
+  array- or object-valued field (a multiple select, a checkbox group) in
+  `dirtyFields`.
 - **what-router and what-server errors thrown with a catalogue code read
   `[what] ERR_…` and the fix line in development**, as what-core's do;
   production keeps the `[what-router]` and `[what-server]` text.
@@ -2507,6 +2576,29 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 
 ### Performance
 
+- **Removing field-array items takes linear time**: removing every item of
+  a 5-field array went from 245 ms to 4-8 ms for 1,000 items, and with
+  errors on the items from seconds to a few milliseconds (Node, interleaved
+  runs). The removed items are forgotten, and their errors cleared, in one
+  pass.
+- **Apps that render with `h()` are about 390 B smaller** (gzip; the
+  counter 9654 B to 9266 B). A component the vnode renderer runs carries
+  compiled JSX's lazy children only when a compiled component vnode is
+  made; an element writes its props in the loop that creates it, a listener
+  works out its options once, and a dropped keyed row removes its own nodes.
+  The router names its state signals for devtools in development only (a
+  routed app 46 B smaller).
+- **A hydrating app whose compiled JSX builds no form field is about 1 KB
+  smaller** (gzip, 995 B; the compiled hydrating counter is 16264 B with
+  the hydration fixes of the same release). What
+  the visitor changed in a form before hydration is carried into fields
+  built before the walk reached them once something that can build a field
+  is in the program: a compiled module whose JSX has an `input`, `select`
+  or `textarea`, gives an element inner HTML or renders a tag held in a
+  binding (what-compiler emits `_$carryFields()` once in it), or a vnode
+  producer. An app that renders `h()`, a `<Router>`, `<Suspense>`,
+  `<ErrorBoundary>` or a `<Portal>` installs a vnode producer and carries it
+  as before.
 - **useForm is 166 B smaller with the same behaviour, and a field array's
   values read about twice as fast.** The hooks app measured by
   `check:size` went from 16,530 B to 16,401 B gzip, the fix for fields named

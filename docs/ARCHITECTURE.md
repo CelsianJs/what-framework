@@ -683,7 +683,7 @@ without the option, a component returns DOM it already built, before the walk
 can claim anything: `hydrate()` puts it in place of the server's copy and
 reports one `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`. The page works;
 the reuse is lost. A hydratable build carries the hydration runtime (about
-7.4 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
+6.5 KB gzip: the `compiled-hydrate` counter of `.size-budgets.json` against
 the same app mounted); a build without the option carries none of it. The
 adoption of every vnode but a component's (an `h()` or JSX-runtime element,
 `<Suspense>`, `<ErrorBoundary>`, a `<Portal>`: render.js `_adoptVNodeKinds`;
