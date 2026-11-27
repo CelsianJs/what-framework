@@ -23,6 +23,11 @@ import {
   isUnsafeUrl,
   isUrlAttr,
   rawTextContent,
+  styleText,
+  oneDeclaration,
+  PLAIN_CSS_VALUE,
+  CSS_NAME_CACHE_SIZE,
+  _cssNames,
 } from 'what-core/internal/markup-rules';
 import { isVNode, _symbolChild } from 'what-core/internal';
 import { isHtml, rowKeys } from './compiled.js';
@@ -631,118 +636,6 @@ function classAttribute(props, keys) {
     }
   }
   return value;
-}
-
-// A style object as CSS text: camelCase properties in kebab-case, custom
-// properties (--x) as they are. A property whose value is null, undefined, a
-// boolean or empty is left out, as the client sets none for it (React leaves
-// out the same values). A declaration the client's CSSOM would refuse
-// (a name that is not a property or a custom property, a value that ends the
-// declaration or opens a block) is left out, as the client leaves it out: the
-// server must not write `color: red; background: url(//tracker)` from one value.
-const CSS_PROPERTY = /^(?:--[\w-]+|-?[a-zA-Z][\w-]*)$/;
-
-// Control characters other than CSS whitespace: tab, LF, FF, CR.
-const isControl = (code) => (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0c && code !== 0x0d) || code === 0x7f;
-
-// Whether `text` is a value in a conservative CSS grammar, which a CSS parser
-// reads as one declaration's value whatever it does with it:
-// - no control characters;
-// - outside strings, no `\` (an escape makes the next character, a quote or
-//   a parenthesis, part of an identifier), no comment (`/*`, which can hide a
-//   quote or a parenthesis from a reader that knows no comments) and no braces;
-// - strings close on their own line (`\` escapes the next character in them);
-// - parentheses and brackets nest and match, and a `;` is allowed only inside
-//   them (`url(data:image/png;base64,…)`);
-// - an unquoted `url(` holds one url token: a CSS parser reads it to the
-//   first `)` whatever it holds, and one with a quote, a `(` or inner
-//   whitespace is a bad url, which also ends at the first `)`, so the `;`
-//   after that `)` would end the declaration (`url(a(b);x:y)`).
-// A value outside the grammar is dropped, even one a browser would accept
-// (`red /* note */`): style objects never need one.
-function oneDeclaration(text) {
-  const open = [];
-  let quote = '';
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (isControl(text.charCodeAt(i))) return false;
-    if (quote !== '') {
-      if (c === '\\') i++;
-      else if (c === quote) quote = '';
-      else if (c === '\n' || c === '\r' || c === '\f') return false;
-    } else if (c === '"' || c === "'") quote = c;
-    else if (c === '(' && isUrlFunction(text, i)) {
-      const end = urlTokenEnd(text, i + 1);
-      if (end === -1) return false;
-      if (end > i) i = end;
-      else open.push(')');
-    } else if (c === '(' || c === '[') open.push(c === '(' ? ')' : ']');
-    else if (c === ')' || c === ']') {
-      if (open.pop() !== c) return false;
-    } else if (c === '\\' || c === '{' || c === '}' || (c === '/' && text[i + 1] === '*') || (c === ';' && open.length === 0)) return false;
-  }
-  return open.length === 0 && quote === '';
-}
-
-// Whether the `(` at `at` opens `url(`: the identifier before it is `url`, in
-// any case.
-function isUrlFunction(text, at) {
-  return at >= 3 && text.slice(at - 3, at).toLowerCase() === 'url' && (at === 3 || !/[\w\u0080-\uffff-]/.test(text[at - 4]));
-}
-
-// Where the url token that starts at `from` (after `url(`) ends: the index of
-// its `)`; `from - 1` when the argument is a string instead (a quote after
-// any whitespace), read as one; -1 when it is a bad url or never closes.
-function urlTokenEnd(text, from) {
-  let i = from;
-  while (i < text.length && /[ \t\n\r\f]/.test(text[i])) i++;
-  if (text[i] === '"' || text[i] === "'") return from - 1;
-  for (; i < text.length; i++) {
-    const c = text[i];
-    if (c === ')') return i;
-    if (c === '"' || c === "'" || c === '(' || c === '\\') return -1;
-    if (/[ \t\n\r\f]/.test(c)) {
-      while (i < text.length && /[ \t\n\r\f]/.test(text[i])) i++;
-      return text[i] === ')' ? i : -1;
-    }
-  }
-  return -1;
-}
-
-// A property name as it is written (kebab-case; a custom property as it is),
-// or null for a name that is no property: decided once per name. Bounded,
-// because a style object's keys can come from data.
-const _cssNames = new Map();
-const CSS_NAME_CACHE_SIZE = 1024;
-
-function cssName(property) {
-  let name = _cssNames.get(property);
-  if (name === undefined) {
-    name = !CSS_PROPERTY.test(property) ? null
-      : property.startsWith('--') ? property : property.replace(/([A-Z])/g, '-$1').toLowerCase();
-    if (_cssNames.size < CSS_NAME_CACHE_SIZE) _cssNames.set(property, name);
-  }
-  return name;
-}
-
-// Values that are one declaration's value by their characters alone: letters,
-// digits, `_`, `#`, `%`, `.`, `,`, `-`, `+` and spaces, none of which
-// oneDeclaration gives a meaning to. Every other value is read by it.
-const PLAIN_CSS_VALUE = /^[\w#%.,+ -]*$/;
-
-function styleText(style) {
-  let css = '';
-  const properties = Object.keys(style);
-  for (let i = 0; i < properties.length; i++) {
-    const property = properties[i];
-    const value = style[property];
-    if (value == null || value === '' || typeof value === 'boolean') continue;
-    const text = String(value);
-    const name = cssName(property);
-    if (name === null || !(PLAIN_CSS_VALUE.test(text) || oneDeclaration(text))) continue;
-    css += (css ? ';' : '') + name + ':' + text;
-  }
-  return css;
 }
 
 // The content of a <script> or <style> element sitting in namespace `ns`

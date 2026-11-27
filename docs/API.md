@@ -534,7 +534,7 @@ Imported from `what-framework/dom`.
 | Export | Notes |
 |---|---|
 | `cls(...args)` | Conditional class helper: strings, the keys of an object whose values are truthy, and arrays of either, joined with spaces |
-| `style(obj)` | A style object as CSS text, as the `style` prop renders it: camelCase names in kebab-case, custom properties (`--name`) as written, null, undefined and empty values left out |
+| `style(obj)` | A style object as CSS text, as the server renders the `style` prop: camelCase names in kebab-case, custom properties (`--name`) as written; null, undefined, boolean and empty values left out, and so is a declaration the prop drops (a name that is no property, a value that would end the declaration or open a block, as in `{ color: 'red; background: url(x)' }`). A string is returned as it is |
 | `debounce(fn, ms)` | Calls `fn` once, with the last call's arguments, `ms` after the calls stop; returns nothing |
 | `throttle(fn, ms)` | Calls `fn` at once, then at most once per `ms`; a call inside the window is dropped, not deferred; returns nothing |
 | `useMediaQuery(query)` | Media-query signal |

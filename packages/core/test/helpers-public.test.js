@@ -31,7 +31,7 @@ describe('style', () => {
     assert.equal(style('color: red'), 'color: red');
   });
 
-  it('writes camelCase names in kebab-case and drops null, undefined and empty values', () => {
+  it('writes camelCase names in kebab-case and drops null, undefined, boolean and empty values', () => {
     assert.equal(style({ backgroundColor: 'red', fontSize: '12px', width: null, height: undefined, top: '' }), 'background-color:red;font-size:12px');
     assert.equal(style({ WebkitTransition: 'none', zIndex: 2, opacity: 0 }), '-webkit-transition:none;z-index:2;opacity:0');
   });
@@ -40,6 +40,22 @@ describe('style', () => {
     const obj = { '--mainColor': 'red', '--gap': 4, color: 'var(--mainColor)' };
     assert.equal(style(obj), '--mainColor:red;--gap:4;color:var(--mainColor)');
     assert.equal(renderToString(h('div', { style: obj })), `<div style="${style(obj)}"></div>`);
+  });
+
+  it('leaves out a declaration the style prop drops, so one value cannot add its own', () => {
+    const obj = {
+      color: 'red; background: url(//tracker.test/b)',
+      'x;y': '1',
+      'not a property': 'x',
+      margin: '0)',
+      padding: '1px}',
+      top: false,
+      width: 'calc(100% - 2px)',
+      backgroundImage: 'url(data:image/png;base64,AAA)',
+      content: '"a;b"',
+    };
+    assert.equal(style(obj), 'width:calc(100% - 2px);background-image:url(data:image/png;base64,AAA);content:"a;b"');
+    assert.equal(renderToString(h('div', { style: obj })), `<div style="${style(obj).replace(/"/g, '&quot;')}"></div>`);
   });
 });
 

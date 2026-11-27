@@ -71,3 +71,13 @@ export function rawTextContent(tag: string, text: string, ns: MarkupNamespace): 
 export function isNamespaceNeutralText(text: string): boolean;
 /** Escapes `& < > " '` for HTML text and attribute values. */
 export function escapeHtml(str: string): string;
+/** A style object as CSS text: what-server's style attribute and what-framework/dom's style(). A declaration the client's CSSOM would refuse, and a null, undefined, boolean or empty value, is left out. */
+export function styleText(style: Record<string, unknown>): string;
+/** Whether `text` is one declaration's value in a conservative CSS grammar. */
+export function oneDeclaration(text: string): boolean;
+/** Values that are one declaration's value by their characters alone. */
+export const PLAIN_CSS_VALUE: RegExp;
+/** How many property names styleText remembers. */
+export const CSS_NAME_CACHE_SIZE: number;
+/** The property names styleText has written, by the name a style object gave. */
+export const _cssNames: Map<string, string | null>;

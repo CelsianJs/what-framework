@@ -5,6 +5,7 @@ import { signal, effect, onCleanup, __DEV__ } from './reactive.js';
 import { _vnode } from './h.js';
 import { createPortalDOM } from './dom.js';
 import { report } from './diagnostics.js';
+import { styleText } from './markup-rules.js';
 
 // --- cls(...args) ---
 // Conditional class names. Like clsx but tiny.
@@ -28,18 +29,12 @@ export function cls(...args) {
 }
 
 // --- style(obj) ---
-// Convert a style object to a CSS string for SSR.
+// A style object as CSS text, exactly as the server writes the style prop
+// (markup-rules.js styleText): a declaration the prop would drop is left out.
+// A string is returned as it is.
 export function style(obj) {
   if (typeof obj === 'string') return obj;
-  return Object.entries(obj)
-    .filter(([, v]) => v != null && v !== '')
-    .map(([k, v]) => `${camelToKebab(k)}:${v}`)
-    .join(';');
-}
-
-// A custom property (`--mainColor`) is case-sensitive and kept as written.
-function camelToKebab(str) {
-  return str.startsWith('--') ? str : str.replace(/([A-Z])/g, '-$1').toLowerCase();
+  return styleText(obj);
 }
 
 // --- debounce ---
