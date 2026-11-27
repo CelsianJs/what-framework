@@ -9,6 +9,10 @@
 //   a server render's resource store (seedFromStore): reactive.js
 //     _installStoreSeedOps, by server-context.js when a server render starts,
 //     not by hydrate()
+//   starting an async value from the server's (reactive.js seedFrom and the
+//     async run it adopts): _installSeedOps, by createResource, a query, a
+//     server render, and the first seed a hydration hands an async value,
+//     not by hydrate() itself
 //   what another copy of what-core takes from a server render it never joined
 //     (the owner lookup it adopts, the refusal of its async values): put on
 //     the shared store by server-context.js when a server render starts
@@ -70,6 +74,22 @@ async function bundle(source) {
 }
 
 const has = (code, name) => code.includes(`function ${name}(`);
+
+// The same, bundled by a production `vite build`, unminified.
+async function viteBundle(source) {
+  const { build: viteBuild } = await import('vite');
+  const entry = path.join(SRC, '__feature-reach-entry.js');
+  const output = await viteBuild({
+    configFile: false,
+    root: SRC,
+    logLevel: 'silent',
+    mode: 'production',
+    define: PRODUCTION.define,
+    plugins: [{ name: 'entry', enforce: 'pre', resolveId: (id) => (id === entry ? entry : null), load: (id) => (id === entry ? source : null) }],
+    build: { write: false, minify: false, target: 'es2022', modulePreload: false, rollupOptions: { input: entry } },
+  });
+  return (Array.isArray(output) ? output : [output]).flatMap((o) => o.output).filter((o) => o.type === 'chunk').map((c) => c.code).join('\n');
+}
 const RENDER = JSON.stringify(path.join(SRC, 'render.js'));
 // A compiled module as a production build bundles it, from the source.
 const compiled = (jsx) => bundle(compileJSX(jsx, { production: true })
@@ -77,6 +97,7 @@ const compiled = (jsx) => bundle(compileJSX(jsx, { production: true })
 const LAZY_PROPS = ['_installLazyChildren', 'readLazy', 'lazyProps'];
 const SELECT_CODE = ['selectProp', '_setSelectValue', 'markOptions', 'setSelectDefault', 'refollow'];
 const PULL_PHASE = ['checkDirty', 'updateComputed', 'settleDeferred', 'markPending', 'unwatched'];
+const SEEDING = ['seedFrom', 'trackRun', 'makeAsync'];
 
 describe('feature reach in production bundles', () => {
   it('an app of signals and effects carries no pull phase', async () => {
@@ -138,6 +159,28 @@ describe('feature reach in production bundles', () => {
     assert.ok(has(code, 'adopt'), 'a hydrated value is adopted from the page');
     assert.ok(!has(code, 'seedFromStore'));
     assert.ok(!has(code, 'storeSettled'));
+  });
+
+  // Vite (Rolldown) drops a module variable that nothing reads, and with it
+  // the hydration's seeder (hydration-data.js) when no async value asks it;
+  // esbuild keeps the assignment, so this one is bundled by Vite.
+  it('a hydrating app with no async value does not carry what starts one from the server\'s (Vite)', async () => {
+    const code = await viteBundle(`
+      import { hydrate, signal, h } from ${INDEX};
+      const n = signal(0);
+      hydrate(() => h('button', { onclick: () => n((c) => c + 1) }, () => n()), document.body);
+    `);
+    assert.ok(has(code, 'hydrate'));
+    assert.deepEqual(SEEDING.filter((name) => has(code, name)), []);
+  });
+
+  it('a hydrating app with an async value brings what starts it from the server\'s (Vite)', async () => {
+    const code = await viteBundle(`
+      import { hydrate, computed } from ${INDEX};
+      const user = computed(async () => (await fetch('/u')).json());
+      hydrate(() => user(), document.body);
+    `);
+    assert.deepEqual(SEEDING.filter((name) => !has(code, name)), []);
   });
 
   it('starting a server render brings the server store', async () => {

@@ -651,7 +651,9 @@ export function _adoptOwnedValue(frame) {
 // is made. Only a server render or a hydration can answer anything but
 // "nowhere", so the answer is installed by the first of either to start
 // (server-context.js, render.js hydrate()): an app that does neither does not
-// carry it.
+// carry it. What starts a value from the server's (reactive.js _installSeedOps)
+// is installed by the first seed a hydration hands out, so an app that
+// hydrates and makes no async value does not carry that either.
 
 /** @type {typeof seedFor | null} */
 let seeder = null;
@@ -659,7 +661,6 @@ let seeder = null;
 /** @internal A hydration is starting: async values take part in the channel. */
 export function _installSeeding() {
   seeder = seedFor;
-  _installSeedOps();
 }
 
 /** @internal A server render is starting: async values take part in the channel, through its resource store. */
@@ -703,6 +704,7 @@ function seedFor(key, track) {
   if (keyed || !isHydrating()) return null;
   const taken = _adoptOwnedValue(_currentComponent());
   if (taken === undefined) return null;
+  _installSeedOps();
   return 'error' in taken ? { error: _errorFromRecord(taken.error), track } : { value: taken.value, track };
 }
 
