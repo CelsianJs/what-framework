@@ -8,7 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { h } from 'what-core';
+import { h, getResponse } from 'what-core';
 import { Router, setBase } from 'what-router';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
 import { createRequestHandler, createRouteRenderer } from '../src/index.js';
@@ -89,6 +89,30 @@ describe('createRequestHandler basePath and a regeneration with no request', () 
       // A match a caller hands the renderer with no request renders as a GET below its base.
       const out = await createRouteRenderer()({ path: '/about', base: '/app', query: {}, params: {}, config: {}, route: cached[0] });
       assert.match(out.html, /<h1[^>]*>about<\/h1>/);
+    } finally {
+      setBase('');
+    }
+  });
+});
+
+// A path a page redirects to with what-server's response (a loader's
+// `response.redirect('/login')`, a component's getResponse().redirect()) is
+// answered as written, outside the base, while the same call in a server
+// action is a URL of the app (`/app/login`), as the router's redirect() is.
+// Left for a decision: prefixing it here would prefix the router's redirects,
+// which are below the base already, a second time.
+describe('createRequestHandler basePath and a page\'s own redirect', () => {
+  it('answers a loader\'s and a component\'s local redirect below the base', { todo: 'a page redirect below the base is a design decision (see the round 8 review-edge report)' }, async () => {
+    setBase('/app');
+    try {
+      const routes = [
+        { path: '/a', component: () => h('p', null, 'a'), loader: ({ response }) => { response.redirect('/login'); }, mode: 'server' },
+        { path: '/b', component: () => { getResponse().redirect('/login'); return h('p', null, 'b'); }, mode: 'server' },
+      ];
+      const handler = createRequestHandler({ routes, basePath: '/app', csrf: false });
+      for (const path of ['/app/a', '/app/b']) {
+        assert.equal((await handler(new Request('http://app.test' + path))).headers.get('location'), '/app/login', path);
+      }
     } finally {
       setBase('');
     }
