@@ -529,8 +529,10 @@ function createFormController(options = {}) {
       onFocus: () => {},
       ref: options.ref,
     };
-    // The name of a field of a field array item follows the item's place.
-    if (key !== name) Object.defineProperty(result, 'name', { get: () => nameOf(key) ?? name, enumerable: true });
+    // The name of a field of a field array item follows the item's place (a
+    // radio's is written by its ref, below).
+    const moves = key !== name;
+    if (moves && !isRadio) Object.defineProperty(result, 'name', { get: () => nameOf(key) ?? name, enumerable: true });
 
     if (isRadio) {
       // Without a declared value this thunk must report UNDEFINED, never
@@ -571,7 +573,13 @@ function createFormController(options = {}) {
         // still binds correctly once the element's own value attribute is in
         // place, and an unidentifiable radio is simply never checked instead of
         // being checked alongside its siblings.
+        // A radio of a field array item takes its item's new place as its
+        // name here, then its checkedness: taking a name joins that radio
+        // group, which unchecks the group's checked radio (the radio of the
+        // item that held the place), and that radio's own run checks it
+        // again once it has its new name.
         effect(() => {
+          if (moves) el.name = nameOf(key) ?? name;
           const own = radioValueOf(el);
           el.checked = own !== undefined && read() === own;
         });

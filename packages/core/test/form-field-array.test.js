@@ -212,4 +212,38 @@ describe('useFieldArray rows', () => {
     dispose();
     host.remove();
   });
+
+  it('the radios of moved rows keep their choice as their groups are renamed', async () => {
+    const mod = await loadCompiled(`
+      import { useForm, useFieldArray } from 'what-framework/form';
+      export function Usage({ expose }) {
+        const form = useForm({ defaultValues: { vehicles: [{ usage: 'business' }, { usage: 'commute' }, { usage: 'business' }] } });
+        const array = useFieldArray({ form, name: 'vehicles' });
+        expose({ form, array });
+        return <form>{array.fields().map((field, index) => (
+          <fieldset key={field.id}>
+            {['commute', 'business'].map((u) => <input key={u} type="radio" data-u={u} {...form.register(\`vehicles.\${index}.usage\`, { type: 'radio', value: u })} />)}
+          </fieldset>
+        ))}</form>;
+      }
+    `);
+    let api;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = mount(mod.Usage({ expose: (x) => { api = x; } }), host);
+    flushSync();
+    const shown = () => [...host.querySelectorAll('fieldset')].map((f) => {
+      const checked = [...f.querySelectorAll('input')].filter((i) => i.checked);
+      return checked.length === 1 ? `${checked[0].name}=${checked[0].dataset.u}` : `${checked.length} checked`;
+    });
+    const held = () => api.form.formState.values.vehicles.map((v, i) => `vehicles.${i}.usage=${v.usage}`);
+    assert.deepEqual(shown(), held());
+    for (const op of [() => api.array.swap(0, 1), () => api.array.move(0, 2), () => api.array.move(2, 0), () => api.array.remove(0), () => api.array.prepend({ usage: 'commute' })]) {
+      op();
+      flushSync();
+      assert.deepEqual(shown(), held());
+    }
+    dispose();
+    host.remove();
+  });
 });
