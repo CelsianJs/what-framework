@@ -27,11 +27,12 @@ Three waves, in this order.
   (code-split routes whose chunks the check delays, fails and overtakes) and
   `pulse` (something moving every frame, with the frame loops counted), and
   from running every app in Firefox.
-- **38 to 40** came from `wizard`, an eight-step insurance quote: one route
+- **38 to 42** came from `wizard`, an eight-step insurance quote: one route
   per step under a shared layout, a step an earlier answer adds, nested
   field arrays, four kinds of validation, a draft saved as the visitor types
   and a submit the server validates again. Two are a file input in a form;
-  one is a keyed row moved while a field in it is being typed.
+  one is a keyed row moved while a field in it is being typed; two are a
+  form filled from fetched data with `reset()`.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -802,6 +803,38 @@ WebKit). The vnode (`h()`) list path still moves with `insertBefore`.
   before): a swap, a far swap, a single move up and to the end, and a shuffle
   each move their rows with `moveBefore` and take none out.
 
+### 41. A spread of a destructured `register()` never showed setValue or reset
+`packages/core/src/form.js` (`register`)
+
+`const { register } = useForm()` and `<select {...register('deductible')} />`
+is the idiom every form guide shows, and API.md says the spread follows the
+field. It did only when written `form.register(...)`, which the compiler
+reads again; a call of a destructured `register` is read once, and the
+spread binds a getter live only on a props object What marks as its own,
+which register's was not. So the spread wrote the value it had at mount and
+never again. wizard's "Start from my current policy" fetched the policy and
+called `reset()` with it: the radios (whose `checked` is a thunk) moved, the
+deductible's select kept showing $500 while the form held $1,000, and that
+is what the quote would have been sent with. register() marks its props
+object now, so a spread binds `value` and `checked` live however the call is
+written; an `h()` call's JavaScript spread still copies them, as documented.
+- Test: `packages/compiler/test/register-spread-follows-field.test.js` (2 of 3
+  fail before: a select, an input, a checkbox and a textarea through
+  setValue and reset).
+
+### 42. `reset(values)` left `dirtyFields` measuring from the first defaults
+`packages/core/src/form.js` (`reset`)
+
+`reset(values)` set every field and cleared `isDirty`, but `dirtyFields`
+kept comparing with the `defaultValues` useForm was created with, and a
+field registered later started from those. A form filled from fetched data
+then reported every field it filled as changed while `isDirty()` said
+nothing was: wizard showed "6 changes from your current policy" the moment
+the policy loaded. As in React Hook Form, the values a reset is given are
+the defaults from then on: `dirtyFields` measures from them, a later
+`reset()` returns to them, and a new field starts from them.
+- Test: `packages/core/test/form-reset-defaults.test.js` (3 of 4 fail before).
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -1050,7 +1083,8 @@ the event to the DOM showing its result:
 | a reload right after a keystroke, mid-step (the save is debounced 300 ms) | every field, nested arrays in order | exact (`pagehide` saves) |
 | back through seven steps and forward again | each step exactly as left | exact |
 | an item removed from its own open menu | its component, effects and document listener gone | gone; its bindings never run again |
-| the server's error on a VIN, after submit | on that field, that step, focused | yes |
+| the server's error on a VIN, after submit; on the photo lost to a reload | on that field, that step, focused | yes; yes |
+| the current policy loaded with `reset()` | its values shown, 0 changes counted | yes (before 41 and 42: a stale select, "6 changes") |
 | a double click on submit | one request | one |
 
 ## Browsers
