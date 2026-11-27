@@ -535,7 +535,7 @@ export function applyStreamedBoundaries(): number;
 export interface ServerResponse {
   /** The status the response will be sent with. */
   readonly status: number;
-  /** Where redirect() pointed, or null. */
+  /** Where the browser is sent (a path below the base the app is served at), or null. */
   readonly location: string | null;
   /** True once the shell has been sent: status and headers are final. */
   readonly committed: boolean;
@@ -544,12 +544,15 @@ export interface ServerResponse {
   /** Set (or with `append`, add) a header. Set-Cookie always appends. No effect once committed. */
   setHeader(name: string, value: string, options?: { append?: boolean }): void;
   /**
-   * Redirect to a same-origin path such as "/login" (302 by default). Before
-   * the shell is sent this is a real 3xx; after it, the browser is sent a script
-   * that replaces the location. Any other target (an absolute URL, "//host",
-   * "/\\host", javascript:) is refused: the response redirects to "/" instead,
-   * and development logs ERR_SSR_UNSAFE_REDIRECT. Throws a RangeError for a
-   * status that is not a redirect status.
+   * Redirect to a path of the app such as "/login" (302 by default). The path
+   * is the app's, below the base it is served at: under the request handler's
+   * `basePath: '/app'` (else what-router's base), "/login" is sent as
+   * "/app/login", as a server action's and what-router's redirect() are.
+   * Before the shell is sent this is a real 3xx; after it, the browser is sent
+   * a script that replaces the location. Any other target (an absolute URL,
+   * "//host", "/\\host", javascript:) is refused: the response redirects to
+   * the app's root instead, and development logs ERR_SSR_UNSAFE_REDIRECT.
+   * Throws a RangeError for a status that is not a redirect status.
    */
   redirect(location: string, status?: 301 | 302 | 303 | 307 | 308): void;
   /**

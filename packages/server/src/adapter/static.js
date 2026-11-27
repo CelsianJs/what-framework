@@ -88,7 +88,7 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const dirPath = resolveInsideOutDir(outDir, urlPath);
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
-      const response = createResponse();
+      const response = createResponse(base);
       // A GET of the page's own URL, below the base: a <Router> in the page
       // shows the route this file is served for, as it does for a request on
       // a server.

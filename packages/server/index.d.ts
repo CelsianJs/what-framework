@@ -495,7 +495,7 @@ export interface RouteDefinition {
 export interface RouteMatchContext {
   /** The path without the base path (`basePath`) the request was below. */
   path: string;
-  /** The request handler's `basePath` the request was below, without its trailing slash; a match with no request renders as a GET of the path below it. */
+  /** The request handler's `basePath`, without its trailing slash: a match with no request renders as a GET of the path below it, and a path its page redirects to goes below it. */
   base?: string;
   query: Record<string, string | string[]>;
   params: Record<string, string>;
@@ -584,8 +584,9 @@ export interface RequestHandlerOptions {
    * matching: `/app/x` matches `/x`, `/app` matches `/`, and a path outside
    * it (`/application`) is matched as it is and rendered outside the cache,
    * whose keys are the paths below the base. The action endpoint is
-   * `/app/__what_action`, and a no-JS post whose action redirects to a path
-   * (`getResponse().redirect('/x')`) is answered with `/app/x`. The router's
+   * `/app/__what_action`, and a path a page or an action redirects to (a
+   * loader's `response.redirect('/x')`, `getResponse().redirect('/x')`,
+   * what-router's `redirect('/x')`) is answered with `/app/x`. The router's
    * base is the client's (what-router `setBase`, or Vite's `base`): give both
    * the same path.
    */

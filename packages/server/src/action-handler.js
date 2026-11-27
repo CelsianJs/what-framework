@@ -6,7 +6,7 @@
 // and Web-Fetch adapters. CSRF + dispatch + error masking are reused from
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
-import { _base, _belowBase, handleActionRequest } from './actions.js';
+import { _base, handleActionRequest } from './actions.js';
 import { addField, RESERVED_FIELDS, urlEncodedFields, urlEncodedPairs } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
@@ -209,9 +209,10 @@ const INVALID = Symbol('invalid');
 // The CSRF policy of a handler's options, and the base path the app is
 // served below (`_base`, the request handler's `basePath`; else, for the
 // endpoint of a custom server, what-router's base, read per request): a path
-// an action redirects to is a URL of the app, which a no-JS post's 303 sends
-// below it, as the router navigates below it with JavaScript. `_redirect`
-// and the Referer are where the browser was, below the base already.
+// an action redirects to is a URL of the app, which the response of its call
+// puts below the base (response.js), for a no-JS post's 303 and for the
+// X-What-Redirect the client follows alike. `_redirect` and the Referer are
+// where the browser was, below the base already.
 function csrfPolicy(options) {
   return {
     getCsrfToken: options.getCsrfToken,
@@ -225,14 +226,14 @@ function csrfPolicy(options) {
 
 // The action call: handleActionRequest in a context of its own, whose request
 // is the caller's (getRequest()) and whose response (getResponse()) the call
-// answers with: the redirect and the headers the action set.
-async function callAction(reqLike, id, args, callOptions, callHeaders) {
+// answers with: the redirect (below `base`) and the headers the action set.
+async function callAction(reqLike, id, args, callOptions, callHeaders, base) {
   /** @type {any} */
   let response = null;
   const result = await runInActionContext(requestOf(reqLike, 'POST'), (own) => {
     response = own;
     return handleActionRequest({ headers: callHeaders }, id, args, callOptions);
-  });
+  }, base);
   return { status: result.status, body: result.body, response };
 }
 
@@ -278,7 +279,7 @@ async function runFormPost(policy, reqLike, form, actionId) {
 
   const args = formArguments(form);
   if (args === INVALID) return { status: 400, message: 'Invalid form state' };
-  const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders);
+  const call = await callAction(reqLike, String(actionId), args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, formHeaders, policy.base);
   return { actionId: String(actionId), call };
 }
 
@@ -398,7 +399,7 @@ export function createActionHandler(options = {}) {
       const outcome = await runFormPost(policy, reqLike, form, form._action || form['data-action'] || (reqLike.query && reqLike.query.action));
       if (!outcome.call || outcome.call.status !== 200) return failedForm(outcome);
       const { response } = outcome.call;
-      const location = response.location != null ? _belowBase(response.location, policy.base) : safeRedirectTarget(form, headers, policy.base);
+      const location = response.location ?? safeRedirectTarget(form, headers, policy.base);
       return { status: 303, headers: withActionHeaders(response, { location }), body: '' };
     }
 
@@ -421,7 +422,7 @@ export function createActionHandler(options = {}) {
     const body = reqLike.body || {};
     const args = type === 'multipart' ? formArguments(body) : body.args;
     if (args === INVALID) return jsonResponse(400, { message: 'Invalid form state' });
-    const call = await callAction(reqLike, headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers);
+    const call = await callAction(reqLike, headerActionId, args, { csrfToken: sessionCsrfToken, skipCsrf: policy.skipCsrf || byOrigin }, headers, policy.base);
     const answer = jsonResponse(call.status, call.body);
     if (call.status !== 200) return answer;
     /** @type {Record<string, string>} */
@@ -471,7 +472,7 @@ export function createFormPostHandler(options = {}) {
     if (!outcome.call || outcome.call.status !== 200) return { response: failedForm(outcome) };
     const { response, body } = outcome.call;
     if (response.location) {
-      return { response: { status: 303, headers: withActionHeaders(response, { location: _belowBase(response.location, policy.base) }), body: '' } };
+      return { response: { status: 303, headers: withActionHeaders(response, { location: response.location }), body: '' } };
     }
     const key = typeof form._actionKey === 'string' ? form._actionKey : null;
     return { actionState: { action: outcome.actionId, key, state: body }, headers: withActionHeaders(response, {}) };

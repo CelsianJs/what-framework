@@ -118,7 +118,8 @@ function pageRequest(routeMatch, documentOptions) {
   // CACHED route's loader still sees no token. That is deliberate, not an
   // omission: cached HTML is shared between visitors and must never carry one
   // visitor's token.
-  const response = createResponse();
+  // A path the loader or the page redirects to goes below the base.
+  const response = createResponse(routeMatch.base);
   const reqCtx = csrfToken
     ? { params, query, request, signal: request.signal, response, csrfToken }
     : { params, query, request, signal: request.signal, response };
@@ -467,9 +468,10 @@ export function createRequestHandler(options = {}) {
     const config = route.page || { mode: route.mode || 'client' };
     /** @type {any} */
     const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
-    // The base the path is below, which a regeneration with no request
-    // renders the page below (what-isr requestAt).
-    if (base && !outside) routeMatch.base = base;
+    // The base the app is served below: a regeneration with no request
+    // renders the page below it (what-isr requestAt), and a path the page
+    // redirects to goes below it.
+    if (base) routeMatch.base = base;
 
     // A form posted to this page without JavaScript (urlencoded, or
     // multipart/form-data for a form with a file): its action runs, and the

@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h, getResponse } from 'what-core';
-import { Router, setBase } from 'what-router';
+import { Router, redirect, setBase } from 'what-router';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
 import { action, createRequestHandler, createRouteRenderer } from '../src/index.js';
 
@@ -125,23 +125,52 @@ describe('createRequestHandler basePath and a regeneration with no request', () 
   });
 });
 
-// A path a page redirects to with what-server's response (a loader's
-// `response.redirect('/login')`, a component's getResponse().redirect()) is
-// answered as written, outside the base, while the same call in a server
-// action is a URL of the app (`/app/login`), as the router's redirect() is.
-// Left for a decision: prefixing it here would prefix the router's redirects,
-// which are below the base already, a second time.
+// A path is a URL of the app whoever redirects to it: a loader's
+// `response.redirect('/login')`, a component's getResponse().redirect(), the
+// router's redirect(), navigate() or a middleware verdict. The response puts
+// it below the base, once: '/login' answers Location '/app/login'. Before, a
+// loader's and a component's answered '/login', outside the base. Which
+// path is the app's is decided by who calls, not by the string, so a route
+// '/app/x' of an app below '/app' is '/app/app/x'.
 describe('createRequestHandler basePath and a page\'s own redirect', () => {
-  it('answers a loader\'s and a component\'s local redirect below the base', { todo: 'a page redirect below the base is a design decision (see the round 8 review-edge report)' }, async () => {
+  it('answers a loader\'s and a component\'s local redirect below the base', async () => {
+    const routes = [
+      { path: '/a', component: () => h('p', null, 'a'), loader: ({ response }) => { response.redirect('/login'); }, mode: 'server' },
+      { path: '/b', component: () => { getResponse().redirect('/login'); return h('p', null, 'b'); }, mode: 'server' },
+      { path: '/c', component: () => h('p', null, 'c'), loader: ({ response }) => { response.redirect('/login'); }, page: { mode: 'static', revalidate: 60 } },
+      { path: '/d', component: () => h('p', null, 'd'), loader: ({ response }) => { response.redirect('/app/x?q=1#top'); }, mode: 'server' },
+      { path: '/e', component: () => h('p', null, 'e'), loader: ({ response }) => { response.redirect('//evil.test/x'); }, mode: 'server' },
+      { path: '/f', component: () => h('p', null, 'f'), loader: ({ response }) => { response.redirectExternal('https://billing.example/portal'); }, mode: 'server' },
+    ];
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      for (const cache of [undefined, createCacheEngine({ store: createMemoryStore() })]) {
+        const handler = createRequestHandler({ routes, cache, basePath: '/app', csrf: false });
+        for (const [path, location] of [['/app/a', '/app/login'], ['/app/b', '/app/login'], ['/app/c', '/app/login'], ['/app/d', '/app/app/x?q=1#top'], ['/app/e', '/app/'], ['/app/f', 'https://billing.example/portal']]) {
+          const response = await handler(new Request('http://app.test' + path));
+          assert.equal(response.status, 302, path);
+          assert.equal(response.headers.get('location'), location, path);
+        }
+      }
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it('answers the router\'s redirect below the base once', async () => {
     setBase('/app');
     try {
-      const routes = [
-        { path: '/a', component: () => h('p', null, 'a'), loader: ({ response }) => { response.redirect('/login'); }, mode: 'server' },
-        { path: '/b', component: () => { getResponse().redirect('/login'); return h('p', null, 'b'); }, mode: 'server' },
+      const pages = [
+        { path: '/old', middleware: [() => '/login'], component: () => h('p', null, 'old') },
+        { path: '/thrown', component: () => redirect('/login?from=thrown') },
+        { path: '/inner', component: () => redirect('/app/x') },
       ];
+      const App = () => h(Router, { routes: pages, fallback: () => h('p', null, 'not found') });
+      const routes = ['/old', '/thrown', '/inner'].map((path) => ({ path, component: App, mode: 'server' }));
       const handler = createRequestHandler({ routes, basePath: '/app', csrf: false });
-      for (const path of ['/app/a', '/app/b']) {
-        assert.equal((await handler(new Request('http://app.test' + path))).headers.get('location'), '/app/login', path);
+      for (const [path, location] of [['/app/old', '/app/login'], ['/app/thrown', '/app/login?from=thrown'], ['/app/inner', '/app/app/x']]) {
+        assert.equal((await handler(new Request('http://app.test' + path))).headers.get('location'), location, path);
       }
     } finally {
       setBase('');

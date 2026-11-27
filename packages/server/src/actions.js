@@ -256,15 +256,16 @@ export function _callAction(id, args, options = {}) {
 }
 
 // Where an action's redirect (getResponse().redirect() in the action) takes
-// the browser, once what it revalidates has landed: a path through the
-// mounted <Router> (what-router registers its navigate()), anything else, or
-// a page with no Router, by loading it. A path is a URL of the app, below the
-// base.
+// the browser, once what it revalidates has landed: the URL the server sent,
+// below the base already (response.js), as a no-JS post's 303 is. A path
+// goes through the mounted <Router> (what-router registers its navigate(),
+// which reads this origin's URL without the base); anything else, or a page
+// with no Router, by loading it.
 const NAVIGATOR = Symbol.for('what.router.navigate.v1');
 function follow(to) {
   const navigate = /** @type {any} */ (globalThis)[NAVIGATOR];
-  if (typeof navigate === 'function' && to.startsWith('/')) navigate(to);
-  else location.assign(_belowBase(to));
+  if (typeof navigate === 'function' && to.startsWith('/')) navigate(location.origin + to);
+  else location.assign(to);
 }
 
 // The action's result, and the redirect it made (or null).

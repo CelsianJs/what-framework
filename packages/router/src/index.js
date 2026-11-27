@@ -560,10 +560,11 @@ export async function navigate(to, opts = {}) {
   // The response refuses a target that is not a same-origin path, and
   // redirects to '/' instead. A relative one ('next', '../up', '?page=2')
   // resolves against the URL the render shows, as the browser resolves it
-  // against the address bar. A path goes below the base.
+  // against the address bar. The response is handed the URL of the app, as
+  // a loader hands it one, and puts it below the base.
   if (onServer()) {
     if (typeof to !== 'string') getResponse().redirect(to);
-    else if (!to.startsWith('#')) getResponse().redirect(outward(RELATIVE.test(to) ? resolveHref(to) ?? to : to));
+    else if (!to.startsWith('#')) getResponse().redirect(RELATIVE.test(to) ? resolveHref(to) ?? to : to);
     return;
   }
 

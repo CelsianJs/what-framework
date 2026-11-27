@@ -14,11 +14,22 @@
 // loader hands request data to (`redirect(query.next)`), so an absolute URL
 // there is an open redirect. Leaving the site is a separate, explicit call,
 // redirectExternal(), which takes an absolute http(s) URL. A refused target is
-// not an exception: the response redirects to '/' instead, the same fallback
-// the action handler uses, and development logs ERR_SSR_UNSAFE_REDIRECT. A
-// request-supplied target therefore never turns into a 500.
+// not an exception: the response redirects to the app's root instead, the
+// same fallback the action handler uses, and development logs
+// ERR_SSR_UNSAFE_REDIRECT. A request-supplied target therefore never turns
+// into a 500.
+//
+// The base. A path redirect() is given is a URL of the app, whoever calls it:
+// a loader, a component, a server action, what-router's redirect(),
+// navigate() or a middleware verdict, which hand it the URL without the base,
+// as their route state holds it. The response is the one place that puts it
+// below the base the app is served at ('/login' answers Location
+// '/app/login'), so `location` is what the browser is sent. The base is the
+// request handler's or exportStatic's `basePath`, else what-router's
+// (setBase(), or Vite's `base` when Vite builds this module).
 
 import { safeLocalPath } from './action-handler.js';
+import { _base } from './actions.js';
 import { _isDevMode } from './html.js';
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -69,7 +80,8 @@ class RenderResponse {
   /** @type {((location: string) => void) | null} */
   #lateRedirect = null;
 
-  constructor() {
+  /** @param {string} base the base a path redirect goes below ('/app'), or '' */
+  constructor(base) {
     const late = (what) => {
       if (_isDevMode) {
         console.warn(`[what-server] ${what} after the response was committed (the shell has been sent) has no effect.`);
@@ -106,14 +118,20 @@ class RenderResponse {
       if (append || String(name).toLowerCase() === 'set-cookie') this.headers.append(name, String(value));
       else this.headers.set(name, String(value));
     };
-    /** Redirect to a same-origin path ("/account"). */
+    /** Redirect to a path of the app ("/account"), below its base. */
     this.redirect = (location, status = 302) => {
-      redirectTo(localRedirectTarget(location) ?? refused('redirect', location), status);
+      redirectTo(base + (localRedirectTarget(location) ?? refused('redirect', location)), status);
     };
     /** Redirect off the site, to an absolute http(s) URL. */
     this.redirectExternal = (url, status = 302) => {
-      redirectTo(externalRedirectTarget(url) ?? refused('redirectExternal', url), status);
+      redirectTo(externalRedirectTarget(url) ?? base + refused('redirectExternal', url), status);
     };
+    /**
+     * The base a path redirect goes below, which the render this response
+     * answers renders below too.
+     * @internal
+     */
+    this._base = base;
     /**
      * Freeze status and headers. `onRedirect` receives a redirect made after
      * this point (a streamed boundary's render).
@@ -136,6 +154,12 @@ class RenderResponse {
   }
 }
 
-export function createResponse() {
-  return new RenderResponse();
+/**
+ * A response for one request. `base` (internal: the request handler's and
+ * exportStatic's `basePath`, normalised) is the path a redirect goes below;
+ * without it, what-router's base.
+ * @param {string} [base]
+ */
+export function createResponse(base) {
+  return new RenderResponse(base ?? _base());
 }

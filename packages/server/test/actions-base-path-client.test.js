@@ -10,7 +10,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getResponse } from 'what-core';
+import { getResponse, h, mount } from 'what-core';
 import { installDOM } from '../../../test-utils/dom.js';
 import { action, createRequestHandler } from '../src/index.js';
 
@@ -19,6 +19,10 @@ const leave = action(async () => {
   getResponse().redirect('/page#saved');
   return { ok: true };
 }, { id: 'base/leave' });
+const finish = action(async () => {
+  getResponse().redirect('/done?from=action');
+  return { ok: true };
+}, { id: 'base/finish' });
 
 let env;
 let router;
@@ -50,5 +54,36 @@ describe('a server action called below a base path', () => {
     assert.deepEqual(await leave(), { ok: true });
     for (let i = 0; i < 20 && location.hash === ''; i++) await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(location.pathname + location.hash, '/app/page#saved');
+  });
+
+  // The redirect travels as the URL the browser goes to, below the base, as
+  // a no-JS post's 303 does, and the mounted Router reads it without the
+  // base: it shows '/done', at '/app/done'.
+  it('sends its redirect below the base, and follows it through a mounted Router', async () => {
+    const handle = createRequestHandler({ routes: [], basePath: '/app', csrf: false });
+    const answer = await handle(new Request('http://app.test/app/__what_action', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-what-action': 'base/finish' },
+      body: JSON.stringify({ args: [] }),
+    }));
+    assert.equal(answer.headers.get('x-what-redirect'), '/app/done?from=action');
+
+    const host = document.createElement('main');
+    document.body.appendChild(host);
+    const stop = mount(h(router.Router, {
+      routes: [
+        { path: '/page', component: () => h('p', null, 'page') },
+        { path: '/done', component: () => h('h1', null, 'done') },
+      ],
+      fallback: () => h('p', null, 'not found'),
+    }), host);
+    assert.deepEqual(await finish(), { ok: true });
+    for (let i = 0; i < 40 && host.querySelector('h1') === null; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(router.route.path, '/done');
+    assert.equal(location.pathname + location.search, '/app/done?from=action');
+    assert.equal(host.querySelector('h1').textContent, 'done');
+    // The scroll the navigations restore runs in an animation frame.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    stop();
   });
 });
