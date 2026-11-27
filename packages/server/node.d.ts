@@ -117,6 +117,13 @@ export interface ExportStaticOptions {
   outDir: string;
   render?: (pageModule: any, reqCtx: RenderRequestContext) => Promise<string> | string;
   documentOptions?: DocumentOptions;
+  /**
+   * The path the site is served below (`'/app'`, or `'/app/'` as Vite writes
+   * it): each page is rendered for its URL below it, so a `<Router>` with the
+   * same base (what-router `setBase`, or Vite's `base`) shows the page and
+   * links below the base. Files are still written to `outDir/<path>/`.
+   */
+  basePath?: string;
 }
 
 export interface ExportStaticResult {

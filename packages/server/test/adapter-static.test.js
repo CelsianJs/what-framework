@@ -169,6 +169,31 @@ describe('exportStatic', () => {
     assert.deepEqual([...new Set(urls)], ['http://localhost/guide/intro']);
   });
 
+  it('renders each page below `basePath`, where a Router below that base shows it and links below it', async () => {
+    const { Router, Link, setBase } = await import('what-router');
+    setBase('/app/');
+    try {
+      const appRoutes = [
+        { path: '/', component: () => h('p', {}, 'home') },
+        { path: '/about', component: () => h('h1', {}, 'about') },
+        { path: '/old', middleware: [() => '/about'], component: () => h('p', {}, 'old') },
+      ];
+      const App = () => h('div', {}, h(Link, { href: '/' }, 'contents'), h(Router, { routes: appRoutes, fallback: () => h('p', {}, 'not found') }));
+      const urls = [];
+      const routes = ['/about', '/old'].map((path) => ({ path, page: { mode: 'static' }, loader: ({ request }) => { urls.push(request.url); return {}; }, component: App }));
+      const { pages, redirects } = await exportStatic({ routes, outDir, basePath: '/app/' });
+      assert.deepEqual(pages, ['/about']);
+      const html = await readFile(join(outDir, 'about/index.html'), 'utf8');
+      assert.match(html, /<h1[^>]*>about<\/h1>/);
+      assert.match(html, /<a [^>]*href="\/app\/"[^>]*>contents/);
+      assert.doesNotMatch(html, /not found/);
+      assert.deepEqual(redirects.map((r) => [r.path, r.location]), [['/old', '/app/about']]);
+      assert.deepEqual([...new Set(urls)], ['http://localhost/app/about', 'http://localhost/app/old']);
+    } finally {
+      setBase('');
+    }
+  });
+
   it('skips server-mode and dynamic-without-getStaticPaths routes', async () => {
     const routes = [
       { path: '/srv', component: () => h('main', {}, 'x'), page: { mode: 'server' } },

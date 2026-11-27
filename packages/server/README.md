@@ -716,7 +716,10 @@ route) and a `response` as on a server: a page that redirects is written as a
 redirect stub (a meta refresh to the target and a canonical link) and listed in
 `redirects`; a page that sets another status than 200 is not written (a static
 host cannot send it) and is listed in `skipped`, with a warning. The result is
-`{ pages, redirects, skipped }`. Upload `dist/` to any static host — no special
+`{ pages, redirects, skipped }`. A site served below a path (a GitHub Pages
+project site) passes it as `basePath` (`'/app'` or `'/app/'`), the router's
+base: each page is rendered for its URL below it, and the files are still
+written to `dist/<path>/index.html`. Upload `dist/` to any static host — no special
 server config required (the layout is plain `path/index.html`). Note: server
 actions and per-user CSRF need a runtime — pair a static export with one of
 the runtime adapters if you use actions.

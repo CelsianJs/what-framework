@@ -49,8 +49,9 @@ function resolveInsideOutDir(outDir, urlPath) {
 }
 
 /**
- * Each page's loader and components get a `request` (a GET of the page's URL)
- * and a `response` (createResponse()), as on a server. A page that redirects is written as a redirect stub (a meta
+ * Each page's loader and components get a `request` (a GET of the page's URL,
+ * below `basePath` when the site is served below one) and a `response`
+ * (createResponse()), as on a server. A page that redirects is written as a redirect stub (a meta
  * refresh to the target, with a canonical link) and listed in `redirects`. A
  * page that sets any other status but 200 cannot be served with that status by
  * a static host, so it is not written at all: it is listed in `skipped`, with
@@ -61,8 +62,10 @@ function resolveInsideOutDir(outDir, urlPath) {
  * @param {string} [options.outDir]
  * @param {(route: any, documentOptions: any) => any} [options.render]
  * @param {Record<string, any>} [options.documentOptions]
+ * @param {string} [options.basePath]
  */
-export async function exportStatic({ routes = [], outDir, render, documentOptions = {} } = {}) {
+export async function exportStatic({ routes = [], outDir, render, documentOptions = {}, basePath = '' } = {}) {
+  const base = basePath.replace(/\/+$/, '');
   const written = [];
   /** @type {Array<{ path: string, location: string, status: number }>} */
   const redirects = [];
@@ -85,9 +88,10 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
       const response = createResponse();
-      // A GET of the page's own URL: a <Router> in the page shows the route
-      // this file is served for, as it does for a request on a server.
-      const request = new Request(new URL(urlPath, 'http://localhost'));
+      // A GET of the page's own URL, below the base: a <Router> in the page
+      // shows the route this file is served for, as it does for a request on
+      // a server.
+      const request = new Request(new URL(base + urlPath, 'http://localhost'));
       const reqCtx = { params, query: {}, request, response };
       const pageModule = { default: route.component, loader: route.loader };
       const hasLoader = typeof pageModule.loader === 'function';
