@@ -114,7 +114,7 @@ plugin.configs.recommended = {
     'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'warn',
     'what/no-signal-write-in-render': 'warn',
-    'what/no-camelcase-events': 'warn',
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
     'what/no-h-in-user-code': 'warn',
@@ -146,7 +146,7 @@ plugin.configs.strict = {
     'what/no-signal-read-in-effect-deps': 'error',
     'what/reactive-jsx-children': 'error',
     'what/no-signal-write-in-render': 'error',
-    'what/no-camelcase-events': 'error',
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'error',
     'what/prefer-set': 'warn',
     'what/no-h-in-user-code': 'error',
@@ -178,7 +178,7 @@ plugin.configs.compiler = {
     'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'off',       // compiler handles reactive wrapping
     'what/no-signal-write-in-render': 'warn',
-    'what/no-camelcase-events': 'off',          // compiler normalizes events
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
     'what/no-h-in-user-code': 'warn',

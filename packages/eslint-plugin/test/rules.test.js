@@ -130,7 +130,7 @@ describe('eslint-plugin-what', () => {
       const { default: plugin } = await import('../src/index.js');
       const body = 'export function A() { return <button onClick={() => {}} onChange={() => {}}>x</button>; }\n';
       const lint = (head) => new Linter()
-        .verify(head + body, [plugin.configs.recommended], { filename: 'a.jsx' })
+        .verify(head + body, [{ ...plugin.configs.recommended, rules: { 'what/no-camelcase-events': 'warn' } }], { filename: 'a.jsx' })
         .filter((m) => m.ruleId === 'what/no-camelcase-events' || m.fatal);
       for (const head of [
         "import { useState } from 'react';\n",

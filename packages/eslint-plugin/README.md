@@ -29,7 +29,7 @@ a TypeScript parser layered on top, such as typescript-eslint.
 
 | Config | Description |
 |---|---|
-| `what.configs.compiler` | For projects compiled with what-compiler, as a create-what SPA is: turns off the rules the compiler makes unnecessary (`reactive-jsx-children`, `no-camelcase-events`, `signal-call-in-jsx`) and the read-once rules it reports itself at build time (`no-prop-read-once`, `no-state-read-once`, `no-cleanup-reads-live`), and declares `For`, `Show`, `Switch` and `Match` as globals, since the compiler lowers them without an import |
+| `what.configs.compiler` | For projects compiled with what-compiler, as a create-what SPA is: turns off the rules the compiler makes unnecessary (`reactive-jsx-children`, `signal-call-in-jsx`) and the read-once rules it reports itself at build time (`no-prop-read-once`, `no-state-read-once`, `no-cleanup-reads-live`), and declares `For`, `Show`, `Switch` and `Match` as globals, since the compiler lowers them without an import |
 | `what.configs.recommended` | For JSX without the compiler (the automatic runtime, as the islands template uses) and `h()` code: most rules warn; `no-moved-imports`, `no-effect-self-write` and `no-set-in-computed` are errors |
 | `what.configs.strict` | Every rule `recommended` turns on, as an error, plus `prefer-set` and `signal-debug-name` as warnings |
 
@@ -515,9 +515,12 @@ const label = computed(() => `doubled: ${doubled()}`);
 
 ### `what/no-camelcase-events`
 
-Enforces lowercase event handler names (`onclick` instead of `onClick`) in JSX
-written without the compiler, where props reach the DOM as written and DOM
-event properties are lowercase. It reports this button:
+Asks for the DOM's lowercase event names (`onclick` instead of `onClick`), for
+a codebase that prefers them. Off in every preset: What's runtime takes React's
+names in every JSX pipeline, h(), the automatic runtime (`jsxImportSource`) and
+compiled JSX alike, so `<button onClick={save}>` listens for `click`,
+`onDoubleClick` for `dblclick` and `onChange` for `input` and `change`. Turned
+on, it reports this button:
 
 ```jsx
 function save() {}
@@ -527,7 +530,7 @@ function SaveButton() {
 }
 ```
 
-Without the compiler, write the DOM name:
+and its fix writes the DOM name:
 
 ```jsx
 function save() {}
@@ -536,8 +539,6 @@ function SaveButton() {
   return <button onclick={save}>Save</button>;
 }
 ```
-
-Off in the `compiler` preset: the compiler normalizes `onClick` itself.
 
 ### `what/no-h-in-user-code`
 
@@ -567,7 +568,7 @@ count.set(5);
   'what/no-signal-read-in-effect-deps': 'warn',
   'what/reactive-jsx-children': 'warn',
   'what/no-signal-write-in-render': 'warn',
-  'what/no-camelcase-events': 'warn',
+  'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
   'what/no-uncalled-signals': 'warn',
   'what/prefer-set': 'off',
   'what/no-h-in-user-code': 'warn',
@@ -596,7 +597,7 @@ count.set(5);
   'what/no-signal-read-in-effect-deps': 'error',
   'what/reactive-jsx-children': 'error',
   'what/no-signal-write-in-render': 'error',
-  'what/no-camelcase-events': 'error',
+  'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
   'what/no-uncalled-signals': 'error',
   'what/prefer-set': 'warn',
   'what/no-h-in-user-code': 'error',
@@ -625,7 +626,7 @@ count.set(5);
   'what/no-signal-read-in-effect-deps': 'warn',
   'what/reactive-jsx-children': 'off',       // compiler handles reactive wrapping
   'what/no-signal-write-in-render': 'warn',
-  'what/no-camelcase-events': 'off',          // compiler normalizes events
+  'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
   'what/no-uncalled-signals': 'warn',
   'what/prefer-set': 'off',
   'what/no-h-in-user-code': 'warn',

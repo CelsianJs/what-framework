@@ -13,7 +13,7 @@ export function Counter() {
       <span>{count}</span>
       {/* what/signal-call-in-jsx — a signal function is always truthy */}
       <p>{isLoading && <em>loading…</em>}</p>
-      {/* what/no-camelcase-events — What uses lowercase DOM events */}
+      {/* not a finding: the runtime takes onClick as well as onclick */}
       <button onClick={() => count(count() + 1)}>Add</button>
     </div>
   );

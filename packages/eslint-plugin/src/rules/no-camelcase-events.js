@@ -1,19 +1,18 @@
 /**
  * Rule: what/no-camelcase-events
  *
- * Warn on camelCase event handlers (onClick, onChange, etc.) in JSX when not
- * using the What compiler. Without the compiler, esbuild passes props through
- * directly to the DOM, and DOM event handlers must be lowercase (onclick, onchange).
- *
- * The compiler normalizes these automatically, so this rule only applies to
- * projects using esbuild's built-in JSX transform instead of what-compiler.
+ * Asks for the DOM's lowercase event names in JSX (onclick, onchange) instead
+ * of React's (onClick, onChange), for a codebase that wants them. Off in every
+ * preset: What's runtime maps React's names itself in every JSX pipeline, h(),
+ * the automatic runtime (jsxImportSource) and compiled JSX alike (onClick
+ * listens for `click`, onDoubleClick for `dblclick`, onChange for `input` and
+ * `change`), and the docs write onClick.
  * A file that imports from react, react-dom, preact or what-react is a React
  * component (run on what-react, say), whose JSX takes React's names, so the
  * rule leaves it alone.
  *
- * Bad (without compiler):  <button onClick={fn} />
- * Good (without compiler): <button onclick={fn} />
- * Good (with compiler):    <button onClick={fn} />  — compiler handles it
+ * Reported when on:  <button onClick={fn} />
+ * Its fix:           <button onclick={fn} />
  */
 
 import { importsReact } from '../utils/what-state.js';
@@ -60,13 +59,13 @@ export default {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Disallow camelCase event handlers in JSX without the compiler',
-      recommended: true,
+      description: "Prefer the DOM's lowercase event names in JSX (a style choice: the runtime takes React's too)",
+      recommended: false,
     },
     fixable: 'code',
     messages: {
       camelCaseEvent:
-        '"{{name}}" won\'t work without the What compiler. Use "{{fix}}" instead.',
+        'Write the DOM\'s event name "{{fix}}" for "{{name}}" (this project prefers it; What\'s runtime takes both).',
     },
     schema: [
       {

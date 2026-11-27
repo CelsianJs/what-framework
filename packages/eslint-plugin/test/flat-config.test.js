@@ -51,10 +51,10 @@ describe('flat configs work out of the box', () => {
     const ruleIds = result.messages.map(m => m.ruleId);
     assert.ok(ruleIds.includes('what/signal-call-in-jsx'),
       `expected what/signal-call-in-jsx to fire, got: ${ruleIds.join(', ')}`);
-    assert.ok(ruleIds.includes('what/no-camelcase-events'),
-      `expected what/no-camelcase-events to fire, got: ${ruleIds.join(', ')}`);
-    assert.ok(result.messages.length >= 3,
-      `expected at least 3 findings, got ${result.messages.length}`);
+    assert.ok(!ruleIds.includes('what/no-camelcase-events'),
+      `onClick is not a finding (the runtime takes it), got: ${ruleIds.join(', ')}`);
+    assert.ok(result.messages.length >= 2,
+      `expected at least 2 findings, got ${result.messages.length}`);
   });
 
   it('recommended config reports the signal used as a condition, not the live binding', async () => {
