@@ -1144,6 +1144,15 @@ call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
 - \`what.config.js\`: app config. Nothing in this template reads it; the
   comment in the file says what does.
 
+## Adding a page
+
+Create the page module in \`src/pages/\` (a default component written with
+\`h()\`, plus \`page\` and \`loader\` exports as it needs), add its route to
+\`src/routes.js\`, and add it to \`matchPage()\` in \`src/entry-client.js\`.
+The server renders a page from the route table alone, but the browser hydrates
+only what \`matchPage()\` returns: a page missing there shows, and its buttons
+and other handlers do nothing.
+
 The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
 \`/__what_action\` dispatches the action and redirects. With JavaScript,
