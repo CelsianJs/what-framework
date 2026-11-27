@@ -273,6 +273,7 @@ const emptySource = `import { signal } from 'what-framework';
     function Twice(props) { return <p>{props.a}{props.b}static text</p>; }
     function Between(props) { return <p>{props.a}{props.mid}{props.b}</p>; }
     function Inside(props) { return <p>Hi {props.mid}{props.b}!</p>; }
+    function Marked(props) { return <p>{props.icon}{s.count()}</p>; }
     function Rows(props) { return <ul>{s.rows().map((row) => <li key={row.id}>{props.icon}{row.name} items</li>)}</ul>; }
     return {
       s,
@@ -281,6 +282,7 @@ const emptySource = `import { signal } from 'what-framework';
       Twice: () => <Twice a={s.a()} b={s.b()} />,
       Between: () => <Between a={s.a()} mid={s.mid()} b={s.b()} />,
       Inside: () => <Inside mid={s.mid()} b={s.b()} />,
+      Marked: () => <Marked icon={s.icon()} />,
       Rows: () => <Rows icon={s.icon()} />,
     };
   }`;
@@ -330,6 +332,21 @@ describe('an empty value before text the server merged', () => {
     app.s.icon('*');
     flushSync();
     assert.equal(p.textContent, '*Bye');
+    stop();
+  });
+
+  it('a null prop, then a reactive child the server marked: the child keeps its markers and text', () => {
+    const { app, p, texts, reports, added, stop } = adoptEmpty('Marked', { icon: null, count: 1 });
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, ['<!--$-->', '<!--/$-->']);
+    assert.equal(p.textContent, '1');
+    app.s.count(2);
+    flushSync();
+    assert.equal(p.textContent, '2');
+    assert.equal(texts[0].data, '2');
+    app.s.icon('*');
+    flushSync();
+    assert.equal(p.textContent, '*2');
     stop();
   });
 

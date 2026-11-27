@@ -4430,13 +4430,16 @@ function adoptOutput(result) {
 // (claimOwnText), updated in place, until its value is anything but text: only
 // then does it take the markers a region needs. Its text is compared with the
 // text the node held when it was claimed, then with what the region wrote
-// last (region()), so a first write corrects server text that differs.
+// last (region()), so a first write corrects server text that differs. The
+// place of a live prop (dom.js _place, `_forward`) has no markers: the server
+// writes the prop's value, so markers there are those of what that value or
+// what follows renders.
 function adoptRegion(fn, devName) {
   const c = cur;
   const parent = c.p;
   pendingKey = null;
   const at = nextOwn(c);
-  const close = at !== null && isMarker(at, REGION_OPEN) ? closeOf(at, REGION_CLOSE) : null;
+  const close = at !== null && !fn._forward && isMarker(at, REGION_OPEN) ? closeOf(at, REGION_CLOSE) : null;
   /** @type {any} */
   let start = null;
   /** @type {any} */
