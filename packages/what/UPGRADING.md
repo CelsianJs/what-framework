@@ -393,6 +393,10 @@ are the differences from 0.14.
   inherited spellcheck or contenteditable stayed on. This affects CSS or
   code that matched `[draggable=""]` or the attribute's absence: match
   `"true"` or `"false"`.
+- **A `class` of `null`, `undefined` or `false` writes no attribute on the
+  client**, as the server writes none, and `0` writes `"0"`. 0.14's client
+  wrote `class=""` for all four. This affects CSS or tests that matched
+  `[class=""]`: match the attribute's absence.
 - **A function in a `useEffect` dependency array that is not a signal is
   reported.** A dependency array re-runs the effect for the signals and
   computeds in it. Any other function was, and is, never called (the array
@@ -616,6 +620,20 @@ and navigations that are transitions. Each change below has its migration.
   applies, where 0.14 dropped it and stayed on the page the guard now
   declines. This affects an app that relied on staying there: let the guard
   allow the page.
+- **`<Link>` routes only a click that should stay in the page.** The
+  caller's `onClick` runs first, and a click it prevents
+  (`e.preventDefault()`) is not routed. A Link with a `target` other than
+  `_self`, with `download`, or to another origin or scheme is left to the
+  browser, and only this origin's pages are prefetched on hover. 0.14 routed
+  every unmodified left click in the current tab, so a `target="_blank"` or
+  `download` Link opened in place and a Link to another site did nothing.
+  This affects code that cancelled a Link's navigation some other way: call
+  `preventDefault()` in its `onClick`.
+- **`rules.min` and `rules.max` compare a numeric string as a number**, which
+  is what a registered `<input type="number">` gives. 0.14 checked only real
+  numbers, so neither rule ever fired on a number field. This affects a form
+  that submitted values those rules should have refused: they are refused
+  now, with the rule's message.
 - **The router commits the URL the address bar commits**, dot segments
   resolved (`/old/../find` is `/find`), and splits it as `URL` does (`??a=1`
   is the key `?a`). A path that starts `//` is that path, not another host.

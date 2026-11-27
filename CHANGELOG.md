@@ -895,7 +895,7 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   other attribute the server wrote that the client writes again, as written
   (class tokens in another order, or a URL written otherwise, differ); a
   boolean attribute present on both sides, the same style declarations, and
-  an empty `class` or text-field value against none are equal. An attribute
+  an empty text-field value against none are equal. An attribute
   the client does not write (`data-hk`, a stale one), a custom element's own
   and what the user changed in a form field are not compared.
   `onHydrationError` hears the same records as before, in every build, and
@@ -1182,16 +1182,22 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   SSR benchmark has a page of 200 small components beside the 1,000-row
   table, measures each hydration against a client render of the same page
   from the same bundle, and puts the hydration tables of the same commit in
-  its RESULTS.md. `npm run smoke:apps` runs nine apps in Chromium, or in
+  its RESULTS.md. `npm run smoke:apps` runs twelve apps in Chromium, or in
   WebKit with `WHAT_SMOKE_BROWSER=webkit` (a check its browser cannot run is
-  skipped with its reason), five of them under load: a 10,000-row grid with
+  skipped with its reason), eight of them under load: a 10,000-entry file
+  tree drawn by one recursive component beside a 300-field form with an
+  async check, a chat fed by a server stream that drops and reconnects
+  (every message exactly once, a capped log, a composer that keeps every
+  character during bursts), a 1,000-card board dragged between keyed lists
+  with undo and redo, a 10,000-row grid with
   virtual scroll and time budgets, a feed of 200 updates a second checked
   for loss, unmount cleanup, heap growth and long tasks, a workspace whose
   chained workflows cross back/forward and a reload, the same workspace
   rendered on the server with server-side guards and 40 concurrent visitors,
   and a streamed news site with ISR articles, five islands, 100 concurrent
   requests and the server's heap across 2,000 requests. CI runs it in both
-  browsers. `npm run lint` fails on `no-uncalled-signals` and the three
+  browsers, and its buildless apps run What's development build, so a
+  development diagnostic fails their console checks. `npm run lint` fails on `no-uncalled-signals` and the three
   read-once rules in the example apps and sites, and
   `npm run smoke:workspace-apps` serves sites/showcase through its
   `serve.js` and drives it.
@@ -2071,6 +2077,61 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   post** (a 413 with the limit, another refusal, a failed request), and
   what-react's `hydrateRoot()` names itself in `ERR_MOUNT_TARGET_MISSING`.
 
+- **A `class` of `null`, `undefined` or `false` writes no attribute** on the
+  client (compiled JSX and `h()`), as the server writes none. Before, the
+  client wrote `class=""`, so a router `<Link>` with no active class differed
+  from its server markup. `0` is written as `"0"`, as on the server and in
+  React, and a `classList` composes over a class that wrote nothing as the
+  server folds them. `packages/server/test/ssr-classlist.test.js`.
+- **The server leaves out a style property whose value is `null`,
+  `undefined`, a boolean or empty**, as the client and React do. Before, it
+  wrote `color:null;padding:`. `style()` from `what-framework/dom` leaves out
+  the same declarations, through the guard the `style` prop uses.
+  `packages/server/test/ssr-security.test.js`,
+  `packages/core/test/helpers-public.test.js`.
+- **`<Link>` runs the caller's `onClick` first, and does not route a click it
+  prevents.** Before, a Link given an `onClick` lost its routing and the click
+  reloaded the page. A Link with a `target` other than `_self`, or with
+  `download`, or to another origin or scheme (`mailto:`), is left to the
+  browser, where it was routed inside the current tab or did nothing; hovering
+  one no longer prefetches it. A relative Link that stays mounted (in a
+  layout) is active for the page it resolves to now, and with scroll
+  restoration on, a same-page hash link scrolls smoothly instead of jumping.
+  `packages/router/test/link-clicks.test.js`,
+  `packages/router/test/link-relative-active.test.js`.
+- **Forms.** `formState.values`, `watch()`, `dirtyFields` and
+  `formState.touched` follow fields registered after they first ran, so a
+  summary rendered above a form's fields updates (it showed the defaults).
+  `rules.min` and `rules.max` compare a numeric string, which is what a
+  registered `<input type="number">` gives, as a number (they never fired on
+  a number field). With an async resolver, an answer that lands after a newer
+  validation of the same field or of the whole form started is dropped, so a
+  slow "taken" no longer lands on the newer value, and `isValidating` stays
+  true until the last validation lands.
+  `packages/core/test/form-whole-form-readers.test.js`,
+  `packages/core/test/form-number-rules.test.js`,
+  `packages/core/test/form-async-validation-order.test.js`.
+- **A refetch caused by a signal a query's fetcher reads runs `onSuccess` and
+  `onSettled`**, as a refetch after an invalidation does.
+  `packages/core/test/query-invalidation-lifecycle.test.js`.
+- **`useGesture` attaches to a ref object, a ref function or a signal once the
+  element exists.** It read the ref while the component ran, before the
+  element existed, and attached nothing. A long press is no longer also a
+  tap. `packages/core/test/animation-loops.test.js`.
+- **The Node adapter neither logs nor passes on a request the client
+  aborted** (a cancelled upload): it printed `request error: Error: aborted`
+  with a stack, and `whatMiddleware` called `next(err)`.
+  `packages/server/test/adapter-abort-cookies.test.js`.
+- **`no-camelcase-events` leaves a file that imports from React, Preact or
+  what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
+  correct there.
+- **The docs site's copy buttons say "Copy failed"** when the clipboard
+  refuses the write, instead of leaving an unhandled rejection.
+- API.md says how `register()` behaves with `h()` (a spread copies the
+  value once; two forms that follow `setValue` are given), and GOTCHAS
+  explains that a `Date` child renders its local `toString()`, which differs
+  between a server and a browser in another time zone.
+
 ### Performance
 
 - **what-react carries only what an app uses.** Measured by `npm run
@@ -2302,6 +2363,25 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   render.
 - In development, an effect flush no longer allocates a `Map` and a `Set` for
   its infinite-loop report.
+- **Server rendering.** A keyed list (compiled and `h()`) enters keyed rows
+  only once the app defines a server action, the only reader of them;
+  compiled markup brand-checks a row or a deferred child once instead of up
+  to four times; and a render's response is a class instance told by its
+  private brand instead of an object literal kept in a `WeakSet`.
+  `benchmark/ssr`'s 200-component page renders in 0.73× the time plain and
+  0.75× hydratable, with 14–17% less heap: 1.19× and 1.06× Solid 2.0, from
+  1.63× and 1.42× (20 interleaved rounds against 5d5fbe15). The output is
+  byte for byte the same. `getResponse().committed` is a getter on the
+  response's class, so `{ ...response }` leaves it out.
+- Disposing an owner marks a child that has nothing to dispose in place:
+  creating and disposing a root of 1,000 empty child roots takes 0.41× the
+  time. `escapeHtml` returns a string with nothing to escape after one
+  regex test.
+- A field's own validation passes `{ names: [field] }` to the resolver as
+  its third argument (React Hook Form's shape), and `simpleResolver` runs
+  only that field's rules: a keystroke in a 300-field form in `onChange`
+  mode ran every field's rules and every async check.
+  `packages/core/test/form-field-validation-scope.test.js`.
 
 ## [0.14.0] - 2026-10-13
 
