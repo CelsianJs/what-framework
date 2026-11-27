@@ -200,8 +200,7 @@ function _renderHydratable(vnode, notHtml) {
       const open = out(REGION_OPEN);
       return open + renderRegionValue(_mapArrayToArray(vnode)) + out(REGION_CLOSE);
     } catch (e) {
-      _claimThrow(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!_claimThrow(e) && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
       restoreKeys(saved);
@@ -217,9 +216,9 @@ function _renderHydratable(vnode, notHtml) {
       const open = out(REGION_OPEN);
       return open + renderRegionValue(value) + out(REGION_CLOSE);
     } catch (e) {
-      _claimThrow(e);
+      const navigated = _claimThrow(e);
       if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!navigated && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
       restoreKeys(saved);
@@ -419,8 +418,7 @@ function _renderString(vnode, notHtml) {
     try {
       return _renderString(_mapArrayToArray(vnode));
     } catch (e) {
-      _claimThrow(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!_claimThrow(e) && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
       return '';
@@ -432,9 +430,9 @@ function _renderString(vnode, notHtml) {
     try {
       return _renderString(vnode());
     } catch (e) {
-      _claimThrow(e);
+      const navigated = _claimThrow(e);
       if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!navigated && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
       return '';

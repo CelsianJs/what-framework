@@ -106,6 +106,7 @@ import {
   _exposesErrorDetails,
   _resolveInnerHTML,
   _claimThrow,
+  _isNavigationSignal,
   _rawText,
   _isTextContent,
   _afterOpen,
@@ -914,7 +915,11 @@ function handleError(seg, error, node) {
   throw error;
 }
 
+// What a render reports to its `onError`. A navigation signal (a redirect()
+// in a component, which the catcher has answered: html.js _claimThrow) is no
+// error, and is not reported.
 function report(r, error, phase, boundaryId) {
+  if (_isNavigationSignal(error)) return;
   try {
     r.onError(error, boundaryId != null ? { phase, boundaryId } : { phase });
   } catch (hookError) {

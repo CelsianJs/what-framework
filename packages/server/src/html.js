@@ -132,7 +132,7 @@ function _boundaryFallback(vnode, error, report) {
   try {
     return fallback({ error, reset });
   } catch (e) {
-    _claimThrow(e);
+    if (_claimThrow(e)) return null;
     if (report) report(e);
     else if (_isDevMode) {
       console.warn(`[what-server] <ErrorBoundary> fallback threw during SSR: ${e.message}`);
@@ -237,17 +237,24 @@ function _resolveInnerHTML(props) {
 // component body throws one, and a server render acts on it as the client
 // does (core's _handleNavigationSignal), by running its handler, which
 // redirects the render's response. The catcher then renders the subtree it
-// cut short as it renders a failed one; a signal one catcher rethrows to the
-// next (a <Suspense> passes errors on) is acted on once.
+// cut short as it renders a failed one, but reports nothing: the signal was
+// answered (_claimThrow returns true for one). A signal one catcher rethrows
+// to the next (a <Suspense> passes errors on) is acted on once.
 const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 const _navigated = new WeakSet();
 
+function _isNavigationSignal(e) {
+  return e !== null && typeof e === 'object' && typeof e[NAV_SIGNAL] === 'function';
+}
+
 function _claimThrow(e) {
   if (e && e.code === 'ERR_COMPILED_JSX_IN_SSR') throw e;
-  if (e !== null && typeof e === 'object' && typeof e[NAV_SIGNAL] === 'function' && !_navigated.has(e)) {
+  if (!_isNavigationSignal(e)) return false;
+  if (!_navigated.has(e)) {
     _navigated.add(e);
     e[NAV_SIGNAL](e);
   }
+  return true;
 }
 
 function _isDomNode(value) {
@@ -758,8 +765,7 @@ function textOf(tag, value) {
     try {
       return textOf(tag, value());
     } catch (e) {
-      _claimThrow(e);
-      if (_isDevMode) console.warn(`[what-server] A child of <${tag}> threw during SSR: ${e && e.message}`);
+      if (!_claimThrow(e) && _isDevMode) console.warn(`[what-server] A child of <${tag}> threw during SSR: ${e && e.message}`);
       return '';
     }
   }
@@ -796,6 +802,7 @@ export {
   _exposesErrorDetails,
   _resolveInnerHTML,
   _claimThrow,
+  _isNavigationSignal,
   _rawText,
   _isTextContent,
   _afterOpen,
