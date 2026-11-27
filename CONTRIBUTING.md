@@ -90,7 +90,7 @@ compatibility playground has no lockfile), as CI does.
 `npm run smoke:app-budgets` builds the instrumented examples in development
 mode so `what-framework/testing` can capture diagnostics and effect runs during
 interactions. Both smoke commands accept case names after `--`, for example
-`npm run smoke:app-budgets -- npm-app-suite/app-01-signals`.
+`npm run smoke:app-budgets -- todomvc`.
 
 ### Shared test helpers
 

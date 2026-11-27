@@ -1,9 +1,7 @@
-// A compiled element's reactive innerHTML: examples/npm-app-suite/app-06-html
-// renders it in a conditional branch and on an <svg>, and updates it. The page
-// showed nothing because the example passed innerHTML a plain string, which
-// What refuses on every path (only { __html } is parsed as markup, and
-// development warns about a string). The example is compiled from its own
-// source here, so it cannot drift back.
+// A compiled element's reactive innerHTML: fixtures/inner-html-app.jsx renders
+// it in a conditional branch and on an <svg>, and updates it. innerHTML takes
+// { __html }; a plain string is refused on every path, with a development
+// warning. The app is compiled from its own source here.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,10 +13,10 @@ import { loadCompiled } from '../../../test-utils/load-compiled.js';
 installDOM('<!DOCTYPE html><html><head></head><body><div id="app"></div></body></html>');
 const { flushSync } = await import('../../core/src/reactive.js');
 
-const EXAMPLE = fileURLToPath(new URL('../../../examples/npm-app-suite/app-06-html/src/main.jsx', import.meta.url));
+const EXAMPLE = fileURLToPath(new URL('./fixtures/inner-html-app.jsx', import.meta.url));
 
-describe('compiled innerHTML bindings (app-06-html)', () => {
-  it('the example renders its markup, then updates it, in the branch and on the <svg>', async () => {
+describe('compiled innerHTML bindings', () => {
+  it('the app renders its markup, then updates it, in the branch and on the <svg>', async () => {
     const source = readFileSync(EXAMPLE, 'utf8').replace("mount(<App />, '#app');", "mount(<App />, '#app');\nexport { App };");
     await loadCompiled(source);
     flushSync();

@@ -9,17 +9,6 @@ export const flows = {
     { action: 'enter', target: '.new-todo', value: 'Smoke task', selector: '.todo-list li', expected: /Smoke task/, max: 28 },
   ],
   'what-starter': [{ action: 'link', target: 'a[href="/add"]', selector: 'form', expected: /Add Contact/, max: 80 }],
-  'npm-app-suite/app-01-signals': [click('+', 'output', /^1$/, 8)],
-  'npm-app-suite/app-02-computed': [click('+1', '.totals', /Total: \$518\.40/, 10)],
-  'npm-app-suite/app-03-store': [{ action: 'enter', target: 'input[placeholder="Add a todo"]', value: 'Smoke task', selector: 'li', expected: /Smoke task/, max: 18 }],
-  'npm-app-suite/app-04-forms': [fill('input[type=email]', 'invalid', 'main', /Email is invalid/i, 16)],
-  'npm-app-suite/app-05-focus': [
-    click('Open Modal', '[role=dialog]', /Keyboard Test/, 15),
-    { ...click('Close', '[role=dialog]', /Keyboard Test/, 8), disappears: true },
-  ],
-  'npm-app-suite/app-06-html': [click('Increment', '.panel', /Rendered count:\s*2/, 6)],
-  'npm-app-suite/app-07-events-style': [click('onClick: 0', 'button', /onClick:\s*1/, 5)],
-  'npm-app-suite/app-08-data': [click('Optimistic +1 user', 'pre', /optimistic/, 12)],
   'real-world-suite/app-01-simple-counter-todo': [{ action: 'click', target: '[data-testid=increment-btn]', selector: '[data-testid=counter-value]', expected: /^1$/, max: 6 }],
   'real-world-suite/app-02-api-cache-dashboard': [click('Simulate Errors', '[data-testid=error-btn]', /Errors ON/, 28)],
   'real-world-suite/app-03-global-state': [
