@@ -790,15 +790,17 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     for (const segment of k.split('.')) {
       let part = segment;
       if (segment[0] === '\0') {
-        const index = arrays[at] ? arrays[at]().indexOf(segment) : -1;
-        if (index < 0) return null;
-        part = index;
+        part = places[at]?.().get(segment);
+        if (part === undefined) return null;
       }
       at += (at ? '.' : '') + segment;
       out += (out ? '.' : '') + part;
     }
     return out;
   };
+  // Each array's items by their place, so a key's name is found without
+  // searching the items.
+  const places = {};
   // Forget an item and the field arrays inside it.
   const drop = (k) => {
     forget(k, {}, true);
@@ -806,11 +808,13 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
       if (!inner.startsWith(k + '.')) continue;
       for (const segment of arrays[inner].peek()) delete bases[segment];
       delete arrays[inner];
+      delete places[inner];
     }
   };
   const seed = (k, items) => {
-    if (arrays[k]) arrays[k].set(items.map(add));
-    else arrays[k] = signal(items.map(add));
+    if (arrays[k]) return arrays[k].set(items.map(add));
+    const list = arrays[k] = signal(items.map(add));
+    places[k] = computed(() => new Map(list().map((segment, i) => [segment, i])));
   };
   // The last item segment of a key, and where it is.
   const lastItem = (segments) => {
@@ -875,8 +879,11 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     r(defaults) {
       for (const k in arrays) {
         for (const segment of arrays[k].peek()) delete bases[segment];
-        if (k.includes('\0')) delete arrays[k];
-        else seed(k, getIn(defaults, k) || []);
+        if (!k.includes('\0')) seed(k, getIn(defaults, k) || []);
+        else {
+          delete arrays[k];
+          delete places[k];
+        }
       }
     },
     // One field array's controls.
