@@ -13,7 +13,7 @@ import { loadCompiled } from '../../../test-utils/load-compiled.js';
 
 const { document } = installDOM();
 
-const { useForm } = await import('../src/form.js');
+const { useForm, useFieldArray } = await import('../src/form.js');
 const { computed, createRoot, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
@@ -107,6 +107,25 @@ describe('useForm unregister', () => {
     typed(form, 'b.c', '2');
     form.unregister();
     assert.deepEqual(form.formState.values, {});
+  });
+
+  it('never changes the defaults or an appended item the app passed', () => {
+    const defaults = { owner: 'Ann', address: { city: 'Lyon', zip: '69001' }, vehicles: [{ vin: 'A', extra: { x: 1 } }] };
+    const snapshot = structuredClone(defaults);
+    const form = useForm({ defaultValues: defaults });
+    typed(form, 'owner', 'Bo');
+    form.register('address.city');
+    form.unregister(['owner', 'address.city', 'address.zip']);
+    assert.deepEqual(defaults, snapshot);
+    assert.deepEqual(form.formState.values, { vehicles: [{ vin: 'A', extra: { x: 1 } }] }, 'an emptied object goes too');
+    const array = useFieldArray({ control: form.control, name: 'vehicles' });
+    const item = { vin: 'B', extra: { x: 2 } };
+    array.append(item);
+    form.register('vehicles.1.extra.x');
+    form.unregister('vehicles.1.extra.x');
+    assert.deepEqual(item, { vin: 'B', extra: { x: 2 } });
+    assert.deepEqual(form.formState.values.vehicles, [{ vin: 'A', extra: { x: 1 } }, { vin: 'B' }]);
+    assert.deepEqual(defaults, snapshot);
   });
 
   it('a reader of the whole form and watch(name) follow the field going', () => {
