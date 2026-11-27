@@ -143,7 +143,7 @@ describe('hydration does not report an attribute that only looks different', () 
     assert.deepEqual(reports, []);
   });
 
-  it('a class left out on one side and empty on the other', () => {
+  it('a class of undefined, which neither side writes', () => {
     const { reports } = hydrateReporting(h('a', { href: '/x', class: () => undefined }, 'x'), hostWith('<a href="/x">x</a>'));
     assert.deepEqual(reports, []);
   });

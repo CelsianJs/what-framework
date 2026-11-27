@@ -27,6 +27,8 @@ const compiled = await loadCompiled(`
   export const ListFirst = (p) => <div classList={p.classList} class={p.class ?? p.className} />;
   export const ListOnly = (p) => <div classList={p.classList} />;
   export const Spread = (p) => <div {...p} />;
+  export const ClassOnly = (p) => <div class={p.class} />;
+  export const SvgClass = (p) => <svg class={p.class} />;
 `);
 
 // Run a render the way a real server sees it: no `document` global.
@@ -220,3 +222,88 @@ describe('the client keeps the server\'s fold under updates', () => {
   }
 });
 
+
+// Without a classList, a class of null, undefined or false is no attribute on
+// the server, so the client writes none either: not `class=""`. Any other
+// value is its text on both.
+const plain = signal(undefined);
+const PLAIN_CASES = [
+  ['null', () => ({ class: null }), null],
+  ['undefined', () => ({ class: undefined }), null],
+  ['false', () => ({ class: false }), null],
+  ['an accessor that answers undefined', () => ({ class: () => undefined }), null],
+  ['an accessor that answers false', () => ({ class: () => false }), null],
+  ['an empty string', () => ({ class: '' }), ''],
+  ['zero', () => ({ class: 0 }), '0'],
+  ['a classList of undefined', () => ({ class: undefined, classList: undefined }), null],
+];
+
+describe('a class of null, undefined or false writes no attribute on either side', () => {
+  for (const [name, props, expected] of PLAIN_CASES) {
+    it(name, async () => {
+      const client = {
+        'h()': mounted(h('div', props())),
+        compiled: mounted(compiled.ClassOnly(props())),
+        spread: element((el) => spread(el, props())),
+        setProp: element((el) => { const p = props(); for (const key in p) setProp(el, key, p[key]); }),
+      };
+      for (const [path, cls] of Object.entries(client)) assert.equal(cls, expected, `client ${path}`);
+      const server = await asServer(() => renderToString(h('div', props())));
+      assert.equal(classOf(server), expected, `server: ${server}`);
+    });
+  }
+
+  it('on an SVG element', () => {
+    const host = document.body.appendChild(document.createElement('div'));
+    mount(compiled.SvgClass({ class: () => plain() }), host);
+    const svg = host.firstElementChild;
+    assert.equal(svg.getAttribute('class'), null);
+    plain('a');
+    flushSync();
+    assert.equal(svg.getAttribute('class'), 'a');
+    plain(undefined);
+    flushSync();
+    assert.equal(svg.getAttribute('class'), null);
+    host.remove();
+  });
+
+  it('a reactive class that goes to undefined and back, hydrated', async () => {
+    plain(undefined);
+    const vnode = () => h('a', { class: () => plain() });
+    const host = document.body.appendChild(document.createElement('div'));
+    host.innerHTML = await asServer(() => renderToString(vnode()));
+    assert.equal(host.innerHTML, '<a></a>');
+    hydrate(vnode(), host);
+    assert.equal(host.innerHTML, '<a></a>');
+    plain('on');
+    flushSync();
+    assert.equal(host.innerHTML, '<a class="on"></a>');
+    plain(false);
+    flushSync();
+    assert.equal(host.innerHTML, '<a></a>');
+    host.remove();
+  });
+
+  it('a classList after a class that wrote none composes over an empty attribute', () => {
+    const cls = signal(undefined);
+    const el = element((node) => {
+      setProp(node, 'class', () => cls());
+      setProp(node, 'classList', { on: () => plain() });
+    });
+    assert.equal(el, '');
+    const node = document.createElement('div');
+    setProp(node, 'class', () => cls());
+    setProp(node, 'classList', { on: () => plain() });
+    plain(true);
+    flushSync();
+    assert.equal(node.getAttribute('class'), 'on');
+    cls('base');
+    flushSync();
+    assert.equal(node.getAttribute('class'), 'base on', 'the classList toggles over the class written later');
+    cls(null);
+    flushSync();
+    assert.equal(node.getAttribute('class'), 'on');
+    plain(undefined);
+    flushSync();
+  });
+});

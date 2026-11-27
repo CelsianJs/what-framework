@@ -2520,14 +2520,28 @@ export function setClass(el, value) {
 // empty one included), so that its later writes are toggled over; `replaced`,
 // set once a class prop that came after the classList has written. A class
 // write on an element without a classList touches nothing else.
+//
+// A class of null, undefined or false writes no attribute, as the server
+// writes none; `el._cl` is then null until a classList arrives, which composes
+// over an empty attribute, as the server folds the two. With a classList the
+// attribute is empty, as the server folds it. Any other value is written as
+// its text, as the server writes it.
 
 // Every class write on every path goes through here.
 export function _writeClass(el, value, svg) {
-  const cls = value || '';
+  const cl = el._cl;
+  if (value == null || value === false) {
+    if (cl == null) {
+      el.removeAttribute('class');
+      el._cl = null;
+      return;
+    }
+    value = '';
+  }
+  const cls = typeof value === 'string' ? value : String(value);
   if (svg) el.setAttribute('class', cls);
   else el.className = cls;
-  const cl = el._cl;
-  if (cl === undefined) return;
+  if (cl == null) return;
   cl.base = cls;
   if (!cl.overClass) {
     cl.replaced = true;
@@ -2542,11 +2556,15 @@ export function _writeClass(el, value, svg) {
 // classes. A function classList, or a function entry, is a reactive accessor:
 // one effect re-applies the object whenever what it reads changes. A key an
 // earlier object had and this one lacks falls back to the class attribute.
+// A classList of null or undefined on an element without one is none, as the
+// server folds none.
 export function setClassList(el, value) {
   if (typeof value === 'function') return _wrapPropAccessor(el, value, applyClassList);
-  if (value != null && hasAccessorEntry(value)) {
-    return _wrapPropAccessor(el, () => value, applyClassList);
+  if (value == null) {
+    if (el._cl != null) applyClassList(el, value);
+    return;
   }
+  if (hasAccessorEntry(value)) return _wrapPropAccessor(el, () => value, applyClassList);
   applyClassList(el, value);
 }
 
@@ -2559,7 +2577,8 @@ function hasAccessorEntry(value) {
 
 function applyClassList(el, value) {
   let cl = el._cl;
-  if (cl === undefined) {
+  if (cl == null) {
+    if (cl === null) el.setAttribute('class', '');
     const base = el.getAttribute('class');
     el._cl = cl = { on: null, base, overClass: base !== null, replaced: false };
   }
@@ -3777,13 +3796,11 @@ const booleanAttributes = () => booleanAttrs ??= new Set(['allowfullscreen', 'as
 
 // Whether the server's value `was` of attribute `name` is the client's `now`
 // as the DOM reads it: a boolean attribute by its presence, `style` by the
-// declarations it holds, a text field's value and a class left out as the
-// empty ones (the client's class setter leaves an empty attribute where the
-// server writes none). Anything else, class token order and a URL as written
-// included, by its text.
+// declarations it holds, and a text field's value left out as the empty one.
+// Anything else, class token order and a URL as written included, by its
+// text.
 function sameAttr(el, name, was, now) {
   if (was === now) return true;
-  if (name === 'class' && (was ?? '') === (now ?? '')) return true;
   if (el.namespaceURI !== NAMESPACES[0]) return false;
   if (name === 'value' && el.localName === 'input' && !ATTRIBUTE_VALUE_TYPES.has(/** @type {HTMLInputElement} */ (el).type)) return (was ?? '') === (now ?? '');
   if (was === null || now === null) return false;

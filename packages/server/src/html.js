@@ -591,7 +591,7 @@ export function _renderOption(props, write, content) {
 
 // The class attribute the client ends up with when the props carry a classList,
 // or null for none. In prop order, `class` or `className` sets the attribute,
-// as `el.className = value || ''` does, and `classList` toggles each key's
+// empty for null, undefined or false, as the client's class setter does, and `classList` toggles each key's
 // classes over it, as setClassList does through the element's DOMTokenList: a
 // toggle that changes the set rewrites the attribute as its tokens,
 // de-duplicated and joined by single spaces, and one that changes nothing
@@ -606,7 +606,7 @@ function classAttribute(props, keys) {
     if (key === 'class' || key === 'className') {
       const cls = resolveAttr('class', props[key]);
       if (cls === UNRESOLVED) continue;
-      value = cls ? String(cls) : '';
+      value = cls == null || cls === false ? '' : String(cls);
       tokens = null;
     } else if (key === 'classList') {
       const list = resolveAttr('classList', props[key]);
