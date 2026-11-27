@@ -554,3 +554,32 @@ function ChatRoom({ roomId }) {
 ```
 
 On unmount, when no value changed, both forms do the same. A development build reports the first form (`ERR_CLEANUP_READS_LIVE`) when the cleanup reads a prop or calls a state accessor that its run also reads and the effect can run again (it has no `[]` dependency array). A value it reaches another way, through a helper or an object, is not seen.
+
+### 28. A Date Child Renders Its Local `toString()`
+
+React refuses an object as a child. What renders any object that is not an element as its text, so `{createdAt}` with a `Date` renders `createdAt.toString()`: `Thu Nov 26 2026 23:08:53 GMT-0500 (Eastern Standard Time)`, in the time zone of the machine that renders it. A server in UTC and a browser in New York write different text for the same Date, so hydration replaces the server's text with the browser's (a development build reports `ERR_HYDRATION_MISMATCH` when they differ). In development the server and the browser usually share a time zone, so the difference shows up first in production, where nothing reports it.
+
+Format the date with a time zone both sides agree on:
+
+```jsx
+const published = new Date(Date.UTC(2026, 10, 26, 18, 30));
+const format = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
+
+export function Published() {
+  return <time dateTime={published.toISOString()}>{format.format(published)} UTC</time>;
+}
+```
+
+To show the visitor's local time on a server-rendered page, render the fixed form first and switch to the local one in `onMount`, which runs once the page has hydrated:
+
+```jsx
+import { signal, onMount } from 'what-framework';
+
+const published = new Date(Date.UTC(2026, 10, 26, 18, 30));
+
+export function LocalTime() {
+  const text = signal(published.toISOString());
+  onMount(() => text(published.toLocaleString()));
+  return <time dateTime={published.toISOString()}>{text()}</time>;
+}
+```
