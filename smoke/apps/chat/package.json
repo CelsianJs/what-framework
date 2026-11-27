@@ -7,7 +7,7 @@
   "scripts": {
     "build": "vite build",
     "start": "vite build && node server.js",
-    "dev": "vite build && node server.js"
+    "dev": "node server.js --dev"
   },
   "dependencies": {
     "what-framework": "0.15.0"

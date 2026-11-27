@@ -96,9 +96,9 @@ const INIT = `
 export default {
   description: 'Compiled SPA on its own SSE server that drops and reconnects mid-run: a capped keyed chat log anchored to the bottom, optimistic sends, a composer typed into during bursts; loss, repeats, caret, frames and memory.',
 
-  // server.js serves the build and the room's stream, and `npm run dev` is
-  // `vite build && node server.js`: there is no dev server to run.
-  dev: 'no dev path: `npm run dev` builds, then server.js serves dist/ and the stream',
+  // WHAT_SMOKE_MODE=dev runs `npm run dev` (server.js --dev): the client
+  // through Vite's dev server, beside the room's stream (smoke/README.md).
+  dev: true,
 
   covers: [
     'stream:reconnect',
@@ -108,14 +108,16 @@ export default {
     'perf:memory',
   ],
 
-  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const post = (path, body = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
+    if (mode !== 'dev') {
+      const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
+      reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
+    }
 
-    const server = startProcess('node', ['server.js'], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
+    const server = startProcess('node', ['server.js', ...(mode === 'dev' ? ['--dev'] : [])], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
     await waitForHttp(`${base}/__stats`, { child: server });
     await post('/__control', { ...ROOM, running: false });
 

@@ -9,6 +9,7 @@
 // comes back on the stream carrying the client's own id (`cid`).
 //
 //   PORT=4800 node server.js
+//   PORT=4800 node server.js --dev   # the client from the source, through Vite
 //
 // Control (what the smoke check drives):
 //   POST /__control {"rate":400,"burst":300,"burstEvery":1500,"drop":[600,1600],"running":true}
@@ -23,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const DIST = fileURLToPath(new URL('./dist/', import.meta.url));
 const PORT = Number(process.env.PORT) || 4800;
+const DEV = process.argv.includes('--dev');
 const LOG_CAP = 100_000;
 
 const AUTHORS = ['ada', 'grace', 'linus', 'margaret', 'ken', 'barbara', 'dennis', 'frances', 'edsger', 'radia'];
@@ -150,7 +152,11 @@ function serveStatic(req, res) {
 
 const json = (res, value, status = 200) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(value));
 
-createServer(async (req, res) => {
+// In development Vite serves the client (index.html and its modules) from the
+// source, its HMR socket on this server's port.
+let vite = null;
+
+const server = createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://x');
   if (pathname === '/events') return openStream(req, res);
   if (pathname === '/send' && req.method === 'POST') {
@@ -177,5 +183,12 @@ createServer(async (req, res) => {
     return json(res, { dropped: n });
   }
   if (pathname === '/__stats') return json(res, { ...stats, connections: streams.size });
-  serveStatic(req, res);
-}).listen(PORT, '127.0.0.1', () => console.log(`relay on http://127.0.0.1:${PORT}`));
+  if (vite) vite.middlewares(req, res, () => res.writeHead(404).end());
+  else serveStatic(req, res);
+});
+
+if (DEV) {
+  const { createServer: createViteServer } = await import('vite');
+  vite = await createViteServer({ root: fileURLToPath(new URL('.', import.meta.url)), server: { middlewareMode: true, hmr: { server, port: PORT } } });
+}
+server.listen(PORT, '127.0.0.1', () => console.log(`relay on http://127.0.0.1:${PORT}${DEV ? ' (development)' : ''}`));
