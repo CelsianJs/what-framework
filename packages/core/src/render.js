@@ -4825,7 +4825,9 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
       else adoptRows(adopted);
       if (adopted !== newItems) {
         for (let i = 0; i < mappedNodes.length; i++) mappedNodes[i]._$row = endMarker;
-        reconcileKeyed(endMarker.parentNode || parent, endMarker, adopted, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+        // The rows the server did not render are built as a client render
+        // builds them.
+        clientBuild(() => reconcileKeyed(endMarker.parentNode || parent, endMarker, adopted, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals));
       }
     } else {
       newItems = source() || [];

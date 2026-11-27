@@ -522,3 +522,40 @@ describe('a keyed row whose text a region without markers holds', () => {
     });
   }
 });
+
+// Rows the server did not render (other keys: the client builds the list) are
+// built as a client render builds them, not claimed from where the walk
+// stands.
+describe('keyed rows the server rendered with other keys', () => {
+  for (const [label, page] of [['a compiled keyed .map()', 'Keyed']]) {
+    it(`${label} of a component placing a live prop: the rows built on the client move whole`, () => {
+      const app = shownClient.makeLabels([['a', true], ['b', true]]);
+      const html = server.renderToHydratableString(h(shownServer.makeLabels([['c', true], ['a', true], ['b', true]])[page]));
+      const host = document.body.appendChild(document.createElement('div'));
+      host.innerHTML = html;
+      const errors = [];
+      const saved = console.error;
+      console.error = (...args) => errors.push(args.map(String).join(' '));
+      try {
+        const reports = [];
+        const stop = hydrate(h(app[page]), host, { onHydrationError: (r) => reports.push(r.kind) });
+        const ul = host.querySelector('ul');
+        assert.ok(reports.length > 0);
+        assert.equal(ul.textContent, 'ab');
+        const rows = app.rows();
+        rows[0].on(false);
+        flushSync();
+        assert.equal(ul.textContent, 'b');
+        app.rows([rows[1], rows[0]]);
+        flushSync();
+        rows[0].on(true);
+        flushSync();
+        assert.equal(ul.textContent, 'ba');
+        assert.deepEqual(errors.filter((e) => !e.includes('ERR_HYDRATION_MISMATCH')), []);
+        stop();
+      } finally {
+        console.error = saved;
+      }
+    });
+  }
+});
