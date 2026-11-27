@@ -772,9 +772,11 @@ export function _setFieldProp(el, key, value) {
     const str = value == null ? undefined : String(value);
     if (el._$value !== str) {
       el._$value = str;
-      // A number field that shows the number already ("04" typed for 4,
-      // "1.0" for 1) keeps what the user typed, as React's does.
-      if (str === undefined || el.type !== 'number' || el.validity.badInput || (el.value || NaN) != +str) writeValue(el, str ?? '');
+      // A file field holds what the user picked: only an empty value is
+      // written to it, which clears it (any other value throws). A number
+      // field that shows the number already ("04" typed for 4, "1.0" for 1)
+      // keeps what the user typed, as React's does.
+      if (el.type === 'file' ? !str : str === undefined || el.type !== 'number' || el.validity.badInput || (el.value || NaN) != +str) writeValue(el, str ?? '');
     }
   }
   return true;
