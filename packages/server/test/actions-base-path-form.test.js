@@ -13,7 +13,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { h, getResponse, useActionState } from 'what-core';
 import { setBase } from 'what-router';
-import { Form, action, createRequestHandler, renderToString } from '../src/index.js';
+import { Form, action, createActionHandler, createRequestHandler, renderToString } from '../src/index.js';
 
 const origin = 'http://app.test';
 const done = [];
@@ -67,6 +67,22 @@ describe('a server action\'s form below a base path, without JavaScript', () => 
 
     const nowhere = await post(handle, '/app/__what_action', { _action: 'base/subscribe', email: 'd@e.f' });
     assert.equal(nowhere.headers.get('location'), '/app/', 'no page named: the app\'s root');
+  });
+
+  // A custom server's endpoint (nodeActionMiddleware, fetchActionHandler)
+  // has no basePath of its own: the base the app is served below is the one
+  // what-router has (setBase, Vite's base), which the action client posts
+  // below too.
+  it('is answered below the base by the endpoint of a custom server', async () => {
+    const handle = createActionHandler({ skipCsrf: true });
+    const form = (body) => handle({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+    const redirected = await form({ _action: 'base/thanks', _redirect: '/app/done' });
+    assert.equal(redirected.status, 303);
+    assert.equal(redirected.headers.location, '/app/thanks?from=form');
+    const nowhere = await form({ _action: 'base/subscribe', email: 'g@h.i' });
+    assert.equal(nowhere.headers.location, '/app/');
+    const named = await form({ _action: 'base/subscribe', _redirect: '/app/done', email: 'j@k.l' });
+    assert.equal(named.headers.location, '/app/done', 'a page named below the base already');
   });
 
   it('answers a form posted to its page with the action\'s redirect below the base', async () => {

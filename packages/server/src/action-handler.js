@@ -6,7 +6,7 @@
 // and Web-Fetch adapters. CSRF + dispatch + error masking are reused from
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
-import { _belowBase, handleActionRequest } from './actions.js';
+import { _base, _belowBase, handleActionRequest } from './actions.js';
 import { addField, RESERVED_FIELDS, urlEncodedFields, urlEncodedPairs } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
@@ -207,16 +207,19 @@ const plainValue = (key, value) => (key === 'toString' || key === 'valueOf' ? un
 const INVALID = Symbol('invalid');
 
 // The CSRF policy of a handler's options, and the base path the app is
-// served below (`_base`, the request handler's `basePath`): a path an action
-// redirects to is a URL of the app, which a no-JS post's 303 sends below it,
-// as the router navigates below it with JavaScript. `_redirect` and the
-// Referer are where the browser was, below the base already.
+// served below (`_base`, the request handler's `basePath`; else, for the
+// endpoint of a custom server, what-router's base, read per request): a path
+// an action redirects to is a URL of the app, which a no-JS post's 303 sends
+// below it, as the router navigates below it with JavaScript. `_redirect`
+// and the Referer are where the browser was, below the base already.
 function csrfPolicy(options) {
   return {
     getCsrfToken: options.getCsrfToken,
     skipCsrf: options.skipCsrf === true,
     trustedOrigins: new Set(options.trustedOrigins || []),
-    base: options._base || '',
+    get base() {
+      return options._base ?? _base();
+    },
   };
 }
 
