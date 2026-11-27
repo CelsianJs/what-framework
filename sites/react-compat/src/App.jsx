@@ -122,6 +122,7 @@ function FilterBar({ active, onSelect }) {
         const count = cat === 'All' ? pkgs.length : pkgs.filter(p => p.c === cat).length;
         return (
           <button
+            key={cat}
             class={() => `filter-btn ${cat === active() ? 'active' : ''}`}
             onclick={() => onSelect(cat)}
           >
@@ -446,7 +447,7 @@ function Benchmarks() {
         </div>
         <div class="bench-cards stagger" ref={cardsRef}>
           {benchmarks.map(b => (
-            <div class="bench-card">
+            <div key={b.lib} class="bench-card">
               <div class="bench-x">{b.x}</div>
               <div class="bench-lib">{b.lib}</div>
               <div class="bench-met">{b.met}</div>
