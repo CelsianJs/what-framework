@@ -206,6 +206,25 @@ describe('scheduler', () => {
       stop();
       assert.equal(observer.targets.has(el), false);
     });
+
+    it('keeps every callback registered for the same element', () => {
+      const el = {};
+      const a = [];
+      const b = [];
+      const stopA = onResize(el, (r) => a.push(r.width));
+      const stopB = onResize(el, (r) => b.push(r.width));
+      const observer = observing(el);
+      observer.fire(el, { width: 1 });
+      runFrame();
+      assert.deepEqual([a, b], [[1], [1]]);
+      stopA();
+      assert.ok(observer.targets.has(el), 'still observed for the other callback');
+      observer.fire(el, { width: 2 });
+      runFrame();
+      assert.deepEqual([a, b], [[1], [1, 2]]);
+      stopB();
+      assert.equal(observer.targets.has(el), false);
+    });
   });
 
   describe('onResize and onIntersect without the observers', () => {

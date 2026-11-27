@@ -183,20 +183,26 @@ export function onResize(element, callback) {
     sharedResizeObserver = new ResizeObserver(entries => {
       scheduleRead(() => {
         for (const entry of entries) {
-          const cb = resizeObservers.get(entry.target);
-          if (cb) {
-            cb(entry.contentRect);
-          }
+          const callbacks = resizeObservers.get(entry.target);
+          if (callbacks) for (const cb of [...callbacks]) cb(entry.contentRect);
         }
       });
     });
   }
 
+  // Every callback registered for an element is called; the element stays
+  // observed until the last one is removed.
   const observer = sharedResizeObserver;
-  resizeObservers.set(element, callback);
-  observer.observe(element);
+  let callbacks = resizeObservers.get(element);
+  if (!callbacks) {
+    resizeObservers.set(element, callbacks = new Set());
+    observer.observe(element);
+  }
+  const entry = (rect) => callback(rect);
+  callbacks.add(entry);
 
   return () => {
+    if (!callbacks.delete(entry) || callbacks.size) return;
     resizeObservers.delete(element);
     observer.unobserve(element);
   };
