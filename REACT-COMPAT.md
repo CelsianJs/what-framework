@@ -249,13 +249,35 @@ for it.
 - **Performance.** Nothing here measures speed or bundle size.
 - **Each package's whole API.** A row says the listed interactions work.
 
+### Run in the app smoke suite, not in the matrix
+
+`smoke/apps/mixed-desk` uses these as tags (and their hooks in React files)
+in a native What app, a production build, and drives them in Chromium,
+WebKit and Firefox (`node smoke/run.mjs --apps=mixed-desk`). Each line says
+what the app does with the package and nothing more; none of them runs on
+real React beside it.
+
+| Package | Version | What the app does |
+|---|---|---|
+| react-toastify | 11.2.0 | A toast raised from a native click handler shows in the shell's `ToastContainer`; `toast.dismiss()` removes it |
+| react-dropzone | 20.2.1 | `useDropzone` with an `accept` list: a CSV accepted and a text file refused through its input, the accepted file handed to a What store |
+| @xyflow/react | 13.0.3 | Two nodes and an edge with `fitView`; a click (`onNodeClick`) and a pointer drag (`onNodeDragStop`) reach a What store |
+| @hello-pangea/dnd | 18.0.1 | A list reordered from the keyboard (Space, ArrowDown, Space); `onDragEnd` writes the order to a What signal |
+| react-intl | 12.2.2 | `IntlProvider` and `FormattedNumber` for de-DE currency |
+| @react-spring/web | 10.1.2 | `useSpring` on `animated.div`, driven by a What signal, ends at its target |
+| valtio | 2.3.2 | `useSnapshot` of a proxy written from native click handlers |
+| embla-carousel-react | 8.6.0 | `useEmblaCarousel`: `scrollNext()` and `selectedScrollSnap()` |
+
+The same app runs seven matrix packages in all three browsers too (recharts,
+@tanstack/react-table, react-window, react-hook-form, @radix-ui/react-dialog,
+sonner, framer-motion), under load: smoke/README.md and smoke/FINDINGS.md
+have what it measures.
+
 ### Not run: no claim either way
 
-Chakra UI, Mantine, Base UI, Apollo Client, MobX, valtio, react-dnd,
-@hello-pangea/dnd, Lexical, Slate, React Flow (@xyflow/react),
-react-spring, Embla, Swiper, react-dropzone, react-pdf (the viewer),
-react-toastify, react-helmet-async, next-themes, react-intl, Stripe's React
-bindings, and everything else not in the table.
+Chakra UI, Mantine, Base UI, Apollo Client, MobX, react-dnd, Lexical, Slate,
+Swiper, react-pdf (the viewer), react-helmet-async, next-themes, Stripe's
+React bindings, and everything else not in the tables above.
 
 ### Unsupported
 

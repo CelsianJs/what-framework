@@ -568,6 +568,12 @@ yours (`ssr.noExternal`). `ssr.external` in your config wins over it.
   or remounts when its hooks changed), and the React file accepting its own
   update.
 - Inside a React tag the cost is React's; outside, What's.
+- Inside a React tag props follow React's rules; outside, What's, also in
+  the same file. A `style` number is the case most often met:
+  `style={{ height: 240 }}` on a host element inside a React tag is
+  `240px`, and on a native element What adds no unit, so the browser drops
+  the value without a word (a container that should give a React chart or
+  diagram its size then has none). Write `'240px'` on native elements.
 - An island stands between the two comment markers what-core gives a
   component that returns several nodes; a native component inside React
   adds two comment markers of its own. React components add none, and

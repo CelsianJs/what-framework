@@ -33,6 +33,12 @@ Three waves, in this order.
   and a submit the server validates again. Two are a file input in a form;
   one is a keyed row moved while a field in it is being typed; two are a
   form filled from fetched data with `reset()`.
+- **43 to 45** came from `mixed-desk`, the first app that loads React
+  libraries: a native What shell (router, layout, signals store) hosting
+  components from fifteen React packages, with data flowing both ways under
+  load. All three are in what-react: an event a React handler should not
+  hear, a context a React component could not reach, and console noise in
+  Firefox.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -835,7 +841,71 @@ the defaults from then on: `dirtyFields` measures from them, a later
 `reset()` returns to them, and a new field starts from them.
 - Test: `packages/core/test/form-reset-defaults.test.js` (3 of 4 fail before).
 
+### 43. A React `<form onChange>` heard a native field twice per edit
+`packages/react-compat/src/runtime.js` (`isReactChange`), `src/hydrate.js`
+
+mixed-desk's events screen puts a native What field inside a React
+`<form onChange>`, the shape of a React form being migrated field by field.
+Typing three characters and leaving the field fired the form's `onChange`
+four times: once per `input` event, and once more for the `change` the field
+sends when it loses focus (what-react tracks the value of the fields it
+renders, and a field it did not render looked changed every time). React
+fires none: its change plugin takes the nearest React node above the target,
+the form, and finds no field there. Measured on react-dom 19.3.1 (jsdom): 0
+for an input, a textarea and a select it did not render, one per keystroke
+for its own input. The release notes listed it as a known issue. what-react
+now marks the fields it renders (and the ones a hydrating island claims), and
+an `input` or `change` event from any other field is not React's change
+event.
+- Test: `packages/react-compat/test/onchange-native-field.test.js` (3 of 3
+  fail before: 4 calls where React makes 0, and a React field's blur adding
+  one).
+
+### 44. A React component that asked for a What context got its default
+`packages/react-compat/src/hooks.js` (`useContext`), `src/runtime.js`
+
+The desk's shell provides a What context (the desk and the trader). A native
+component a React component renders read it, as MIXED.md says; a React
+component calling `useContext(DeskContext)` silently got the context's
+default, with no error in any build, because what-react's `useContext` looked
+for React providers only. A team moving a React screen into a What shell
+writes exactly that. `useContext` now takes a context what-core's
+`createContext` made and reads it where the island stands in native code, as
+a native component there would, and the provider's value is a signal, so the
+component renders again when it changes (one render per change, counted).
+What's own `useContext` in a React component still finds no provider;
+MIXED.md, Context, says which to use.
+- Test: `packages/react-compat/test/mixed.test.js`, "a React component reads
+  What context with React's useContext" (fails before: `none:-` where the
+  provider gives `Rates:Ada`).
+
+### 45. Every React mouse handler put two deprecation warnings in Firefox's console
+`packages/react-compat/src/runtime.js` (`fieldsOf`)
+
+Running mixed-desk in Firefox, the console check failed on `MouseEvent.mozPressure
+is deprecated` and `MouseEvent.mozInputSource is deprecated`, on the desk and
+on the server-rendered quote page. A synthetic event copies the native
+event's fields, and the copy read every enumerable one, Firefox's two
+deprecated vendor fields included; Firefox warns the first time a page reads
+each. Any page with a React click handler had them. React's synthetic event
+has neither field, and the copy now leaves out `moz*` fields.
+- Test: `packages/react-compat/test/synthetic-event-fields.test.js` (fails
+  before: both fields read for one click).
+
 ## Reported, not fixed
+
+### K. In a mixed file, one `style` object means two things
+
+`<div style={{ height: 240 }}>` on a native element is What's rule: no `px`
+is added, the CSSOM refuses the number and drops it silently (documented in
+the components guide). The same object on a host element inside a React tag,
+a few lines down in the same file, is React's rule: `240px`. mixed-desk's
+React Flow container was written the first way and had no height, so React
+Flow drew its nodes outside the visible pane and no click reached them; it
+took a hit test to see why. MIXED.md, Limits, now says so. A development
+warning when a style number is dropped (for a property that is not
+unitless) would catch it on the first render; that is a what-core change
+with a size cost in development builds only, left for a decision.
 
 ### A. The runtime path has no keyed reconciliation at all
 `packages/core/src/dom.js`
@@ -1092,6 +1162,41 @@ the event to the DOM showing its result:
 | the server's error on a VIN, after submit; on the photo lost to a reload | on that field, that step, focused | yes; yes |
 | the current policy loaded with `reset()` | its values shown, 0 changes counted | yes (before 41 and 42: a stale select, "6 changes") |
 | a double click on submit | one request | one |
+
+### React libraries in a native app
+
+`mixed-desk` (Chromium / WebKit / Firefox, M-series Mac, three browsers
+running at once on a busy machine), each React package at the version its
+package.json pins:
+
+| measure | bound | measured |
+|---|---|---|
+| 100 store writes a second for 10 s into eight React quote islands, a React board of memo rows, React readers of the signals and native text | none stale, mid-run or at the end | none stale in all three |
+| renders of a quote island per write of its own symbol; of a quiet symbol | at most 1; 0 | 1 in Chromium and WebKit (1,027 renders for 1,027 writes); in Firefox 1,010 for 1,063, where a late timer put two writes of a symbol in one task; 0 |
+| React state lifted into the store 100 times a second for 10 s | every value once, in order, echoed back | exact (about 1,020 values) |
+| a write to one of 10,000 deals, to its react-window row | 25 ms (90th percentile) | median 0.3 / 1 / 1 ms |
+| the same with a TanStack table sorted over all 10,000 mounted beside it | 250 ms (90th percentile) | median 7.5 / 7 / 35–80 ms |
+| all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 22–97 ms |
+| 35 route changes while the feed runs (dialogs, toasts, charts, lists, a flow diagram, drag and drop, carousels) | every component, listener, timer, observer and node released; no console noise | all released, 285 React mounts each run; console clean (after 45) |
+| a react-hook-form island in a server-rendered page, typed into before it hydrates | no element created; text, focus and ids kept | 0 created; kept |
+
+Firefox's table numbers are TanStack Table's: with the table unmounted the
+same write costs 1 ms there, and with only the table on the page 120 ms
+(Chromium 6 ms), so the time goes into deriving its sorted row model of
+10,000 rows on each write, not into what-react (measured by hand in a copy
+of the app, one run per browser; that the cost is SpiderMonkey running
+TanStack's code is a guess, not measured against real React).
+
+Every package worked in all three browsers, the ones outside
+REACT-COMPAT.md's matrix included: react-toastify 11, react-dropzone 20,
+React Flow (@xyflow/react 13), @hello-pangea/dnd 18, react-intl 12,
+@react-spring/web 10, valtio 2 and embla-carousel-react 8. Two things a
+migrating team will meet that are React's behaviour, not what-react's: a
+Radix dialog opened by a native button (no `Dialog.Trigger`) gives the focus
+to nothing when it closes, since Radix focuses its trigger, so the desk
+focuses its button in `onCloseAutoFocus`; and the router's view transition
+covers the page for its length after a navigation, so a pointer event sent
+at once hits the document (the check waits until a hit test finds the node).
 
 ## Browsers
 
