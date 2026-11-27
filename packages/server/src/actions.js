@@ -15,7 +15,7 @@
 //   const result = await saveUser({ name: 'John' });
 
 import { startTransition } from 'what-core';
-import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext, _thrownMessage } from 'what-core/internal';
+import { _actionKeySalt, _actionStateKey, _devAction, _installRowKeys, _renderSalt, __DEV__, __readHydrationData, getServerContext, runWithServerContext, _thrownMessage } from 'what-core/internal';
 import { invalidatePath, invalidateQueries } from 'what-core/data';
 import { revalidatePath as serverRevalidatePath, revalidateTag as serverRevalidateTag } from './revalidation-registry.js';
 import { RESERVED_FIELDS } from './fields.js';
@@ -31,6 +31,8 @@ import { RESERVED_FIELDS } from './fields.js';
 // registered twice warns in development (ERR_DUPLICATE_ACTION_ID); the later
 // registration is the one called.
 const REGISTRY = Symbol.for('what.actions.v1');
+// What what-router's redirect() signal carries its handler under.
+const NAV_SIGNAL = Symbol.for('what.navigation.signal.v1');
 /** @type {Map<string, any> | null} */
 let registry = null;
 function actionRegistry() {
@@ -410,6 +412,7 @@ export function handleActionRequest(req, actionId, args, options = {}) {
   // sees getRequest() even with no AsyncLocalStorage to carry the context past
   // its first `await`. A plain function's throw or return value goes the way a
   // promise's would: a throw is the 500 below, never an exception here.
+  const context = getServerContext();
   let run;
   try {
     run = Promise.resolve(action.fn(...args));
@@ -417,6 +420,17 @@ export function handleActionRequest(req, actionId, args, options = {}) {
     run = Promise.reject(error);
   }
   return run
+    .catch((error) => {
+      // what-router's redirect() thrown in the action is no failure: its
+      // handler redirects the call's response (getResponse(), in the
+      // caller's context), as in a render, and the action is done, as one
+      // that called getResponse().redirect() and returned.
+      const handler = error != null ? error[NAV_SIGNAL] : undefined;
+      if (typeof handler !== 'function') throw error;
+      if (context !== null) runWithServerContext(context, () => handler(error));
+      else handler(error);
+      return undefined;
+    })
     .then(async result => {
       // Server-side cache revalidation: if the action declared revalidate paths
       // or tags, purge them through the bound cache engine (no-op if unbound).

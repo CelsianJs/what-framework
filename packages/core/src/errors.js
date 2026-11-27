@@ -594,7 +594,7 @@ redirect(ALLOWED.has(query.next) ? query.next : '/');`,
     code: 'ERR_REDIRECT_NOT_CAUGHT',
     severity: 'error',
     template: '[what-router] redirect to {{target}}',
-    suggestion: 'redirect() is caught in route middleware and in a component body, in the browser and in every server renderer. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.',
+    suggestion: 'redirect() is caught in route middleware and in a component body, in the browser and in every server renderer, and in a server action. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.',
     codeExample: `// Bad - a reactive thunk re-runs outside the render the Router caught:
 <div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>
 

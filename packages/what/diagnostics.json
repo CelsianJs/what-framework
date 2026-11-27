@@ -799,7 +799,7 @@
         "what-router"
       ],
       "trigger": "[what-router] redirect to {{target}}",
-      "fix": "redirect() is caught in route middleware and in a component body, in the browser and in every server renderer. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.",
+      "fix": "redirect() is caught in route middleware and in a component body, in the browser and in every server renderer, and in a server action. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.",
       "example": "// Bad - a reactive thunk re-runs outside the render the Router caught:\n<div>{() => (loggedOut() ? redirect('/login') : <Dashboard />)}</div>\n\n// Good - navigate() from a thunk or a handler:\n<div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>;\n<button onclick={() => navigate('/login')}>Sign in</button>;\n\n// On the server, the render redirects the response it was given:\nconst response = createResponse();\nconst html = renderToString(<App />, { response });\nif (response.location) res.writeHead(response.status, { location: response.location }).end();"
     },
     {

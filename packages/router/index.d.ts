@@ -342,8 +342,9 @@ export function prefetchRoute(href: string): void;
  * does not happen and the stale DOM stays, so prefer `navigate(to)` there.
  * A `try/catch` around the call also swallows it, so rethrow anything whose
  * `name` is `RouterRedirect`. On the server, thrown from route middleware or
- * from a component body, it redirects the render's response
- * (getResponse().redirect).
+ * from a component body, it redirects the render's response, and thrown from
+ * a server action, the response of the action's call (its X-What-Redirect,
+ * or a no-JS post's 303), as getResponse().redirect() does.
  */
 export function redirect(to: string, options?: NavigateOptions): never;
 

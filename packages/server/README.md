@@ -509,7 +509,9 @@ row keys (docs/DATA.md).
 (a same-origin path, as in a loader) answers a no-JS post with 303 and, with
 JavaScript, sends `X-What-Redirect`, which the client follows once the
 action's revalidation has landed (through the mounted `<Router>`, else by
-loading the page). `setHeader()` (a cookie) reaches the response either way.
+loading the page). what-router's `redirect(to)` thrown in the action does the
+same, as Next.js's does. `setHeader()` (a cookie) reaches the response either
+way.
 
 **Below a base path** (what-router's `setBase('/app')`, or Vite's
 `base: '/app/'`), an action posts to `/app/__what_action`, and a `<Form>`'s
