@@ -66,8 +66,37 @@ export interface FormState<TValues extends object = Record<string, any>> {
   dirtyFields: Computed<Record<string, boolean>>;
 }
 
+/** What unregister() keeps of a field it forgets (React Hook Form's options). */
+export interface UnregisterOptions {
+  keepValue?: boolean;
+  keepError?: boolean;
+  keepTouched?: boolean;
+  /** Keep the field's default, so a later reset() brings the field back with it. */
+  keepDefaultValue?: boolean;
+}
+
+/** A form's state as useFieldArray works with it: `useForm().control`. */
+export interface FormControl {
+  /** @internal */
+  x: (make: (...args: any[]) => any) => any;
+}
+
+/**
+ * A field's name is a path: `register('vehicles.0.vin')` reads and writes
+ * `values.vehicles[0].vin`, so `values` and what the submit handler gets are
+ * nested. `errors`, `touched` and `dirtyFields` are keyed by the field's name
+ * (`'vehicles.0.vin'`), as zodResolver reports a nested issue.
+ */
 export interface UseFormReturn<TValues extends object = Record<string, any>> {
+  /** `options.shouldUnregister` forgets the field when the component (or scope) that registered it goes. */
   register: (name: string, options?: Record<string, any>) => RegisterProps;
+  /**
+   * Forget fields, or every field: their values (and defaults), errors and
+   * touched state, each unless the options keep it. A validation of one still
+   * in flight never lands.
+   */
+  unregister: (name?: string | readonly string[], options?: UnregisterOptions) => void;
+  control: FormControl;
   handleSubmit: (
     onValid: (values: TValues) => void | Promise<void>,
     onInvalid?: (errors: Record<string, FieldError>) => void,
@@ -92,6 +121,8 @@ export interface UseFormReturn<TValues extends object = Record<string, any>> {
 export function useForm<TValues extends object = Record<string, any>>(options?: {
   defaultValues?: Partial<TValues>;
   mode?: 'onSubmit' | 'onChange' | 'onBlur';
+  /** Forget each field when the component (or scope) that registered it goes. */
+  shouldUnregister?: boolean;
   reValidateMode?: 'onChange' | 'onBlur';
   /**
    * Given every value; for one field's own validation (a keystroke in
@@ -105,6 +136,31 @@ export function useForm<TValues extends object = Record<string, any>>(options?: 
 export interface ResolverOptions {
   names?: string[];
 }
+
+/**
+ * The items of an array field (React Hook Form's useFieldArray). `fields()`
+ * lists them, each with an `id` to key its row by; an item's values, errors
+ * and touched state move with it, and a removed item's go with it. A field
+ * registered in a row (`register(\`vehicles.${index}.vin\`)`) keeps its item
+ * while rows move around it.
+ */
+export interface UseFieldArrayReturn<TItem extends object = Record<string, any>> {
+  fields: Computed<Array<TItem & { id: string }>>;
+  append: (value: TItem | TItem[]) => void;
+  prepend: (value: TItem | TItem[]) => void;
+  insert: (index: number, value: TItem | TItem[]) => void;
+  /** The items at these indexes, or every item. */
+  remove: (index?: number | number[]) => void;
+  move: (from: number, to: number) => void;
+  swap: (indexA: number, indexB: number) => void;
+  /** The item at `index` becomes a new item with these values: its row is built again. */
+  update: (index: number, value: TItem) => void;
+  replace: (values: TItem[]) => void;
+}
+
+export function useFieldArray<TItem extends object = Record<string, any>>(
+  options: { control: FormControl; name: string } | { form: { control: FormControl }; name: string },
+): UseFieldArrayReturn<TItem>;
 
 export function useField(name: string, options?: {
   validate?: (value: any) => string | null | Promise<string | null>;

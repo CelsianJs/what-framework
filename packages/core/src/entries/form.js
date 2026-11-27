@@ -1,6 +1,7 @@
 // what-framework/form (what-core/form): form state, validation and bound fields.
 export {
   useForm,
+  useFieldArray,
   useField,
   rules,
   simpleResolver,

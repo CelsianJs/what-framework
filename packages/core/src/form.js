@@ -1,7 +1,7 @@
 // What Framework - Form Utilities
 // Controlled inputs, validation, and form state management
 
-import { signal, computed, batch, effect, __DEV__ } from './reactive.js';
+import { signal, computed, batch, effect, onCleanup, untrack, __DEV__ } from './reactive.js';
 import { getCurrentComponent, _isEventProp, _markProps } from './dom.js';
 import { h } from './h.js';
 import { report } from './diagnostics.js';
@@ -76,23 +76,72 @@ function _mergeRegistration(props, registered) {
   return merged;
 }
 
+// --- Paths ---
+// A field's name is a path, as in React Hook Form: `vehicles.0.vin` is
+// `values.vehicles[0].vin`. A name without a dot is a key of its own.
+
+const isIndex = (segment) => /^\d+$/.test(segment);
+
+function isContainer(value) {
+  return Array.isArray(value) || (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype);
+}
+
+// Plain objects and arrays copied all the way down; anything else (a File,
+// a Date, a FileList) kept as it is.
+function clone(value) {
+  if (Array.isArray(value)) return value.map(clone);
+  if (!isContainer(value)) return value;
+  const out = {};
+  for (const key in value) out[key] = clone(value[key]);
+  return out;
+}
+
+function getIn(obj, path) {
+  let cur = obj;
+  for (const segment of path.split('.')) cur = cur == null ? undefined : cur[segment];
+  return cur;
+}
+
+// Writes into an object getAllValues built, making an array where the next
+// segment is an index and an object anywhere else.
+function setIn(obj, path, value) {
+  const segments = path.split('.');
+  const last = segments.length - 1;
+  let cur = obj;
+  for (let i = 0; i < last; i++) {
+    const segment = segments[i];
+    if (cur[segment] === null || typeof cur[segment] !== 'object') cur[segment] = isIndex(segments[i + 1]) ? [] : {};
+    cur = cur[segment];
+  }
+  cur[segments[last]] = value;
+}
+
+// A copy of `obj` without the path, copying only what is on the path; an
+// object the removal leaves empty goes too, as React Hook Form's unset does.
+function unsetIn(obj, segments) {
+  const [segment, ...rest] = segments;
+  if (!isContainer(obj) || !(segment in obj)) return obj;
+  const out = Array.isArray(obj) ? [...obj] : { ...obj };
+  const inner = rest.length ? unsetIn(out[segment], rest) : undefined;
+  if (inner === undefined || (!Array.isArray(inner) && isContainer(inner) && Object.keys(inner).length === 0)) delete out[segment];
+  else out[segment] = inner;
+  return out;
+}
+
 // --- useForm Hook ---
 // Complete form state management with validation
 
-export function useForm(options = {}) {
-  // Hook-stable behavior inside components
+// One instance per call site of a component, made on its first run.
+function hookStable(make) {
   const ctx = getCurrentComponent();
-  if (ctx) {
-    if (ctx.hooks === null) ctx.hooks = [];
-    const index = ctx.hookIndex++;
-    if (!ctx.hooks[index]) {
-      ctx.hooks[index] = createFormController(options);
-    }
-    return ctx.hooks[index];
-  }
+  if (!ctx) return make();
+  if (ctx.hooks === null) ctx.hooks = [];
+  const index = ctx.hookIndex++;
+  return ctx.hooks[index] ||= make();
+}
 
-  // Standalone usage outside component scope
-  return createFormController(options);
+export function useForm(options = {}) {
+  return hookStable(() => createFormController(options));
 }
 
 function createFormController(options = {}) {
@@ -100,43 +149,87 @@ function createFormController(options = {}) {
     mode = 'onSubmit', // 'onSubmit' | 'onChange' | 'onBlur'
     reValidateMode = 'onChange',
     resolver,
+    shouldUnregister = false,
   } = options;
   // The values a field starts from and dirtyFields measures from: useForm's
   // defaultValues, then the values a reset() was last given (React Hook
   // Form's reset makes them the defaults).
   let defaultValues = options.defaultValues || {};
 
+  // State is kept by key. A key is the field's name, except under a field
+  // array (useFieldArray), where an item's index is replaced by the item's
+  // own segment (`vehicles.<item>.vin`): its value, error and touched state
+  // stay with the item when it moves. `arrays` holds each field array's
+  // items, `bases` each item's values as it was added. `ext` translates
+  // names to keys and back once a field array exists; until then a key is
+  // its name.
+  /** @type {Record<string, any>} */
+  const arrays = {};
+  /** @type {Record<string, any>} */
+  const bases = {};
+  /** @type {null | ReturnType<typeof fieldArrays>} */
+  let ext = null;
+  const keyOf = (name) => (ext ? ext.k(name) : name);
+  // The name a key has now, or null for a key of an item that was removed.
+  const nameOf = (key) => (ext ? ext.p(key) : key);
+
   // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
   const fieldSignals = {};
+  // The signals of fields read but not written: a reader of a field nothing
+  // wrote yet (or that was unregistered) follows it, and the field joins the
+  // values when something writes it.
+  const pending = {};
   const errorSignals = {};
   const touchedSignals = {};
   const errorsState = signal({});
-  // Counts the field and touched signals made so far. A reader of the whole
-  // form (values, watch(), dirtyFields, touched) reads it, so one that ran
-  // before a field existed (a summary rendered above the fields) runs again
-  // when the field comes into being and subscribes to it then. Only what
-  // writes a field (register, setValue, a blur) makes one known; a read of a
-  // field nothing wrote yet sees its default either way.
+  // Counts the field and touched signals made and forgotten so far. A reader
+  // of the whole form (values, watch(), dirtyFields, touched) reads it, so
+  // one that ran before a field existed (a summary rendered above the
+  // fields) runs again when the field comes into being and subscribes to it
+  // then. Only what writes a field (register, setValue, a blur) makes one
+  // known; a read of a field nothing wrote yet sees its default either way.
   const fieldCount = signal(0);
+  const counted = () => fieldCount.set((n) => n + 1);
 
-  function getFieldSignal(name, known) {
-    let sig = fieldSignals[name];
+  // The default at a key: from defaultValues, or from the item's values for
+  // a key under a field array item.
+  function defaultOf(key) {
+    let cur = defaultValues;
+    for (const segment of key.split('.')) cur = segment[0] === '\0' ? bases[segment] : cur == null ? undefined : cur[segment];
+    return cur ?? '';
+  }
+
+  function getFieldSignal(key) {
+    let sig = fieldSignals[key];
     if (sig === undefined) {
-      sig = fieldSignals[name] = signal(defaultValues[name] ?? '');
-      if (known) fieldCount.set((n) => n + 1);
+      sig = fieldSignals[key] = pending[key] || signal(defaultOf(key));
+      delete pending[key];
+      counted();
     }
     return sig;
   }
 
-  function getErrorSignal(name) {
-    return errorSignals[name] ||= signal(null);
+  const readKey = (key) => (fieldSignals[key] || (pending[key] ||= signal(defaultOf(key))))();
+
+  // A name that holds other fields (a field array, an object of fields) is
+  // read from the whole values; a field's own name from its signal.
+  function readName(key) {
+    if (fieldSignals[key] === undefined && (arrays[key] || isContainer(defaultOf(key)) || Object.keys(fieldSignals).some((k) => k.startsWith(key + '.')))) {
+      const name = nameOf(key);
+      return name == null ? '' : getIn(getAllValues(true), name) ?? '';
+    }
+    return readKey(key);
   }
 
-  function getTouchedSignal(name, known) {
-    let sig = touchedSignals[name];
+  function getErrorSignal(key) {
+    return errorSignals[key] ||= signal(null);
+  }
+
+  function getTouchedSignal(key) {
+    let sig = touchedSignals[key];
     if (sig === undefined) {
-      sig = touchedSignals[name] = signal(false);
-      if (known) fieldCount.set((n) => n + 1);
+      sig = touchedSignals[key] = signal(false);
+      counted();
     }
     return sig;
   }
@@ -148,49 +241,52 @@ function createFormController(options = {}) {
   const isValidating = signal(false);
   const submitCount = signal(0);
 
-  // Helper: get all current values as a plain object.
+  // Helper: get all current values as an object, nested by the fields' paths.
   // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
   function getAllValues(tracked) {
     if (tracked) fieldCount();
-    const result = { ...defaultValues };
-    for (const [name, sig] of Object.entries(fieldSignals)) {
-      result[name] = tracked ? sig() : sig.peek();
+    const result = clone(defaultValues);
+    if (ext) ext.v(result, tracked);
+    for (const key in fieldSignals) {
+      const name = nameOf(key);
+      if (name != null) setIn(result, name, tracked ? fieldSignals[key]() : fieldSignals[key].peek());
     }
     return result;
   }
 
-  // Helper: get all current errors as a plain object.
+  // Helper: get all current errors as an object keyed by field name.
   // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
   function getAllErrors(tracked) {
-    return tracked ? errorsState() : errorsState.peek();
+    const errors = tracked ? errorsState() : errorsState.peek();
+    return ext ? ext.e(errors) : errors;
   }
 
-  function setFieldError(name, error) {
+  function setFieldError(key, error) {
     const nextError = error ?? null;
-    getErrorSignal(name).set(nextError);
+    getErrorSignal(key).set(nextError);
     errorsState.set((prev) => {
-      const prevError = prev[name];
+      const prevError = prev[key];
       if (prevError === nextError) return prev;
       if (nextError == null) {
-        if (!Object.hasOwn(prev, name)) return prev;
+        if (!Object.hasOwn(prev, key)) return prev;
         const next = { ...prev };
-        delete next[name];
+        delete next[key];
         return next;
       }
-      return { ...prev, [name]: nextError };
+      return { ...prev, [key]: nextError };
     });
   }
 
   function replaceAllErrors(nextErrors) {
     const normalized = nextErrors || {};
     batch(() => {
-      for (const [name, sig] of Object.entries(errorSignals)) {
-        if (!Object.hasOwn(normalized, name)) {
+      for (const [key, sig] of Object.entries(errorSignals)) {
+        if (!Object.hasOwn(normalized, key)) {
           sig.set(null);
         }
       }
-      for (const [name, err] of Object.entries(normalized)) {
-        getErrorSignal(name).set(err ?? null);
+      for (const [key, err] of Object.entries(normalized)) {
+        getErrorSignal(key).set(err ?? null);
       }
       errorsState.set({ ...normalized });
     });
@@ -199,16 +295,19 @@ function createFormController(options = {}) {
   // Computed states
   const isValid = computed(() => Object.keys(getAllErrors(true)).length === 0);
 
-  const dirtyFields = computed(() => {
+  // Fields as an object keyed by name, for those `include` keeps.
+  function byName(signals, include) {
     fieldCount();
-    const dirty = {};
-    for (const [name, sig] of Object.entries(fieldSignals)) {
-      if (sig() !== (defaultValues[name] ?? '')) {
-        dirty[name] = true;
-      }
+    const out = {};
+    for (const key in signals) {
+      if (!include(signals[key](), key)) continue;
+      const name = nameOf(key);
+      if (name != null) out[name] = true;
     }
-    return dirty;
-  });
+    return out;
+  }
+
+  const dirtyFields = computed(() => byName(fieldSignals, (value, key) => value !== defaultOf(key)));
 
   // Validation. The resolver is handed every value, and, for a field's own
   // validation, `{ names: [field] }` (React Hook Form's resolver options), so
@@ -218,7 +317,9 @@ function createFormController(options = {}) {
   // a server) answers them in any order: a field's answer is shown only when
   // no later run of that field or of the whole form started before it
   // landed, and a whole-form answer leaves alone a field validated since it
-  // started. isValidating holds until the last run in flight lands.
+  // started. A field unregistered or removed counts as validated when it
+  // goes, so no answer started before lands on it. isValidating holds until
+  // the last run in flight lands; the runs are forgotten then.
   let runCount = 0;
   let formRun = 0;
   const fieldRuns = Object.create(null);
@@ -228,7 +329,11 @@ function createFormController(options = {}) {
     if (!resolver) return true;
 
     const run = ++runCount;
-    if (fieldName) fieldRuns[fieldName] = run;
+    const key = fieldName && keyOf(fieldName);
+    // The keys of the names as they are now: the answer is about the items
+    // in the places they had when the run started.
+    const keyAtStart = ext ? ext.s() : keyOf;
+    if (fieldName) fieldRuns[key] = run;
     else formRun = run;
     if (inFlight++ === 0) isValidating.set(true);
     try {
@@ -237,28 +342,99 @@ function createFormController(options = {}) {
 
       if (fieldName) {
         const nextError = nextErrors[fieldName] ?? null;
-        if (fieldRuns[fieldName] === run && formRun < run) setFieldError(fieldName, nextError);
+        if (fieldRuns[key] === run && formRun < run) setFieldError(key, nextError);
         return !nextError;
       }
       if (formRun === run) {
-        const shown = { ...nextErrors };
-        for (const name in fieldRuns) {
-          if (fieldRuns[name] < run) continue;
-          const own = errorSignals[name] ? errorSignals[name].peek() : null;
-          if (own == null) delete shown[name];
-          else shown[name] = own;
+        const shown = {};
+        for (const name in nextErrors) {
+          const at = keyAtStart(name);
+          if (at != null) shown[at] = nextErrors[name];
+        }
+        for (const at in fieldRuns) {
+          if (fieldRuns[at] < run) continue;
+          const own = errorSignals[at] ? errorSignals[at].peek() : null;
+          if (own == null) delete shown[at];
+          else shown[at] = own;
         }
         replaceAllErrors(shown);
       }
       return Object.keys(nextErrors).length === 0;
     } finally {
-      if (--inFlight === 0) isValidating.set(false);
+      if (--inFlight === 0) {
+        isValidating.set(false);
+        for (const at in fieldRuns) delete fieldRuns[at];
+      }
     }
+  }
+
+  // Forget the field at `key` and every field under it: its value (and its
+  // default, unless options.keepDefaultValue), its error and its touched
+  // state, each unless options keeps it (React Hook Form's unregister
+  // options). A reader of the field (a mounted input, watch()) keeps its
+  // signal, which shows the field's default now, and an edit in the input
+  // brings the field back. `gone` is for the keys of a removed item, which
+  // nothing can name again: their signals are dropped.
+  function forget(key, options = {}, gone) {
+    const under = (k) => k === key || k.startsWith(key + '.');
+    if (inFlight) fieldRuns[key] = ++runCount;
+    const reset = [];
+    if (!options.keepValue) {
+      for (const k in pending) {
+        if (!under(k)) continue;
+        reset.push([k, pending[k]]);
+        if (gone) delete pending[k];
+      }
+      for (const k in fieldSignals) {
+        if (!under(k)) continue;
+        reset.push([k, fieldSignals[k]]);
+        if (!gone) pending[k] = fieldSignals[k];
+        delete fieldSignals[k];
+      }
+      if (!options.keepDefaultValue) {
+        const segments = key.split('.');
+        let at = segments.length;
+        while (at-- > 0 && segments[at][0] !== '\0');
+        if (at < 0) defaultValues = unsetIn(defaultValues, segments);
+        else if (at === segments.length - 1) delete bases[segments[at]];
+        else bases[segments[at]] = unsetIn(bases[segments[at]], segments.slice(at + 1));
+      }
+    }
+    batch(() => {
+      for (const [k, sig] of reset) sig.set(defaultOf(k));
+      if (!options.keepError) {
+        for (const k in errorSignals) {
+          if (!under(k)) continue;
+          setFieldError(k, null);
+          if (gone) delete errorSignals[k];
+        }
+      }
+      if (!options.keepTouched) {
+        for (const k in touchedSignals) {
+          if (!under(k)) continue;
+          touchedSignals[k].set(false);
+          if (gone) delete touchedSignals[k];
+        }
+      }
+      counted();
+    });
+  }
+
+  // Forget fields by name (React Hook Form's unregister), or every field.
+  function unregister(names, options) {
+    const keys = names == null ? Object.keys(fieldSignals) : [].concat(names).map(keyOf);
+    batch(() => { for (const key of keys) forget(key, options); });
   }
 
   // Register a field — only subscribes to THIS field's signal
   function register(name, options = {}) {
-    const fieldSig = getFieldSignal(name, true);
+    // Read untracked: compiled JSX reads `{...form.register(name)}` again
+    // when what the call read changes, and a move of the items must not
+    // hand the row the field of the item now at its first index.
+    const key = untrack(() => keyOf(name));
+    getFieldSignal(key);
+    const read = () => readKey(key);
+    if (options.shouldUnregister ?? shouldUnregister) onCleanup(() => forget(key));
     const isRadio = options.type === 'radio';
     const isCheckbox = options.type === 'checkbox';
     // A radio does NOT store its own checkedness: every radio in a group shares
@@ -333,26 +509,28 @@ function createFormController(options = {}) {
       // field registered as a value (below) takes its edit from `input`, and
       // from `change` only what that did not bring (a listbox, a multiple
       // select or one with a size, fires only `change` for a key typed).
-      if (e.type === 'change' && type !== 'file' && JSON.stringify(value) === JSON.stringify(fieldSig.peek())) return;
-      setValue(name, value);
+      if (e.type === 'change' && type !== 'file' && JSON.stringify(value) === JSON.stringify(getFieldSignal(key).peek())) return;
+      setKey(key, value);
 
       if (mode === 'onChange' || (isSubmitted.peek() && reValidateMode === 'onChange')) {
-        validate(name);
+        validateKey(key);
       }
     };
 
     const result = {
       name,
       onBlur: () => {
-        getTouchedSignal(name, true).set(true);
+        getTouchedSignal(key).set(true);
 
         if (mode === 'onBlur' || (isSubmitted.peek() && reValidateMode === 'onBlur')) {
-          validate(name);
+          validateKey(key);
         }
       },
       onFocus: () => {},
       ref: options.ref,
     };
+    // The name of a field of a field array item follows the item's place.
+    if (key !== name) Object.defineProperty(result, 'name', { get: () => nameOf(key) ?? name, enumerable: true });
 
     if (isRadio) {
       // Without a declared value this thunk must report UNDEFINED, never
@@ -363,7 +541,7 @@ function createFormController(options = {}) {
       // ref below is what checks it once it has the element. A server, which
       // has no element, writes it unchecked.
       const isChecked = hasRadioValue
-        ? () => fieldSig() === options.value
+        ? () => read() === options.value
         : () => undefined;
 
       if (hasRadioValue) result.value = options.value;
@@ -395,13 +573,13 @@ function createFormController(options = {}) {
         // being checked alongside its siblings.
         effect(() => {
           const own = radioValueOf(el);
-          el.checked = own !== undefined && fieldSig() === own;
+          el.checked = own !== undefined && read() === own;
         });
       };
     } else if (isCheckbox) {
       // Checkbox: use checked prop + onchange event
       Object.defineProperty(result, 'checked', {
-        get() { return !!fieldSig(); },
+        get() { return !!read(); },
         enumerable: true,
       });
       result.onchange = handler;
@@ -410,7 +588,7 @@ function createFormController(options = {}) {
       // which a text field fires as the user types and a select when its
       // choice changes (render.js listen).
       Object.defineProperty(result, 'value', {
-        get() { return fieldSig(); },
+        get: read,
         enumerable: true,
       });
       result.onchange = handler;
@@ -449,26 +627,31 @@ function createFormController(options = {}) {
     return _markProps(result);
   }
 
+  // A field's own validation, by the name its key has now.
+  function validateKey(key) {
+    const name = nameOf(key);
+    if (name != null) validate(name);
+  }
+
+  function setKey(key, value, shouldDirty = true) {
+    getFieldSignal(key).set(value);
+    if (shouldDirty) isDirty.set(true);
+  }
+
   // Set single field value — only triggers re-render for components reading this field
   function setValue(name, value, options = {}) {
-    const { shouldValidate = false, shouldDirty = true } = options;
-
-    getFieldSignal(name, true).set(value);
-    if (shouldDirty) isDirty.set(true);
-
-    if (shouldValidate) {
-      validate(name);
-    }
+    setKey(keyOf(name), value, options.shouldDirty ?? true);
+    if (options.shouldValidate) validate(name);
   }
 
   // Get single field value
   function getValue(name) {
-    return getFieldSignal(name)();
+    return readName(keyOf(name));
   }
 
   // Clear error for a field
   function clearError(name) {
-    setFieldError(name, null);
+    setFieldError(keyOf(name), null);
   }
 
   // Clear all errors
@@ -478,18 +661,20 @@ function createFormController(options = {}) {
 
   // Reset form: to the values given, which become the defaults, or to the
   // defaults. The count moves so a whole-form reader (dirtyFields) measures
-  // again, a field that held its new default already included.
+  // again, a field that held its new default already included. A field
+  // array takes its items from the defaults again, each a new item.
   function reset(newValues) {
     if (newValues !== undefined) defaultValues = newValues;
     batch(() => {
-      for (const [name, sig] of Object.entries(fieldSignals)) {
-        sig.set(defaultValues[name] ?? '');
+      if (ext) ext.r(defaultValues);
+      for (const map of [fieldSignals, pending]) {
+        for (const [key, sig] of Object.entries(map)) {
+          if (ext && nameOf(key) == null) delete map[key];
+          else sig.set(defaultOf(key));
+        }
       }
-      fieldCount.set((n) => n + 1);
-      for (const sig of Object.values(errorSignals)) {
-        sig.set(null);
-      }
-      errorsState.set({});
+      counted();
+      replaceAllErrors({});
       for (const sig of Object.values(touchedSignals)) {
         sig.set(false);
       }
@@ -526,10 +711,12 @@ function createFormController(options = {}) {
     };
   }
 
-  // Watch a field — returns a computed that subscribes only to this field
+  // Watch a field — returns a computed that subscribes only to this field.
+  // The name is taken now: a field of a field array item stays that item's.
   function watch(name) {
     if (name) {
-      return computed(() => getFieldSignal(name)());
+      const key = keyOf(name);
+      return computed(() => readName(key));
     }
     // Watch all: return a computed that reads all field signals
     return computed(() => getAllValues(true));
@@ -537,29 +724,28 @@ function createFormController(options = {}) {
 
   return {
     register,
+    unregister,
     handleSubmit,
     setValue,
     getValue,
     // Set error for a field
-    setError: setFieldError,
+    setError: (name, error) => setFieldError(keyOf(name), error),
     clearError,
     clearErrors,
     reset,
     watch,
     validate,
+    // What useFieldArray works with: `x(make)` installs the field array
+    // support make() builds over this form's state, once.
+    control: {
+      x: (make) => ext ||= make({ arrays, bases, keyOf, forget, getAllValues, isDirty }),
+    },
     // Form state
     formState: {
       get values() { return getAllValues(true); },
       get errors() { return getAllErrors(true); },
-      error: (name) => getErrorSignal(name)(),
-      get touched() {
-        fieldCount();
-        const result = {};
-        for (const [name, sig] of Object.entries(touchedSignals)) {
-          if (sig()) result[name] = true;
-        }
-        return result;
-      },
+      error: (name) => getErrorSignal(keyOf(name))(),
+      get touched() { return byName(touchedSignals, Boolean); },
       isDirty: () => isDirty(),
       isValid,
       isValidating: () => isValidating(),
@@ -569,6 +755,153 @@ function createFormController(options = {}) {
       dirtyFields,
     },
   };
+}
+
+// --- useFieldArray Hook ---
+// The items of an array field, as React Hook Form's useFieldArray has them:
+// `fields()` lists them with an id each for the row's key, and append,
+// prepend, insert, remove, move, swap, update and replace change the list.
+// An item's values, errors and touched state are kept under the item, not
+// its index, so they move with it; a removed item's state goes with it, and
+// a validation of it still in flight never lands.
+
+let itemCount = 0;
+
+// Field array support for one form, installed by its first useFieldArray.
+// An item's segment is '\0' and its id: no name a person writes has it.
+function fieldArrays({ arrays, bases, keyOf, forget, getAllValues, isDirty }) {
+  const add = (value) => {
+    const segment = '\0' + (++itemCount).toString(36);
+    bases[segment] = value ?? {};
+    return segment;
+  };
+  // The key of a name, taking an array's items from `items` (an array's key
+  // to its items), the arrays' current items by default.
+  const key = (name, items) => {
+    if (!name.includes('.')) return name;
+    let out = '';
+    for (const segment of name.split('.')) {
+      const list = out && (items ? items[out] : arrays[out]?.());
+      out += (out ? '.' : '') + (list && isIndex(segment) && list[segment] !== undefined ? list[segment] : segment);
+    }
+    return out;
+  };
+  const nameAt = (k) => {
+    if (!k.includes('\0')) return k;
+    let at = '';
+    let out = '';
+    for (const segment of k.split('.')) {
+      let part = segment;
+      if (segment[0] === '\0') {
+        const index = arrays[at] ? arrays[at]().indexOf(segment) : -1;
+        if (index < 0) return null;
+        part = index;
+      }
+      at += (at ? '.' : '') + segment;
+      out += (out ? '.' : '') + part;
+    }
+    return out;
+  };
+  // Forget an item and the field arrays inside it.
+  const drop = (k) => {
+    forget(k, {}, true);
+    for (const inner in arrays) {
+      if (!inner.startsWith(k + '.')) continue;
+      for (const segment of arrays[inner].peek()) delete bases[segment];
+      delete arrays[inner];
+    }
+  };
+  const seed = (k, items) => {
+    if (arrays[k]) arrays[k].set(items.map(add));
+    else arrays[k] = signal(items.map(add));
+  };
+  return {
+    k: key,
+    p: nameAt,
+    // Each array's items, outer arrays first, replace what the defaults hold.
+    v(result, tracked) {
+      for (const k of Object.keys(arrays).sort((a, b) => a.length - b.length)) {
+        const name = nameAt(k);
+        if (name != null) setIn(result, name, (tracked ? arrays[k]() : arrays[k].peek()).map((segment) => clone(bases[segment])));
+      }
+    },
+    s() {
+      const items = {};
+      for (const k in arrays) items[k] = arrays[k].peek();
+      return (name) => {
+        const k = key(name, items);
+        return nameAt(k) == null ? null : k;
+      };
+    },
+    e(errors) {
+      const out = {};
+      for (const k in errors) {
+        const name = nameAt(k);
+        if (name != null) out[name] = errors[k];
+      }
+      return out;
+    },
+    // A reset gives each array its items from the defaults, as new items;
+    // an array inside an item goes with the item.
+    r(defaults) {
+      for (const k in arrays) {
+        for (const segment of arrays[k].peek()) delete bases[segment];
+        if (k.includes('\0')) delete arrays[k];
+        else seed(k, getIn(defaults, k) || []);
+      }
+    },
+    // One field array's controls.
+    array(name) {
+      const k = keyOf(name);
+      if (!arrays[k]) seed(k, getIn(getAllValues(), name) || []);
+      const items = arrays[k];
+      const change = (next, removed = []) => batch(() => {
+        items.set(next);
+        for (const segment of removed) drop(k + '.' + segment);
+        isDirty.set(true);
+      });
+      const many = (value) => (Array.isArray(value) ? value : [value]).map(add);
+      const insert = (index, value) => {
+        const next = [...items.peek()];
+        next.splice(index, 0, ...many(value));
+        change(next);
+      };
+      return {
+        fields: computed(() => items().map((segment) => ({ ...bases[segment], id: segment.slice(1) }))),
+        append: (value) => insert(items.peek().length, value),
+        prepend: (value) => insert(0, value),
+        insert,
+        remove(index) {
+          const list = items.peek();
+          const gone = index === undefined ? list : [].concat(index).map((i) => list[i]);
+          change(list.filter((segment) => !gone.includes(segment)), gone);
+        },
+        move(from, to) {
+          const next = [...items.peek()];
+          next.splice(to, 0, next.splice(from, 1)[0]);
+          change(next);
+        },
+        swap(a, b) {
+          const next = [...items.peek()];
+          [next[a], next[b]] = [next[b], next[a]];
+          change(next);
+        },
+        // The item at `index` becomes a new one with these values, as React
+        // Hook Form's update remounts it.
+        update(index, value) {
+          const next = [...items.peek()];
+          const old = next[index];
+          next[index] = add(value);
+          change(next, [old]);
+        },
+        replace: (values) => change(many(values), items.peek()),
+      };
+    },
+  };
+}
+
+export function useFieldArray({ control, form, name }) {
+  return hookStable(() => untrack(() => (control || form.control).x(fieldArrays).array(name)));
 }
 
 // --- Validation Resolvers ---
@@ -670,6 +1003,7 @@ export function yupResolver(schema) {
 
 // Simple validation resolver. Given `{ names }` (a field's own validation),
 // it runs the rules of those fields only; every rule still reads all values.
+// A rule's field is a name, so `'address.city'` reads `values.address.city`.
 export function simpleResolver(rules) {
   return async (values, _context, options) => {
     const errors = {};
@@ -677,7 +1011,7 @@ export function simpleResolver(rules) {
 
     for (const [field, fieldRules] of Object.entries(rules)) {
       if (names && !names.includes(field)) continue;
-      const value = values[field];
+      const value = getIn(values, field);
 
       for (const rule of fieldRules) {
         const error = rule(value, values);
@@ -761,7 +1095,7 @@ export const rules = {
   },
 
   match: (field, message) => (value, values) => {
-    if (value !== values[field]) {
+    if (value !== getIn(values, field)) {
       return message || `Must match ${field}`;
     }
   },

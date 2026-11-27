@@ -47,7 +47,7 @@ const KITS = {
     'onResize', 'onIntersect', 'smoothScrollTo', 'cls', 'style', 'debounce', 'throttle', 'useMediaQuery',
     'useLocalStorage', 'useClickOutside', 'clearHead',
   ],
-  form: ['useForm', 'useField', 'rules', 'simpleResolver', 'zodResolver', 'yupResolver', 'Input', 'Textarea', 'Select', 'Checkbox', 'Radio', 'ErrorMessage'],
+  form: ['useForm', 'useFieldArray', 'useField', 'rules', 'simpleResolver', 'zodResolver', 'yupResolver', 'Input', 'Textarea', 'Select', 'Checkbox', 'Radio', 'ErrorMessage'],
   data: ['query', 'useFetch', 'useSWR', 'useQuery', 'useInfiniteQuery', 'invalidateQueries', 'invalidatePath', 'onRevalidate', 'prefetchQuery', 'setQueryData', 'getQueryData', 'clearCache'],
 };
 
