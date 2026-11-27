@@ -557,8 +557,9 @@ export async function navigate(to, opts = {}) {
     return;
   }
 
-  // Reject unsafe URLs
-  if (!isSafeUrl(to)) {
+  // Reject unsafe URLs. Back/forward follows the document's own URL, whatever
+  // its scheme (an app's capacitor:// or tauri://, file:).
+  if (!_fromPopstate && !isSafeUrl(to)) {
     if (typeof console !== 'undefined') {
       // isSafeUrl() rejects non-strings, so the value reaching this warning is
       // exactly the kind that can throw on template-literal coercion (Symbol,
