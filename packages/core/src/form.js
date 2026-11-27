@@ -295,19 +295,17 @@ function createFormController(options = {}) {
   // Computed states
   const isValid = computed(() => Object.keys(getAllErrors()).length === 0);
 
-  // Fields as an object keyed by name, for those `include` keeps.
-  function byName(signals, include) {
+  // The fields whose value is not their default, by name.
+  const dirtyFields = computed(() => {
     fieldCount();
     const out = {};
-    for (const key in signals) {
-      if (!include(signals[key](), key)) continue;
+    for (const key in fieldSignals) {
+      if (fieldSignals[key]() === defaultOf(key)) continue;
       const name = nameOf(key);
       if (name != null) out[name] = true;
     }
     return out;
-  }
-
-  const dirtyFields = computed(() => byName(fieldSignals, (value, key) => value !== defaultOf(key)));
+  });
 
   // Validation. The resolver is handed every value, and, for a field's own
   // validation, `{ names: [field] }` (React Hook Form's resolver options), so
@@ -736,7 +734,17 @@ function createFormController(options = {}) {
       get values() { return getAllValues(); },
       get errors() { return getAllErrors(); },
       error: (name) => getErrorSignal(keyOf(name))(),
-      get touched() { return byName(touchedSignals, Boolean); },
+      // The fields touched, by name.
+      get touched() {
+        fieldCount();
+        const out = {};
+        for (const key in touchedSignals) {
+          if (!touchedSignals[key]()) continue;
+          const name = nameOf(key);
+          if (name != null) out[name] = true;
+        }
+        return out;
+      },
       isDirty: () => isDirty(),
       isValid,
       isValidating: () => isValidating(),
