@@ -2439,6 +2439,24 @@ function mountIsland(view, container, parent, nativeOwner, svg, deferred) {
 }
 
 /**
+ * @internal hooks.js useContext: the value What context `context` (made by
+ * what-core's createContext) has where the island holding `inst` stands in
+ * native code, read as a native component there would read it; `missing`
+ * when no What provider above the island gives one. A provider's value is a
+ * signal, so a React render that reads it renders again when it changes.
+ */
+export function _whatContext(inst, context, missing) {
+  for (let p = inst; p != null; p = p.parent) {
+    if (p._nativeOwner === undefined) continue;
+    const map = p._nativeOwner === null ? null : runWithOwner(p._nativeOwner, () => _contextOf(context));
+    if (map === null) return missing;
+    const value = map.get(context);
+    return value && value._signal ? value() : value;
+  }
+  return missing;
+}
+
+/**
  * A container React elements render into between two markers of their own,
  * placed before `before` in `parentDom`: a hole of native code that holds
  * React elements (mixed.js holeRows). `view` returns the hole's value; the

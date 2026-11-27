@@ -169,6 +169,33 @@ test('native context reaches a native component inside a React island', async ()
   assert.equal(el.querySelector('code')?.textContent, 'fr');
 });
 
+test("a React component reads What context with React's useContext, from the What providers around its island, live", async () => {
+  const Desk = nativeContext({ name: 'none' });
+  const trader = signal('Ada');
+  let renders = 0;
+  function Reader() {
+    renders++;
+    const desk = useContext(Desk);
+    return rce('b', null, `${desk.name}:${desk.trader ? desk.trader() : '-'}`);
+  }
+  const el = container();
+  mount(h(Desk.Provider, { value: { name: 'Rates', trader } }, () => h(ReactIsland, {
+    view: () => rce('p', null, rce(Reader), rce(native(() => h('span', null, rce(Reader))))),
+  })), el);
+  await settle();
+  assert.deepEqual([...el.querySelectorAll('b')].map((b) => b.textContent), ['Rates:Ada', 'Rates:Ada']);
+  const before = renders;
+  trader('Grace');
+  await settle();
+  assert.deepEqual([...el.querySelectorAll('b')].map((b) => b.textContent), ['Rates:Grace', 'Rates:Grace']);
+  assert.equal(renders - before, 2, 'each reader renders once for the change');
+  // Outside every What provider: the context's default, as before.
+  const lone = container();
+  mount(h(ReactIsland, { view: () => rce(Reader) }), lone);
+  await settle();
+  assert.equal(lone.querySelector('b').textContent, 'none:-');
+});
+
 test('a React hook called in a native component fails with the hook error, never using a React instance', async () => {
   const Bad = () => { useState(0); return h('i', null, 'bad'); };
   const el = container();

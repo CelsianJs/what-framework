@@ -158,7 +158,12 @@ when it changes, so React files can read native state directly.
 React context crosses native layers: a React component inside a native
 component inside a React provider finds the provider. What context crosses
 React layers: a native component inside a React island finds the What
-providers around the island.
+providers around the island, and a React component reads What context with
+React's `useContext`, given the context what-framework's `createContext`
+made. It gets the value the What providers around its island give (the
+context's default outside them) and renders again when that value changes.
+What's own `useContext` is for native components: in a React component it
+finds no provider and returns the default.
 
 ## Server rendering
 

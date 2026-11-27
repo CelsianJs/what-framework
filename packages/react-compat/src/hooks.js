@@ -23,6 +23,7 @@ import {
   _pushLayout,
   _pushPassive,
   _setFormActionRunner,
+  _whatContext,
   claim,
   EFFECT_INSERTION,
   EFFECT_LAYOUT,
@@ -276,6 +277,9 @@ export function createContext(defaultValue) {
 
 export function useContext(context) {
   const inst = _requireInstance('useContext');
+  // A What context (a function: what-core's createContext makes its own
+  // provider) has its value in the native code around the island.
+  if (typeof context === 'function') return _whatContext(inst, context, context._defaultValue);
   let p = inst.parent;
   while (p) {
     if (p._ctxProvided && p._ctxProvided.has(context)) {
