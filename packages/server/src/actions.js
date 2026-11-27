@@ -306,7 +306,10 @@ async function post(id, args, options) {
       }
       throw Object.assign(new Error(typeof body.message === 'string' && body.message !== '' ? body.message : 'Action failed'), { code: 'ERR_ACTION_FAILED', status: response.status });
     }
-    return [await response.json(), response.headers.get('x-what-redirect')];
+    // An action that returned nothing (undefined, which JSON has no text
+    // for) is answered with an empty body.
+    const text = await response.text();
+    return [text ? JSON.parse(text) : undefined, response.headers.get('x-what-redirect')];
   } catch (error) {
     if (error.name === 'AbortError') {
       /** @type {Error & { code?: string }} */

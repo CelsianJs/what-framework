@@ -27,7 +27,8 @@ before(async () => {
       if (answer.html !== undefined) throw new SyntaxError(`Unexpected token '<', "${answer.html.slice(0, 9)}"... is not valid JSON`);
       return answer.body;
     };
-    return { ok: answer.ok !== false, status: answer.status ?? (answer.ok === false ? 500 : 200), headers: new Headers(), json };
+    const text = async () => answer.html ?? JSON.stringify(answer.body) ?? '';
+    return { ok: answer.ok !== false, status: answer.status ?? (answer.ok === false ? 500 : 200), headers: new Headers(), json, text };
   };
   core = await import('what-core');
   data = await import('what-core/data');
