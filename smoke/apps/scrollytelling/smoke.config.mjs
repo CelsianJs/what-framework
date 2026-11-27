@@ -41,9 +41,12 @@
 //      renderToString(h('div', { style: () => 'width:50%' }))
 //      // -> <div style="() =&gt; &#39;width:50%&#39;">
 //
-//    Every reactive attribute on this page is therefore driven from a ref plus
-//    an effect (see `bindEl` in src/motion.js). The supporting check below
-//    ("no function source leaked") pins the workaround.
+//    The server now resolves a function prop. The chapter links and the spec
+//    chips render their marks through reactive props, so the server shows the
+//    same marks as the client before hydration; the other reactive
+//    attributes are client-only and are still driven from a ref plus an
+//    effect (see `bindEl` in src/motion.js). The supporting check below ("no
+//    function source leaked") pins that no function source reaches the HTML.
 //
 // 3. The scheduler drops a read queued from inside a write, which hangs
 //    `cssTransition()`. `flushScheduler` clears its `scheduled` flag only after
