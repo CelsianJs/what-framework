@@ -273,9 +273,10 @@ export default {
       await page.click('[data-retry]');
       await sleep(CHUNK_DELAY / 2);
       const during = await page.evaluate(() => window.__shown());
-      // WebKit fails the import again with no request (below): no chapter to
-      // wait for.
-      const retried = browserName === 'webkit' ? (await sleep(CHUNK_DELAY), { ms: -1, blank: false }) : await page.evaluate(() => window.__watched);
+      // WebKit fails the import again with no request after a failed
+      // modulepreload (below), which only a build has: no chapter to wait for.
+      const preloadFailed = browserName === 'webkit' && mode !== 'dev';
+      const retried = preloadFailed ? (await sleep(CHUNK_DELAY), { ms: -1, blank: false }) : await page.evaluate(() => window.__watched);
       const sameDocument = await page.evaluate(() => window.__sameDocument === true);
       const onRetry = { requests: requested('security') - before - onRevisit.requests, loads: (await loads()) - loadsBefore - onRevisit.loads };
       rules.delete('security');
@@ -286,11 +287,12 @@ export default {
         'a later visit and the error page\'s "Try again" each ask for a failed chunk again, the error page staying on screen, without loading the page again',
         retryDetail);
       const shownName = 'once the network is back, the later visit and "Try again" download the chunk, and the chapter replaces the error page';
-      if (browserName === 'webkit') {
-        // Vite preloads a chunk that has imports of its own with <link
-        // rel="modulepreload">. Once that failed, WebKit fails every import()
-        // of the chunk with no request, in the page and after a reload
-        // (measured in a page of its own; Chromium and Firefox request it).
+      if (preloadFailed) {
+        // Vite's build preloads a chunk that has imports of its own with
+        // <link rel="modulepreload">. Once that failed, WebKit fails every
+        // import() of the chunk with no request, in the page and after a
+        // reload (measured in a page of its own; Chromium and Firefox request
+        // it). The dev server preloads nothing, and WebKit requests it again.
         skip('route:chunk-error', shownName, `WebKit makes no request for a module whose modulepreload failed, and fails its import again (${retryDetail})`);
       } else {
         check('route:chunk-error', onRevisit.requests === 1 && onRetry.requests === 1 && retried.ms >= CHUNK_DELAY * 0.8 && !retried.blank, shownName, retryDetail);
