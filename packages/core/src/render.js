@@ -3131,8 +3131,9 @@ function digits(hi, lo) {
 // The walk's position: the parent (p), the next node to claim (n, null at the
 // parent's end), how far a text claim has read into it (o), whether the
 // server's text at it begins with a value's that differed from the client's
-// (x: see replaceText), where the region it walks ends (e: its closing
-// marker, or null for the parent's end),
+// (x: true, see replaceText) or may begin with the server's value for an
+// empty one (x: 1, see adoptRegion), where the region it walks ends (e: its
+// closing marker, or null for the parent's end),
 // whether it claims server DOM (h) or steps through a client clone, and, in
 // compiled template code, the template node it stands on (t).
 /** @type {any} */
@@ -3432,9 +3433,10 @@ function serverKeyAt(c) {
 }
 
 // The next node past empty text only: where a region or a list looks for its
-// own markers.
+// own markers. Text an empty value may have rendered on the server (x: 1)
+// stays for the next claim of text to read.
 function nextOwn(c) {
-  if (c.x) dropDiffering(c, '');
+  if (c.x === true) dropDiffering(c, '');
   if (c.o > 0) return null;
   let n = c.n;
   while (n !== null && n !== c.e && n.nodeType === 3 && n.data === '') n = n.nextSibling;
@@ -3476,8 +3478,8 @@ function within(open, close, fn, a) {
 }
 
 // Text a claim read only part of becomes a node of its own from here on.
+// Text that may hold a value's server text (x) stays for the next claim.
 function splitHere(c) {
-  if (c.x) dropDiffering(c, '');
   if (c.o > 0) {
     c.n = /** @type {Text} */ (c.n).splitText(c.o);
     c.o = 0;
@@ -3685,7 +3687,7 @@ function claimText(text) {
 }
 
 // The server's text node at the cursor, whose text differs from the client's
-// `text`, takes the client's text in place (returned; null for ''). Where
+// `text`, takes the client's text in place (returned; null while frozen). Where
 // the server's text for that value ends is not in the DOM when the parser
 // merged it with the text that follows (a row's index and its label), so the
 // server's text goes on in a node after it until the next claim shows where
@@ -3700,7 +3702,6 @@ function replaceText(c, text) {
   }
   mismatch('text', JSON.stringify(short(text)), describe(node), node);
   c.x = true;
-  if (text === '') return null;
   const rest = c.p.insertBefore(node.cloneNode(), node.nextSibling);
   node.data = text;
   c.n = rest;
@@ -3711,13 +3712,18 @@ function replaceText(c, text) {
 // to where `text`, what the next claim reads, starts in that node (where its
 // beginning ends the node, when it runs on into the next one), or the whole
 // node when the next claim is not text or `text` is not there. Removed.
+// After an empty value (x: 1), that text was the server's value for it,
+// reported here: none when `text` starts the node, or is not in it (the next
+// claim's own text differs, and that claim reports it).
 function dropDiffering(c, text) {
+  const empty = c.x === 1;
   c.x = false;
   const node = c.n;
   if (node === null || node.nodeType !== 3) return;
   const data = /** @type {Text} */ (node).data;
-  let end = text === '' ? -1 : data.indexOf(text);
-  if (end === -1) {
+  let end = text === '' ? data.length : data.indexOf(text);
+  if (end < 0) {
+    if (empty) return;
     end = data.length;
     for (let b = Math.max(1, data.length - text.length + 1); b < data.length; b++) {
       if (text.startsWith(data.slice(b))) {
@@ -3726,7 +3732,9 @@ function dropDiffering(c, text) {
       }
     }
   }
+  if (end === 0) return;
   if (end < data.length) /** @type {Text} */ (node).splitText(end);
+  if (empty) mismatch('text', '""', describe(node), node);
   c.n = node.nextSibling;
   node.remove();
 }
@@ -4488,9 +4496,10 @@ function adoptRegion(fn, devName) {
           rows = adoptVNodeRows(value, scope);
           if (isMarker(open, ARRAY_OPEN)) current = open;
         } else if (close === null && (value == null || value === false || value === '') && nextOwn(w) !== null && w.n.nodeType === 3) {
-          // Without markers, text where an empty region stands is the
-          // server's value for it.
-          replaceText(w, '');
+          // Without markers, text where an empty region stands is either the
+          // server's value for it or what follows it: the next claim decides
+          // (dropDiffering), by where its own text starts in it.
+          if (!frozen()) w.x = 1;
         } else {
           adopt(value);
         }
@@ -5651,11 +5660,12 @@ export function _$hplain(parent, read, flag, devName) {
 function claimField(c, text) {
   pendingKey = null;
   const want = text.indexOf('\r') >= 0 ? text.replace(/\r\n?/g, '\n') : text;
-  if (c.x && want !== '') dropDiffering(c, want);
-  const own = claimOwnText(c, want);
+  const own = want === '' ? null : claimOwnText(c, want);
   if (own !== null) return own;
   splitHere(c);
-  const n = next(c);
+  // An empty field's node goes where the walk stands, before the server's
+  // text the next claim reads (x: replaceText, adoptRegion).
+  const n = c.x ? c.n : next(c);
   if (want !== '' && n !== null && n.nodeType === 3 && !frozen()) return /** @type {Text} */ (replaceText(c, text));
   const node = document.createTextNode(text);
   if (want === '') c.p.insertBefore(node, c.n);
@@ -5675,11 +5685,12 @@ function claimField(c, text) {
 // text at the cursor, after every part already claimed, so a node keeps the
 // text before the cursor and each part's offset into it.
 
-/** The server's text at the cursor when it is `text`: its text node when that is all the node holds, else `text`'s part of it; the cursor moved past it. Null when the server's text there is not `text`. */
+/** The server's text at the cursor when it is `text` (not empty): its text node when that is all the node holds, else `text`'s part of it; the cursor moved past it. Null when the server's text there is not `text`. */
 function claimOwnText(c, text) {
+  if (c.x) dropDiffering(c, text);
   const n = next(c);
   const at = c.o;
-  if (text === '' || n === null || n.nodeType !== 3 || !n.data.startsWith(text, at)) return null;
+  if (n === null || n.nodeType !== 3 || !n.data.startsWith(text, at)) return null;
   if (at === 0 && n.data.length === text.length) {
     c.n = n.nextSibling;
     return n;

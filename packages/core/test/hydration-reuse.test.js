@@ -258,3 +258,166 @@ describe('a region adopted around merged text removes all of it when it shows so
     });
   }
 });
+
+// A value the server wrote as text with no markers, and that renders nothing
+// on the client, stands where the server's text starts: that text is what
+// follows it unless the next claim's own text starts later in it, and only
+// then is the text before that the server's value for it, reported and
+// removed.
+const emptySource = `import { signal } from 'what-framework';
+  export function make(init) {
+    const s = {};
+    for (const k of Object.keys(init)) s[k] = signal(init[k]);
+    function Prefix(props) { return <p>{props.prefix}static text</p>; }
+    function Icon(props) { return <p>{props.icon}{props.label}</p>; }
+    function Twice(props) { return <p>{props.a}{props.b}static text</p>; }
+    function Between(props) { return <p>{props.a}{props.mid}{props.b}</p>; }
+    function Inside(props) { return <p>Hi {props.mid}{props.b}!</p>; }
+    function Rows(props) { return <ul>{s.rows().map((row) => <li key={row.id}>{props.icon}{row.name} items</li>)}</ul>; }
+    return {
+      s,
+      Prefix: () => <Prefix prefix={s.prefix()} />,
+      Icon: () => <Icon icon={s.icon()} label={s.label()} />,
+      Twice: () => <Twice a={s.a()} b={s.b()} />,
+      Between: () => <Between a={s.a()} mid={s.mid()} b={s.b()} />,
+      Inside: () => <Inside mid={s.mid()} b={s.b()} />,
+      Rows: () => <Rows icon={s.icon()} />,
+    };
+  }`;
+const emptyClient = await loadCompiled(emptySource, { pluginOptions: { hydratable: true } });
+const emptyServer = await loadCompiled(emptySource, { pluginOptions: { generate: 'ssr' } });
+
+// Hydrate the compiled `page` rendered on the server from `serverInit`, on the
+// client from `clientInit`; the server's text nodes, then, for comparison.
+function adoptEmpty(page, serverInit, clientInit = serverInit) {
+  const app = emptyClient.make(clientInit);
+  const html = server.renderToHydratableString(h(emptyServer.make(serverInit)[page]));
+  const host = document.body.appendChild(document.createElement('div'));
+  host.innerHTML = html;
+  const texts = nodesOf(host).filter((n) => n.nodeType === 3);
+  const before = nodesOf(host);
+  const reports = [];
+  const stop = hydrate(h(app[page]), host, { onHydrationError: (r) => reports.push([r.kind, r.expected, r.found]) });
+  const added = nodesOf(host).filter((n) => !before.includes(n)).map((n) => (n.nodeType === 8 ? `<!--${n.data}-->` : n.nodeName));
+  return { app, p: host.querySelector('p'), texts, reports, added, stop };
+}
+
+describe('an empty value before text the server merged', () => {
+  it('an empty value, then static text: no report, and the server\'s text node stays', () => {
+    const { app, p, texts, reports, added, stop } = adoptEmpty('Prefix', { prefix: '' });
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, ['<!--$-->', '<!--/$-->']);
+    assert.equal(p.lastChild, texts[0]);
+    app.s.prefix('> ');
+    flushSync();
+    assert.equal(p.textContent, '> static text');
+    assert.equal(p.lastChild, texts[0]);
+    app.s.prefix('');
+    flushSync();
+    assert.equal(p.textContent, 'static text');
+    stop();
+  });
+
+  it('a null value, then a value: no report, and the value keeps the server\'s node', () => {
+    const { app, p, texts, reports, added, stop } = adoptEmpty('Icon', { icon: null, label: 'Hello' });
+    assert.deepEqual(reports, []);
+    assert.deepEqual(added, ['<!--$-->', '<!--/$-->']);
+    assert.equal(p.lastChild, texts[0]);
+    app.s.label('Bye');
+    flushSync();
+    assert.equal(p.textContent, 'Bye');
+    assert.equal(p.lastChild, texts[0]);
+    app.s.icon('*');
+    flushSync();
+    assert.equal(p.textContent, '*Bye');
+    stop();
+  });
+
+  it('h(): a null reactive child, then one with text, in markup without markers', () => {
+    const icon = signal(null);
+    const label = signal('Hello');
+    const tree = () => h('p', null, () => icon(), () => label());
+    const host = document.body.appendChild(document.createElement('div'));
+    host.innerHTML = server.renderToString(h(tree));
+    const text = host.querySelector('p').firstChild;
+    const reports = [];
+    const stop = hydrate(h(tree), host, { onHydrationError: (r) => reports.push(r.kind) });
+    assert.deepEqual(reports, []);
+    assert.equal(host.querySelector('p').lastChild, text);
+    icon('*');
+    label('Bye');
+    flushSync();
+    assert.equal(host.querySelector('p').textContent, '*Bye');
+    stop();
+  });
+
+  it('an empty value, then a keyed row\'s field, empty or not', () => {
+    const rows = [{ id: 1, name: '' }, { id: 2, name: 'b' }];
+    const { app, reports, stop } = adoptEmpty('Rows', { icon: null, rows });
+    assert.deepEqual(reports, []);
+    const ul = document.body.lastChild.querySelector('ul');
+    assert.equal(ul.textContent, ' itemsb items');
+    app.s.rows([{ id: 1, name: 'x' }, { id: 2, name: 'y' }]);
+    app.s.icon('*');
+    flushSync();
+    assert.equal(ul.textContent, '*x items*y items');
+    stop();
+  });
+
+  it('two empty values, then static text', () => {
+    const { app, p, texts, reports, stop } = adoptEmpty('Twice', { a: '', b: null });
+    assert.deepEqual(reports, []);
+    assert.equal(p.lastChild, texts[0]);
+    app.s.b('2');
+    app.s.a('1');
+    flushSync();
+    assert.equal(p.textContent, '12static text');
+    stop();
+  });
+
+  it('an empty value between two texts', () => {
+    for (const [page, init, shown, next] of [
+      ['Between', { a: 'x', mid: '', b: 'y' }, 'xy', 'x-y'],
+      ['Inside', { mid: null, b: 'Ann' }, 'Hi Ann!', 'Hi -Ann!'],
+    ]) {
+      const { app, p, reports, stop } = adoptEmpty(page, init);
+      assert.deepEqual(reports, [], page);
+      assert.equal(p.textContent, shown);
+      app.s.mid('-');
+      flushSync();
+      assert.equal(p.textContent, next);
+      app.s.mid('');
+      app.s.b('Bo');
+      flushSync();
+      assert.equal(p.textContent, shown.replace(page === 'Between' ? 'y' : 'Ann', 'Bo'));
+      stop();
+    }
+  });
+
+  it('a value the server rendered and the client renders empty is still reported and removed', () => {
+    for (const [page, serverInit, clientInit, found, shown] of [
+      ['Prefix', { prefix: 'Hi ' }, { prefix: '' }, '"Hi "', 'static text'],
+      ['Icon', { icon: '*', label: 'Hello' }, { icon: null, label: 'Hello' }, '"*"', 'Hello'],
+      ['Twice', { a: 'A', b: 'B' }, { a: '', b: '' }, '"AB"', 'static text'],
+    ]) {
+      const { app, p, reports, stop } = adoptEmpty(page, serverInit, clientInit);
+      assert.deepEqual(reports, [['text', '""', found]], page);
+      assert.equal(p.textContent, shown);
+      const key = Object.keys(clientInit)[0];
+      app.s[key]('>');
+      flushSync();
+      assert.equal(p.textContent, '>' + shown);
+      stop();
+    }
+  });
+
+  it('a value after an empty one that differs from the server\'s is the one reported', () => {
+    const { app, p, reports, stop } = adoptEmpty('Icon', { icon: null, label: 'Hello' }, { icon: null, label: 'Bye' });
+    assert.deepEqual(reports, [['text', '"Bye"', '"Hello"']]);
+    assert.equal(p.textContent, 'Bye');
+    app.s.label('Hi');
+    flushSync();
+    assert.equal(p.textContent, 'Hi');
+    stop();
+  });
+});

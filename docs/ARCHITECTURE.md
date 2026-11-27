@@ -558,7 +558,9 @@ or mounting into a container that holds a root disposes that root first.
   after it. Markup without markers (`renderToString`, hand-written) is adopted
   too: text stays the server's text node, or its part of one, until the value
   is anything but text, and any other value takes two markers around what it
-  claimed.
+  claimed. A value that renders nothing where the server's text starts leaves
+  that text to what follows: only the text before where the next claim's own
+  text starts in it was the server's value, and that is reported and removed.
 - **A keyed list** (`<For>`, a keyed `.map()` or `?.map()` of vnodes or
   compiled rows, a nested one in a row included) adopts each row's server
   nodes as that row, so the first reorder moves the server's nodes rather than
