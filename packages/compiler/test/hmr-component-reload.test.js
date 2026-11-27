@@ -101,17 +101,21 @@ test('editing an imported component updates the visible app without a manual ref
     // is the plugin's update and the page's replacement of the component.
     const reported = new Promise((resolve) => server.watcher.on('change', (file) => { if (file === component) resolve('the watcher'); }));
     await writeFile(component, 'export default function Counter() { return <h1>HMR updated</h1>; }');
-    const by = await Promise.race([reported, new Promise((resolve) => setTimeout(resolve, 1000, 'the test'))]);
+    const timers = [];
+    const by = await Promise.race([reported, new Promise((resolve) => timers.push(setTimeout(resolve, 1000, 'the test')))]);
     if (by === 'the test') server.watcher.emit('change', component);
     // Each wait is on an event; the deadline is only there to report what
     // happened before the test's own timeout would.
     const deadline = Date.now() + 45_000;
-    const late = (what) => new Promise((resolve, reject) => setTimeout(() => reject(new Error(`no ${what}`)), Math.max(0, deadline - Date.now())));
+    const late = (what) => new Promise((resolve, reject) => timers.push(setTimeout(() => reject(new Error(`no ${what}`)), Math.max(0, deadline - Date.now()))));
     try {
       await Promise.race([answer, late('update message from the server')]);
       await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR updated', null, { timeout: Math.max(1, deadline - Date.now()) });
     } catch (error) {
       assert.fail(`${error.message}\nThe change was delivered by ${by}.\nHMR events: ${JSON.stringify(updates)}\nPage errors: ${JSON.stringify(errors)}`);
+    } finally {
+      // A pending deadline would hold the process open for its full 45 s.
+      for (const timer of timers) clearTimeout(timer);
     }
     assert.deepEqual(errors, []);
   } finally {
