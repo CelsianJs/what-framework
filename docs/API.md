@@ -592,7 +592,7 @@ Imported from `what-framework/dom`.
 | `flushScheduler()` | Flush queues immediately |
 | `measure(fn)` | Promise-wrapped read |
 | `mutate(fn)` | Promise-wrapped write |
-| `useScheduledEffect(readFn, writeFn?)` | Read/write split effect |
+| `useScheduledEffect(readFn, writeFn?)` | Read/write split effect: `readFn` runs in a frame's read phase, `writeFn(data)` in its write phase, and both again in the next frame when a signal `readFn` read changes (once for any number of changes). Returns a dispose function; disposed with its owner too |
 | `nextFrame()` | Next animation frame promise |
 | `raf(key, fn)` | Debounced RAF by key |
 | `onResize(el, cb)` | Resize observer helper |

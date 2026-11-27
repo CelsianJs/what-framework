@@ -110,25 +110,54 @@ export function mutate(fn) {
 }
 
 // --- useScheduledEffect ---
-// Effect that automatically batches DOM operations.
+// An effect split across a frame: `readFn` runs in the read phase and
+// `writeFn(data)` with what it returned in the write phase. It runs again
+// when a signal `readFn` read changes: in the next frame's read phase, once
+// however many changes came before it. Disposed with its owner, or by the
+// function it returns; a frame still to come then does nothing.
 
-import { effect } from './reactive.js';
+import { effect, getOwner, runWithOwner, onCleanup } from './reactive.js';
 
 export function useScheduledEffect(readFn, writeFn) {
-  const effectKey = Symbol('scheduledEffect');
-  return effect(() => {
-    // Use raf() to debounce: only the latest callback runs per frame,
-    // avoiding creating new closures on every signal change.
-    raf(effectKey, () => {
-      scheduleRead(() => {
-        const data = readFn();
-        if (writeFn) {
-          scheduleWrite(() => writeFn(data));
-        }
-      });
-    });
-  });
+  const owner = getOwner();
+  let disposed = false;
+  /** @type {(() => void) | null} */
+  let cancel = null;
+  /** @type {() => void} */
+  let tracking = noop;
+  const schedule = () => {
+    if (cancel === null && !disposed) cancel = scheduleRead(read);
+  };
+  // The read is the first run of an effect made for it, which tracks what
+  // readFn reads; that effect's next run is a change, and only schedules.
+  const read = () => {
+    cancel = null;
+    tracking();
+    let first = true;
+    let data;
+    tracking = runWithOwner(owner, () => effect(() => {
+      if (!first) {
+        schedule();
+        return;
+      }
+      first = false;
+      data = readFn();
+    }));
+    if (writeFn) scheduleWrite(() => { if (!disposed) writeFn(data); });
+  };
+  const dispose = () => {
+    disposed = true;
+    if (cancel !== null) cancel();
+    cancel = null;
+    tracking();
+    tracking = noop;
+  };
+  if (owner !== null) onCleanup(dispose);
+  schedule();
+  return dispose;
 }
+
+function noop() {}
 
 // --- Animation frame helper ---
 // Like requestAnimationFrame but returns a cancellable promise.

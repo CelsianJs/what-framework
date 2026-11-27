@@ -9,7 +9,12 @@ export function scheduleWrite(fn: () => void): () => void;
 export function flushScheduler(): void;
 export function measure<T>(fn: () => T): Promise<T>;
 export function mutate(fn: () => void): Promise<void>;
-export function useScheduledEffect(readFn: () => any, writeFn?: (data: any) => void): () => void;
+/**
+ * `readFn` runs in a frame's read phase and `writeFn(data)` in its write
+ * phase, and both again in the next frame when a signal `readFn` read
+ * changes. Returns a dispose function; disposed with its owner too.
+ */
+export function useScheduledEffect<T>(readFn: () => T, writeFn?: (data: T) => void): () => void;
 export function nextFrame(): Promise<void> & { cancel: () => void };
 export function raf(key: string, fn: () => void): void;
 export function onResize(element: Element, callback: (rect: DOMRectReadOnly) => void): () => void;

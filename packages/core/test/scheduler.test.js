@@ -168,7 +168,8 @@ describe('scheduler', () => {
       const dispose = useScheduledEffect(() => { log.push('read'); return 7; }, (n) => log.push('write ' + n));
       flushSync();
       await runFrames();
-      assert.deepEqual(log, ['other write', 'read', 'write 7']);
+      // One frame: its reads, then its writes.
+      assert.deepEqual(log, ['read', 'other write', 'write 7']);
       dispose();
     });
 
