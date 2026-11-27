@@ -238,14 +238,16 @@ function Counter() {
 }
 ```
 
-Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`. `npm run typecheck` runs `tsc --noEmit`. `npm run lint` needs a TypeScript parser for `.tsx` files ([TYPESCRIPT.md, ESLint](./TYPESCRIPT.md#eslint)), or it stops at the first type annotation.
+Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`. `npm run typecheck` runs `tsc --noEmit`, and `npm run lint` checks `.ts` and `.tsx` files too: the scaffold's `eslint.config.js` parses them with typescript-eslint ([TYPESCRIPT.md, ESLint](./TYPESCRIPT.md#eslint)). Renaming `src/main.jsx`? Change the `<script src>` in `index.html` to `/src/main.tsx` with it.
 
 See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
 ## 11. Tooling
 
-- **ESLint**: `npm i -D eslint-plugin-what` -- catches signal bugs, enforces patterns
-- **VS Code**: Install `eslint-plugin-what` for editor integration
+A scaffolded app has all of these installed and configured. In an app you set up by hand:
+
+- **ESLint**: `npm i -D eslint eslint-plugin-what` -- catches signal bugs, enforces patterns (`npm run lint` in a scaffold)
+- **Editor**: VS Code's ESLint extension shows eslint-plugin-what's warnings as you type
 - **DevTools**: `npm i -D what-devtools` -- signal inspector panel for development
 - **MCP DevTools**: `npx what-devtools-mcp` -- AI agent debugging bridge
 
