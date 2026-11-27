@@ -1310,16 +1310,17 @@ export function warnStateReadOnce(fnPath, state) {
 // - what a function prop returns, called in the body (`const header =
 //   renderHeader()`): the parent's code built it, usually JSX whose bindings
 //   follow its own state;
-// - `children`, which is JSX built where it is read, and a route's `params`,
-//   `query` and `route`: a page is built again for each URL, and a layout's
-//   read in the body is documented as read once (packages/router/README.md);
+// - `children`, which is JSX built where it is read, and a route's `params`
+//   and `route`: a page is built again for other params, and a layout's read
+//   in the body is documented as read once (packages/router/README.md). A
+//   route's `query` is reported: a change of query alone keeps the page;
 // - a name used as a tag (`const Icon = icons[kind]`, docs/GOTCHAS.md).
 // A value derived only from fields of props (`item.title.toUpperCase()`) is
 // left to the page in a build with devMetadata (fieldReads): a keyed row
 // handed its item builds the row again when such a field changes, so the
 // read reports it (what-core _propField) only where the component renders
 // outside such a row.
-const UNREPORTED_PROPS = new Set(['children', 'params', 'query', 'route']);
+const UNREPORTED_PROPS = new Set(['children', 'params', 'route']);
 
 export function warnDerivedPropOnce(fnPath, state) {
   if (process.env.NODE_ENV === 'production' || state.ssr || state.frameworkFile || !isComponentFunction(fnPath) || isRowFunction(fnPath, state)) return;

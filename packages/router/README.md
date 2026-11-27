@@ -63,7 +63,9 @@ writes `?q=`) keeps the page mounted, as React Router keeps the route's
 element: its state and what was typed into it survive, and `query` and `data`
 are live props, so JSX that reads `query.page` shows the current URL's (and
 `route.query`, `useSearch()` and `useRoute()` agree). A read of the query in
-the body keeps the first value, as in any component:
+the body keeps the first value, as in any component, and in development the
+router reports a component under the page that read it there
+(`ERR_PROP_READ_ONCE`) the first time the query changes under it:
 
 ```jsx
 function Products({ query }) {
@@ -352,7 +354,8 @@ and only Y is built, in place of X.
 `params` and `query` are live props: JSX in the layout that reads
 `params.id` or `query.tab` shows the current URL's. A read in the layout's
 body, outside JSX, is a read once, as in any component, and keeps the first
-value (the compiler does not report this shape):
+value (the compiler reports a value derived from `query` and shown in JSX,
+ERR_PROP_READ_ONCE, and not one derived from `params`):
 
 ```jsx
 function ProjectLayout({ params, query, children }) {

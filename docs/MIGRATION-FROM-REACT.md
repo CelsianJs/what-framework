@@ -370,8 +370,10 @@ a return the prop decides, and a value derived from a prop in the body and
 shown in JSX (`const label = name.toUpperCase()`, then `{label}`), which keeps
 its first value. Write it in the JSX (`{name.toUpperCase()}`), or make it a
 function (`const label = () => name.toUpperCase()`) or a `useMemo(() => …)` and
-call it there. A route page's `params` and `query` are not reported: the router
-builds a page again for each URL.
+call it there. A route page's `params` are not reported: the router builds a
+page again for other params. Its `query` is: a change of query alone keeps the
+page mounted, as React Router keeps the route's element, so read it in JSX, an
+effect or a function query key (`queryKey: () => ['items', query.page]`).
 
 ### useMemo / useComputed
 

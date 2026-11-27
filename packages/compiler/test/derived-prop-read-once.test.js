@@ -4,7 +4,8 @@
 // the first name where React computes it again on every render. Reported once,
 // at build time, in development. What the compiler reads where it is used, a
 // read inside a function or JSX, a hook's seed, a route's params and a handle
-// fetched once (an accessor, a spread, an object read for its fields) are not.
+// fetched once (an accessor, a spread, an object read for its fields) are not;
+// a route's query is, as a change of query alone keeps the page.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileJSX } from '../../../test-utils/compile.js';
@@ -50,6 +51,7 @@ describe('ERR_PROP_READ_ONCE: a value derived from a prop in the body and shown 
     ['a value shown by a thunk child', `export function A({ count }) { const twice = count * 2; return <p>{() => twice}</p>; }`, 'count'],
     ['a value shown in a list row', `export function A({ rows, unit }) { const suffix = ' ' + unit; return <ul>{rows.map((r) => <li>{r.n}{suffix}</li>)}</ul>; }`, 'unit'],
     ['a value handed to a component prop named like an event', `export function A({ status }) { const online = status === 'up'; return <Dot online={online} />; }\nfunction Dot(props) { return <i class={props.online ? 'on' : 'off'} />; }`, 'status'],
+    ['a route page\'s query, which a change of query alone does not rebuild', `export function List({ query }) { const tab = query.tab ?? 'info'; return <h1>{tab}</h1>; }`, 'query'],
   ]) {
     it(`reports ${shape}`, () => {
       const found = warnings(source);
@@ -73,7 +75,7 @@ describe('ERR_PROP_READ_ONCE: what is not reported as a derived value', () => {
     ['state seeded from a prop', `${HOOKS}export function T({ initial, value }) { const [draft, setDraft] = useState(initial); const text = useSignal(value); const n = signal(value); return <p>{draft()}{text()}{n()}</p>; }`],
     ['an alias the compiler reads where it is used', `export function T(props) { const label = props.name; const city = props.address.city; return <p>{label}{city}</p>; }`],
     ['a name destructured from the props', `export function T(props) { const { name } = props; return <p>{name}</p>; }`],
-    ['a route page reading its params, query and route', `export function User({ params, query }) { const id = params.id; const tab = query.tab ?? 'info'; return <h1>{id}{tab}</h1>; }\nexport function Page(props) { const id = props.params.id; const path = props.route.path; return <p>{id}{path}</p>; }`],
+    ['a route page reading its params and route', `export function User({ params }) { const id = params.id; return <h1>{id}</h1>; }\nexport function Page(props) { const id = props.params.id; const path = props.route.path; return <p>{id}{path}</p>; }`],
     ['children', `export function T({ children }) { const items = Array.isArray(children) ? children : [children]; return <ul>{items}</ul>; }`],
     ['a component held in a name', `const icons = {};\nexport function T({ kind }) { const Icon = icons[kind]; return <Icon />; }`],
     ['what a function prop returns', `export function Card({ renderHeader, renderFooter, title }) { const header = renderHeader(); const footer = renderFooter?.(); return <article>{header}<h2>{title}</h2>{footer}</article>; }`],

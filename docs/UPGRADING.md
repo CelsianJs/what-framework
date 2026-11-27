@@ -687,6 +687,10 @@ and navigations that are transitions. Each change below has its migration.
   (`{query.page ?? 1}`), make the value a function or a `computed()` and
   call it there, read it in an effect (`useEffect(() => load(query.page))`),
   or pass a function key (`useQuery({ queryKey: () => ['items', query.page] })`).
+  Development reports such a read as `ERR_PROP_READ_ONCE`: the compiler a
+  value derived from `query` in the body and shown in JSX, and the router any
+  read in the body of a component under the page (`useSearch()` and
+  `route.query` too), the first time the query changes under it.
 - **Layouts nest.** A `nestedRoutes` layout goes around the layout a child
   declares, a `nestedRoutes` inside another included, as React Router nests
   routes, and so does a `routeGroup` layout; a route's `layout` may be a

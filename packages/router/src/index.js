@@ -11,7 +11,7 @@
 // A newer navigation supersedes one still preparing.
 
 import { signal, effect, computed, batch, untrack, flushSync, startTransition, createRoot, runWithOwner, getOwner, onCleanup, h, ErrorBoundary, getResponse } from 'what-core';
-import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage, _devNewContent } from 'what-core/internal';
+import { _tagQueries, _pathLoaded, _urgent, _currentTransition, _onCommit, _contextOf, _provide, _isServerProcess, __DEV__, getServerContext, reportDiagnostic, _thrownMessage, _devNewContent, __ownerPath } from 'what-core/internal';
 import { matchRoute, parseQuery, _comparable } from './match.js';
 
 // --- URL Sanitization ---
@@ -195,13 +195,54 @@ export const route = {
   get url() { return here().url(); },
   get path() { return splitUrl(here().url()).path; },
   get params() { return here().params(); },
-  get query() { return here().query(); },
+  get query() {
+    const state = here();
+    if (__DEV__) devQueryRead(state);
+    return state.query();
+  },
   get hash() { return splitUrl(here().url()).hash; },
   // Navigation state: a server never navigates, so there these stay false
   // and null.
   get isNavigating() { return !onServer() && _navigating(); },
   get error() { return onServer() ? null : _navigationError(); },
 };
+
+// Development: a component under the page a Router shows (the page itself or
+// one it renders) that reads the query in its body reads it once, and a
+// change of query alone keeps the page: the router reports it
+// (ERR_PROP_READ_ONCE) when the query first changes under it, from the one
+// those components read (`devQuery`). The view a Router shows is `devView`
+// on its route state.
+function devQueryRead(state) {
+  const v = state.devView;
+  let o = /** @type {any} */ (getOwner());
+  if (v == null || v.route == null || o === null || o.Component === undefined) return;
+  const reader = o;
+  for (; o != null; o = o.owner) {
+    if (o.Component === v.route.component) {
+      (v.devReads ??= new Map()).set(reader.Component, __ownerPath(reader));
+      v.devQuery ??= state.query.peek();
+      return;
+    }
+  }
+}
+
+function devReportQueryReads(v) {
+  for (const [component, owner] of v.devReads) {
+    const name = component.displayName || component.name || 'Anonymous';
+    reportDiagnostic('ERR_PROP_READ_ONCE', {
+      data: {
+        name: 'query',
+        component: name,
+        reason: `the page of ${v.route.path} stays mounted when only the query changes, so what <${name}> read of it in its body keeps its first value; read it in JSX, an effect, a computed() or a function query key (\`queryKey: () => ['items', query.page]\`)`,
+      },
+      subject: { kind: 'component', name: `${name} query` },
+      owner,
+      loc: owner.loc,
+    });
+  }
+  v.devReads = v.devQuery = null;
+}
 
 // A state of its own: a server render's, a nested <Router>'s. `url` reads
 // the URL it shows.
@@ -1269,6 +1310,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     const v = shownView;
     if (ok && v !== null && v.ok && !v.crashed && v.route === r && sameRecord(v.params, params)) {
       untrack(() => v.prep.set(prep));
+      if (__DEV__ && v.devReads && !sameRecord(v.devQuery, query)) devReportQueryReads(v);
       return v;
     }
     return shownView = { route: r, params, verdict, loading, ok, prep: signal(prep) };
@@ -1289,6 +1331,7 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     if (__DEV__) {
       if (shown) _devNewContent();
       shown = true;
+      state.devView = v;
     }
 
     if (r) {
@@ -1327,7 +1370,10 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
         element = h(r.component, {
           __proto__: null,
           params: v.params,
-          get query() { return state.query(); },
+          get query() {
+            if (__DEV__) devQueryRead(state);
+            return state.query();
+          },
           route: r,
           get data() { return v.prep().data; },
         });
