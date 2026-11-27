@@ -2113,10 +2113,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   At the release, after the React commit-order fixes and the three React
   habits in native What (plain-object props, React's effect order, `onChange`
   per keystroke), the `onDoubleClick` fix, the field-writing fixes and the
-  one-pass row-key check after it, and the hill climb's second round (props
-  marked only with a getter, text compared with the text written last,
-  hydration leaving bound attributes to their bindings, a Symbol child), the
-  three measure 16,340 B, 24,298 B and 44,071 B.
+  one-pass row-key check after it, and the hill climb's second and third
+  rounds (props marked only with a getter, text compared with the text
+  written last, hydration leaving bound attributes to their bindings, a
+  Symbol child; `draggable`, `spellcheck` and `contenteditable` written as
+  `"true"` and `"false"`), the three measure 16,340 B, 24,299 B and
+  44,112 B.
 
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
@@ -2137,9 +2139,11 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (15,378 B); every app `npm run check:size` builds is smaller. At the
   release, with plain-object props, React's effect order, `onChange` per
   keystroke, the `onDoubleClick` fix, the field-writing fixes and the
-  cheaper effect order after it, and the hill climb's second round (props
-  marked only with a getter, text compared with the text written last, a
-  Symbol child) in, the three are 5,510 B, 9,427 B and 15,138 B. A compiled
+  cheaper effect order after it, and the hill climb's second and third
+  rounds (props marked only with a getter, text compared with the text
+  written last, a Symbol child; `draggable`, `spellcheck` and
+  `contenteditable` written as `"true"` and `"false"`) in, the three are
+  5,510 B, 9,427 B and 15,172 B. A compiled
   module imports the component call it needs: with no component handed
   children or JSX in a prop it leaves out the lazy getters, and when every
   component is a function the module defines (or one of what-framework's or

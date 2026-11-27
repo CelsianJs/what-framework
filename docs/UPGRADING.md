@@ -1101,8 +1101,8 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9511 B |
-| The create-what counter, runtime JSX | 6702 B | 9526 B |
+| A counter written with `h()` | 6601 B | 9555 B |
+| The create-what counter, runtime JSX | 6702 B | 9577 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5510 B |
 
 The compiled counter, what the scaffold ships, is 2221 B (29%) smaller in
@@ -1113,7 +1113,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3738 B, for the new engine, the engine hooks async
+counter still grows by 3782 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1146,7 +1146,7 @@ Three kinds of app grow more than the counters:
   `bun build --production` select `module`, and each defines
   `process.env.NODE_ENV` itself: `"production"` when it minifies (Bun: with
   `--production`), `"development"` otherwise. So `esbuild app.js --bundle
-  --minify` builds the `h()` counter at 9535 B, and an unminified esbuild or
+  --minify` builds the `h()` counter at 9570 B, and an unminified esbuild or
   rolldown build with no `NODE_ENV` of your own is a development build, with
   its diagnostics: minify, or define `process.env.NODE_ENV` as `"production"`,
   for production. A bundler given custom conditions with neither `production`

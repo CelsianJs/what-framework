@@ -389,8 +389,8 @@ Production builds through Vite, gzip, as `npm run check:size` measures them
 | Scenario | what-react now | at `90c91c40` | React 19.3.1 |
 |---|---|---|---|
 | `react-counter`: a counter, `reactCompat()` alone | 16,340 B | 22,160 B | 67,599 B |
-| `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 24,298 B | 29,074 B | 67,383 B (React and ReactDOM) |
-| `mixed-hydrate`: a native page with one React island, hydrating | 44,071 B | 44,964 B | (none) |
+| `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 24,299 B | 29,074 B | 67,383 B (React and ReactDOM) |
+| `mixed-hydrate`: a native page with one React island, hydrating | 44,112 B | 44,964 B | (none) |
 
 `node benchmark/size/why.mjs <scenario>` lists what is in a scenario's
 bundle, declaration by declaration, with what keeps each one there.
