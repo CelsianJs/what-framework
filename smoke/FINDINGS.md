@@ -1207,6 +1207,7 @@ package.json pins:
 | the same with a TanStack table sorted over all 10,000 mounted beside it | 250 ms (90th percentile) | median 7.5 / 7 / 35–80 ms |
 | all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 22–97 ms |
 | 35 route changes while the feed runs (dialogs, toasts, charts, lists, a flow diagram, drag and drop, carousels) | every component, listener, timer, observer and node released; no console noise | all released, 285 React mounts each run; console clean (after 45) |
+| the heap after a forced GC over two more rounds of 35 route changes (Chromium; the devtools protocol) | under 1 MiB | 330 KB, 4.7 KB per change (a navigation between two native pages leaves 3 to 5 KB) |
 | a react-hook-form island in a server-rendered page, typed into before it hydrates | no element created; text, focus and ids kept | 0 created; kept |
 | a `client:load` island (a native ticket hosting a React stepper) on that page, typed into before it hydrates | its nodes kept, React state and callback live | kept; live |
 
@@ -1216,6 +1217,17 @@ same write costs 1 ms there, and with only the table on the page 120 ms
 10,000 rows on each write, not into what-react (measured by hand in a copy
 of the app, one run per browser; that the cost is SpiderMonkey running
 TanStack's code is a guess, not measured against real React).
+
+The heap check first measured 17 MB per round, all of it the check's own:
+Playwright's `page.waitForSelector()` returns an element handle, which keeps
+the element alive after the page drops it, and a React element keeps its
+handlers and through them its component's state (React's DOM nodes keep
+their fiber the same way), so every visit to the deals screen kept a whole
+TanStack table. With locators the growth is the router's few KB per
+navigation. A TanStack table's first ten or so mounts grow the heap by
+about 3 MB, then nothing; the same component on real React 19.3.1 (a
+`createRoot` page mounted and unmounted 20 times) grows the same, 173 KB per
+mount against what-react's 169.
 
 Every package worked in all three browsers, the ones outside
 REACT-COMPAT.md's matrix included: react-toastify 11, react-dropzone 20,
