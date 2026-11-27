@@ -273,12 +273,14 @@ describe('enableScrollRestoration hash precedence', () => {
 
     events = [];
     // An in-page anchor click. navigate()'s same-page hash branch scrolls the
-    // element into view synchronously; the restore effect must not then drag
-    // the user back to the offset saved for "/doc#section" a frame later.
+    // element into view smoothly; the restore effect must not then drag the
+    // user back to the offset saved for "/doc#section" a frame later, nor
+    // scroll to the element again at once, which in a browser cuts the smooth
+    // scroll short (a jump instead of the animation).
     await navigate('#section');
     await flush();
 
-    assert.deepEqual(events, ['anchor#section:smooth', 'anchor#section']);
+    assert.deepEqual(events, ['anchor#section:smooth']);
     el.remove();
   });
 

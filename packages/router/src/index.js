@@ -676,8 +676,19 @@ function fragmentNavigation(href, replace, state, fromPopstate) {
     history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', href);
   }
   _url.set(location.pathname + location.search + location.hash);
-  if (!fromPopstate && location.hash) queryFragment(location.hash)?.scrollIntoView({ behavior: 'smooth' });
+  const target = !fromPopstate && location.hash ? queryFragment(location.hash) : null;
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth' });
+    // Scroll restoration leaves this URL to the smooth scroll: an instant
+    // scroll to the same element a frame later would cut it short.
+    scrolledTo = _url.peek();
+  }
 }
+
+// The URL whose fragment navigate() has just scrolled to, which the scroll
+// restoration effect does not scroll to again (enableScrollRestoration).
+/** @type {string | null} */
+let scrolledTo = null;
 
 // The page of a route whose preload threw: the route's `error` boundary, or
 // the nearest one above the router, shows the error.
@@ -773,6 +784,9 @@ function listenToHistory() {
   window.addEventListener('popstate', () => {
     // Save scroll position for the URL we're leaving
     scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
+    // Back/forward scrolls as the restoration decides, whatever navigate()
+    // scrolled to before.
+    scrolledTo = null;
 
     const newUrl = location.pathname + location.search + location.hash;
     // Use _fromPopstate flag so navigate() skips pushState (browser already updated URL)
@@ -1513,6 +1527,12 @@ export function enableScrollRestoration() {
       // scrollIntoViews the anchor synchronously, and a `saved` hit here
       // clobbered it one frame later.
       if (hash) {
+        // A fragment navigation navigate() made has its element scrolling
+        // into view smoothly already.
+        if (scrolledTo === url) {
+          scrolledTo = null;
+          return;
+        }
         // Deferred to the frame because an SSR-less deep link renders the
         // target element after the URL commits, so it does not exist yet here.
         const el = queryFragment(hash);
