@@ -920,7 +920,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **A keyed row is built again only for a field its building code read.** A
   read of one field of the row's item while the row is built (`row.kind` in
   the row's own code, a `kind={row.kind}` prop a row component reads in its
-  body, `view.kind` through a live view) records that field; a replaced item that leaves every
+  body, `props.item.kind` or a destructured `item.kind` in the body of a row
+  component handed the whole item, which what-compiler writes as
+  `_$propField`, `view.kind` through a live view) records that field; a replaced item that leaves every
   recorded field the same (`Object.is`) keeps the row, and its bindings follow
   the new item. A read of the whole item (handed to a function, a method
   called on it) still rebuilds the row on any replacement. Before, any read
@@ -1126,6 +1128,20 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   callback reactive. what-compiler's `hydratable` option, and
   `what-compiler/vite`'s `hydratable: 'auto' | true | false`. Compiled keyed
   rows write a plain item field (`{row.label}`) as a text node with no effect.
+- **An app served below a base path routes below it** (what-router). Vite's
+  `base` is the router's base: with `base: '/app/'`, `<Link href="/x">`
+  renders and goes to `/app/x`, `navigate`, `redirect` and middleware go to
+  `/app/x`, routes are written without the base, and `route.url`,
+  `route.path`, params, `useRoute()`, active links, middleware, `preload` and
+  the navigation hooks see the URL without it. A server render below the base
+  renders the same page, hydrates without a mismatch and redirects below the
+  base. A URL outside the base is not routed (the catch-all included), and
+  `navigate()` and `<Link>` hand it to the browser. `setBase(base)` sets it
+  without Vite (another bundler, or a server build that keeps what-router
+  external), and `createRequestHandler({ basePath })` takes the same path,
+  written `'/app'` or `'/app/'`. An app with no base pays about 140 B gzip.
+  `packages/router/test/base-path.test.js`, `base-path-server.test.js`,
+  `base-path-vite.test.js`.
 - **Diagnostics.** One coded channel: `getDiagnostics()`,
   `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
   `WhatError` on the root entry, `captureDiagnostics()` in
@@ -1182,9 +1198,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   SSR benchmark has a page of 200 small components beside the 1,000-row
   table, measures each hydration against a client render of the same page
   from the same bundle, and puts the hydration tables of the same commit in
-  its RESULTS.md. `npm run smoke:apps` runs twelve apps in Chromium, or in
-  WebKit with `WHAT_SMOKE_BROWSER=webkit` (a check its browser cannot run is
-  skipped with its reason), eight of them under load: a 10,000-entry file
+  its RESULTS.md. `npm run smoke:apps` runs fourteen apps in Chromium, or in
+  WebKit or Firefox with `WHAT_SMOKE_BROWSER=webkit|firefox` (a check its
+  browser cannot run is skipped with its reason; an app whose checks hang
+  fails after five minutes and the run goes on), ten of them under load:
+  twelve code-split chapters whose chunks are delayed, failed, overtaken,
+  prefetched on hover and guarded, a wall redrawn every frame with springs,
+  tweens and enter/leave churn whose frame loops are counted, a 10,000-entry file
   tree drawn by one recursive component beside a 300-field form with an
   async check, a chat fed by a server stream that drops and reconnects
   (every message exactly once, a capped log, a composer that keeps every
@@ -1195,8 +1215,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   chained workflows cross back/forward and a reload, the same workspace
   rendered on the server with server-side guards and 40 concurrent visitors,
   and a streamed news site with ISR articles, five islands, 100 concurrent
-  requests and the server's heap across 2,000 requests. CI runs it in both
-  browsers, and its buildless apps run What's development build, so a
+  requests and the server's heap across 2,000 requests. CI runs it in all
+  three browsers, and its buildless apps run What's development build, so a
   development diagnostic fails their console checks. `npm run lint` fails on `no-uncalled-signals` and the three
   read-once rules in the example apps and sites, and
   `npm run smoke:workspace-apps` serves sites/showcase through its
@@ -2134,6 +2154,57 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`no-camelcase-events` leaves a file that imports from React, Preact or
   what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
   correct there.
+- **`navigate()` to another origin or scheme hands it to the browser**, as
+  `<Link>` does: `location.assign`, or `location.replace` with
+  `{ replace: true }`, and no guard runs. Middleware and `redirect()` to
+  another origin replace the entry. Before, `pushState` threw and the
+  navigation did nothing. `packages/router/test/navigate-other-origin.test.js`.
+- **A file-router catch-all page (`[...slug].jsx`) matches its URLs.** The
+  compiler writes it as `'/docs/*slug'`, which the router read as a literal
+  segment, so every catch-all page 404'd in `<FileRouter>` and the server's
+  `matchRoute`. `packages/router/test/file-routes-match.test.js`.
+- **Route ranking follows the params, whatever their syntax.** `[id]` and
+  `[...rest]` rank like `:id` and `*` (they ranked as static, so `/u/[id]`
+  took `/u/new`), and of two catch-alls the one under more static segments
+  wins (a `*` listed first took `/docs/a/b` from `/docs/*`, the order the
+  compiler lists file routes in). `packages/router/test/match.test.js`.
+- **A route whose path has a space or a non-ASCII character matches its
+  URL**, on the client and the server, and its Link is active: the browser's
+  path is percent-encoded (`/caf%C3%A9`), and static segments are now encoded
+  the way the URL parser encodes them. A hash link scrolls to an element
+  whose id has one, found by id and then by its decoded id, so `#a.b` is the
+  id `a.b`. `packages/router/test/url-parsing.test.js`,
+  `hash-navigation.test.js`.
+- **Back/forward restores scroll only once it has landed**: one a guard
+  cancels, or a newer navigation overtakes, scrolled the page on screen to
+  the other page's offset. With scroll restoration on, back/forward to a hash
+  URL goes to its saved offset without first jumping to the anchor.
+  `packages/router/test/popstate-scroll.test.js`.
+- **A guard that cancels a navigation started during a pending back/forward
+  puts the address bar back** on the page shown; it stayed on the URL of the
+  back/forward. `packages/router/test/popstate-pending.test.js`.
+- **A query with a repeated key keeps its object when it does not change**,
+  so a layout's `props.query` readers no longer run again on every
+  navigation under `?tag=a&tag=b`.
+- **Hovering a `<Link>` downloads its route's `lazy()` chunk**, as
+  `prefetch(href)` and `prefetchRoute(href)` now do, so the click shows the
+  page without waiting for the network (818–841 ms to 5–22 ms in the smoke
+  app with an 800 ms chunk). Prefetch added only `<link rel="prefetch">`,
+  which in a client-routed app fetches the HTML page again. A route behind
+  middleware is left for the navigation. `packages/router/test/lazy-route-prefetch.test.js`.
+- **`createRequestHandler({ basePath })` strips the base on a segment
+  boundary** (what-server): `'/app'` matched `/application` as `lication`,
+  and `'/app/'` turned `/app/x` into `x`.
+  `packages/server/test/request-handler-base-path.test.js`.
+- **`useAnimatedValue` runs one animation at a time** (what-framework/motion):
+  `spring()` or `timing()` stops the one in flight, and the owner going away
+  stops it. Each call ran beside the others, so an older target could win (a
+  spring to 0 started during one to 100 ended at 100), and an unmounted
+  component's frame loop kept running. `packages/core/test/animation-interrupt.test.js`.
+- **`useTween().start()` stops the run in flight** (its promise resolves, its
+  callback does not run), and unmounting stops it. Two runs wrote the
+  progress at once, `isTransitioning` went false while the newer one ran, and
+  the replaced run's callback still ran. `packages/core/test/tween-restart.test.js`.
 - **The docs site's copy buttons say "Copy failed"** when the clipboard
   refuses the write, instead of leaving an unhandled rejection.
 - API.md says how `register()` behaves with `h()` (a spread copies the
@@ -2384,6 +2455,26 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   1.63× and 1.42× (20 interleaved rounds against 5d5fbe15). The output is
   byte for byte the same. `getResponse().committed` is a getter on the
   response's class, so `{ ...response }` leaves it out.
+- **Server rendering of `h()` and automatic-JSX-runtime trees** is 30–40%
+  faster and allocates 11–21% less. An element whose tag needs no further
+  rule is written from a cached record of the tag name, a child is asked
+  whether it is a vnode before whether it is compiled markup, and a start
+  tag's last closing quote and `>` are written as one piece; renderToStream
+  writes h() elements the same way, with one end-tag marker per tag name.
+  `benchmark/ssr`'s 1,000-row table renders in 0.62× the time plain and 0.65×
+  hydratable, 10,000 rows in 0.55×, the 200-component page in 0.75×, and the
+  streams finish in 0.61–0.68× (7 interleaved rounds against 4d90477b).
+  Compiled markup asks a component's vnode for the vnode first too: the
+  compiled 200-component page renders in 0.87× plain and 0.93× hydratable.
+  The output is byte for byte the same.
+  `packages/server/test/element-tag-kinds.test.js`.
+- A recursive keyed component builds deeper before the stack runs out: a
+  tree level costs 17 frames instead of 21, so a file tree holds 302 levels
+  in Chromium instead of 210, 2,135 in WebKit instead of 1,801 and 454 in
+  Firefox instead of 350. `insert()` starts a reactive child's effect
+  itself, a keyed row's callback runs straight from its item scope, and the
+  keyed reconcile's general path is a function of its own.
+  `packages/core/test/recursion-depth.test.js`.
 - Disposing an owner marks a child that has nothing to dispose in place:
   creating and disposing a root of 1,000 empty child roots takes 0.41× the
   time. `escapeHtml` returns a string with nothing to escape after one

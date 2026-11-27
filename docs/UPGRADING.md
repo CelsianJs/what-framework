@@ -685,6 +685,42 @@ and navigations that are transitions. Each change below has its migration.
   `<Router url>` rendered on the server keeps route state of its own, and
   readers outside it see the request's URL: read the URL it was given inside
   it.
+- **Vite's `base` is the router's base.** With `base: '/app/'`, routes match
+  below `/app/` and are written without it: `<Link href="/x">` renders and
+  goes to `/app/x`, `navigate('/x')`, `redirect('/x')` and middleware go
+  there, and `route.url`, `route.path`, params, `useRoute()`, active links,
+  middleware and `preload` see `/x`. A URL outside the base is not routed
+  (no route matches it, the catch-all included, so the fallback shows), and
+  `navigate()` and `<Link>` hand it to the browser. 0.14 ignored `base`. This
+  affects an app that wrote the base into its routes and links: drop it (a
+  prefixed link now renders `/app/app/x`), or call `setBase('')` to route
+  from the root. A relative base (`'./'`) changes nothing. Another bundler,
+  or a server build that keeps what-router external, calls
+  `setBase('/app/')`; `createRequestHandler({ basePath })` takes the same
+  path.
+- **`navigate()` to another origin or scheme leaves the page**, as a
+  `<Link>` to one does: `location.assign`, or `location.replace` with
+  `{ replace: true }`, and no guard runs. Middleware and `redirect()` to
+  another origin replace the entry. 0.14 did nothing.
+- **Hovering a `<Link>` downloads the `lazy()` chunk of the route it goes
+  to**, as `prefetch(href)` and `prefetchRoute(href)` do, beside the
+  `<link rel="prefetch">` they add; a route behind middleware is left for the
+  navigation. This affects an app that counted on a route's code loading only
+  when the route is visited.
+- **The route that wins where two overlap can change.** A route written with
+  brackets (`[id]`, `[...rest]`) ranks like `:id` and `*`, so `/u/new` beats
+  `/u/[id]`; of two catch-alls, the one under more static segments wins
+  whatever their order; and a route whose path has a space or a non-ASCII
+  character (`/café`) matches its URL, so it takes URLs a catch-all used to
+  show. This affects an app whose routes overlap and that relied on the old
+  winner: make the routes distinct.
+- **A hash target is found by its id**, then by its percent-decoded id, as
+  the browser finds it: `#a.b` is the element with the id `a.b`, not a CSS
+  selector.
+- **Back/forward with scroll restoration lands at the saved offset** without
+  first scrolling to a hash URL's element, and only once it has landed: a
+  back/forward that a guard cancels, or a newer navigation overtakes, no
+  longer scrolls the page on screen.
 
 ### Lists
 
@@ -711,8 +747,11 @@ and navigations that are transitions. Each change below has its migration.
   kept, with its DOM, for as long as its key is in the list; when an immutable
   update or a refetch hands it a new object with the same key, compiled rows
   read the new item in place (what-compiler reads the item through the row's
-  item cell), and a row that passed the item to a component, which reads its
-  props once, is built again from it. 0.14 kept showing the first object. An
+  item cell), and a row that passed the item to a component is built again
+  from it only when the component, while it was built, read a field the new
+  item changed (`const id = item.id` in its body), or the whole item (handed
+  it to a function, called a method on it); its JSX follows the new item in
+  place. 0.14 kept showing the first object. An
   `h()` or JSX-runtime row is a vnode made again on every run, so a kept key
   whose vnode renders different data gets a row built from the new vnode;
   functions in a kept row are the ones it was built with. This affects code
@@ -1119,8 +1158,8 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9608 B |
-| The create-what counter, runtime JSX | 6702 B | 9640 B |
+| A counter written with `h()` | 6601 B | 9612 B |
+| The create-what counter, runtime JSX | 6702 B | 9638 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
 
 The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
@@ -1131,7 +1170,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3835 B, for the new engine, the engine hooks async
+counter still grows by 3839 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1151,7 +1190,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 21027 B, more than twice the same app mounted without
+  hydrating counter is 21066 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
