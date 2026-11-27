@@ -1210,14 +1210,16 @@ function createVNodeRows(isSvg, scope, end = document.createComment('/list'), ro
       });
       for (const same of byKey.values()) same.forEach(drop);
       stale.forEach(drop);
-      // The first rows go in in document order (see reconcileNodes).
+      // The first rows go in in document order (see reconcileNodes). A
+      // kept row moves as a compiled list's row does, and one built for this
+      // update goes in from its fragment (moveRow).
       if (rows.length === 0) {
-        for (const row of next) eachRowNode(row, (n) => host.insertBefore(n, end));
+        for (const row of next) moveRow(host, row.first, null, end);
       } else {
         let ref = end;
         for (let i = next.length - 1; i >= 0; i--) {
           const row = next[i];
-          if (row.last.nextSibling !== ref) eachRowNode(row, (n) => host.insertBefore(n, ref));
+          if (row.last.nextSibling !== ref) moveRow(host, row.first, row.last.nextSibling, ref);
           ref = row.first;
         }
       }
@@ -1654,10 +1656,12 @@ function rowEnd(start, endMarker) {
 // moveBefore (Chromium, Firefox) moves a node without taking it out, so a
 // field being edited in the row keeps the focus and its caret; insertBefore
 // blurs it (and Chromium fires blur, which a form validating on blur reads
-// as the visitor leaving the field). Only in a connected parent: a detached
-// one holds no focus, and the first browsers to ship moveBefore threw for it.
+// as the visitor leaving the field). Only for a row in the document: a
+// detached one holds no focus, and the first browsers to ship moveBefore
+// threw for a parent outside it, as moveBefore does for a node outside it (a
+// row just built, in its fragment).
 function moveRow(parent, start, end, ref) {
-  const move = (parent.isConnected && parent.moveBefore) || parent.insertBefore;
+  const move = (start.isConnected && parent.moveBefore) || parent.insertBefore;
   let n = start;
   while (n !== null && n !== end) {
     const next = n.nextSibling;
