@@ -13,7 +13,7 @@ import { loadCompiled } from '../../../test-utils/load-compiled.js';
 const { document } = installDOM();
 
 const { useForm, useFieldArray } = await import('what-framework/form');
-const { mount, flushSync, signal, h } = await import('what-framework');
+const { mount, flushSync, signal, h, computed } = await import('what-framework');
 
 const typed = (reg, value) => reg.onchange({ type: 'input', target: { type: 'text', value } });
 const ids = (array) => array.fields().map((f) => f.id);
@@ -66,6 +66,33 @@ describe('useFieldArray', () => {
     assert.deepEqual(Object.keys(form.formState.errors), ['vehicles.0.vin']);
     typed(regB, 'B2');
     assert.equal(form.getValue('vehicles.0.vin'), 'B2', 'an edit lands on the item, wherever it is');
+  });
+
+  it('a reader that ran again since the last move still follows the next one', () => {
+    const { form, array } = setup();
+    const regB = form.register('vehicles.1.vin');
+    const regC = form.register('vehicles.2.vin');
+    const dirty = form.formState.dirtyFields;
+    const errors = computed(() => form.formState.errors);
+    const name = computed(() => regB.name);
+    typed(regB, 'B!');
+    form.setError('vehicles.1.vin', { message: 'B is wrong' });
+    assert.deepEqual(dirty(), { 'vehicles.1.vin': true });
+    assert.deepEqual(Object.keys(errors()), ['vehicles.1.vin']);
+    assert.equal(name(), 'vehicles.1.vin');
+    typed(regC, 'C!');
+    assert.deepEqual(dirty(), { 'vehicles.1.vin': true, 'vehicles.2.vin': true }, 'ran again for the keystroke');
+
+    array.move(1, 0);
+    assert.deepEqual(dirty(), { 'vehicles.0.vin': true, 'vehicles.2.vin': true });
+    assert.deepEqual(Object.keys(errors()), ['vehicles.0.vin']);
+    assert.equal(name(), 'vehicles.0.vin');
+    typed(regC, 'C2');
+    array.swap(0, 2);
+    assert.deepEqual(dirty(), { 'vehicles.0.vin': true, 'vehicles.2.vin': true });
+    assert.deepEqual(Object.keys(errors()), ['vehicles.2.vin']);
+    assert.equal(name(), 'vehicles.2.vin');
+    assert.deepEqual(form.formState.values.vehicles.map((v) => v.vin), ['C2', 'A', 'B!']);
   });
 
   it('remove releases the item: its value, its error, its touched state', () => {

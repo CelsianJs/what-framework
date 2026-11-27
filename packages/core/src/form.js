@@ -808,20 +808,32 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     if (map === undefined) placeMaps.set(list, map = new Map(list.map((segment, i) => [segment, i])));
     return map;
   };
+  // Each key's name, and the arrays on its path, found once until an
+  // array's items change (seed and change start a new map). A read of a
+  // kept name still reads those arrays, so it follows them as before.
+  /** @type {Map<string, any[]>} */
+  let names = new Map();
   const nameAt = (k) => {
     if (!k.includes('\0')) return k;
+    let hit = names.get(k);
+    if (hit !== undefined) {
+      for (let i = 1; i < hit.length; i++) arrays[hit[i]]?.();
+      return hit[0];
+    }
+    names.set(k, hit = [null]);
     let at = '';
     let out = '';
     for (const segment of k.split('.')) {
       let part = segment;
       if (segment[0] === '\0') {
+        hit.push(at);
         part = places(at)?.get(segment);
         if (part === undefined) return null;
       }
       at += (at ? '.' : '') + segment;
       out += (out ? '.' : '') + part;
     }
-    return out;
+    return (hit[0] = out);
   };
   // Forget an item and the field arrays inside it.
   const drop = (k) => {
@@ -833,6 +845,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     }
   };
   const seed = (k, items) => {
+    names = new Map();
     if (arrays[k]) return arrays[k].set(items.map(add));
     arrays[k] = signal(items.map(add));
   };
@@ -916,6 +929,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
       // that took its item as a value is built again for a new one.
       let shown = {};
       const change = (next, removed = []) => batch(() => {
+        names = new Map();
         items.set(next);
         for (const segment of removed) drop(k + '.' + segment);
         isDirty.set(true);
