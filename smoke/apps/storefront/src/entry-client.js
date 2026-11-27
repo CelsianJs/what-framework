@@ -5,7 +5,7 @@
 
 import { h, hydrate, effect } from 'what-framework';
 import { enhanceForms } from 'what-server/islands';
-import { count, subtotal, formatPrice } from './store/cart.js';
+import { count, subtotal, formatPrice, restoreCart } from './store/cart.js';
 import Home from './pages/home.js';
 import Product from './pages/product.js';
 import Cart from './pages/cart.js';
@@ -43,6 +43,9 @@ if (vnode) {
     effect(() => { subtotalEl.textContent = formatPrice(subtotal()); });
   }
 }
+
+// The saved cart, now that the page shows the server's (store/cart.js).
+restoreCart();
 
 // Progressive enhancement for <Form>: posts to /__what_action without a page
 // reload, then follows the action's redirect. With scripting disabled the same

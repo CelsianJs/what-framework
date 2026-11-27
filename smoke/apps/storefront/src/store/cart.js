@@ -5,8 +5,11 @@
 // it asserts the header badge on one page reflects an add performed on another.
 //
 // Persistence is deliberate too. The cart survives a full page reload, which is
-// a real requirement for a storefront and the only way to prove that client
-// state is not silently reset by hydration.
+// a real requirement for a storefront. The server has no localStorage and
+// renders an empty cart, so the store starts empty on the client as well and
+// the entry restores the saved cart once the page has hydrated onto the
+// server's HTML (restoreCart): reading it before would render a badge and a
+// cart page the server's HTML does not have.
 
 import { signal, computed, batch } from 'what-framework';
 
@@ -23,7 +26,12 @@ function readPersisted() {
 }
 
 // `lines` is the single source of truth: [{ slug, title, price, qty }]
-export const lines = signal(readPersisted(), 'cart:lines');
+export const lines = signal([], 'cart:lines');
+
+/** The saved cart, shown once the page has hydrated. */
+export function restoreCart() {
+  lines(readPersisted());
+}
 
 export const count = computed(() => lines().reduce((n, l) => n + l.qty, 0));
 export const subtotal = computed(() => lines().reduce((n, l) => n + l.qty * l.price, 0));
