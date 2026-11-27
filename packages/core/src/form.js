@@ -117,15 +117,18 @@ function setIn(obj, path, value) {
   cur[segments[last]] = value;
 }
 
-// Deletes the path from `obj`, walking only plain objects and arrays, which
-// must be the form's own (clone's); an object the removal leaves empty goes
-// too, as React Hook Form's unset does.
+// A copy of `obj` without the path, copying only the plain objects and arrays
+// on it: every other value keeps its identity, which dirtyFields compares a
+// field's value with. An object the removal leaves empty goes too, as React
+// Hook Form's unset does.
 function unsetIn(obj, segments) {
-  if (!isContainer(obj)) return;
   const [segment, ...rest] = segments;
-  if (rest.length) unsetIn(obj[segment], rest);
-  const inner = obj[segment];
-  if (!rest.length || inner === undefined || (!Array.isArray(inner) && isContainer(inner) && !Object.keys(inner).length)) delete obj[segment];
+  if (!isContainer(obj) || !Object.hasOwn(obj, segment)) return obj;
+  const out = Array.isArray(obj) ? [...obj] : { ...obj };
+  const inner = rest.length ? unsetIn(out[segment], rest) : undefined;
+  if (inner === undefined || (!Array.isArray(inner) && isContainer(inner) && !Object.keys(inner).length)) delete out[segment];
+  else out[segment] = inner;
+  return out;
 }
 
 // --- useForm Hook ---
@@ -248,11 +251,11 @@ function createFormController(options = {}) {
   // tracked: a snapshot reads them through untrack().
   function getAllValues() {
     fieldCount();
-    const result = clone(defaultValues);
+    let result = clone(defaultValues);
     ext?.v(result);
     for (const key in hidden) {
       const name = nameOf(key);
-      if (name != null) unsetIn(result, name.split('.'));
+      if (name != null) result = unsetIn(result, name.split('.'));
     }
     for (const key in known) {
       const name = nameOf(key);
@@ -393,7 +396,7 @@ function createFormController(options = {}) {
         if (arrays[key]) ext.a(key, []);
         if (!gone && (options.keepDefaultValue || shouldUnregister)) {
           if (!arrays[key]) hidden[key] = true;
-        } else if (!ext?.u(key)) unsetIn(defaultValues = clone(defaultValues), key.split('.'));
+        } else if (!ext?.u(key)) defaultValues = unsetIn(defaultValues, key.split('.'));
         each(hidden, () => {});
         // Every field written has a signal, so one walk unmarks the fields
         // and gives their signals the default.
@@ -870,7 +873,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
       if (at < 0) return false;
       if (!(segments[at] in bases)) return true;
       if (at === segments.length - 1) delete bases[segments[at]];
-      else unsetIn(bases[segments[at]] = clone(bases[segments[at]]), segments.slice(at + 1));
+      else bases[segments[at]] = unsetIn(bases[segments[at]], segments.slice(at + 1));
       return true;
     },
     // Each array's items, outer arrays first, replace what the defaults hold.

@@ -128,6 +128,23 @@ describe('useForm unregister', () => {
     assert.deepEqual(defaults, snapshot);
   });
 
+  it('leaves every other default as it was, so a field holding its default stays clean', () => {
+    const form = useForm({ defaultValues: { tags: ['a', 'b'], profile: { city: 'Lyon' }, other: 'o' } });
+    form.setValue('tags', ['z']);
+    form.setValue('profile', { city: 'Paris' });
+    form.reset();
+    assert.deepEqual(form.formState.dirtyFields(), {});
+    form.unregister('other');
+    assert.deepEqual(form.formState.dirtyFields(), {});
+    const array = useFieldArray({ control: form.control, name: 'items' });
+    const tags = ['x'];
+    array.append({ tags, note: 'n' });
+    form.setValue('items.0.tags', tags);
+    assert.deepEqual(form.formState.dirtyFields(), {});
+    form.unregister('items.0.note');
+    assert.deepEqual(form.formState.dirtyFields(), {});
+  });
+
   it('a reader of the whole form and watch(name) follow the field going', () => {
     const form = useForm();
     typed(form, 'a', '1');
