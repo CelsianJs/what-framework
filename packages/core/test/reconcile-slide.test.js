@@ -1,11 +1,11 @@
-// A keyed list that slides like a window over a stream: a capped log drops
-// rows at the start as items arrive at the end (a chat, a log tail), and a
-// newest-first feed adds items at the start and drops rows at the end. The
-// rows that stay hold the same items in the same order, so the reconciler
-// keeps them where they are, removes the dropped rows and builds the added
-// ones, reading each key in the range once rather than building a map of the
-// old keys and walking every row (the chat smoke app: 400 messages arriving
-// at once into a 1,000-row log).
+// A keyed list that slides like a window over a stream. A capped log drops
+// rows at the start as items arrive at the end (a chat, a log tail): the rows
+// that stay hold the same items in the same order, so the reconciler keeps
+// them where they are, removes the dropped rows and builds the added ones,
+// reading each key in the range once rather than building a map of the old
+// keys and walking every row (the chat smoke app: 400 messages arriving at
+// once into a 1,000-row log). A newest-first feed, the mirror, goes through
+// the general path, which keeps its rows too.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
