@@ -1194,9 +1194,9 @@ the event to the DOM showing its result:
 
 ### React libraries in a native app
 
-`mixed-desk` (Chromium / WebKit / Firefox, M-series Mac, three browsers
-running at once on a busy machine), each React package at the version its
-package.json pins:
+`mixed-desk` (Chromium / WebKit / Firefox, M-series Mac; ranges span runs
+alone and runs with the three browsers at once on a busy machine), each
+React package at the version its package.json pins:
 
 | measure | bound | measured |
 |---|---|---|
@@ -1204,16 +1204,16 @@ package.json pins:
 | renders of a quote island per write of its own symbol; of a quiet symbol | at most 1; 0 | 1 in Chromium and WebKit (1,027 renders for 1,027 writes); in Firefox 1,010 for 1,063, where a late timer put two writes of a symbol in one task; 0 |
 | React state lifted into the store 100 times a second for 10 s | every value once, in order, echoed back | exact (about 1,020 values) |
 | a write to one of 10,000 deals, to its react-window row | 25 ms (90th percentile) | median 0.3 / 1 / 1 ms |
-| the same with a TanStack table sorted over all 10,000 mounted beside it | 250 ms (90th percentile) | median 7.5 / 7 / 35–80 ms |
-| all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 22–97 ms |
+| the same with a TanStack table sorted over all 10,000 mounted beside it | 250 ms (90th percentile) | median 6.6–7.5 / 7 / 18–80 ms |
+| all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 19–97 ms |
 | 35 route changes while the feed runs (dialogs, toasts, charts, lists, a flow diagram, drag and drop, carousels) | every component, listener, timer, observer and node released; no console noise | all released, 285 React mounts each run; console clean (after 45) |
 | the heap after a forced GC over two more rounds of 35 route changes (Chromium; the devtools protocol) | under 1 MiB | 330 KB, 4.7 KB per change (a navigation between two native pages leaves 3 to 5 KB) |
 | a react-hook-form island in a server-rendered page, typed into before it hydrates | no element created; text, focus and ids kept | 0 created; kept |
 | a `client:load` island (a native ticket hosting a React stepper) on that page, typed into before it hydrates | its nodes kept, React state and callback live | kept; live |
 
 Firefox's table numbers are TanStack Table's: with the table unmounted the
-same write costs 1 ms there, and with only the table on the page 120 ms
-(Chromium 6 ms), so the time goes into deriving its sorted row model of
+same write costs 1 ms there, and with only the table on the page 30 to
+120 ms by the machine's load (Chromium 6 ms), so the time goes into deriving its sorted row model of
 10,000 rows on each write, not into what-react (measured by hand in a copy
 of the app, one run per browser; that the cost is SpiderMonkey running
 TanStack's code is a guess, not measured against real React).
