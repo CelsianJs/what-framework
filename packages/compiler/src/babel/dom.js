@@ -18,7 +18,7 @@ import {
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
-import { findMappedJsx, keyIndex, listSlot, readItemThroughAccessor, rowField, withItem } from './lists.js';
+import { findMappedJsx, keyIndex, listSlot, readItemThroughAccessor, rowField, rowItemUnread, withItem } from './lists.js';
 import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 
 
@@ -213,15 +213,25 @@ function tryLowerMapCall(mapCall, state) {
   // The element the row's callback returns is built with the row, in the
   // row's own scope: a field in its template is the row's (fieldCall).
   if (follow) returnExpr._whatRowCell = cellName;
+  // A row whose reads of its item cannot be found (lists.js rowItemUnread) is
+  // handed its item from the cell where it is built, `(cell, i) =>
+  // fn(_$item(cell), i)`: a read of the whole item while the row is built,
+  // so follow mode builds the row again for an item replaced under its key.
+  let rowFn = mapFn;
+  if (!follow && rowItemUnread(mapFn, keyValue)) {
+    const index = uniqueName(state, '_i$');
+    rowFn = t.arrowFunctionExpression([t.identifier(cellName), t.identifier(index)],
+      t.callExpression(mapFn, [t.callExpression(helper(state, '_$item'), [t.identifier(cellName)]), t.identifier(index)]));
+  }
   const options = [
     t.objectProperty(t.identifier('key'), keyFn),
-    t.objectProperty(t.identifier(follow ? 'follow' : 'raw'), t.booleanLiteral(true)),
+    t.objectProperty(t.identifier(follow || rowFn !== mapFn ? 'follow' : 'raw'), t.booleanLiteral(true)),
   ];
   if (follow && rowHoldsPlainFields(mapFn)) options.push(rowFieldsOption(state));
   // The server's list has the same number (lists.js listSlot).
   const slot = listSlot(mapCall);
   if (slot !== null) options.push(t.objectProperty(t.identifier('slot'), slot));
-  const list = t.callExpression(helper(state, '_$mapArray'), [source, mapFn, t.objectExpression(options)]);
+  const list = t.callExpression(helper(state, '_$mapArray'), [source, rowFn, t.objectExpression(options)]);
   list._whatList = true;
   return list;
 }

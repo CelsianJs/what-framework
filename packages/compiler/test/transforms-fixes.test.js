@@ -200,13 +200,18 @@ describe('.map() lowering to _$mapArray', () => {
     assert.match(code, /#\$\{item\.id\}/, 'the key expression reads the raw item');
   });
 
-  it('keeps the raw item where the callback binds the name again', () => {
+  it('hands the item to a callback that binds the name again where its row is built', () => {
     const code = compileJSX(`
       function App() {
         return <ul>{items().map(item => <li key={item.id} onClick={() => [1].forEach((item) => use(item))}>{item.name}</li>)}</ul>;
       }
     `);
-    assert.match(code, /raw:\s*true/);
+    // The callback is left as written and called with the cell's item, so an
+    // item replaced under its key builds the row again (follow mode).
+    assert.match(code, /\(_\$item\(_item\$\d+\), _i\$\d+\)/);
+    assert.match(code, /follow:\s*true/);
+    assert.doesNotMatch(code, /raw:\s*true/);
+    assert.match(code, /_\$insert\(_el\$1, item\.name\)/);
   });
 
   it('does NOT lower map without a key prop (and warns)', () => {

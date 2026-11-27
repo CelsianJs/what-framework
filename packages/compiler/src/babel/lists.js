@@ -227,12 +227,13 @@ export function findMappedJsx(mapCall, state, requireKey) {
 // _$item), which the row's bindings track, and the key expression keeps
 // reading the item the row was built from, as a row's key cannot change while
 // it lives. Returns false and changes nothing when the row reads the item only
-// for its key, when the first parameter is not a plain name, or when that name
-// is assigned or bound again inside the callback; the row then gets the raw
-// item, as before.
+// for its key (the row then gets the raw item), when the first parameter is
+// not a plain name, or when that name is assigned or bound again inside the
+// callback (rowItemUnread: the DOM target then builds the row again for a
+// replaced item).
 export function readItemThroughAccessor(mapFn, keyValue, read, cellName, indexName) {
   const reads = rowItemReads(mapFn, keyValue);
-  if (reads === null) return false;
+  if (reads === null || reads.length === 0) return false;
   const itemName = mapFn.params[0].name;
   for (const [holder, slot, field] of reads) {
     const callee = read();
@@ -283,6 +284,15 @@ export function withItem(expr, root, replacement) {
 export function markRowItemReads(mapFn, keyValue) {
   const reads = rowItemReads(mapFn, keyValue);
   if (reads !== null) for (const [holder, slot] of reads) holder[slot]._whatRowItem = true;
+}
+
+// Whether a keyed row reads its item in a way the reads cannot be found in
+// (rowItemReads gives up): a parameter still destructured, or a name the
+// callback binds again, assigns or uses as a JSX tag. Such a row cannot read
+// its item through the cell, and a raw item would leave it showing the item it
+// was built from after the item is replaced under its key.
+export function rowItemUnread(mapFn, keyValue) {
+  return mapFn.params.length > 0 && rowItemReads(mapFn, keyValue) === null;
 }
 
 // --- A destructured row ---
@@ -489,8 +499,9 @@ export function keyIndex(found) {
 }
 
 // The reads of a keyed row's item other than its key expression, as
-// [holder, slot, field] triples, or null when there is none or the row cannot
-// read its item through a cell (see readItemThroughAccessor). `field` is the
+// [holder, slot, field] triples (none when the row reads only its key), or
+// null when the row cannot read its item through a cell (see
+// readItemThroughAccessor). `field` is the
 // item's property a member read reads (`row.name`, `row['name']`), undefined
 // for a read of the whole item or of a method it calls (`row.total()` may
 // read any field through `this`).
@@ -613,5 +624,5 @@ function rowItemReads(mapFn, keyValue) {
     if (binds(mapFn.params[i])) return null;
   }
   visit(mapFn.body, mapFn, 'body');
-  return unsafe || reads.length === 0 ? null : reads;
+  return unsafe ? null : reads;
 }
