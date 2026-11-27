@@ -11,13 +11,19 @@
  * twin of a what-framework/<kit> path, so a package that depends on what-core
  * alone keeps resolving.
  *
- * Bad:  import { signal, useForm, Spinner } from 'what-framework';
+ * A name only a subpath has ever exported (SUBPATH_ONLY: the router's `Router`,
+ * `Link`, `navigate`, …) gets the same answer, and an import of it from
+ * what-framework moves to what-framework/router. what-core has no router, so
+ * one from what-core is reported and left in place.
+ *
+ * Bad:  import { signal, useForm, Spinner, Router } from 'what-framework';
  * Good: import { signal } from 'what-framework';
  *       import { useForm } from 'what-framework/form';
  *       import { Spinner } from 'what-framework/ui';
+ *       import { Router } from 'what-framework/router';
  */
 
-import { IMPORT_CHANGES } from 'what-core/internal';
+import { IMPORT_CHANGES, SUBPATH_ONLY } from 'what-core/internal';
 
 const ROOT_ENTRIES = new Set(['what-framework', 'what-core']);
 
@@ -25,7 +31,16 @@ const nameOf = (node) => (node.type === 'Identifier' ? node.name : node.value);
 const textOf = (node) => (node.type === 'Identifier' ? node.name : node.raw);
 
 function changeFor(name) {
-  return IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name);
+  return IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name)
+    || SUBPATH_ONLY.find((c) => c.name === name);
+}
+
+// Where an import of the change's name from `source` goes, or null when it
+// cannot move there: a removed name, or a subpath-only name from what-core.
+function destinationFor(change, source) {
+  if (!change.to) return null;
+  if (source !== 'what-core') return change.to;
+  return SUBPATH_ONLY.includes(change) ? null : change.to.replace(/^what-framework\//, 'what-core/');
 }
 
 export default {
@@ -77,7 +92,7 @@ export default {
         const { remote, binding, typeOnly } = parts(specifier);
         const name = move?.as && nameOf(remote) === move.name ? move.as : textOf(remote);
         const local = textOf(binding);
-        const to = !move ? source : source === 'what-core' ? move.to.replace(/^what-framework\//, 'what-core/') : move.to;
+        const to = !move ? source : destinationFor(move, source);
         const named = byDestination.get(to) || [];
         byDestination.set(to, named);
         named.push(`${typeOnly ? 'type ' : ''}${name === local ? name : `${name} as ${local}`}`);
@@ -102,15 +117,16 @@ export default {
       }
       if (!found.length) return;
 
-      const moves = new Map(found.filter((f) => f.change.to).map((f) => [f.specifier, f.change]));
+      const source = node.source.value;
+      const moves = new Map(found.filter((f) => destinationFor(f.change, source)).map((f) => [f.specifier, f.change]));
       // A comment inside the braces has no place in the rewritten declarations.
       const fixable = moves.size > 0 && sourceCode.getCommentsInside(node).length === 0;
       for (const { specifier, name, change } of found) {
         context.report({
           node: specifier,
           messageId: 'moved',
-          data: { name, source: node.source.value, answer: change.answer },
-          fix: fixable && change.to ? (fixer) => fixer.replaceText(node, rewrite(node, moves)) : null,
+          data: { name, source, answer: change.answer },
+          fix: fixable && moves.has(specifier) ? (fixer) => fixer.replaceText(node, rewrite(node, moves)) : null,
         });
       }
     }
@@ -169,9 +185,8 @@ export default {
       if (!found.length) return;
       // Fixable when every name it reads moved to one destination: the import
       // takes that path.
-      const destinations = new Set(found.map((f) => f.change.to));
-      const dest = read.whole && found.length === read.names.length && destinations.size === 1 && !found.some((f) => f.change.as) ? found[0].change.to : null;
-      const to = dest === null ? null : src.value === 'what-core' ? dest.replace(/^what-framework\//, 'what-core/') : dest;
+      const destinations = new Set(found.map((f) => destinationFor(f.change, src.value)));
+      const to = read.whole && found.length === read.names.length && destinations.size === 1 && !found.some((f) => f.change.as) ? [...destinations][0] : null;
       for (const { name, node: at, change } of found) {
         context.report({
           node: at,

@@ -124,6 +124,8 @@ export interface ImportChange {
   neverOnRoot?: true;
 }
 export const IMPORT_CHANGES: readonly ImportChange[];
+/** Where each name a subpath exports, and the root entry never did, lives (`Router` in what-framework/router). */
+export const SUBPATH_ONLY: readonly ImportChange[];
 
 // --- Server context ---
 

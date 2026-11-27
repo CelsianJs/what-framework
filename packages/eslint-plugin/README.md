@@ -67,7 +67,11 @@ binding (`useTransition` becomes `useTween as useTransition`), moves an import
 from `what-core` to the `what-core/<kit>` twin, and rewrites re-exports
 (`export { … } from 'what-framework'`) the same way. A removed name, such as
 `getCollectedErrors`, has no destination: it is reported with its replacement
-and left for you to change. The rule is an error in every preset.
+and left for you to change. A name only a subpath has ever exported, such as
+the router's (`import { Router, Link } from 'what-framework'`), is answered from
+`SUBPATH_ONLY` in `what-core/internal` and moved to `what-framework/router`;
+`what-core` has no router, so the same import from `what-core` is reported and
+left in place. The rule is an error in every preset.
 
 ### `what/no-effect-self-write`
 

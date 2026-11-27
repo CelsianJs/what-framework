@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Linter } from 'eslint';
 import * as espree from 'espree';
-import { ERROR_CODES, IMPORT_CHANGES } from 'what-core/internal';
+import { ERROR_CODES, IMPORT_CHANGES, SUBPATH_ONLY } from 'what-core/internal';
 import what from '../src/index.js';
 
 const RULE = 'what/no-moved-imports';
@@ -94,6 +94,28 @@ test('an import from what-core moves to the what-core twin of the kit', () => {
     lint("import { signal, useForm, _setTextInsertHook } from 'what-core';").output,
     "import { signal } from 'what-core';\nimport { useForm } from 'what-core/form';\nimport { _setTextInsertHook } from 'what-core/render';",
   );
+});
+
+test('a router name imported from what-framework is answered and moves to what-framework/router', () => {
+  const routerAnswer = (name) => SUBPATH_ONLY.find((c) => c.name === name).answer;
+  const { messages, output } = lint("import { mount, Router, Link as A } from 'what-framework';");
+  assert.deepEqual(messages.map((m) => m.message), [
+    `"Router" is not exported by what-framework. ${routerAnswer('Router')}`,
+    `"Link" is not exported by what-framework. ${routerAnswer('Link')}`,
+  ]);
+  assert.equal(routerAnswer('Router'), "The router lives in what-framework/router. Import it with: import { Router } from 'what-framework/router'.");
+  assert.equal(output, "import { mount } from 'what-framework';\nimport { Router, Link as A } from 'what-framework/router';");
+  assert.equal(lint("const { navigate } = await import('what-framework');").output, "const { navigate } = await import('what-framework/router');");
+});
+
+test('a router name imported from what-core is answered and left in place: what-core has no router', () => {
+  const { messages, output } = lint("import { signal, useForm, Router } from 'what-core';");
+  assert.deepEqual(messages.map((m) => [m.message.split('.')[0], m.fix === undefined]), [
+    ['"useForm" is not exported by what-core', false],
+    ['"Router" is not exported by what-core', true],
+  ]);
+  assert.equal(output, "import { signal, Router } from 'what-core';\nimport { useForm } from 'what-core/form';");
+  assert.equal(lint("const { navigate } = await import('what-core');").output, "const { navigate } = await import('what-core');");
 });
 
 test('re-exports from the root entry move too', () => {

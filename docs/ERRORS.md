@@ -1045,7 +1045,7 @@ hydrate(<App />, '#app');
 
 > "{{name}}" is not exported by {{source}}. {{answer}}
 
-In 0.15 the root entry (what-framework, and what-core alike) kept the core API: the domain kits moved to subpaths such as what-framework/form and what-framework/ui, a few names were renamed, and some were removed. Each name has one answer, recorded in IMPORT_CHANGES (what-core/internal) and listed in UPGRADING.md. eslint --fix with eslint-plugin-what's no-moved-imports rule splits the import per destination; a removed name is left for you to replace as its answer says. A name only a subpath has ever exported, such as the router's (Router, Link, navigate from what-framework/router), gets the same answer from what-compiler's Vite plugin when it is imported from the root entry.
+In 0.15 the root entry (what-framework, and what-core alike) kept the core API: the domain kits moved to subpaths such as what-framework/form and what-framework/ui, a few names were renamed, and some were removed. Each name has one answer, recorded in IMPORT_CHANGES (what-core/internal) and listed in UPGRADING.md. eslint --fix with eslint-plugin-what's no-moved-imports rule splits the import per destination; a removed name is left for you to replace as its answer says. A name only a subpath has ever exported, such as the router's (Router, Link, navigate from what-framework/router), gets the same answer when it is imported from the root entry, from what-compiler's Vite plugin and from no-moved-imports, whose fix moves it to what-framework/router.
 
 ```jsx
 // Bad - useForm and Spinner left the root entry in 0.15:

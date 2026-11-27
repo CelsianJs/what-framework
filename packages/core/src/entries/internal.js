@@ -25,8 +25,9 @@ export {
 // The error catalogue, for tools that render or classify errors.
 export { ERROR_CODES, createWhatError, classifyError } from '../errors.js';
 
-// Where each name the root entry dropped in 0.15 went (validateImports, docs, lint).
-export { IMPORT_CHANGES } from '../import-changes.js';
+// Where each name the root entry dropped in 0.15 went (validateImports, docs,
+// lint), and where each name only a subpath exports lives.
+export { IMPORT_CHANGES, SUBPATH_ONLY } from '../import-changes.js';
 
 // Server rendering (what-server).
 export {

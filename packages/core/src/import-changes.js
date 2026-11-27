@@ -111,7 +111,7 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
 
   // New in 0.15, never on the root entry.
   { to: 'what-core/internal', neverOnRoot: true, names: [
-    '__depsOf', '__subsOf', '__currentEffect', '__ownerOf', '__ownerPath', 'reportDiagnostic', 'IMPORT_CHANGES',
+    '__depsOf', '__subsOf', '__currentEffect', '__ownerOf', '__ownerPath', 'reportDiagnostic', 'IMPORT_CHANGES', 'SUBPATH_ONLY',
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '_actionStateKey', '_actionKeySalt', '_currentRowPath', '_enterRow', '_installRowKeys', '_leaveRow', '_renderSalt', '_tracksRows', '__flushOutsideServerContext', '__outsideServerContext', '__markServerProcess',
@@ -130,9 +130,9 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
 // root entry by someone who guessed (`import { Router, Link } from
 // 'what-framework'`, the way react-router's names are swapped for React's).
 // They are not changes, so the upgrade guide does not list them; what-compiler's
-// Vite plugin answers such an import with where the name lives, as it answers a
-// moved one. Records have the shape of IMPORT_CHANGES' ({ name, to, note,
-// answer }).
+// Vite plugin and eslint-plugin-what's no-moved-imports rule answer such an
+// import with where the name lives, as they answer a moved one. Records have
+// the shape of IMPORT_CHANGES' ({ name, to, note, answer }).
 export const SUBPATH_ONLY = /* @__PURE__ */ table([
   { to: 'what-framework/router', names: [
     'Router', 'FileRouter', 'Link', 'NavLink', 'Outlet', 'Redirect', 'navigate', 'redirect', 'route',
