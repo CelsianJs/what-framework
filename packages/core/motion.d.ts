@@ -115,8 +115,9 @@ export interface AnimationHandle {
 }
 
 /**
- * `animateTo` and `stop` were declared here and have never existed. Animations
- * are started with spring()/timing(), each returning its own handle to stop.
+ * Animations are started with spring()/timing(), each returning its own
+ * handle to stop. One runs at a time: starting one stops the one before, and
+ * the owner going away stops it.
  */
 export function useAnimatedValue(initialValue: number): {
   value: () => number;

@@ -1,7 +1,7 @@
 // What Framework - Animation Primitives
 // Springs, tweens, gestures, and transition helpers
 
-import { signal, effect, batch, onCleanup, _userEffect } from './reactive.js';
+import { signal, effect, batch, onCleanup, createRoot, untrack, _userEffect } from './reactive.js';
 import { scheduleRead, scheduleWrite } from './scheduler.js';
 
 // --- Spring Animation ---
@@ -459,10 +459,37 @@ export function useGesture(element, handlers = {}) {
 }
 
 // --- useAnimatedValue Hook ---
-// Like React Native's Animated.Value
+// Like React Native's Animated.Value. One animation is in flight at a time:
+// spring() and timing() stop the one before, so the value ends on the newest
+// target, and the owner going away stops it. Each animation lives in a root
+// of its own, which a spring disposes once it has settled.
 
 export function useAnimatedValue(initialValue) {
   const value = signal(initialValue);
+  /** @type {(() => void) | null} */
+  let running = null;
+  const stopRunning = () => {
+    const stop = running;
+    running = null;
+    if (stop !== null) stop();
+  };
+  onCleanup(stopRunning);
+
+  // Runs `start` in a root that stopping the animation disposes; `start`
+  // gets the function that ends it.
+  const animate = (start) => {
+    stopRunning();
+    const stop = createRoot((dispose) => {
+      const end = () => {
+        if (running === end) running = null;
+        dispose();
+      };
+      untrack(() => start(end));
+      return end;
+    });
+    running = stop;
+    return { stop: () => { if (running === stop) stopRunning(); } };
+  };
 
   return {
     value: () => value(),
@@ -470,28 +497,28 @@ export function useAnimatedValue(initialValue) {
 
     // Spring to target
     spring(toValue, config = {}) {
-      const s = spring(value.peek(), config);
-      s.set(toValue);
-
-      const dispose = effect(() => {
-        value.set(s.current());
+      return animate((end) => {
+        const s = spring(value.peek(), config);
+        s.set(toValue);
+        effect(() => {
+          value.set(s.current());
+          if (!s.isAnimating()) end();
+        });
       });
-
-      return {
-        stop: () => { s.stop(); dispose(); },
-      };
     },
 
     // Tween to target
     timing(toValue, config = {}) {
-      const t = tween(value.peek(), toValue, {
-        ...config,
-        onUpdate: (v) => value.set(v),
+      return animate((end) => {
+        tween(value.peek(), toValue, {
+          ...config,
+          onUpdate: (v) => value.set(v),
+          onComplete: () => {
+            end();
+            if (config.onComplete) config.onComplete();
+          },
+        });
       });
-
-      return {
-        stop: () => t.cancel(),
-      };
     },
 
     // Interpolate value
