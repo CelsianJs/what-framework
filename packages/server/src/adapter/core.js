@@ -402,7 +402,8 @@ export function createRequestHandler(options = {}) {
     // The base is a whole number of segments ('/app' or, as Vite writes it,
     // '/app/'): '/app/x' is '/x' and '/app' is '/', and '/application' is
     // not below it, so it is matched as it is.
-    if (base && (pathname === base || pathname.startsWith(base + '/'))) pathname = pathname.slice(base.length) || '/';
+    const outside = base !== '' && pathname !== base && !pathname.startsWith(base + '/');
+    if (base && !outside) pathname = pathname.slice(base.length) || '/';
 
     // Server actions (JSON fetch path AND plain form-post fallback)
     if (request.method === 'POST' && pathname === ACTION_PATH) {
@@ -499,8 +500,11 @@ export function createRequestHandler(options = {}) {
     // other method renders below as that request's own, never stored.
     // NOTE: cached HTML is shared across users, so the per-user CSRF token is
     // NOT embedded in the page here — clients read it from the cookie instead.
+    // A request outside the base is not the page its key names ('/x' and
+    // '/app/x' are both '/x', and a Router below the base routes nothing at
+    // '/x'): it renders below as its own, never stored.
     const readOnly = request.method === 'GET' || request.method === 'HEAD';
-    if (cache && config.mode !== 'server' && !posted && readOnly) {
+    if (cache && config.mode !== 'server' && !posted && readOnly && !outside) {
       // The cache engine resolves the route's declared `vary` names against
       // these. Without them it fails closed: warns and bypasses on every
       // request, which is how the vary control shipped never executing.

@@ -9,6 +9,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
+import { Router, setBase } from 'what-router';
+import { createCacheEngine, createMemoryStore } from 'what-isr';
 import { createRequestHandler } from '../src/index.js';
 
 const routes = [
@@ -33,4 +35,33 @@ describe('createRequestHandler basePath', () => {
       assert.match((await get(handler, '/application')).body, /application page/);
     });
   }
+});
+
+// A request outside the base is matched as it is, but it is not the page its
+// cache key names: '/about' and '/app/about' are both the key '/about', and a
+// Router below the base routes nothing at '/about'. It is rendered as its own
+// and never stored, so it cannot replace the page every visitor below the
+// base is served. Before, its render (the Router's fallback) was stored and
+// served at '/app/about'.
+describe('createRequestHandler basePath and the cache', () => {
+  it('never stores the render of a request outside the base', async () => {
+    setBase('/app');
+    try {
+      const pages = [{ path: '/about', component: () => h('h1', null, 'about') }];
+      const App = () => h(Router, { routes: pages, fallback: () => h('p', null, 'not found') });
+      const cached = [{ path: '/about', component: App, mode: 'static', page: { mode: 'static', revalidate: 60 } }];
+      const handler = createRequestHandler({ routes: cached, cache: createCacheEngine({ store: createMemoryStore() }), basePath: '/app', csrf: false });
+      const outside = await handler(new Request('http://app.test/about'));
+      assert.equal(outside.headers.get('x-what-cache'), null, 'rendered outside the cache');
+      assert.match(await outside.text(), /not found/);
+      const below = await handler(new Request('http://app.test/app/about'));
+      assert.equal(below.headers.get('x-what-cache'), 'MISS');
+      assert.match(await below.text(), /<h1[^>]*>about<\/h1>/);
+      const again = await handler(new Request('http://app.test/app/about'));
+      assert.equal(again.headers.get('x-what-cache'), 'HIT');
+      assert.match(await again.text(), /<h1[^>]*>about<\/h1>/);
+    } finally {
+      setBase('');
+    }
+  });
 });
