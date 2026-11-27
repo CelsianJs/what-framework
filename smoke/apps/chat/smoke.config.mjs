@@ -183,10 +183,17 @@ export default {
           }));
           // Back to the bottom; read where the view is once the room is quiet
           // (while it talks, a frame can end with rows the next frame scrolls
-          // to).
+          // to). Messages already sent still land after the pause, and
+          // trimming a long backlog can take a few frames under load, so the
+          // view gets up to two seconds to settle at the bottom; a log that
+          // does not follow never gets there.
           await page.click('[data-unseen]');
           await post('/__control', { running: false });
           await sleep(400);
+          await page.waitForFunction(() => {
+            const b = document.querySelector('[data-scroller]');
+            return b.scrollTop + b.clientHeight >= b.scrollHeight - 4;
+          }, null, { timeout: 2000 }).catch(() => {});
           const back = await page.evaluate(() => {
             const b = document.querySelector('[data-scroller]');
             return { bottom: b.scrollTop + b.clientHeight >= b.scrollHeight - 4, rows: document.querySelectorAll('[data-log] li:not(.pending)').length, pill: !!document.querySelector('[data-unseen]') };
