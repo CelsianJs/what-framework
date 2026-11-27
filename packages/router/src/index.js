@@ -1258,10 +1258,16 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   ...rest
 }) {
   // Sanitize href — reject dangerous protocols
-  const safeHref = isSafeUrl(href) ? href : 'about:blank';
-  if (!isSafeUrl(href) && typeof console !== 'undefined') {
+  const blocked = !isSafeUrl(href);
+  const safeHref = blocked ? 'about:blank' : href;
+  if (blocked && typeof console !== 'undefined') {
     console.warn('[what-router] Link blocked unsafe href:', href);
   }
+  // The caller's own handlers (onClick or onclick, onMouseEnter): each runs
+  // before the link's, and a click it prevents is not navigated, as in React
+  // Router. Spread after the link's own, they replaced them.
+  const ownClick = takeHandler(rest, 'onclick');
+  const ownEnter = takeHandler(rest, 'onmouseenter');
 
   // The path the link goes to, as the address bar will show it; none for
   // another origin's URL, which is never active. A relative href ('#top',
@@ -1296,16 +1302,42 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   return h('a', {
     href: safeHref,
     class: reactiveClass,
+    ...rest,
     onclick: (e) => {
+      if (ownClick) ownClick(e);
       // Only intercept left-clicks without modifiers
-      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      // A blocked href goes nowhere.
+      if (blocked) {
+        e.preventDefault();
+        return;
+      }
+      // What the browser does itself: open the link in another window or
+      // tab (target), download it, or leave for another origin (another
+      // site, mailto:, tel:).
+      const a = e.currentTarget;
+      if ((a.target && a.target !== '_self') || a.hasAttribute('download') || resolveHref(safeHref) === null) return;
       e.preventDefault();
       navigate(safeHref, { replace: rep, transition });
     },
-    onmouseenter: shouldPrefetch ? () => prefetch(safeHref) : undefined,
-    ...rest,
+    onmouseenter: shouldPrefetch || ownEnter ? (e) => {
+      if (ownEnter) ownEnter(e);
+      if (shouldPrefetch) prefetch(safeHref);
+    } : undefined,
   }, ...(Array.isArray(children) ? children : [children]));
 }, { _deferChildren: true });
+
+// The handler `props` holds for `event` (a lower-case name: 'onclick') under
+// any spelling of it, taken out of `props`: the last one, as the DOM keeps.
+function takeHandler(props, event) {
+  let handler;
+  for (const key of Object.keys(props)) {
+    if (key.toLowerCase() !== event) continue;
+    handler = props[key];
+    delete props[key];
+  }
+  return typeof handler === 'function' ? handler : undefined;
+}
 
 // --- NavLink with active states ---
 
