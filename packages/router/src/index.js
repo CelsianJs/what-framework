@@ -967,9 +967,13 @@ export { compilePath, matchRoute, parseQuery } from './match.js';
 
 // --- Nested Layouts ---
 
-// Build the layout chain for a route
+// The layouts around a route's page, outermost first: those of `_layout`
+// entries for the path's leading segments, then the route's own `layout`, a
+// component or a list of them (nestedRoutes and routeGroup put theirs around
+// the route's, and the file router lists every enclosing `_layout`).
 function buildLayoutChain(route, routes) {
-  const layouts = [];
+  /** @type {any[]} */
+  let layouts = [];
   if (!route.path) return layouts;
 
   // Check for nested layouts based on path segments
@@ -984,16 +988,17 @@ function buildLayoutChain(route, routes) {
       r.layout && r.path === currentPath + '/_layout'
     );
     if (layoutRoute) {
-      layouts.push(layoutRoute.layout);
+      layouts = layouts.concat(layoutRoute.layout);
     }
   }
 
-  // Add route's own layout if specified
-  if (route.layout) {
-    layouts.push(route.layout);
-  }
+  return route.layout ? layouts.concat(route.layout) : layouts;
+}
 
-  return layouts;
+// The layout of a route under `outer`, a nestedRoutes or routeGroup layout
+// (or a list of them): `outer` around the route's own, outermost first.
+function nestLayouts(outer, own) {
+  return outer && own ? [].concat(outer, own) : own || outer;
 }
 
 // --- Middleware redirect loop detection ---
@@ -1541,7 +1546,7 @@ export function nestedRoutes(basePath, children, options = {}) {
   return children.map(child => ({
     ...child,
     path: joinRoutePath(basePath, child.path),
-    layout: child.layout || layout,
+    layout: nestLayouts(layout, child.layout),
     loading: child.loading || loading,
     error: child.error || error,
   }));
@@ -1558,7 +1563,7 @@ export function routeGroup(name, routes, options = {}) {
   return routes.map(route => ({
     ...route,
     _group: name,
-    layout: route.layout || layout,
+    layout: nestLayouts(layout, route.layout),
     middleware: route.middleware || middleware ? [...(route.middleware || []), ...(middleware || [])] : undefined,
   }));
 }

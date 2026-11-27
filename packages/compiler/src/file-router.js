@@ -9,7 +9,9 @@
  *   src/pages/blog/index.jsx   → /blog
  *   src/pages/blog/[slug].jsx  → /blog/:slug
  *   src/pages/[...path].jsx    → catch-all
- *   src/pages/_layout.jsx      → layout for that directory
+ *   src/pages/_layout.jsx      → layout for that directory and every
+ *                                directory below it, around the layouts
+ *                                those declare (Next.js's nested layouts)
  *   src/pages/(auth)/login.jsx → /login (group doesn't affect URL)
  *   src/pages/api/users.js     → API route: /api/users
  *
@@ -494,14 +496,11 @@ export function generateRoutesModule(pagesDir, rootDir) {
       detected = detectPageExports(source);
     } catch {}
 
-    // Find matching layout (closest parent)
-    const layoutVar = findLayout(page.routePath, layoutMap);
-
     const entry = {
       path: page.routePath,
       component: varName,
       mode: pageConfig.mode || 'client',
-      layout: layoutVar || null,
+      layout: findLayouts(page.routePath, layoutMap),
       hasLoader: detected.hasLoader,
     };
 
@@ -594,7 +593,7 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
       component: def,
       ns,
       mode: pageConfig.mode || 'client',
-      layout: findLayout(page.routePath, layoutMap) || null,
+      layout: findLayouts(page.routePath, layoutMap),
       ...detected,
     });
   });
@@ -645,19 +644,17 @@ function toImportPath(filePath, rootDir) {
 }
 
 /**
- * Find the closest layout for a given route path.
+ * The layouts of a route path, as the route's `layout`: every `_layout` of a
+ * directory that holds the page, from the root's down to the closest, as one
+ * name, a list of names (outermost first), or null without one. The router
+ * nests them in that order and keeps those two routes share.
  */
-function findLayout(routePath, layoutMap) {
-  // Walk up from the route path to find the nearest layout
-  const segments = routePath.split('/').filter(Boolean);
-
-  while (segments.length > 0) {
-    const prefix = '/' + segments.join('/');
-    if (layoutMap.has(prefix)) return layoutMap.get(prefix);
-    segments.pop();
+function findLayouts(routePath, layoutMap) {
+  const found = layoutMap.has('/') ? [layoutMap.get('/')] : [];
+  let prefix = '';
+  for (const segment of routePath.split('/').filter(Boolean)) {
+    prefix += '/' + segment;
+    if (layoutMap.has(prefix)) found.push(layoutMap.get(prefix));
   }
-
-  // Check root layout
-  if (layoutMap.has('/')) return layoutMap.get('/');
-  return null;
+  return found.length === 0 ? null : found.length === 1 ? found[0] : `[${found.join(', ')}]`;
 }

@@ -312,7 +312,11 @@ export default function App() {
 ```
 
 `nestedRoutes(base, children, { layout, loading, error })` prefixes each child's
-path and gives it the options it does not set itself. A layout receives
+path and gives it the `loading` and `error` it does not set itself. Its
+`layout` goes around the child's own, so a `nestedRoutes` inside another nests
+the inner layout in the outer one, as React Router's nested routes do; a
+route's `layout` may be a list, outermost first, and `routeGroup`'s layout
+nests the same way. A layout receives
 `{ params, query, children }`. It stays mounted, with its state, its DOM and
 what the visitor typed into it, while the visitor moves between routes that
 share it: only the page in `children` changes. A change of params

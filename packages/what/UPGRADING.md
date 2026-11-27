@@ -673,6 +673,16 @@ and navigations that are transitions. Each change below has its migration.
   code on each navigation, or that reads its params or query in its body:
   read them in JSX or an effect, read the route (`useRoute()`) in an
   effect, or use `afterNavigate`.
+- **Layouts nest.** A `nestedRoutes` layout goes around the layout a child
+  declares, a `nestedRoutes` inside another included, as React Router nests
+  routes, and so does a `routeGroup` layout; a route's `layout` may be a
+  list, outermost first. The file router nests each `_layout` in those of the
+  directories above it, as Next.js nests layouts: `src/pages/_layout.jsx`
+  goes around every page, `blog/_layout.jsx` inside it around the pages
+  under `/blog`. 0.14 used the child's layout in place of the parent's, and
+  the file router only the closest `_layout`. This affects a child route
+  that set a `layout` to replace its parent's (a full-screen page under
+  `/dashboard`): move it out of the `nestedRoutes` call.
 - **A `<Router>` inside another has route state of its own**, on the server
   and in the browser: what it renders reads the params and query it matched,
   and its parent's subtree keeps reading the parent's. In the browser the

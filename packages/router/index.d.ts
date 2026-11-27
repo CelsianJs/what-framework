@@ -107,8 +107,13 @@ export interface RouteConfig {
   path: string;
   /** Page component */
   component: Component<RouteComponentProps>;
-  /** Layout wrapper */
-  layout?: Component<LayoutProps>;
+  /**
+   * The layout around the page, or a list of layouts, outermost first.
+   * nestedRoutes and routeGroup put theirs around it. Moving between two
+   * routes keeps the layouts their lists share from the outermost down to the
+   * first that differs.
+   */
+  layout?: Component<LayoutProps> | Component<LayoutProps>[];
   /** Shown instead of the page being left while a navigation to this route prepares. Without one, the old page stays. */
   loading?: Component<{}>;
   /** Error component */
@@ -203,7 +208,8 @@ export function Router(props: RouterProps): VNode;
 export interface FileRouteConfig {
   path: string;
   component: Component<RouteComponentProps>;
-  layout?: Component<LayoutProps>;
+  /** Every `_layout` of a directory holding the page, outermost first. */
+  layout?: Component<LayoutProps> | Component<LayoutProps>[];
   mode?: 'static' | 'server' | 'client' | 'hybrid';
   preload?: RouteConfig['preload'];
 }
@@ -242,18 +248,22 @@ export function NavLink(props: LinkProps): VNode;
 /** Define routes from object config */
 export function defineRoutes(config: Record<string, Component | Partial<RouteConfig>>): RouteConfig[];
 
-/** Create nested routes with shared options */
+/**
+ * Create nested routes with shared options. `layout` goes around each
+ * child's own layout (a nestedRoutes inside this one included); `loading`
+ * and `error` apply where a child sets none.
+ */
 export function nestedRoutes(
   basePath: string,
   children: RouteConfig[],
-  options?: { layout?: Component; loading?: Component; error?: Component }
+  options?: { layout?: RouteConfig['layout']; loading?: RouteConfig['loading']; error?: RouteConfig['error'] }
 ): RouteConfig[];
 
-/** Group routes without affecting URLs */
+/** Group routes without affecting URLs. `layout` goes around each route's own layout. */
 export function routeGroup(
   name: string,
   routes: RouteConfig[],
-  options?: { layout?: Component; middleware?: RouteMiddleware[] }
+  options?: { layout?: RouteConfig['layout']; middleware?: RouteMiddleware[] }
 ): RouteConfig[];
 
 // --- Redirect ---

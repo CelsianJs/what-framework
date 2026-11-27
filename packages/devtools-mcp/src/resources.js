@@ -561,7 +561,7 @@ export const routes = nestedRoutes('/dashboard', [
 ], { layout: DashboardLayout });
 \`\`\`
 
-A route can also take its own \`layout\`, \`loading\` and \`error\` components.
+A route can also take its own \`layout\` (nested inside the \`nestedRoutes\` layout, as a \`nestedRoutes\` inside another is), \`loading\` and \`error\` components. The layout stays mounted while the visitor moves between routes that share it: moving between two routes keeps every layout they share, from the outermost down to the first that differs.
 
 ## File-Based Routing
 
@@ -581,7 +581,7 @@ mount(<FileRouter routes={routes} />, '#app');
 | \`src/pages/about.jsx\` | \`/about\` |
 | \`src/pages/users/[id].jsx\` | \`/users/:id\` |
 | \`src/pages/blog/[...slug].jsx\` | \`/blog/*slug\` (catch-all) |
-| \`src/pages/_layout.jsx\` | layout for its directory |
+| \`src/pages/_layout.jsx\` | layout for its directory, nested inside the layouts of the directories above |
 | \`src/pages/(auth)/login.jsx\` | \`/login\` (a group does not change the URL) |
 
 ## Route Middleware and Guards

@@ -12,7 +12,7 @@ installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { ur
 
 const { h, mount, signal, useEffect, ErrorBoundary, Suspense } = await import('what-core');
 const { query } = await import('what-core/data');
-const { nestedRoutes, navigate, Router } = await import('../src/index.js');
+const { nestedRoutes, routeGroup, navigate, Router, FileRouter } = await import('../src/index.js');
 
 const flush = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
@@ -399,5 +399,74 @@ describe('a nested layout persists across its child routes', () => {
     assert.equal(layoutEl('Framed'), framed);
     assert.equal(layoutEl('Quick'), null);
     assert.deepEqual(built, ['Framed', 'Quick', 'Patient']);
+  });
+
+  it('nests a nestedRoutes inside another, as React Router nests routes, and keeps each shared level', async () => {
+    const built = [];
+    const [Org, Team, Billing, Alpha, Beta, Home] = ['Org', 'Team', 'Billing', 'Alpha', 'Beta', 'Home'].map((n) => counted(n, built));
+    const page = (text) => () => h('p', { id: 'page' }, text);
+    const routes = [
+      ...nestedRoutes('/n', [
+        ...nestedRoutes('/team', [
+          { path: '/alpha', component: page('alpha'), layout: Alpha },
+          { path: '/beta', component: page('beta'), layout: Beta },
+        ], { layout: Team }),
+        ...nestedRoutes('/billing', [{ path: '/', component: page('billing') }], { layout: Billing }),
+      ], { layout: Org }),
+      { path: '/n-home', component: page('home'), layout: Home },
+    ];
+    assert.deepEqual(routes[0].layout, [Org, Team, Alpha], 'the outer layout goes around the inner ones, the route\'s own last');
+    assert.deepEqual(routes[2].layout, [Org, Billing]);
+    await navigate('/n/team/alpha');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const org = layoutEl('Org');
+    const team = layoutEl('Team');
+    assert.equal(document.querySelector('[data-layout="Org"] > [data-layout="Team"] > [data-layout="Alpha"] > #page').textContent, 'alpha');
+    bump('Org');
+    await navigate('/n/team/beta');
+    await flush();
+    assert.equal(layoutEl('Team'), team, 'a sibling at the innermost level keeps Org and Team');
+    await navigate('/n/billing');
+    await flush();
+    assert.equal(layoutEl('Org'), org, 'a sibling at the middle level keeps Org');
+    assert.equal(clicksOf('Org'), 'Org 1');
+    await navigate('/n-home');
+    await flush();
+    assert.equal(layoutEl('Org'), null, 'another chain builds every level');
+    assert.deepEqual(built, ['Org', 'Team', 'Alpha', 'Beta', 'Billing', 'Home']);
+  });
+
+  it('puts a routeGroup\'s layout around the route\'s own', () => {
+    const G = () => null;
+    const Own = () => null;
+    const [withOwn, without] = routeGroup('g', [{ path: '/g1', component: () => null, layout: Own }, { path: '/g2', component: () => null }], { layout: G });
+    assert.deepEqual(withOwn.layout, [G, Own]);
+    assert.equal(without.layout, G);
+  });
+
+  it('nests the file router\'s layouts and keeps the ones two pages share', async () => {
+    const built = [];
+    const [Root, Blog] = ['Root', 'Blog'].map((n) => counted(n, built));
+    // What the file router generates for src/pages/_layout, blog/_layout,
+    // blog/[slug] and about.
+    const routes = [
+      { path: '/about', component: () => h('p', { id: 'page' }, 'about'), mode: 'client', layout: Root },
+      { path: '/blog/:slug', component: (p) => h('p', { id: 'page' }, `post ${p.params.slug}`), mode: 'client', layout: [Root, Blog] },
+    ];
+    await navigate('/blog/hello');
+    mount(h(FileRouter, { routes }), '#app');
+    await flush();
+    const root = layoutEl('Root');
+    bump('Root');
+    await navigate('/blog/world');
+    await flush();
+    assert.equal(document.querySelector('[data-layout="Root"] > [data-layout="Blog"] > #page').textContent, 'post world');
+    await navigate('/about');
+    await flush();
+    assert.equal(layoutEl('Root'), root);
+    assert.equal(layoutEl('Blog'), null);
+    assert.equal(clicksOf('Root'), 'Root 1');
+    assert.deepEqual(built, ['Root', 'Blog']);
   });
 });
