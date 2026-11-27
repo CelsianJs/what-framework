@@ -3717,6 +3717,12 @@ function disposeOwner(root, runNode) {
   // disposes a sibling cannot disturb the walk.
   for (let child = root.lastChild; child !== null; child = root.lastChild) {
     unlinkChild(root, child);
+    // A child with no children, no cleanups and no user state has nothing to
+    // run: it is only marked.
+    if (child.firstChild === null && child.disposals.length === 0 && (child.flags & OWNS_USER) === 0) {
+      child.flags |= DISPOSED;
+      continue;
+    }
     try { disposeOwner(child, runNode); } catch (err) {
       if (!failed) { failed = true; firstError = err; }
     }
