@@ -123,6 +123,18 @@ describe('a static segment the URL percent-encodes', () => {
     assert.equal(matchRoute('/caf%c3%a8', routes), null);
   });
 
+  // Only an escape ('%' and two hex digits) is put in upper case: a '%' that
+  // starts none leaves the characters after it as they are, so a route with
+  // a literal '%' still names its params, and its own text, as written.
+  // Before, '%' and the two characters after it were upper-cased whatever
+  // they were: '/x%/about' gave the param 'About', and '/a%éb' matched no
+  // route at its own URL.
+  it('leaves the characters after a \'%\' that starts no escape as they are', () => {
+    const routes = [{ path: '/x%/:page' }, { path: '/a%éb' }];
+    assert.deepEqual(matchRoute('/x%/about', routes)?.params, { page: 'about' });
+    assert.equal(matchRoute(new URL('http://x/a%éb').pathname, routes)?.route.path, '/a%éb');
+  });
+
   it('keeps an astral character and the URL parser\'s other encoded characters', () => {
     for (const written of ['/emoji-😀', '/q"uote', '/a<b>', '/x{y}', '/tick`']) {
       assert.ok(matchRoute(new URL('http://x' + written).pathname, [{ path: written }]), written);

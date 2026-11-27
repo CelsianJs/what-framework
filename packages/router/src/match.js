@@ -94,10 +94,10 @@ function specificity({ paramNames, catchAll, statics }) {
 // about/index.html at both; the root, and '//', are as they are), and with
 // its percent escapes in upper case, as the URL parser writes the ones it
 // makes ('/caf%c3%a9' is '/caf%C3%A9', the route '/café'). An escape decodes
-// the same in either case; a '%' that starts none ('/50%off') is changed the
-// same way in a route and a URL, so they still match as written.
+// the same in either case; a '%' that starts none ('/50%off') and the
+// characters after it are left as they are.
 function comparable(path) {
-  return path.replace(/([^/])\/+$/, '$1').replace(/%../g, (escape) => escape.toUpperCase());
+  return path.replace(/([^/])\/+$/, '$1').replace(/%[\da-f]{2}/gi, (escape) => escape.toUpperCase());
 }
 
 export function matchRoute(path, routes) {
