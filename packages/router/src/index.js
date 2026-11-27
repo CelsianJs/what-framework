@@ -1648,11 +1648,6 @@ export function enableScrollRestoration() {
   });
 }
 
-// Resolve a URL fragment to its element. A fragment is an id, and an id is not
-// necessarily a valid CSS selector: "#1" is legal HTML that browsers navigate
-// to happily, while querySelector('#1') THROWS "Invalid selector". The throw
-// happened inside a requestAnimationFrame callback, where nothing could catch
-// it, so a single numeric anchor took out the frame as an uncaught error.
 // Scroll the window to (x, y) unless it is there already: a scroll that moves
 // nothing is skipped (a DOM without layout, such as jsdom, reports every
 // scrollTo call as not implemented).
@@ -1661,13 +1656,19 @@ function scrollToPoint(x, y) {
   window.scrollTo(x, y);
 }
 
+// The element a URL fragment points at, found as the browser finds it: the
+// element whose id is the fragment, else the one whose id the fragment
+// percent-decodes to (the URL holds '#café' as '#caf%C3%A9'). An id is not a
+// CSS selector: '#1' and '#a.b' are ids.
 function queryFragment(hash) {
+  const id = hash.slice(1);
+  let decoded = id;
   try {
-    return document.querySelector(hash);
+    decoded = decodeURIComponent(id);
   } catch {
-    // Not selector-parseable, so ask the way the browser itself does.
-    return document.getElementById(hash.slice(1));
+    // A malformed escape ('#100%') is the id as it is.
   }
+  return document.getElementById(id) || document.getElementById(decoded);
 }
 
 // --- View Transition Helpers ---

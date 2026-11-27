@@ -36,6 +36,9 @@ function Settings() {
     h('span', { id: 'hash' }, () => route.hash),
     h('section', { id: 'teams' }, 'Teams'),
     h('section', { id: 'tokens' }, 'Tokens'),
+    h('section', { id: 'café' }, 'Café'),
+    h('section', { id: 'my section' }, 'Spaced'),
+    h('section', { id: 'a.b' }, 'Dotted'),
   );
 }
 
@@ -53,7 +56,7 @@ async function start(url) {
   app.textContent = '';
   unmount = mount(h(Router, { routes }), app);
   await flush();
-  for (const id of ['teams', 'tokens']) {
+  for (const id of ['teams', 'tokens', 'café', 'my section', 'a.b']) {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView = () => scrolled.push(id);
   }
@@ -93,6 +96,16 @@ describe('hash-only navigation', () => {
     assert.equal(preloads, 0, 'no preload for a fragment navigation');
     assert.equal(middlewareRuns, 0, 'no middleware for a fragment navigation');
     assert.deepEqual(reports, []);
+  });
+
+  it('scrolls to the element whose id the hash percent-decodes to, as the browser finds it', async () => {
+    // The URL holds '#café' as '#caf%C3%A9' and '#my section' as '#my%20section'.
+    for (const [to, id] of [['#café', 'café'], ['#my section', 'my section'], ['#my%20section', 'my section'], ['#a.b', 'a.b']]) {
+      scrolled.length = 0;
+      await navigate(to, { transition: false });
+      await flush();
+      assert.deepEqual(scrolled, [id], to);
+    }
   });
 
   it('honors replace, and moves between hashes and back to no hash without a rebuild', async () => {
