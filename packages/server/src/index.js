@@ -229,8 +229,9 @@ function _renderHydratable(vnode, notHtml) {
   // Array — wrap in list markers
   if (Array.isArray(vnode)) return renderArray(vnode, '');
 
-  if (notHtml !== true && isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
+  // A vnode is asked first: no object is both a vnode and compiled markup.
   if (!isVNode(vnode)) {
+    if (notHtml !== true && isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
     const text = _plainText(vnode);
     if (sink.text !== null) sink.text += String(vnode);
     return out(text);
@@ -242,9 +243,10 @@ function _renderHydratable(vnode, notHtml) {
   const tag = vnode.tag;
   if (typeof tag === 'function') {
     const ctx = _beginComponentSSR(tag);
-    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site)) {
+    const site = /** @type {any} */ (vnode)._site;
+    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site)) {
       try {
-        return _renderHydratable(_runComponentSync(ctx, callComponent, vnode));
+        return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
       } finally {
         _endComponentSSR(ctx);
       }
@@ -253,7 +255,7 @@ function _renderHydratable(vnode, notHtml) {
     const key = /** @type {string} */ (ctx._ownerPath);
     HK.key = key;
     try {
-      return _renderHydratable(_runComponentSync(ctx, callComponent, vnode));
+      return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
     } finally {
       _endComponentSSR(ctx);
       if (HK.key === key) HK.key = outer;
@@ -361,6 +363,21 @@ function callComponent(vnode) {
   return vnode.tag(_componentProps(vnode));
 }
 
+// What a component returned. The renderers ask whether a child is a vnode
+// before asking whether it is compiled markup; a component compiled JSX
+// placed (ssr-runtime.js gives its vnode a `site`, undefined for one h() or
+// the JSX runtime made) mostly returns its compiled markup, so for its output
+// the markup is asked first. Either order renders the same.
+function renderStringOutput(output, site) {
+  if (site === undefined) return _renderString(output);
+  return isHtml(output) ? output.render(renderStringIn, null, _ns) : _renderString(output, true);
+}
+
+function renderHydratableOutput(output, site) {
+  if (site === undefined) return _renderHydratable(output);
+  return isHtml(output) ? output.render(renderHydratableIn, HK, _ns) : _renderHydratable(output, true);
+}
+
 // --- Render to String ---
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
@@ -426,8 +443,9 @@ function _renderString(vnode, notHtml) {
   // Array
   if (Array.isArray(vnode)) return renderChildren(vnode, _renderString);
 
-  if (notHtml !== true && isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
+  // A vnode is asked first: no object is both a vnode and compiled markup.
   if (!isVNode(vnode)) {
+    if (notHtml !== true && isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
     const text = _plainText(vnode);
     if (sink.text !== null) sink.text += String(vnode);
     return text;
@@ -442,9 +460,10 @@ function _renderString(vnode, notHtml) {
   const tag = vnode.tag;
   if (typeof tag === 'function') {
     const ctx = _beginComponentSSR(tag);
-    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site);
+    const site = /** @type {any} */ (vnode)._site;
+    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site);
     try {
-      return _renderString(_runComponentSync(ctx, callComponent, vnode));
+      return renderStringOutput(_runComponentSync(ctx, callComponent, vnode), site);
     } finally {
       _endComponentSSR(ctx);
     }
