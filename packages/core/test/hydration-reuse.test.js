@@ -224,3 +224,37 @@ describe('text the parser merged with a value is adopted without new nodes', () 
     stop();
   });
 });
+
+// A region the server marked holds what lies between its markers when it
+// runs again: the text a part of merged text split off when its value
+// changed, and the markers a region in it took to show an element.
+const regionSource = `import { signal } from 'what-framework';
+  export function make() {
+    const show = signal(true);
+    const count = signal(5);
+    function Count(props) { return <>Count: {props.n}</>; }
+    function Page() { return <main>{show() ? <Count n={count()} /> : 'none'}</main>; }
+    return { Page, show, count };
+  }`;
+const regionClient = await loadCompiled(regionSource, { pluginOptions: { hydratable: true } });
+const regionServer = await loadCompiled(regionSource, { pluginOptions: { generate: 'ssr' } });
+
+describe('a region adopted around merged text removes all of it when it shows something else', () => {
+  for (const [label, next] of [['a part written', 6], ['a part that became an element', h('b', null, 'six')]]) {
+    it(`${label}`, () => {
+      const app = regionClient.make();
+      const { host, reports, stop } = adopt(server.renderToHydratableString(h(regionServer.make().Page)), h(app.Page));
+      assert.deepEqual(reports, []);
+      app.count(next);
+      flushSync();
+      assert.equal(host.querySelector('main').textContent, `Count: ${typeof next === 'number' ? next : 'six'}`);
+      app.show(false);
+      flushSync();
+      assert.equal(host.querySelector('main').textContent, 'none');
+      app.show(true);
+      flushSync();
+      assert.equal(host.querySelector('main').textContent, `Count: ${typeof next === 'number' ? next : 'six'}`);
+      stop();
+    });
+  }
+});

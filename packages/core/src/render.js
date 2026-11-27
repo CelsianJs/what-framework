@@ -4439,6 +4439,8 @@ function adoptRegion(fn, devName) {
     anchor = startAt > 0 ? startNode : anchorOf(c);
   }
   const scope = vnodeRows !== null ? getOwner() : null;
+  // What the region shows: undefined once adopted, for everything between
+  // its markers when it next runs.
   /** @type {any} */
   let current = null;
   /** @type {any} */
@@ -4503,6 +4505,14 @@ function adoptRegion(fn, devName) {
       }
       const host = end.parentNode;
       if (host === null) return;
+      if (current === undefined) {
+        // Read now, not when the region was adopted: text split off a part of
+        // the server's text since (partNode), and the markers and nodes of a
+        // region in it that now shows something else, are the region's too.
+        const owned = [];
+        for (let n = start.nextSibling; n !== null && n !== end; n = n.nextSibling) owned.push(n);
+        current = owned.length === 0 ? null : owned.length === 1 ? owned[0] : owned;
+      }
       if (vnodeRows !== null) {
         const keyed = vnodeRows(value, rows, false, scope);
         if (keyed !== null) {
@@ -4548,11 +4558,7 @@ function adoptRegion(fn, devName) {
     end = parent.insertBefore(document.createComment(REGION_CLOSE), c.n);
   }
   // The region owns everything between its markers; keyed rows own theirs.
-  if (rows === null) {
-    const owned = [];
-    for (let n = start.nextSibling; n !== null && n !== end; n = n.nextSibling) owned.push(n);
-    current = owned.length === 0 ? null : owned.length === 1 ? owned[0] : owned;
-  }
+  if (rows === null) current = undefined;
   start._rangeEnd = end;
 }
 
