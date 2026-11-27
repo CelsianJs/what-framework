@@ -97,6 +97,12 @@ describe('an app served below a base path', () => {
     assert.equal(link('outside').getAttribute('href'), 'http://localhost/elsewhere');
   });
 
+  it('prefetches a link to a path of the app below the base', () => {
+    link('about').dispatchEvent(new window.MouseEvent('mouseenter'));
+    const hrefs = [...document.head.querySelectorAll('link[rel="prefetch"]')].map((el) => el.getAttribute('href'));
+    assert.deepEqual(hrefs, ['/app/about']);
+  });
+
   it('goes below the base on a click, and marks the active links by the path without it', async () => {
     assert.equal(click('about').defaultPrevented, true);
     await flush();
