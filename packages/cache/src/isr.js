@@ -43,7 +43,7 @@
 import { cacheKey, canonicalMatch, keyOrigin, keyTarget, normalizePath, normalizeQuery, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 import { buildCacheHeaders, responseHeaderList, servedHeaders } from './headers.js';
-import { safeLocalPath } from './local-path.js';
+import { basePathOf, safeLocalPath } from './local-path.js';
 
 function isShareable(entry) {
   return entry.status === 200 && !entry.private;
@@ -90,12 +90,16 @@ const MAX_KNOWN_ORIGINS = 4 * MAX_ORIGINS;
 
 // `routeMatch` with the GET request a regeneration with no request renders
 // it from: its path and query at `origin`, the path below the base path the
-// adapter serves the app below (`routeMatch.base`, as a request for it was).
-function requestAt(routeMatch, origin) {
-  const url = new URL((routeMatch.base || '') + normalizePath(routeMatch.path), origin);
+// app is served below (`routeMatch.base`, as a request for it was, else
+// `base`, the engine's).
+function requestAt(routeMatch, origin, base) {
+  const below = routeMatch.base || base;
+  const url = new URL(below + normalizePath(routeMatch.path), origin);
   const query = normalizeQuery(routeMatch.query);
   if (query) url.search = query;
-  return { ...routeMatch, request: new Request(url) };
+  // The match carries the base, as a request handler's does: the page
+  // renders and redirects below it.
+  return below ? { ...routeMatch, base: below, request: new Request(url) } : { ...routeMatch, request: new Request(url) };
 }
 
 /**
@@ -107,8 +111,14 @@ function requestAt(routeMatch, origin) {
  * @param {any} [options.logger]
  * @param {string} [options.origin] the public origin a default entry is rendered at
  * @param {string[]} [options.origins] the public origins the site serves: only their entries are stored
+ * @param {string} [options.basePath] the path the site is served below, as the request handler's `basePath`
  */
-export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin, origins: publicOrigins } = {}) {
+export function createCacheEngine({ store, render, cdn, now = Date.now, logger = console, origin: publicOrigin, origins: publicOrigins, basePath } = {}) {
+  // The path the site is served below ('/app'), or '': a CDN caches each page
+  // below it, so a purge names the URL there, and a regeneration with no
+  // request renders below it. The `basePath` option, else the one the request
+  // handler the engine serves gives it (_setBasePath).
+  let base = basePathOf(basePath);
   const defaultOrigin = publicOrigin ? originNamed(publicOrigin, 'origin') : 'http://localhost';
   if (publicOrigins !== undefined && (!Array.isArray(publicOrigins) || publicOrigins.length === 0)) {
     throw new TypeError(`[what-isr] createCacheEngine: \`origins\` is ${JSON.stringify(publicOrigins)}: list the public origins the site serves (['https://shop.example']), or leave it out to cache a page for any Host a request names.`);
@@ -147,7 +157,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
   // engine makes. Resolves with the first one's entry.
   async function regenerateAt(routeMatch, origins) {
     const results = await Promise.all([...origins].map((origin) => {
-      const match = requestAt(routeMatch, origin || defaultOrigin);
+      const match = requestAt(routeMatch, origin || defaultOrigin, base);
       return regenerate(origin ? keyFor(match) : defaultKeyFor(routeMatch), match, undefined, { background: true });
     }));
     return results.length ? results[0].entry : null;
@@ -339,7 +349,7 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
       if (shared) {
         key = defaultKeyFor(routeMatch);
         entry = shared;
-        refresh = requestAt(routeMatch, defaultOrigin);
+        refresh = requestAt(routeMatch, defaultOrigin, base);
       }
     }
     const t = now();
@@ -408,7 +418,8 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     const norm = normalizePath(local);
     const deleted = await store.deleteByPath(norm);
     forget(deleted);
-    if (cdn && cdn.purge) await cdn.purge([local]);
+    // The CDN caches the page at its URL below the base.
+    if (cdn && cdn.purge) await cdn.purge([base + local]);
     if (regen) {
       const route = routeFor(norm, routeResolver, { path: norm, query: '' });
       if (route === null) {
@@ -467,5 +478,14 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     _inFlight: inFlight,
     _now: now,
     _cdn: cdn,
+    /**
+     * The request handler's `basePath`, which the engine serves below unless
+     * it was given a `basePath` of its own.
+     * @internal
+     * @param {string} handlerBase
+     */
+    _setBasePath(handlerBase) {
+      if (basePath === undefined) base = basePathOf(handlerBase);
+    },
   };
 }

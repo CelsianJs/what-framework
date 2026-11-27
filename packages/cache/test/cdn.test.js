@@ -28,6 +28,18 @@ describe('Cloudflare CDN adapter', () => {
     await cdn.purge(['https://x.com/a']);
     assert.deepEqual(JSON.parse(calls[0].opts.body), { files: ['https://x.com/a'] });
   });
+
+  // Cloudflare purges by absolute URL, and the engine hands a purge local
+  // paths: they are joined to `baseUrl`, its path kept. Before, the local
+  // path was sent as it was, which names no URL Cloudflare caches.
+  it('purge joins a local path to baseUrl, keeping its path', async () => {
+    await createCloudflareCDN({ zoneId: 'z', apiToken: 't', baseUrl: 'https://site.example' }).purge(['/app/x?q=1', 'https://x.com/a']);
+    await createCloudflareCDN({ zoneId: 'z', apiToken: 't', baseUrl: 'https://site.example/shop/' }).purge(['/x', '/.//evil.test/x']);
+    assert.deepEqual(calls.map((call) => JSON.parse(call.opts.body)), [
+      { files: ['https://site.example/app/x?q=1', 'https://x.com/a'] },
+      { files: ['https://site.example/shop/x'] },
+    ]);
+  });
 });
 
 describe('Fastly CDN adapter', () => {
@@ -55,6 +67,20 @@ describe('Fastly CDN adapter', () => {
     assert.equal(calls[0].opts.method, 'PURGE');
   });
 
+  // A baseUrl with a path ('https://site.example/shop') keeps it. Before,
+  // `new URL('/x', baseUrl)` dropped it and purged 'https://site.example/x'.
+  it('purge keeps the path of baseUrl, and no path names another host', async () => {
+    for (const baseUrl of ['https://site.example/shop', 'https://site.example/shop/']) {
+      await createFastlyCDN({ serviceId: 'svc', apiToken: 'k', baseUrl }).purge(['/blog?page=2']);
+    }
+    await createFastlyCDN({ serviceId: 'svc', apiToken: 'k', baseUrl: 'https://site.example//evil.test' }).purge(['/x']);
+    assert.deepEqual(calls.map((call) => call.url), [
+      'https://site.example/shop/blog?page=2',
+      'https://site.example/shop/blog?page=2',
+      'https://site.example//evil.test/x',
+    ]);
+  });
+
   it('purge no-ops without a baseUrl to resolve paths against', async () => {
     const cdn = createFastlyCDN({ serviceId: 'svc', apiToken: 'k' });
     await cdn.purge(['/blog']);
@@ -74,6 +100,33 @@ describe('Vercel CDN adapter', () => {
     const cdn = createVercelCDN({});
     await cdn.purgeTags(['posts']);
     assert.equal(calls.length, 0);
+  });
+});
+
+// A site served below a base path caches each page below it, so a purge of
+// '/x' names '/app/x': the engine's `basePath`, written as the request
+// handler's. Before, the CDN was handed '/x', which it does not cache.
+describe('revalidatePath below a base path', () => {
+  it('hands the CDN the path below the base', async () => {
+    const { createCacheEngine, createMemoryStore } = await import('../src/index.js');
+    const purged = [];
+    for (const basePath of ['/app', '/app/', 'app', undefined, '/']) {
+      const engine = createCacheEngine({ store: createMemoryStore(), basePath, cdn: { purge: async (paths) => { purged.push(...paths); } } });
+      await engine.revalidatePath('/x?q=1');
+    }
+    assert.deepEqual(purged, ['/app/x?q=1', '/app/x?q=1', '/app/x?q=1', '/x?q=1', '/x?q=1']);
+  });
+
+  it('renders a regeneration with no request below the base', async () => {
+    const { createCacheEngine, createMemoryStore } = await import('../src/index.js');
+    const urls = [];
+    const render = async (match) => {
+      urls.push(match.request.url);
+      return { html: 'x', status: 200, headers: {}, tags: [] };
+    };
+    const engine = createCacheEngine({ store: createMemoryStore(), render, basePath: 'app' });
+    await engine.regenerate({ path: '/about', query: {}, params: {}, config: { mode: 'static', revalidate: 60 }, route: {} });
+    assert.deepEqual(urls, ['http://localhost/app/about']);
   });
 });
 

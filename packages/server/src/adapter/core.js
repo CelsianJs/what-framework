@@ -385,6 +385,10 @@ export function createRequestHandler(options = {}) {
   const renderOptions = onError ? { ...documentOptions, onError } : documentOptions;
   const renderRoute = render || createRouteRenderer(renderOptions);
 
+  // The engine serves the pages below the base: a CDN purge names their URL
+  // there, unless the engine was given a `basePath` of its own.
+  if (cache && base && typeof cache._setBasePath === 'function') cache._setBasePath(base);
+
   // Bind the cache engine so server actions' revalidatePath/revalidateTag (and
   // any app code calling them from what-framework/server) purge this engine.
   if (cache && (cache.revalidatePath || cache.revalidateTag)) {

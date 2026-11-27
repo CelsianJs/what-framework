@@ -560,6 +560,8 @@ export interface CacheEngineLike {
   }>;
   revalidatePath?: (path: string, options?: any) => any;
   revalidateTag?: (tag: string, options?: any) => any;
+  /** @internal what-isr's engine: the request handler's `basePath`, which a CDN purge names a page's URL below. */
+  _setBasePath?: (basePath: string) => void;
 }
 
 // Every key here is destructured by createRequestHandler. There is no index
@@ -586,9 +588,12 @@ export interface RequestHandlerOptions {
    * whose keys are the paths below the base. The action endpoint is
    * `/app/__what_action`, and a path a page or an action redirects to (a
    * loader's `response.redirect('/x')`, `getResponse().redirect('/x')`,
-   * what-router's `redirect('/x')`) is answered with `/app/x`. The router's
-   * base is the client's (what-router `setBase`, or Vite's `base`): give both
-   * the same path.
+   * what-router's `redirect('/x')`) is answered with `/app/x`. The `cache`
+   * engine serves below it too: `revalidatePath('/x')` purges `/app/x` at the
+   * CDN, unless the engine has a `basePath` of its own. A render the handler
+   * runs routes below it when the app set no base of its own on the router;
+   * the client's base is what-router's (`setBase`, or Vite's `base`): give
+   * both the same path.
    */
   basePath?: string;
   /**

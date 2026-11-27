@@ -31,3 +31,33 @@ export function safeLocalPath(value) {
     return null;
   }
 }
+
+/**
+ * The path a base names, as what-server's `basePath` and what-router's
+ * setBase() read one: '/app/', '/app', 'app/' and 'app' are all '/app'. '' and
+ * '/' are no base, nor is one that is not a path ('./', a URL, '//host').
+ * @param {unknown} base
+ */
+export function basePathOf(base) {
+  return typeof base === 'string' && !/^([a-z][\w+.-]*:|[/\\]{2}|\.)|\\/i.test(base) ? ('/' + base.replace(/^\//, '')).replace(/\/+$/, '') : '';
+}
+
+/**
+ * The absolute URL a CDN purges for the local path `target`, below `baseUrl`
+ * with its own path kept ('https://example.com/shop' and '/x' are
+ * 'https://example.com/shop/x'); null for a target that is not a local path,
+ * or a baseUrl that is not an absolute URL. The path is joined to the
+ * origin's text, so no path can name another host.
+ * @param {string | undefined} baseUrl
+ * @param {unknown} target
+ */
+export function purgeUrlBelow(baseUrl, target) {
+  const local = safeLocalPath(target);
+  if (!baseUrl || local === null) return null;
+  try {
+    const base = new URL(baseUrl);
+    return new URL(base.origin + base.pathname.replace(/\/+$/, '') + local).href;
+  } catch {
+    return null;
+  }
+}

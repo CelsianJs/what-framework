@@ -17,7 +17,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { h } from 'what-core';
 import { Router, Link, redirect } from 'what-router';
-import { createRequestHandler } from '../src/index.js';
+import { createCacheEngine, createMemoryStore } from 'what-isr';
+import { createRequestHandler, createRouteRenderer } from '../src/index.js';
 import { exportStatic } from '../src/adapter/static.js';
 
 let outDir;
@@ -66,6 +67,19 @@ describe('createRequestHandler basePath, with no base set on the router', () => 
     assert.match(htmlTwo, /<h1[^>]*>about<\/h1>/);
     assert.match(htmlTwo, /<a [^>]*href="\/two\/about"/);
     assert.doesNotMatch(htmlTwo, /\/one\//);
+  });
+});
+
+// A regeneration no request started (a scheduler's tick) of a match with no
+// base renders below the engine's `basePath`: the GET it makes and the
+// render's base, which what-router routes below.
+describe('a cache engine\'s basePath, with no base set on the router', () => {
+  it('renders a regeneration with no request below the base', async () => {
+    const cache = createCacheEngine({ store: createMemoryStore(), render: createRouteRenderer(), basePath: '/app' });
+    const route = { path: '/about', component: App, page: { mode: 'static', revalidate: 60 } };
+    const entry = await cache.regenerate({ path: '/about', query: {}, params: {}, config: route.page, route });
+    assert.match(entry.html, /<h1[^>]*>about<\/h1>/);
+    assert.match(entry.html, /<a [^>]*href="\/app\/about"/);
   });
 });
 

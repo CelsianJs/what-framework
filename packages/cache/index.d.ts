@@ -127,8 +127,9 @@ export interface CDNAdapter {
   purge(urls: string[]): Promise<void>;
   purgeTags(tags: string[]): Promise<void>;
 }
-export function createCloudflareCDN(options: { zoneId: string; apiToken: string }): CDNAdapter;
-/** `baseUrl` is required for URL purge: only local paths resolved against it are purged. */
+/** A local path is purged at its URL below `baseUrl` (the site's URL at the CDN, its path kept); an absolute URL as it is. */
+export function createCloudflareCDN(options: { zoneId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
+/** `baseUrl` is required for URL purge: only local paths are purged, at their URL below it (the site's URL at the CDN, its path kept). */
 export function createFastlyCDN(options: { serviceId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
 export function createVercelCDN(options: { projectId: string; token: string; teamId?: string }): CDNAdapter;
 
@@ -249,6 +250,13 @@ export function createCacheEngine(options?: {
    * the cache or in a scheduled tick. There is no default entry then.
    */
   origins?: string[];
+  /**
+   * The path the site is served below (`'/app'`, `'/app/'` or `'app'`), as
+   * the request handler's `basePath`, which `createRequestHandler` gives an
+   * engine without one: a CDN purge names a page's URL below it, and a
+   * regeneration with no request renders below it.
+   */
+  basePath?: string;
 }): CacheEngine;
 
 // --- Revalidation webhook ---

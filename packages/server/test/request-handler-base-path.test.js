@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { h, getResponse } from 'what-core';
 import { Router, redirect, setBase } from 'what-router';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
-import { action, createRequestHandler, createRouteRenderer } from '../src/index.js';
+import { action, createRequestHandler, createRouteRenderer, revalidatePath } from '../src/index.js';
 
 const routes = [
   { path: '/', component: () => h('p', null, 'home'), mode: 'server' },
@@ -122,6 +122,26 @@ describe('createRequestHandler basePath and a regeneration with no request', () 
     } finally {
       setBase('');
     }
+  });
+});
+
+// The cache engine a request handler serves below its base purges the URL
+// a CDN caches, below the base: revalidatePath('/about') names
+// '/app/about', from the engine and from what-server's revalidatePath()
+// alike. An engine given a `basePath` of its own keeps it. Before, the CDN
+// was handed '/about'.
+describe('createRequestHandler basePath and a CDN purge', () => {
+  it('purges the path below the base', async () => {
+    const purged = [];
+    const cdn = { purge: async (paths) => { purged.push(...paths); } };
+    const cache = createCacheEngine({ store: createMemoryStore(), cdn });
+    createRequestHandler({ routes, cache, basePath: 'app/', csrf: false });
+    await cache.revalidatePath('/about');
+    await revalidatePath('/x?q=1');
+    const own = createCacheEngine({ store: createMemoryStore(), cdn, basePath: '/shop' });
+    createRequestHandler({ routes, cache: own, basePath: '/app', csrf: false });
+    await own.revalidatePath('/about');
+    assert.deepEqual(purged, ['/app/about', '/app/x?q=1', '/shop/about']);
   });
 });
 

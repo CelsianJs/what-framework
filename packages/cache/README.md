@@ -124,6 +124,14 @@ The full-stack starter sets it from `PUBLIC_ORIGIN`.
 `engine.revalidatePath(path, { regenerate })` and
 `engine.revalidateTag(tag, { regenerate })` purge the origin store (and the CDN,
 when a CDN adapter is configured). Only same-origin local paths are accepted.
+A path is the app's (`/x`): for a site served below a base, the CDN is handed
+the URL it caches, below the base (`/app/x`). The base is the request handler's
+`basePath`, which `createRequestHandler({ cache, basePath })` gives the engine,
+or `createCacheEngine({ basePath })`'s own. The Fastly and Cloudflare adapters
+join a path to their `baseUrl`, the site's URL at the CDN (its origin, or with
+a path for a CDN that serves the site below one: `https://cdn.example/site`
+purges `/app/x` at `https://cdn.example/site/app/x`); give it the origin when
+the site's own base is the request handler's `basePath`.
 With `regenerate`, what was purged is rendered again from `routeResolver`'s
 route, else from the route the engine last rendered for it; a path the engine
 never rendered (a fresh process, no resolver) is only purged, with a warning,
