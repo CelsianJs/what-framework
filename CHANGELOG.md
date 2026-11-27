@@ -2204,6 +2204,47 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`no-camelcase-events` leaves a file that imports from React, Preact or
   what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
   correct there.
+- **A conditional region adopted around text the HTML parser merged with a
+  value removes all of that text when it shows something else.** A value
+  written since hydrating, or one that became an element, stayed on the page
+  beside the new content (`6none`). `packages/core/test/hydration-reuse.test.js`.
+- **A form field path through `__proto__` writes nothing**, as React Hook
+  Form's does: `setValue('__proto__.x', v)` or a registered
+  `account.__proto__.admin` wrote into `Object.prototype`.
+  `packages/core/test/form-paths.test.js`.
+- **A field array outlives the component that first called
+  `useFieldArray`**: a wizard step that went away left `formState.values`
+  throwing once an item was added. `packages/core/test/form-field-array.test.js`.
+- **A `client:*` island hands its component every prop**, `name`, `mode`,
+  `mediaQuery` and `component` included, on the server and in the browser:
+  the island's options and the component's props are separate objects. Its
+  `data-island` (and `island:hydrated`'s `detail.name`) is the tag as
+  written, where it was the component's runtime name, which a minified build
+  renamed, so hydration rewrote the attribute on every compiled island.
+  `packages/compiler/test/island-props.test.js`.
+- **`hydrate(<Tag />)` with a tag held in a binding claims the server's
+  element and its children**; it dropped them with a mismatch, and a
+  compiled-only Vite build threw `adoptVNodeKinds is not a function`.
+- **A regeneration with no request renders below `createRequestHandler`'s
+  `basePath`** (what-server, what-isr): `revalidatePath(path, { regenerate:
+  true })`, a scheduler tick or a stale entry's refresh rendered the path
+  without the base and stored the Router's fallback for every visitor. The
+  route match carries `base`. `packages/server/test/request-handler-base-path.test.js`.
+- **A custom server's action endpoint answers a no-JS post below
+  what-router's base** (`nodeActionMiddleware`, `fetchActionHandler`).
+- **Back and forward work in an app served from its own scheme**
+  (`capacitor://`, `tauri://`, `file:`): the unsafe-URL check refused the
+  document's own URL. `packages/router/test/popstate-app-scheme.test.js`.
+- **A catch-all below a param ranks before the root catch-all**
+  (`/users/:id/*`, `/blog/[cat]/[...slug]`, and `/docs/:section/*` before
+  `/docs/*`), and a route group no longer outranks an equal route listed
+  before it. `packages/router/test/match.test.js`.
+- **A React island rendered on the server reads a What context with
+  `useContext`**, so it hydrates without a mismatch, and `use(context)` reads
+  one too (what-react).
+- **what-router and what-server errors thrown with a catalogue code read
+  `[what] ERR_…` and the fix line in development**, as what-core's do;
+  production keeps the `[what-router]` and `[what-server]` text.
 - **`ERR_MISSING_SIGNAL_READ` names every coercion it reports** (a template
   literal, `+`, arithmetic, a comparison, a property key; it said "converted
   to a string" for `count > 0`) and is located where the signal was used, in

@@ -145,8 +145,10 @@ replaces the entry the same way.
 ## Base path
 
 An app deployed below a path (`/app/` on GitHub Pages or behind a reverse
-proxy) routes below it. With Vite, its `base` is the router's: set
-`base: '/app/'` in `vite.config.js` and nothing else.
+proxy) routes below it. With Vite, its `base` is the router's: in a
+client-rendered app, set `base: '/app/'` in `vite.config.js` and nothing else.
+A server-rendered app calls `setBase` on the server too, because Vite's SSR
+build keeps what-router external, where `import.meta.env` is not defined.
 
 ```js
 // Without Vite's base (another bundler, or a server build that keeps

@@ -710,8 +710,9 @@ and navigations that are transitions. Each change below has its migration.
   when the route is visited.
 - **The route that wins where two overlap can change.** A route written with
   brackets (`[id]`, `[...rest]`) ranks like `:id` and `*`, so `/u/new` beats
-  `/u/[id]`; of two catch-alls, the one under more static segments wins
-  whatever their order; and a route whose path has a space or a non-ASCII
+  `/u/[id]`; of two catch-alls, the one under more segments wins whatever
+  their order (`/users/:id/*` and `/docs/:section/*` before `/docs/*` and
+  `*`), and a route group no longer outranks an equal route listed before it; and a route whose path has a space or a non-ASCII
   character (`/café`) matches its URL, so it takes URLs a catch-all used to
   show. This affects an app whose routes overlap and that relied on the old
   winner: make the routes distinct.
@@ -899,6 +900,12 @@ and navigations that are transitions. Each change below has its migration.
 
 The [what-server README](https://github.com/CelsianJs/what-framework/blob/main/packages/server/README.md) documents each of these.
 
+- **A route match carries `base`**, `createRequestHandler`'s `basePath`, and
+  a regeneration with no request (`revalidatePath(path, { regenerate: true
+  })`, a scheduler tick) renders the path below it, where it rendered the
+  path without the base and stored the Router's fallback. A scheduler or a
+  `routeResolver` that builds its own match passes `base` too.
+
 - **`renderToStream()` returns a stream object.** 0.14 returned an
   `AsyncGenerator<string>` and took a render context as its second argument.
   0.15 returns a `RenderStream`, `{ shellReady, allReady, response, pipe,
@@ -1003,6 +1010,18 @@ The [what-server README](https://github.com/CelsianJs/what-framework/blob/main/p
 
 The [what-compiler README](https://github.com/CelsianJs/what-framework/blob/main/packages/compiler/README.md) documents the
 options.
+
+- **A `client:*` island compiles to `h(_$Island, { component, name, mode,
+  mediaQuery, props })`**, so its component gets every prop, `name`, `mode`,
+  `mediaQuery` and `component` included, where 0.14 handed those four as
+  `undefined`. Its `data-island` (and `island:hydrated`'s `detail.name`) is
+  the tag as written (`ui.Card` for `<ui.Card client:load />`, the local
+  name of a renamed import), not the component function's runtime name,
+  which a minified build changed. This affects a selector, test or analytics
+  event that read the function name. A hand-written `h(_$Island, …)` keeps
+  working: without `props`, every key but those four is a prop; to pass a
+  prop with one of their names, put the props in `props`, and pass `name` so
+  a minified build keeps the island's name.
 
 - **Upgrade it with the runtime, and recompile compiled libraries.**
   what-compiler 0.15 and what-core 0.15 work only with each other, in both
@@ -1192,6 +1211,10 @@ options.
   after 100 flush rounds (0.14: 25) and reported as `ERR_INFINITE_EFFECT`,
   with its name. This affects tests and tools that matched the old console
   text: assert on the code. [ERRORS.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ERRORS.md) lists every code.
+- **what-router and what-server errors thrown with a catalogue code read
+  `[what] ERR_… <text>` and a `fix:` line in development**, as what-core's
+  do, not `[what-router]` or `[what-server]`. Match on `error.code`.
+  Production text is unchanged.
 - **`ERR_MISSING_SIGNAL_READ` reads "Signal "count" was used as a value
   without being called (…)"**, and its `owner` and `loc` are where the
   signal was used; where it was created is `data.createdAt`. A tool that
@@ -1217,7 +1240,7 @@ which records the cause of every change.
 | App | 0.14 | 0.15 |
 |---|---|---|
 | A counter written with `h()` | 6601 B | 9609 B |
-| The create-what counter, runtime JSX | 6702 B | 9632 B |
+| The create-what counter, runtime JSX | 6702 B | 9633 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
 
 The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
@@ -1248,7 +1271,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](https://github.com/CelsianJs/what-framework/blob/main/docs/ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 17168 B, more than twice the same app mounted without
+  hydrating counter is 17177 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
