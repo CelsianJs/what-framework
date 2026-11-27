@@ -143,7 +143,7 @@ export const CAPABILITIES = {
   // --- React libraries in a native What app (what-react, mixed mode) -------
   'react:signal-props': { area: 'react', desc: 'What signals written 100 times a second reach React components as props and as signals read while rendering, none stale, and each component renders only for its own data (once per write at most, memo rows only for their own row)' },
   'react:lift-state': { area: 'react', desc: 'React state lifted into a What store 100 times a second arrives once each, in order, and comes back to React as a prop' },
-  'react:route-churn': { area: 'react', desc: 'React library components mounted and unmounted across dozens of route changes while updates stream release every component, listener, timer, observer and subscription, with no React warning or error in the console' },
+  'react:route-churn': { area: 'react', desc: 'React library components mounted and unmounted across dozens of route changes while updates stream release every component, listener, timer, observer and subscription, the heap stays level, and no React warning or error reaches the console' },
   'react:context-bridge': { area: 'react', desc: 'React context reaches a React component through a native layer, What context reaches a native component a React component renders, live, and a ref native code passes reaches a React component\'s element' },
   'react:portal-focus': { area: 'react', desc: 'a React library dialog over a What page portals out, takes and traps the focus, hosts native components, and gives the focus back on Escape; toasts raised from native code show in their hosts and leave' },
   'react:events': { area: 'react', desc: 'a React onChange beside a native onInput each fires once per keystroke with the field\'s value' },

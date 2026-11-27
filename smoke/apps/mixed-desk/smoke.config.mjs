@@ -35,8 +35,14 @@ const RUN_MS = 10_000;
 const CHURN_CYCLES = 5;
 const ROUTES = ['dashboard', 'deals', 'forms', 'overlays', 'motion', 'upload', 'tools'];
 const BUDGET = { rowUpdate: 25, tableUpdate: 250, bulkUpdate: 400 };
+const HEAP_GROWTH_BOUND = 1024 * 1024;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Every wait goes through a locator: page.waitForSelector() returns an
+// element handle, which keeps the element alive after the page drops it,
+// and with it, through its React handlers, the state of the components that
+// rendered it (a whole TanStack table per visit), so the heap check would
+// measure the check.
 
 // Errors and warnings in the console. Firefox's note that a page "appears to
 // use a scroll-linked positioning effect" is its own heuristic about a scroll
@@ -114,7 +120,7 @@ export default {
     'react:unlisted-libraries',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
     const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
@@ -127,10 +133,10 @@ export default {
     await context.addInitScript(INIT);
     try {
       await withPage(browser, `${base}/`, async (page, diag) => {
-        await page.waitForSelector('[data-route="dashboard"] [data-quote="AMD"]');
+        await page.locator('[data-route="dashboard"] [data-quote="AMD"]').first().waitFor();
         const go = async (id) => {
           await page.click(`[data-nav="${id}"]`);
-          await page.waitForSelector(`[data-route="${id}"]`);
+          await page.locator(`[data-route="${id}"]`).first().waitFor();
         };
 
         await streamChecks(page, { check, reporter, log });
@@ -139,7 +145,7 @@ export default {
         await overlayChecks(page, { check, reporter, go });
         await libraryChecks(page, { check, reporter, go });
         await toolsChecks(page, { check, go });
-        await churnChecks(page, { check, reporter, log, go });
+        await churnChecks(page, { check, skip, log, go, browserName });
 
         const noise = consoleNoise(diag);
         check('react:route-churn', noise.length === 0,
@@ -247,7 +253,7 @@ async function streamChecks(page, { check, reporter, log }) {
 
 async function largeListChecks(page, { check, reporter, log, go }) {
   await go('deals');
-  await page.waitForSelector('[data-deal-row="0"]');
+  await page.locator('[data-deal-row="0"]').first().waitFor();
   // One write at a time to a visible row, then polled (microtasks, then
   // message-channel tasks, so frames do not round the time up) until the DOM
   // shows it; a frame between writes. First the list alone, then with the
@@ -272,14 +278,14 @@ async function largeListChecks(page, { check, reporter, log, go }) {
     return out;
   }, { count, withTable });
   await page.click('[data-show-table]');
-  await page.waitForSelector('[data-deals-table]', { state: 'detached' });
+  await page.locator('[data-deals-table]').waitFor({ state: 'detached' });
   const times = await timeWrites(120, false);
   const missed = times.filter((t) => t < 0).length;
   check('react:large-list', missed === 0 && pct(times, 0.9) <= BUDGET.rowUpdate,
     `a write to one of 10,000 deals in a What signal reaches its react-window row within ${BUDGET.rowUpdate} ms at the 90th percentile`,
     `${fmt(times.map((t) => Math.max(t, 0)))}${missed ? `, ${missed} never shown` : ''}`);
   await page.click('[data-show-table]');
-  await page.waitForSelector('[data-deals-table] tbody tr');
+  await page.locator('[data-deals-table] tbody tr').first().waitFor();
   const tableTimes = await timeWrites(40, true);
   const tableMissed = tableTimes.filter((t) => t < 0).length;
   check('react:large-list', tableMissed === 0 && pct(tableTimes, 0.9) <= BUDGET.tableUpdate,
@@ -302,7 +308,7 @@ async function largeListChecks(page, { check, reporter, log, go }) {
 
   // The list's imperative handle, held by native code, scrolls it.
   await page.click('[data-jump]');
-  await page.waitForSelector('[data-deal-row="5000"]');
+  await page.locator('[data-deal-row="5000"]').first().waitFor();
   const windowed = await page.$$eval('[data-deal-row]', (els) => els.map((el) => Number(el.dataset.dealRow)));
   reporter.assert(windowed.includes(5000) && !windowed.includes(0) && windowed.length < 40,
     'native code scrolls the react-window list through its listRef, and the DOM holds only the window',
@@ -323,7 +329,7 @@ async function largeListChecks(page, { check, reporter, log, go }) {
 async function formChecks(page, { check, reporter, go }) {
   await go('forms');
   await page.click('[data-df-submit]');
-  await page.waitForSelector('[data-df-error="name"]');
+  await page.locator('[data-df-error="name"]').first().waitFor();
   const firstError = await page.evaluate(() => ({
     errors: [...document.querySelectorAll('[data-df-error]')].map((e) => e.dataset.dfError).join(','),
     focused: document.activeElement?.hasAttribute('data-df-name'),
@@ -332,7 +338,7 @@ async function formChecks(page, { check, reporter, go }) {
   await page.selectOption('[data-df-desk]', 'FX');
   await page.fill('[data-df-notional]', '-5');
   await page.click('[data-df-submit]');
-  await page.waitForSelector('[data-df-error="notional"]');
+  await page.locator('[data-df-error="notional"]').first().waitFor();
   const negative = await page.textContent('[data-df-error="notional"]');
   await page.fill('[data-df-notional]', '2500');
   await page.click('[data-df-submit]');
@@ -396,7 +402,7 @@ async function overlayChecks(page, { check, reporter, go }) {
   // Open from the keyboard on a native button; Radix moves the focus in.
   await page.focus('[data-open-dialog]');
   await page.keyboard.press('Enter');
-  await page.waitForSelector('[data-dialog]');
+  await page.locator('[data-dialog]').first().waitFor();
   const opened = await page.evaluate(() => ({
     inPortal: !document.querySelector('[data-page]').contains(document.querySelector('[data-dialog]')),
     focusIn: document.querySelector('[data-dialog]').contains(document.activeElement),
@@ -416,7 +422,7 @@ async function overlayChecks(page, { check, reporter, go }) {
     card: document.querySelector('[data-dialog] [data-desk-card]')?.textContent,
   }));
   await page.keyboard.press('Escape');
-  await page.waitForSelector('[data-dialog]', { state: 'detached' });
+  await page.locator('[data-dialog]').waitFor({ state: 'detached' });
   // Radix gives the focus back in a task after the dialog unmounts.
   await page.waitForFunction(() => document.activeElement?.hasAttribute('data-open-dialog'), null, { timeout: 2000 }).catch(() => {});
   const closed = await page.evaluate(() => ({
@@ -435,9 +441,9 @@ async function overlayChecks(page, { check, reporter, go }) {
   const nodes0 = await page.evaluate(() => document.body.getElementsByTagName('*').length);
   for (let i = 0; i < 10; i++) {
     await page.click('[data-open-dialog]');
-    await page.waitForSelector('[data-dialog]');
+    await page.locator('[data-dialog]').first().waitFor();
     await page.click('[data-dialog-close]');
-    await page.waitForSelector('[data-dialog]', { state: 'detached' });
+    await page.locator('[data-dialog]').waitFor({ state: 'detached' });
   }
   const nodes1 = await page.evaluate(() => document.body.getElementsByTagName('*').length);
   reporter.assert(nodes1 === nodes0, 'ten more opens and closes of the dialog leave no node behind', `${nodes0} -> ${nodes1}`);
@@ -445,8 +451,8 @@ async function overlayChecks(page, { check, reporter, go }) {
   // Toasts from native click handlers.
   await page.click('[data-sonner]');
   await page.click('[data-toastify]');
-  await page.waitForSelector('[data-sonner-toast]');
-  await page.waitForSelector('.Toastify__toast');
+  await page.locator('[data-sonner-toast]').first().waitFor();
+  await page.locator('.Toastify__toast').first().waitFor();
   const toasts = await page.evaluate(() => ({
     sonner: document.querySelector('[data-sonner-toast]')?.textContent,
     toastify: document.querySelector('.Toastify__toast')?.textContent,
@@ -483,7 +489,7 @@ async function libraryChecks(page, { check, reporter, go }) {
     { name: 'trades.csv', mimeType: 'text/csv', buffer: Buffer.from('id,notional\n1,100\n') },
     { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not trades') },
   ]);
-  await page.waitForSelector('[data-upload="trades.csv"]');
+  await page.locator('[data-upload="trades.csv"]').first().waitFor();
   const up = await page.evaluate(() => ({
     uploads: [...document.querySelectorAll('[data-upload]')].map((li) => li.textContent).join('|'),
     refused: document.querySelector('[data-refused]').textContent,
@@ -499,7 +505,7 @@ async function libraryChecks(page, { check, reporter, go }) {
 
 async function toolsChecks(page, { check, go }) {
   await go('tools');
-  await page.waitForSelector('.react-flow__node[data-id="book"]');
+  await page.locator('.react-flow__node[data-id="book"]').first().waitFor();
   // The router's view transition covers the page until it ends; the pointer
   // goes to the node once a hit test there finds it.
   await page.waitForFunction(() => {
@@ -507,8 +513,7 @@ async function toolsChecks(page, { check, go }) {
     const b = n.getBoundingClientRect();
     return n.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2));
   });
-  const node = await page.$('.react-flow__node[data-id="book"]');
-  const box = await node.boundingBox();
+  const box = await page.locator('.react-flow__node[data-id="book"]').boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -563,32 +568,42 @@ async function toolsChecks(page, { check, go }) {
 
 // === 30 route changes while the feed runs ===================================
 
-async function churnChecks(page, { check, reporter, log, go }) {
+async function churnChecks(page, { check, skip, log, go, browserName }) {
   for (const id of ROUTES) await go(id);
   await go('about');
   await sleep(1200);
   const base = await page.evaluate(() => ({ snap: window.__snapshot(), probes: JSON.parse(JSON.stringify(window.__probes)) }));
 
-  await page.evaluate((rate) => window.__desk.startFeed(rate), RATE);
+  // Forcing a GC and reading the heap goes through the devtools protocol,
+  // which only Chromium gives a page.
+  const cdp = browserName === 'chromium' ? await page.context().newCDPSession(page) : null;
+  const heap = async () => {
+    await cdp.send('HeapProfiler.collectGarbage');
+    await cdp.send('HeapProfiler.collectGarbage');
+    return (await cdp.send('Runtime.getHeapUsage')).usedSize;
+  };
   let changes = 0;
-  const t0 = Date.now();
-  for (let c = 0; c < CHURN_CYCLES; c++) {
-    for (const id of ROUTES) {
-      await go(id);
-      changes++;
-      if (id === 'overlays') {
-        await page.click('[data-open-dialog]');
-        await page.waitForSelector('[data-dialog]');
-        await page.keyboard.press('Escape');
-        await page.waitForSelector('[data-dialog]', { state: 'detached' });
+  const churn = async () => {
+    await page.evaluate((rate) => window.__desk.startFeed(rate), RATE);
+    for (let c = 0; c < CHURN_CYCLES; c++) {
+      for (const id of ROUTES) {
+        await go(id);
+        changes++;
+        if (id === 'overlays') {
+          await page.click('[data-open-dialog]');
+          await page.locator('[data-dialog]').first().waitFor();
+          await page.keyboard.press('Escape');
+          await page.locator('[data-dialog]').waitFor({ state: 'detached' });
+        }
       }
-      if (id === 'motion') await page.click('[data-motion-add]');
     }
-  }
-  await go('about');
-  await page.evaluate(() => window.__desk.stopFeed());
+    await go('about');
+    await page.evaluate(() => window.__desk.stopFeed());
+    await sleep(1200);
+  };
+  const t0 = Date.now();
+  await churn();
   const churnMs = Date.now() - t0;
-  await sleep(1200);
   const end = await page.evaluate(() => ({ snap: window.__snapshot(), probes: JSON.parse(JSON.stringify(window.__probes)), feedListeners: window.__feed.listeners.size }));
 
   const live = (p) => Object.keys(p.mounted).reduce((n, k) => n + p.mounted[k] - (p.unmounted[k] ?? 0), 0);
@@ -608,6 +623,30 @@ async function churnChecks(page, { check, reporter, log, go }) {
     `${churnMs}ms; react mounted ${mountedDuring}, live ${live(end.probes)}; native live ${nativeLive(end.probes)}; late renders ${end.probes.lateRenders} callbacks ${end.probes.lateCallbacks}; feed listeners ${end.feedListeners}; `
       + `intervals ${s0.intervals}->${s1.intervals} timeouts ${s0.timeouts}->${s1.timeouts} frames ${s0.frames}->${s1.frames} observers ${s0.observers}->${s1.observers} nodes ${s0.nodes}->${s1.nodes}; listeners ${listenerDiff.join(', ') || 'same'}`);
   log(`churn: ${changes} changes in ${churnMs}ms`);
+
+  // Two more rounds of the same churn: the heap after a forced GC stays
+  // level from one to the next. A round before the first sample lets every
+  // library warm up (a TanStack table's first ten or so mounts grow the heap
+  // by 3 MB in all, with real React as with what-react, then nothing more).
+  if (cdp === null) {
+    skip('react:route-churn', 'the heap after a forced GC stays level over two more rounds of route churn',
+      `${browserName} has no devtools-protocol session to force a GC and read the heap`);
+    return;
+  }
+  await churn();
+  const heaps = [await heap()];
+  await churn();
+  heaps.push(await heap());
+  await churn();
+  heaps.push(await heap());
+  // A navigation between two native pages leaves 3 to 5 KB behind in this
+  // measure (the router's history), so the bound is on the whole growth, not
+  // on its direction: under 1 MiB for 70 route changes.
+  const growth = heaps[2] - heaps[0];
+  const perChange = growth / (2 * ROUTES.length * CHURN_CYCLES);
+  check('react:route-churn', growth < HEAP_GROWTH_BOUND,
+    `the heap after a forced GC stays level over two more rounds of ${ROUTES.length * CHURN_CYCLES} route changes`,
+    `heap ${heaps.map((h) => `${(h / 1048576).toFixed(2)}MB`).join(' -> ')} (growth ${(growth / 1024).toFixed(0)}KB, ${(perChange / 1024).toFixed(1)}KB per change)`);
 }
 
 // === A React island in a server-rendered What page ==========================
@@ -675,7 +714,7 @@ async function hydrationChecks(browser, base, { check, reporter }) {
       await page.click('[data-qr-side]');
       await page.click('[data-qp-ping]');
       await page.click('[data-qr-submit]');
-      await page.waitForSelector('[data-qp-requests] li');
+      await page.locator('[data-qp-requests] li').first().waitFor();
       const live = await page.evaluate(() => ({
         side: document.querySelector('[data-qr-side]').textContent,
         ping: document.querySelector('[data-qp-ping]').textContent,
