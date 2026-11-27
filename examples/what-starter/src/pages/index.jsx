@@ -36,7 +36,7 @@ export default function Home() {
       <p class="count">{() => `${store.count} contact${store.count !== 1 ? 's' : ''}`}</p>
 
       <div class="card-list">
-        {store.filtered.length > 0
+        {() => store.filtered.length > 0
           ? store.filtered.map(contact =>
               <ContactCard key={contact.id} contact={contact} />
             )
@@ -49,15 +49,20 @@ export default function Home() {
   );
 }
 
-function EmptyState({ hasContacts }) {
-  if (hasContacts) {
-    return <p class="empty">No contacts match your search.</p>;
-  }
+// A component runs once, so it branches where it renders: the message
+// follows hasContacts when the last contact is deleted during a search.
+function EmptyState(props) {
   return (
-    <div class="empty">
-      <p class="empty-title">No contacts yet</p>
-      <p>Add your first contact to get started.</p>
-    </div>
+    <>
+      {() => props.hasContacts
+        ? <p class="empty">No contacts match your search.</p>
+        : (
+          <div class="empty">
+            <p class="empty-title">No contacts yet</p>
+            <p>Add your first contact to get started.</p>
+          </div>
+        )}
+    </>
   );
 }
 
