@@ -533,13 +533,13 @@ Imported from `what-framework/dom`.
 
 | Export | Notes |
 |---|---|
-| `cls(...args)` | Conditional class helper |
-| `style(obj)` | CSS text helper |
-| `debounce(fn, ms)` | Debounce utility |
-| `throttle(fn, ms)` | Throttle utility |
+| `cls(...args)` | Conditional class helper: strings, the keys of an object whose values are truthy, and arrays of either, joined with spaces |
+| `style(obj)` | A style object as CSS text, as the `style` prop renders it: camelCase names in kebab-case, custom properties (`--name`) as written, null, undefined and empty values left out |
+| `debounce(fn, ms)` | Calls `fn` once, with the last call's arguments, `ms` after the calls stop; returns nothing |
+| `throttle(fn, ms)` | Calls `fn` at once, then at most once per `ms`; a call inside the window is dropped, not deferred; returns nothing |
 | `useMediaQuery(query)` | Media-query signal |
 | `useLocalStorage(key, initial)` | LocalStorage-backed signal |
-| `useClickOutside(ref, handler)` | Outside-click helper |
+| `useClickOutside(ref, handler)` | Calls `handler` for a mousedown or touchstart outside the element (an element, or a ref read at each press) until the owner is disposed |
 | `clearHead()` | Clear the head tags `<Head>` manages |
 
 ---

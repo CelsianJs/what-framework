@@ -25,10 +25,13 @@ export function smoothScrollTo(
 
 // --- Utilities ---
 
-export function cls(...args: Array<string | false | null | undefined | Record<string, boolean>>): string;
+export type ClassValue = string | false | null | undefined | Record<string, unknown> | ClassValue[];
+export function cls(...args: ClassValue[]): string;
 export function style(obj: string | Record<string, string | number | null | undefined>): string;
-export function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T;
-export function throttle<T extends (...args: any[]) => any>(fn: T, ms: number): T;
+/** Calls `fn` once, with the last call's arguments, `ms` after the calls stop. */
+export function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): (...args: Parameters<T>) => void;
+/** Calls `fn` at once, then at most once per `ms`; a call inside the window is dropped. */
+export function throttle<T extends (...args: any[]) => any>(fn: T, ms: number): (...args: Parameters<T>) => void;
 export function useMediaQuery(query: string): Signal<boolean>;
 export function useLocalStorage<T>(key: string, initial: T): Signal<T>;
 export function useClickOutside(ref: { current?: Element | null } | Element, handler: (e: Event) => void): void;
