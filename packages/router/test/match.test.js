@@ -63,6 +63,24 @@ describe('route specificity', () => {
       assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
     }
   });
+
+  it('ranks a catch-all below a param before the catch-all of the root', () => {
+    for (const [routes, path, winner] of [
+      [[{ path: '*' }, { path: '/users/:id/*' }], '/users/7/posts', '/users/:id/*'],
+      [[{ path: '/*' }, { path: '/:lang/*' }], '/en/docs', '/:lang/*'],
+      [[{ path: '/[...all]' }, { path: '/blog/[cat]/[...slug]' }], '/blog/news/a/b', '/blog/[cat]/[...slug]'],
+      [[{ path: '/docs/*' }, { path: '/docs/:section/*' }], '/docs/intro/a', '/docs/:section/*'],
+      [[{ path: '/docs/:section/*' }, { path: '/docs/*' }], '/docs/intro', '/docs/*'],
+      [[{ path: '/:lang/*' }, { path: '/docs/*' }], '/docs/a', '/docs/*'],
+    ]) {
+      assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
+    }
+  });
+
+  it('ranks a route in a group as the route without it, so the first listed wins a tie', () => {
+    assert.equal(matchRoute('/x', [{ path: '/:id' }, { path: '/(g)/:slug' }]).route.path, '/:id');
+    assert.equal(matchRoute('/x', [{ path: '/(g)/:slug' }, { path: '/:id' }]).route.path, '/(g)/:slug');
+  });
 });
 
 // The path a route matches is the URL's, which the URL parser percent-encodes

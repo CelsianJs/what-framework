@@ -18,6 +18,8 @@ export function compilePath(path) {
   const paramNames = [];
   /** @type {string | null} */
   let catchAll = null;
+  // The static segments, which rank a catch-all (specificity).
+  let statics = 0;
 
   const regexStr = normalized
     .split('/')
@@ -32,6 +34,7 @@ export function compilePath(path) {
         paramNames.push(segment.slice(1));
         return '([^/]+)';
       }
+      if (segment) statics++;
       // As the URL holds it: the URL parser percent-encodes a path's spaces,
       // controls, non-ASCII characters and "<>`{}, and keeps an escape
       // already written ('%C3%A9').
@@ -40,7 +43,7 @@ export function compilePath(path) {
     .join('/');
 
   const regex = new RegExp(`^${regexStr}$`);
-  return { regex, paramNames, catchAll };
+  return { regex, paramNames, catchAll, statics };
 }
 
 // Compiled patterns are stable per route path, so cache them instead of
@@ -53,7 +56,7 @@ function getPattern(path) {
   let compiled = patternCache.get(path);
   if (!compiled) {
     compiled = compilePath(path);
-    compiled.rank = specificity(path, compiled);
+    compiled.rank = specificity(compiled);
     if (patternCache.size >= PATTERN_CACHE_MAX) patternCache.clear();
     patternCache.set(path, compiled);
   }
@@ -77,12 +80,13 @@ function decodeParam(value, isCatchAll) {
   return decoded;
 }
 
-// A route's rank, lower first: fewer params first, a catch-all last, and of
-// two catch-alls the one below more static segments. Two routes that match
-// one URL without a catch-all have as many segments, so the static ones count
-// only between catch-alls.
-function specificity(path, { paramNames, catchAll }) {
-  return 10 * paramNames.length - path.split('/').length + (catchAll === null ? 0 : 1000);
+// A route's rank, lower first: fewer params first, and a catch-all after
+// every other route. Of two catch-alls, the one whose segments before its
+// rest say more comes first, a static segment counting 10 and a param 3:
+// '/users/:id/*' (13), '/docs/*' (10), '/:lang/*' (3), '/*' (0). Two routes
+// of equal rank keep the order they are listed in.
+function specificity({ paramNames, catchAll, statics }) {
+  return catchAll === null ? paramNames.length : 1e6 - 10 * statics - 3 * (paramNames.length - 1);
 }
 
 // A path without the slashes that end it after a segment: '/about/' is
