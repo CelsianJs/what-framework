@@ -25,8 +25,10 @@ import { createRenderContext, ensureServerRuntime, renderContextFrom, resourcePa
 import { startStream, renderBuffered, checkStreamOptions, takesSlot } from './stream.js';
 import { createResponse } from './response.js';
 import {
-  BOUNDARY_TAGS,
-  SERVER_SKIPPED_TAGS,
+  TAG_BOUNDARY,
+  TAG_SKIPPED,
+  TAG_VOID,
+  tagInfo,
   VOID_ELEMENTS,
   _componentProps,
   _boundaryFallback,
@@ -36,7 +38,6 @@ import {
   _resolveInnerHTML,
   _claimThrow,
   _plainText,
-  assertSafeTag,
   renderAttrs,
   _field,
   _enterSelect,
@@ -235,32 +236,12 @@ function _renderHydratable(vnode, notHtml) {
     return out(text);
   }
 
-  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
-
-  // Boundary markers render their subtree between <!--b--> and <!--/b-->,
-  // never themselves; <!--b!--> opens one that shows its fallback.
-  if (BOUNDARY_TAGS.has(vnode.tag)) {
-    const saved = saveKeys();
-    const found = _saveSelect();
-    try {
-      return out(BOUNDARY_OPEN) + renderChildren(vnode.children, _renderHydratable) + out(BOUNDARY_CLOSE);
-    } catch (e) {
-      _claimThrow(e);
-      const suspended = e && typeof e.then === 'function';
-      if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
-      if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
-      restoreKeys(saved);
-      _restoreSelect(found);
-      const open = out(BOUNDARY_FALLBACK);
-      return open + _renderHydratable(_boundaryFallback(vnode, suspended ? null : e)) + out(BOUNDARY_CLOSE);
-    }
-  }
-
   // Component — its owner path is its hydration key, placed on the first
   // element of its output (compiled.js has the rule) as the output is written.
   // A built-in the compiler lowers away has none (hydration-data.js).
-  if (typeof vnode.tag === 'function') {
-    const ctx = _beginComponentSSR(vnode.tag);
+  const tag = vnode.tag;
+  if (typeof tag === 'function') {
+    const ctx = _beginComponentSSR(tag);
     if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site)) {
       try {
         return _renderHydratable(_runComponentSync(ctx, callComponent, vnode));
@@ -279,9 +260,38 @@ function _renderHydratable(vnode, notHtml) {
     }
   }
 
+  // Throws for a name no element may have.
+  const info = tagInfo(tag, vnode);
+  if (info.kind === TAG_SKIPPED) return '';
+
+  // Boundary markers render their subtree between <!--b--> and <!--/b-->,
+  // never themselves; <!--b!--> opens one that shows its fallback.
+  if (info.kind === TAG_BOUNDARY) {
+    const saved = saveKeys();
+    const found = _saveSelect();
+    try {
+      return out(BOUNDARY_OPEN) + renderChildren(vnode.children, _renderHydratable) + out(BOUNDARY_CLOSE);
+    } catch (e) {
+      _claimThrow(e);
+      const suspended = e && typeof e.then === 'function';
+      if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
+      if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
+      restoreKeys(saved);
+      _restoreSelect(found);
+      const open = out(BOUNDARY_FALLBACK);
+      return open + _renderHydratable(_boundaryFallback(vnode, suspended ? null : e)) + out(BOUNDARY_CLOSE);
+    }
+  }
+
   // Element
-  const { tag, props, children } = vnode;
-  assertSafeTag(tag, vnode);
+  const { props, children } = vnode;
+  if (_ns === null && info.kind <= TAG_VOID) {
+    const open = out(info.open + (props ? renderAttrs(props) : '') + '>');
+    if (info.kind === TAG_VOID) return open;
+    const rawInner = _resolveInnerHTML(props);
+    if (rawInner != null) return open + out(String(rawInner)) + out(info.close);
+    return open + renderChildren(children, _renderHydratable) + out(info.close);
+  }
   if (tag === 'option') {
     const option = _renderOption(props, out, () => optionContent(props, children, _renderHydratable));
     if (option !== null) return option;
@@ -423,7 +433,26 @@ function _renderString(vnode, notHtml) {
     return text;
   }
 
-  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
+  // Component
+  //
+  // Run it under a component frame (an owner). Calling it bare left no
+  // component current, so every context-dependent hook threw and the render
+  // failed outright rather than degrading. The frame has to stay current while
+  // the result is rendered, because useContext resolves by walking owners.
+  const tag = vnode.tag;
+  if (typeof tag === 'function') {
+    const ctx = _beginComponentSSR(tag);
+    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site);
+    try {
+      return _renderString(_runComponentSync(ctx, callComponent, vnode));
+    } finally {
+      _endComponentSSR(ctx);
+    }
+  }
+
+  // Throws for a name no element may have.
+  const info = tagInfo(tag, vnode);
+  if (info.kind === TAG_SKIPPED) return '';
 
   // Boundary markers render their subtree, never themselves.
   //
@@ -435,7 +464,7 @@ function _renderString(vnode, notHtml) {
   // this branch existed the error propagated out of renderToString and killed the
   // whole page response, which is precisely the failure an ErrorBoundary exists
   // to prevent.
-  if (BOUNDARY_TAGS.has(vnode.tag)) {
+  if (info.kind === TAG_BOUNDARY) {
     const found = _saveSelect();
     try {
       return renderChildren(vnode.children, _renderString);
@@ -449,25 +478,16 @@ function _renderString(vnode, notHtml) {
     }
   }
 
-  // Component
-  //
-  // Run it under a component frame (an owner). Calling it bare left no
-  // component current, so every context-dependent hook threw and the render
-  // failed outright rather than degrading. The frame has to stay current while
-  // the result is rendered, because useContext resolves by walking owners.
-  if (typeof vnode.tag === 'function') {
-    const ctx = _beginComponentSSR(vnode.tag);
-    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), /** @type {any} */ (vnode)._site);
-    try {
-      return _renderString(_runComponentSync(ctx, callComponent, vnode));
-    } finally {
-      _endComponentSSR(ctx);
-    }
+  // Element. One whose name asks for no further rule (html.js TAG_PLAIN) is
+  // written straight from its tag's record.
+  const { props, children } = vnode;
+  if (_ns === null && info.kind <= TAG_VOID) {
+    const open = info.open + (props ? renderAttrs(props) : '') + '>';
+    if (info.kind === TAG_VOID) return open;
+    const rawInner = _resolveInnerHTML(props);
+    if (rawInner != null) return open + String(rawInner) + info.close;
+    return open + renderChildren(children, _renderString) + info.close;
   }
-
-  // Element
-  const { tag, props, children } = vnode;
-  assertSafeTag(tag, vnode);
   if (tag === 'option') {
     const option = _renderOption(props, asIs, () => optionContent(props, children, _renderString));
     if (option !== null) return option;

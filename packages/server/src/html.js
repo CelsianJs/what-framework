@@ -23,6 +23,7 @@ import {
   isUnsafeUrl,
   isUrlAttr,
   rawTextContent,
+  childNamespace,
   styleText,
   oneDeclaration,
   PLAIN_CSS_VALUE,
@@ -266,20 +267,61 @@ function _plainText(value) {
   return escapeHtml(String(value));
 }
 
-// Tag names that passed SAFE_TAG_NAME. Bounded, because tag names can come
-// from data (<Dynamic component={name}>) and a cache an attacker can grow
-// without limit is a memory leak.
-const _safeTags = new Set();
+// What the h() renderers decide from a vnode's tag name, once per name
+// (tagInfo): its kind, and its start and end tags. A boundary marker and a
+// skipped tag render as such; any other name is an element's and must pass
+// SAFE_TAG_NAME. An element is TAG_PLAIN when, in HTML, its name asks for no
+// further rule: no void, raw-text, text-only or leading-newline element, no
+// element that changes the namespace (childNamespace), no form field, select
+// or option. TAG_VOID is a void element that is no form field. The renderers
+// write those two straight from the record and send every other element
+// through the full rules. TAG_PLAIN and TAG_VOID come first, so
+// `kind <= TAG_VOID` asks for either.
+const TAG_PLAIN = 0;
+const TAG_VOID = 1;
+const TAG_OTHER = 2;
+const TAG_BOUNDARY = 3;
+const TAG_SKIPPED = 4;
+
+const SPECIAL_HTML_TAGS = new Set(['option', 'select', 'input', 'textarea']);
+
+function tagKind(tag) {
+  if (SERVER_SKIPPED_TAGS.has(tag)) return TAG_SKIPPED;
+  if (BOUNDARY_TAGS.has(tag)) return TAG_BOUNDARY;
+  if (SPECIAL_HTML_TAGS.has(tag) || RAW_TEXT_ELEMENTS.has(tag) || TEXT_ONLY_ELEMENTS.has(tag)
+    || LEADING_NEWLINE_ELEMENTS.has(tag) || childNamespace(null, tag, undefined) !== null) return TAG_OTHER;
+  return VOID_ELEMENTS.has(tag) ? TAG_VOID : TAG_PLAIN;
+}
+
+// Tag names that passed SAFE_TAG_NAME, with their records. Bounded, because
+// tag names can come from data (<Dynamic component={name}>) and a cache an
+// attacker can grow without limit is a memory leak.
+/** @type {Map<string, { kind: number, open: string, close: string }>} */
+const _safeTags = new Map();
 const SAFE_TAG_CACHE_SIZE = 512;
 
-function assertSafeTag(tag, vnode) {
-  if (typeof tag === 'string') {
-    if (_safeTags.has(tag)) return;
-    if (SAFE_TAG_NAME.test(tag)) {
-      if (_safeTags.size < SAFE_TAG_CACHE_SIZE) _safeTags.add(tag);
-      return;
-    }
+/** The record of a vnode's tag (see TAG_PLAIN); throws for a name no element may have. */
+function tagInfo(tag, vnode) {
+  const info = _safeTags.get(tag);
+  if (info !== undefined) return info;
+  return newTagInfo(tag, vnode);
+}
+
+function newTagInfo(tag, vnode) {
+  if (typeof tag === 'string' && SAFE_TAG_NAME.test(tag)) {
+    const info = { kind: tagKind(tag), open: '<' + tag, close: '</' + tag + '>' };
+    if (_safeTags.size < SAFE_TAG_CACHE_SIZE) _safeTags.set(tag, info);
+    return info;
   }
+  return refuseTag(tag, vnode);
+}
+
+function assertSafeTag(tag, vnode) {
+  if (!_safeTags.has(tag)) newTagInfo(tag, vnode);
+}
+
+/** @returns {never} */
+function refuseTag(tag, vnode) {
   if (_isDomNode(vnode)) {
     // ERROR_CODES.COMPILED_JSX_IN_SSR
     throw Object.assign(
@@ -718,6 +760,10 @@ export {
   _afterOpen,
   _plainText,
   assertSafeTag,
+  tagInfo,
+  TAG_VOID,
+  TAG_BOUNDARY,
+  TAG_SKIPPED,
   renderAttrs,
   styleText,
   escapeHtml,
