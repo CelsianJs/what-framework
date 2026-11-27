@@ -431,6 +431,13 @@ function readStringLiteral(source, start) {
     // Quoted strings cannot span lines; treat it as unterminated rather than
     // running off into the rest of the module.
     if (quote !== '`' && (ch === '\n' || ch === '\r')) break;
+    // A template's line break is a \n whatever the file's line endings, as
+    // in JavaScript.
+    if (ch === '\r') {
+      value += '\n';
+      i += source[i + 1] === '\n' ? 2 : 1;
+      continue;
+    }
 
     value += ch;
     i++;
