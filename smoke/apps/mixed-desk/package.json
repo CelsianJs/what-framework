@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Mixed desk smoke app: a native What shell (router, layout, signals store) hosting React components from real npm libraries, with data flowing both ways under load, and a server-rendered page whose React island hydrates.",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node server.js --dev",
     "build": "vite build && vite build -c vite.ssr.config.js && vite build -c vite.ssr.config.js --ssr src/ssr/entry-server.jsx --outDir dist/server",
     "start": "node server.js"
   },

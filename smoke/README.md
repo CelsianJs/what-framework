@@ -139,15 +139,18 @@ WHAT_SMOKE_MODE=dev node smoke/run.mjs --apps=handbook
 - An app whose checks serve it with `serveViteApp` from the harness declares
   `dev: true`, and in dev mode that call starts the app's own dev server (its
   `vite.config.js`, its installed Vite, `harness/vite-dev-server.mjs`) on the
-  app's port, with the HMR socket on that same port. `workspace-ssr` runs its
-  `npm run dev` (`server.js --dev`: Vite in middleware mode renders the pages
-  from the source, its HMR socket on the server's port).
+  app's port, with the HMR socket on that same port. `workspace-ssr` and
+  `mixed-desk` run their `npm run dev` (`server.js --dev`: Vite in middleware
+  mode renders the server's pages from the source and serves the client's
+  modules, its HMR socket on the server's port).
 - An app with no dev server says why in `dev`, a string printed as the skip:
   the buildless apps already run their development tier in either mode, and
   `chat` serves only its build.
 - A check that means nothing on a dev server reads `mode` from the check's
-  arguments and calls `skip(capability, name, reason)` there, as a WebKit or
-  Firefox skip does (mixed-desk's quote page, rendered from the `--ssr` build).
+  arguments and skips there with the reason (`skip(capability, name, reason)`,
+  or `reporter.skip(name, reason)` for an untagged one), as a WebKit or Firefox
+  skip does: handbook's check that each chapter was built into a chunk of its
+  own. The time and heap budgets hold on the dev server too, so they run there.
 - Every page is watched for What's development diagnostics: a console warning
   or error starting with `[what]` or `[vite]` fails the app. One the app expects
   is listed in its `devDiagnostics` (a piece of the message, and why), which then

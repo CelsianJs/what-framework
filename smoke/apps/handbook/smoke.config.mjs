@@ -106,6 +106,7 @@ export default {
     if (mode === 'dev') {
       for (const c of CHAPTERS) pageOfChunk.set(`src/chapters/${c.slug}.jsx`, c.slug);
       pageOfChunk.set('src/desk/Desk.jsx', 'desk');
+      reporter.skip('every chapter and the desk were built into a chunk of their own', 'dev mode: the dev server builds no chunks, it serves each source file');
     } else {
       const manifest = JSON.parse(readFileSync(join(workDir, 'dist/.vite/manifest.json'), 'utf8'));
       for (const c of CHAPTERS) pageOfChunk.set(manifest[`src/chapters/${c.slug}.jsx`]?.file, c.slug);
