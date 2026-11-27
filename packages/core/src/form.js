@@ -317,6 +317,11 @@ function createFormController(options = {}) {
         }
       } else if (type === 'checkbox') {
         value = target.checked;
+      } else if (type === 'file') {
+        // A file input's value is a fake path ("C:\fakepath\photo.png") that
+        // carries no file: the field holds its FileList, as React Hook Form
+        // registers one. Each choice is a new list, so it is always news.
+        value = target.files;
       } else {
         // A multiple select holds the values of its selected options.
         value = type === 'select-multiple' ? Array.from(target.selectedOptions, (option) => option.value) : target.value;
@@ -325,7 +330,7 @@ function createFormController(options = {}) {
       // field registered as a value (below) takes its edit from `input`, and
       // from `change` only what that did not bring (a listbox, a multiple
       // select or one with a size, fires only `change` for a key typed).
-      if (e.type === 'change' && JSON.stringify(value) === JSON.stringify(fieldSig.peek())) return;
+      if (e.type === 'change' && type !== 'file' && JSON.stringify(value) === JSON.stringify(fieldSig.peek())) return;
       setValue(name, value);
 
       if (mode === 'onChange' || (isSubmitted.peek() && reValidateMode === 'onChange')) {

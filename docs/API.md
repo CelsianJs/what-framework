@@ -731,7 +731,9 @@ Imported from `what-framework/form`.
 `onchange`, `onBlur`, `onFocus`, `ref`, and `value` (`checked` for a checkbox
 or radio). In compiled JSX, `<input {...register('email')} />` follows the
 field: the spread's binding reads `value` and `checked` again, so `setValue`
-and `reset` show in the input.
+and `reset` show in the input. A registered file input's field holds its
+`FileList` (`values.photo[0]` is the `File`), as in React Hook Form; nothing
+is ever written to the input.
 
 An `h()` call reads them once. `h('input', { ...register('email') })` (a
 JavaScript spread copies the value) and `h('input', register('email'))` both
