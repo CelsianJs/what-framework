@@ -111,7 +111,7 @@ function setIn(obj, path, value) {
   let cur = obj;
   for (let i = 0; i < last; i++) {
     const segment = segments[i];
-    if (cur[segment] === null || typeof cur[segment] !== 'object') cur[segment] = isIndex(segments[i + 1]) ? [] : {};
+    if (typeof (cur[segment] ?? 0) !== 'object') cur[segment] = isIndex(segments[i + 1]) ? [] : {};
     cur = cur[segment];
   }
   cur[segments[last]] = value;
@@ -354,9 +354,9 @@ function createFormController(options = {}) {
         const shown = byKey(nextErrors);
         for (const at in fieldRuns) {
           if (fieldRuns[at] < run) continue;
-          const own = errorSignals[at] ? errorSignals[at].peek() : null;
-          if (own == null) delete shown[at];
-          else shown[at] = own;
+          const latest = errorSignals[at]?.peek();
+          if (latest == null) delete shown[at];
+          else shown[at] = latest;
         }
         replaceAllErrors(shown);
       }
