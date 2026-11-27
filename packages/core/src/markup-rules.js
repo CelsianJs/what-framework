@@ -236,15 +236,16 @@ export function isNamespaceNeutralText(text) {
 }
 
 // The five-character HTML escape every server renderer and what-compiler use
-// for text and attribute values. One search for the first character that needs
-// escaping, an early return for the common clean string, then one pass from
-// there: the same output as five chained replace() calls without scanning the
-// string five times.
+// for text and attribute values. A test() for any character that needs
+// escaping, an early return for the common clean string (test() is cheaper
+// than search(), which saves and restores the expression's lastIndex), then a
+// search for the first one and one pass from there: the same output as five
+// chained replace() calls without scanning the string five times.
 const NEEDS_ESCAPE = /[&<>"']/;
 
 export function escapeHtml(str) {
+  if (!NEEDS_ESCAPE.test(str)) return str;
   const first = str.search(NEEDS_ESCAPE);
-  if (first === -1) return str;
   let out = '';
   let last = 0;
   for (let i = first; i < str.length; i++) {
