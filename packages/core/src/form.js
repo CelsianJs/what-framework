@@ -221,7 +221,7 @@ function createFormController(options = {}) {
   function readName(key) {
     if (fieldSignals[key] === undefined && (arrays[key] || isContainer(defaultOf(key)) || Object.keys(fieldSignals).some((k) => k.startsWith(key + '.')))) {
       const name = nameOf(key);
-      return name == null ? '' : getIn(getAllValues(true), name) ?? '';
+      return name == null ? '' : getIn(getAllValues(), name) ?? '';
     }
     return readKey(key);
   }
@@ -246,27 +246,26 @@ function createFormController(options = {}) {
   const isValidating = signal(false);
   const submitCount = signal(0);
 
-  // Helper: get all current values as an object, nested by the fields' paths.
-  // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
-  function getAllValues(tracked) {
-    if (tracked) fieldCount();
+  // All current values as an object, nested by the fields' paths, read
+  // tracked: a snapshot reads them through untrack().
+  function getAllValues() {
+    fieldCount();
     let result = clone(defaultValues);
-    if (ext) ext.v(result, tracked);
+    if (ext) ext.v(result);
     for (const key in hidden) {
       const name = nameOf(key);
       if (name != null) result = unsetIn(result, name.split('.'));
     }
     for (const key in fieldSignals) {
       const name = nameOf(key);
-      if (name != null) setIn(result, name, tracked ? fieldSignals[key]() : fieldSignals[key].peek());
+      if (name != null) setIn(result, name, fieldSignals[key]());
     }
     return result;
   }
 
-  // Helper: get all current errors as an object keyed by field name.
-  // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
-  function getAllErrors(tracked) {
-    const errors = tracked ? errorsState() : errorsState.peek();
+  // All current errors as an object keyed by field name, read tracked.
+  function getAllErrors() {
+    const errors = errorsState();
     return ext ? ext.e(errors) : errors;
   }
 
@@ -302,7 +301,7 @@ function createFormController(options = {}) {
   }
 
   // Computed states
-  const isValid = computed(() => Object.keys(getAllErrors(true)).length === 0);
+  const isValid = computed(() => Object.keys(getAllErrors()).length === 0);
 
   // Fields as an object keyed by name, for those `include` keeps.
   function byName(signals, include) {
@@ -346,7 +345,7 @@ function createFormController(options = {}) {
     else formRun = run;
     if (inFlight++ === 0) isValidating.set(true);
     try {
-      const result = await resolver(getAllValues(), undefined, fieldName ? { names: [fieldName] } : {});
+      const result = await resolver(untrack(getAllValues), undefined, fieldName ? { names: [fieldName] } : {});
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
@@ -708,9 +707,9 @@ function createFormController(options = {}) {
         const isFormValid = await validate();
 
         if (isFormValid) {
-          await onValid(getAllValues());
+          await onValid(untrack(getAllValues));
         } else if (onInvalid) {
-          onInvalid(getAllErrors());
+          onInvalid(untrack(getAllErrors));
         }
       } finally {
         isSubmitting.set(false);
@@ -726,7 +725,7 @@ function createFormController(options = {}) {
       return computed(() => readName(key));
     }
     // Watch all: return a computed that reads all field signals
-    return computed(() => getAllValues(true));
+    return computed(getAllValues);
   }
 
   return {
@@ -749,8 +748,8 @@ function createFormController(options = {}) {
     },
     // Form state
     formState: {
-      get values() { return getAllValues(true); },
-      get errors() { return getAllErrors(true); },
+      get values() { return getAllValues(); },
+      get errors() { return getAllErrors(); },
       error: (name) => getErrorSignal(keyOf(name))(),
       get touched() { return byName(touchedSignals, Boolean); },
       isDirty: () => isDirty(),
@@ -862,10 +861,10 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
       return true;
     },
     // Each array's items, outer arrays first, replace what the defaults hold.
-    v(result, tracked) {
+    v(result) {
       for (const k of Object.keys(arrays).sort((a, b) => a.length - b.length)) {
         const name = nameAt(k);
-        if (name != null) setIn(result, name, (tracked ? arrays[k]() : arrays[k].peek()).map((segment) => clone(bases[segment])));
+        if (name != null) setIn(result, name, arrays[k]().map((segment) => clone(bases[segment])));
       }
     },
     s() {
