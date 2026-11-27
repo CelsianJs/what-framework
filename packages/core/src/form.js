@@ -4,16 +4,10 @@
 import { signal, computed, batch, effect, onCleanup, untrack, __DEV__ } from './reactive.js';
 import { getCurrentComponent, _isEventProp, _markProps } from './dom.js';
 import { h } from './h.js';
+import { applyRef } from './render.js';
 import { report } from './diagnostics.js';
 
 // --- Registration plumbing ---
-
-// A ref can be a callback or a { current } box; both spellings are public API,
-// so anything that wants to install its OWN ref has to forward the caller's.
-function _applyRef(ref, el) {
-  if (typeof ref === 'function') ref(el);
-  else if (ref && typeof ref === 'object') ref.current = el;
-}
 
 // Run BOTH handlers when a registration and its caller want the same DOM event.
 // Registration first, caller second, so the caller's handler observes form state
@@ -548,7 +542,9 @@ function createFormController(options = {}) {
       result.checked = isChecked;
       result.onchange = handler;
       result.ref = (el) => {
-        _applyRef(options.ref, el);
+        // The caller's ref, a callback or a { current } box, is applied as
+        // the renderer applies a ref.
+        applyRef(options.ref, el);
         if (!el || typeof el !== 'object') return;
 
         // The reactive `checked` prop above only stamps the checked CONTENT
@@ -597,7 +593,7 @@ function createFormController(options = {}) {
       // the field is not handled twice per keystroke.
       Object.defineProperty(result, 'oninput', { value: handler });
       result.ref = (el) => {
-        _applyRef(options.ref, el);
+        applyRef(options.ref, el);
         // An UNTYPED registration spread onto a radio cannot be rescued, and it
         // fails silently, so say so at mount. The `value` binding above resolves
         // during the spread and overwrites the input's own value with the FIELD's
