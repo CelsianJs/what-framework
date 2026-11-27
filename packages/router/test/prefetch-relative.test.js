@@ -41,3 +41,16 @@ describe('prefetching a relative href', () => {
     assert.deepEqual([...document.head.querySelectorAll('link[rel=prefetch]')].map((l) => l.getAttribute('href')), ['/docs/setup', '/guide/setup']);
   });
 });
+
+// prefetch() follows <Link>'s rule: a page of this app is prefetched, and
+// nothing else is asked for (another site, a page of this origin outside
+// the base, a URL isSafeUrl() refuses). Before, its href went into a
+// <link rel="prefetch"> as it was written, so prefetch('//other.example/x')
+// had the browser fetch another site's page.
+describe('prefetching what is not a page of the app', () => {
+  it('adds no <link rel="prefetch"> and downloads nothing', () => {
+    const before = document.head.querySelectorAll('link[rel=prefetch]').length;
+    for (const href of ['https://other.example/x', '//other.example/x', '/\\other.example/x', 'javascript:alert(1)', 'mailto:a@b.example']) prefetch(href);
+    assert.equal(document.head.querySelectorAll('link[rel=prefetch]').length, before);
+  });
+});

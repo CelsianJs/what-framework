@@ -279,6 +279,8 @@ export function asyncGuard(
 /**
  * Prefetch a route's assets: starts downloading the lazy() chunk of the route
  * `href` matches (not one behind middleware), and adds `<link rel="prefetch">`.
+ * An href that is no page of the app (another site, a URL outside the base,
+ * `javascript:`) is not prefetched, as a `<Link>` to it is not.
  */
 export function prefetch(href: string): void;
 

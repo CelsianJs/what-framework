@@ -1651,18 +1651,20 @@ export function asyncGuard(check, options = {}) {
 // follows need not wait for it, and the browser is hinted to fetch the URL.
 // A route behind middleware is left to the navigation, which downloads it
 // only once the middleware admits it. Each page once: a relative href is the
-// page it resolves to now, which a link that stays mounted sees change.
+// page it resolves to now, which a link that stays mounted sees change. What
+// is no page of the app (another site, javascript:, a URL outside the base)
+// is not asked for, as a <Link> to it is not.
 
 const prefetchedUrls = new Set();
 
 export function prefetch(href) {
-  if (typeof document === 'undefined') return;
-  const target = resolveHref(href);
-  const url = target === null ? outward(href) : historyUrl(outward(pageOf(target)));
+  const target = typeof document === 'undefined' ? null : resolveHref(href);
+  if (target === null) return;
+  const url = historyUrl(outward(pageOf(target)));
   if (prefetchedUrls.has(url)) return;
   prefetchedUrls.add(url);
 
-  const matched = target !== null && _routes !== null ? matchRoute(pathOf(target), _routes) : null;
+  const matched = _routes !== null ? matchRoute(pathOf(target), _routes) : null;
   if (matched && !matched.route.middleware) chunkOf(matched.route.component, true);
 
   const link = document.createElement('link');
