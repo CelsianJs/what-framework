@@ -361,6 +361,7 @@ export function createRequestHandler(options = {}) {
     onError,
   } = options;
   const bodyLimit = bodyLimitOf(options);
+  const base = (basePath || '').replace(/\/+$/, '');
 
   // Auto-provisioning (cookie + meta tag) only applies to the built-in
   // handler; a user-supplied actionHandler owns its own CSRF policy.
@@ -396,7 +397,10 @@ export function createRequestHandler(options = {}) {
   async function handle(request) {
     const url = new URL(request.url, 'http://localhost');
     let pathname = url.pathname;
-    if (basePath && pathname.startsWith(basePath)) pathname = pathname.slice(basePath.length) || '/';
+    // The base is a whole number of segments ('/app' or, as Vite writes it,
+    // '/app/'): '/app/x' is '/x' and '/app' is '/', and '/application' is
+    // not below it, so it is matched as it is.
+    if (base && (pathname === base || pathname.startsWith(base + '/'))) pathname = pathname.slice(base.length) || '/';
 
     // Server actions (JSON fetch path AND plain form-post fallback)
     if (request.method === 'POST' && pathname === ACTION_PATH) {

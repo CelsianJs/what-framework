@@ -575,7 +575,14 @@ export interface RequestHandlerOptions {
   document?: DocumentOptions;
   /** Body for unmatched paths. */
   notFound?: () => string;
-  /** Path prefix stripped before matching. */
+  /**
+   * The path the app is served below (`'/app'`, or `'/app/'` as Vite writes
+   * it), stripped from a request's path on a segment boundary before
+   * matching: `/app/x` matches `/x`, `/app` matches `/`, and a path outside
+   * it (`/application`) is matched as it is. The router's base is the
+   * client's (what-router `setBase`, or Vite's `base`): give both the same
+   * path.
+   */
   basePath?: string;
   /**
    * CSRF protection, on by default: a post the browser marks cross-site
