@@ -376,6 +376,16 @@ are the differences from 0.14.
   made with `h()`. This affects a field bound to state only to start with
   something in it: write `defaultValue`. Write the state in the handler
   itself, not after an `await` or in a timer, or the field goes back first.
+- **Reactive text compares with the text What wrote last.** A reactive text
+  child (`{count()}`, `{props.label}`) writes its node only when its new text
+  differs from the text it wrote before; 0.14 compared with the node's
+  current text. Text that something outside What wrote into a bound text
+  node (a script, a browser extension, a test) stays until the bound value
+  changes, where 0.14 put the value back at the next run. This affects code
+  that writes into nodes What renders: render the text from state instead.
+- **A Symbol child renders nothing**, as `null` and booleans do, on the
+  server, the client and in hydration. 0.14 rendered its text
+  (`Symbol(x)`).
 - **A function in a `useEffect` dependency array that is not a signal is
   reported.** A dependency array re-runs the effect for the signals and
   computeds in it. Any other function was, and is, never called (the array
@@ -394,6 +404,28 @@ are the differences from 0.14.
 - **`on(el, event, handler)` removes its listener when the current owner is
   disposed**, as a JSX event handler is. Attach a listener that must outlive
   the component outside it.
+- **The `html` tagged template keeps JSX's whitespace.** 0.14 trimmed every
+  run of text, so `` html`<p>Hello ${name}</p>` `` rendered `HelloAlice`;
+  0.15 follows JSX's rule (whitespace on one line is kept, a run that holds
+  a line break is dropped at the ends and is one space between words) and
+  renders `Hello Alice`. An unquoted attribute value (`class=foo`) is the
+  attribute's value, where 0.14 read a boolean attribute named `foo`. This
+  affects a template that relied on the trimming: write the text it should
+  render.
+- **`cls()` flattens arrays and `style()` keeps custom property names.**
+  `cls(['a', 'b'])` is `'a b'`, where 0.14 gave `'0 1'`, and
+  `style({ '--mainColor': 'red' })` writes `--mainColor`, as the `style` prop
+  does, where 0.14 wrote `--main-color`. This affects CSS that matched the
+  0.14 output: rename a custom property your stylesheet reads in kebab case.
+- **`FocusTrap` and `useFocusTrap` move focus on every Tab themselves**,
+  through the trap's focusable elements (buttons, links with an `href`,
+  enabled fields, and elements with a `tabindex` other than `-1`) in
+  document order, wrapping at both ends; 0.14 stepped in only at the first
+  and last element and let the browser move focus in between, so Safari,
+  whose Tab skips buttons and links by default, could leave the dialog. This
+  affects a dialog whose Tab order relied on a positive `tabindex` or on an
+  element outside that list (`contenteditable`, `<summary>`): give it a
+  `tabindex="0"`.
 - **`memo` is no longer exported from `what-framework/render`.** That was the
   compiler's eager memo, now `_$memo`; the root `memo` is React's component
   memo, unchanged. Use `computed()` or `useMemo` where you imported it.
@@ -493,6 +525,17 @@ and navigations that are transitions. Each change below has its migration.
   that relied on an immediate reset resets in the action's success path.
   `useFormStatus().action` is the action function or `null`: compare it with
   your function, not an id.
+- **The forms kit's `Checkbox` submits `on`.** A `<Checkbox register={register}
+  name="agree" />` registers as a checkbox and writes no `value` attribute,
+  so a native submit sends `agree=on` when it is checked; 0.14 wrote the
+  field's value as its `value` attribute. It follows the field after render
+  (`setValue()`, `reset()`), as `Input`, `Textarea` and `Select` now do, and
+  an unregistered `Checkbox` keeps its own `checked`. This affects a server
+  that read another value for the box: read `on`, or the field's presence.
+- **A form post's `_redirect` keeps its `#fragment`**, as
+  `response.redirect()` does: `_redirect=/posts/7#comments` lands on
+  `#comments`, where 0.14 dropped the fragment. The path is checked as
+  before.
 - **`enhanceForms()` submits a same-origin form without a token**, as the
   form's native submit would, and leaves the decision to the endpoint.
   `data-no-csrf` is gone: remove it, and check the response where you relied
@@ -577,11 +620,16 @@ and navigations that are transitions. Each change below has its migration.
   built every `layout` (from `nestedRoutes(..., { layout })` or a route's
   own) again on each navigation, so its state, its DOM and what was typed
   into it were lost going from `/dashboard` to `/dashboard/settings`. 0.15
-  builds it again only when the layouts, the params or the query change. Its
-  body, its `onMount` and its effects run once for as long as the visitor
-  stays under it. This affects a layout that relied on being rebuilt to
-  reset its state or to run code on each navigation: read the route
-  (`useRoute()`) in an effect, or use `afterNavigate`.
+  builds it again only when the chain of layouts changes, so a change of
+  params or query (`/projects/1` to `/projects/2`, `?tab=2`) keeps it too.
+  Its `params` and `query` props are live: JSX that reads `params.id` or
+  `query.tab` updates in place, and a read in the body
+  (`const id = params.id`) keeps the first value. Its body, its `onMount`
+  and its effects run once for as long as the visitor stays under it. This
+  affects a layout that relied on being rebuilt to reset its state or to run
+  code on each navigation, or that reads its params or query in its body:
+  read them in JSX or an effect, read the route (`useRoute()`) in an
+  effect, or use `afterNavigate`.
 - **A `<Router>` inside another has route state of its own**, on the server
   and in the browser: what it renders reads the params and query it matched,
   and its parent's subtree keeps reading the parent's. In the browser the
@@ -951,6 +999,13 @@ options.
   tests that snapshot the compiler's development output, which now include
   these strings, and Babel setups that want the names: pass
   `devMetadata: true` in development.
+- **A valueless `aria-*` or `data-*` attribute is `"true"`.**
+  `<span aria-hidden data-open>` compiles to `aria-hidden="true"
+  data-open="true"` in client templates, as the server target and the
+  runtime already wrote it; 0.14's client template wrote both as `""`, which
+  for `aria-hidden` means no value, so assistive technology still read the
+  element. This affects code that reads such an attribute: `el.dataset.open`
+  is `'true'` where it was `''`.
 - **Markup the HTML parser would move fails the build.** Both targets reject a
   `<div>` in a `<p>`, a `<tr>` directly in a `<table>` and the like with
   `ERR_INVALID_HTML_NESTING` at `path:line:column`; the server target also

@@ -232,6 +232,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   rows read the new item in place and keep their nodes and focus. A row that
   handed the item to a component is built again from it. *Migration:* none,
   unless code relied on a row ignoring the new item.
+- **A reactive text child compares its text with the text it wrote last**,
+  not with its node's: text that something outside What wrote into the node
+  stays until the value changes, as in Solid. Hydration starts from the text
+  it claimed, so a client value that differs from the server's is still
+  written. *Migration:* render text from state rather than writing into a
+  node What renders. `packages/core/test/text-last-written.test.js`.
 - **A component that returns one element is that element in the DOM.** No
   `<!--c:start-->` and `<!--c:end-->` comments are put around it, so a list
   row that is a component is one node, as a row written inline is. A
@@ -642,8 +648,8 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   computed key, or has a default that reads the component or calls something,
   each reported as `ERR_PROP_READ_ONCE`), a read of props in JSX is a
   binding, and `{...props}` spreads and rest elements keep the getters
-  (what-core `_$merge`, `_$omit`). Props objects What builds are marked as
-  What's (next bullet); `_$createComponent` takes one as the component's
+  (what-core `_$merge`, `_$omit`). Props objects What builds with a getter
+  are marked as What's (next bullet); `_$createComponent` takes one as the component's
   own, and h() keeps the getters of one. Code that relied on a prop staying at its first
   value reads it once in the body instead (`const first = props.value`).
 - **Props objects are plain objects.** A component's props, a rest element
@@ -651,14 +657,17 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   as their prototype, as React's props do: `props.hasOwnProperty(k)`,
   `String(props)`, `props.valueOf()`, classnames and lodash's
   `isPlainObject` work, where they threw or answered false on 0.14's objects
-  with no prototype. What tells its props objects apart, and keeps their
-  getters live, by a `Symbol.for('what-core.props.v1')` property, which
-  another copy of what-core on the page reads too. It is not enumerable, so
-  `Object.keys`, a spread, `Object.assign`, `structuredClone` and JSON leave
-  it out; `Reflect.ownKeys` and `Object.getOwnPropertySymbols` list it.
-  Compiled JSX marks a props object with a live prop as it builds it
-  (`_$marked({ get on() { … } })`, the mark not enumerable) where it wrote
-  one with no prototype, and the component gets the object as it is: setting
+  with no prototype. What tells a props object that holds a getter (a live
+  prop, or the lazy getter of children or of JSX passed in a prop) apart,
+  and keeps its getters live through every copy and merge, by a
+  `Symbol.for('what-core.props.v1')` property, which another copy of
+  what-core on the page reads too. It is not enumerable, so `Object.keys`, a
+  spread, `Object.assign`, `structuredClone` and JSON leave it out;
+  `Reflect.ownKeys` and `Object.getOwnPropertySymbols` list it. A props
+  object with no getter carries no mark: a copy of it is the same either
+  way. Compiled JSX marks a props object with a live prop as it builds it
+  (`_$marked({ get on() { … } })`) where it wrote one with no prototype, and
+  the component gets the object as it is: setting
   a prototype in place would give each object a hidden class of its own in
   V8, and make prop reads about 13 times slower. What's copies and spreads
   take own keys only (a key written onto Object.prototype is never a prop or
@@ -838,6 +847,40 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   "count" })`, the first step of the MCP "UI not updating" workflow, finds
   it. A production build is byte-identical.
   `packages/compiler/test/dev-metadata.test.js`.
+- **`no-uncalled-signals` reports What state stored or sent as data**
+  (eslint-plugin-what): an object or array literal given to a setter
+  (`setSubmitted({ name, age })`), an argument of a function that reads
+  values (`JSON.stringify`, `String`, `Number`, `console.*`,
+  `localStorage.setItem` and the like) and anything nested in one
+  (`fetch(url, { body: JSON.stringify({ name }) })`), and an array literal
+  joined (`[a, b].join()`). Every report of the rule carries a suggestion
+  that adds the call (`{ name }` to `{ name: name() }`), and a name is
+  reported only where it resolves, through the scope, to state a What hook
+  or primitive made: a local that shares a signal's name elsewhere in the
+  file, and React's `useState` in a what-react file, are not. A prop, a
+  dependency array, `untrack(name)` and `computed(name)` are not reported.
+  Over the 142 What source files in examples/, sites/, demo/, docs-site/,
+  smoke/ and benchmark/, the data shapes report nothing, and the repo's own
+  lint has 9 fewer false reports. `what_lint` reports them too.
+  `packages/eslint-plugin/test/accessor-as-data.test.js`.
+- **`no-prop-read-once`, `no-state-read-once` and `no-cleanup-reads-live`**
+  (eslint-plugin-what), the compiler's `ERR_PROP_READ_ONCE`,
+  `ERR_STATE_READ_ONCE` and `ERR_CLEANUP_READS_LIVE` for code what-compiler
+  does not build (the islands template, `h()`), with the catalogue's codes:
+  on in `recommended` (warn) and `strict` (error), off in `compiler`, which
+  reports them at build time. A React file is skipped. Over the 352 source
+  files of those directories they report one shape, which what-compiler
+  reports too. `packages/eslint-plugin/test/read-once-rules.test.js`.
+- **`RouteComponentProps<TData>` types a page's `data`** (what-router), what
+  its route's `preload` returned, as `TData | undefined`; plain
+  `RouteComponentProps` keeps `any`. TYPESCRIPT.md's example is type-checked
+  as written. `packages/router/test/types.test.js`.
+- **create-what's `npm run lint` parses `.ts` and `.tsx`** (typescript-eslint
+  in every template's `eslint.config.js`) and reports unused variables and
+  imports; the scaffold moves to ESLint 10. It found an unused import in the
+  full-stack template, now removed. `npm run smoke:scaffold` lints a
+  TypeScript file in each template and checks that an unused local is
+  reported. `packages/create-what/test/scaffold-eslint.test.js`.
 
 - **`live(source)`**, a read-only live view of the object an accessor returns:
   `view.name` reads the current value's `name`, through getters What reads as
@@ -1110,11 +1153,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   SSR benchmark has a page of 200 small components beside the 1,000-row
   table, measures each hydration against a client render of the same page
   from the same bundle, and puts the hydration tables of the same commit in
-  its RESULTS.md. `npm run smoke:apps` runs seven apps, three of them under
-  load: a 10,000-row grid with virtual scroll and time budgets, a feed of
-  200 updates a second checked for loss, unmount cleanup, heap growth and
-  long tasks, and a workspace whose chained workflows cross back/forward and
-  a reload.
+  its RESULTS.md. `npm run smoke:apps` runs nine apps in Chromium, or in
+  WebKit with `WHAT_SMOKE_BROWSER=webkit` (a check its browser cannot run is
+  skipped with its reason), five of them under load: a 10,000-row grid with
+  virtual scroll and time budgets, a feed of 200 updates a second checked
+  for loss, unmount cleanup, heap growth and long tasks, a workspace whose
+  chained workflows cross back/forward and a reload, the same workspace
+  rendered on the server with server-side guards and 40 concurrent visitors,
+  and a streamed news site with ISR articles, five islands, 100 concurrent
+  requests and the server's heap across 2,000 requests.
 
 ### Fixed
 
@@ -1125,11 +1172,14 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   each navigation, the router README's own `DashboardLayout` example
   included, and development blamed the router's region or the app's
   `{children}` with `ERR_REBUILT_COMPONENT`. The layout chain is a region of
-  its own now, built again only when the layouts, the params or the query
-  change, so a layout that reads `params.id` sees the new id; a route with
-  no layout, a 404 and a page its middleware declines render as before.
-  `packages/router/test/nested-layout-persists.test.js`, and the smoke
-  suite's workspace app.
+  its own now, built again only when the chain of layouts changes: a change
+  of query string or params (`?tab=2`, `/projects/1` to `/projects/2`) keeps
+  the layout too. Its `params` and `query` props are live, so JSX in it that
+  reads `params.id` or `query.tab` updates in place, and params or a query
+  equal to the ones shown keep their object. A route with no layout, a 404
+  and a page its middleware declines render as before, and pages are built
+  again for each URL. `packages/router/test/nested-layout-persists.test.js`,
+  and the smoke suite's workspace app.
 - **A `<Suspense>` or `<ErrorBoundary>` that is a region's whole value leaves
   with it.** A route page whose root is `<Suspense>` over a query or a
   `lazy()` child (or a ternary branch that is one) stayed in the DOM beside
@@ -1161,6 +1211,91 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   mistake in two components was one diagnostic that named only the component
   reported last. The component is now the report's subject.
   `packages/core/test/dev-warnings.test.js`.
+- **`ERR_EFFECT_DEP_NOT_FUNCTION` and `ERR_EFFECT_DEP_NOT_SIGNAL` point at
+  the `useEffect` line.** A development build gives `useEffect` its call's
+  location, as it gives `useState`'s, so the report and `what_explain`'s
+  `loc` name `src/List.jsx:3:3` where they named the JSX that rendered the
+  component. Code the compiler did not see is located from the stack,
+  project relative, without the dev server's origin or `?t=` stamp. A
+  production build is byte-identical.
+  `packages/compiler/test/effect-location.test.js`.
+- **`FocusTrap` keeps Tab inside the dialog in Safari.** Safari's default
+  Tab skips buttons and links, and the trap stepped in only at its first and
+  last element, so from the last field focus left the dialog. The trap now
+  moves focus itself on every Tab and Shift+Tab, through its own list,
+  wrapping. Found by the smoke suite's first WebKit run.
+  `packages/core/test/a11y.test.js`.
+- **A valueless `aria-*` or `data-*` attribute is `"true"` in client
+  templates** (what-compiler), as on the server and in the runtime:
+  `<span aria-hidden>` wrote `aria-hidden=""`, which leaves the element
+  visible to assistive technology, and hydration rewrote the server's value
+  with no report. A client-only app's `dataset.x` is now `'true'` where it
+  was `''`. `packages/compiler/test/valueless-enumerated-attr.test.js`.
+- **A form post's `_redirect` keeps its `#fragment`**, as
+  `response.redirect()` does; the path is checked as before.
+  `packages/server/test/csrf-form-actions.test.js`.
+- **The `html` tagged template always ends.** It looped forever on a `<`
+  that starts no tag (`a < b`), a comment, a stray or mismatched closing
+  tag, a void element written without `/>` and `<${Component}>`. It keeps
+  JSX's whitespace (`Hello ${name}` rendered `HelloAlice`), reads an
+  unquoted attribute value (`class=foo` was a boolean `foo`), keeps a signal
+  live inside a quoted attribute, spreads `...${props}`, and closes an
+  interpolated component with `</${Component}>` or `<//>`. Interpolated
+  values are never parsed as markup. Each shape is checked against the
+  `h()` call JSX compiles to, on the server and the client.
+  `packages/core/test/html-template.test.js`.
+- **A Symbol child renders nothing**, as `null` and booleans do, on the
+  server, the client and in hydration, where every path wrote `Symbol(x)`.
+  `packages/server/test/odd-children.test.js`.
+- **A keyed `.map()` row the compiler cannot follow shows an item replaced
+  under its key.** A row whose item the row analysis gives up on (a field
+  bound again by a nested function, assigned, incremented or used as a tag,
+  a destructuring it cannot read the same way) kept the item it was built
+  from after an immutable update; it is now built again for the new item. A
+  row that reads only its key is unchanged.
+  `packages/compiler/test/row-unsafe-shapes.test.js`.
+- **`action(fn, { id })` with no binding is registered** (what-compiler),
+  and checked for duplicates, without the "Could not derive a stable server
+  action ID" warning that told the developer to pass `{ id }`.
+  `packages/compiler/test/server-action-id.test.js`.
+- **A page config's template literal reads a CRLF line break as `\n`**, as
+  JavaScript does. `packages/compiler/test/file-router-page-config-scanner.test.js`.
+- **The forms kit's `Input`, `Textarea`, `Select` and `Checkbox` follow
+  their field after render**: `setValue()` and `reset()` changed the form
+  state and not the screen. `Checkbox` registers as a checkbox, so a native
+  submit sends `on`, and an unregistered one keeps its own `checked`.
+  `packages/core/test/form-fields-components.test.js`.
+- **DOM helpers.** `cls(['a', 'b'])` is `'a b'` (it was `'0 1'`);
+  `style({ '--mainColor': 'red' })` keeps the custom property's name, as the
+  style prop does; `useClickOutside({ current: null })` waits for its ref
+  instead of throwing on every press; a second `onResize` on an element
+  keeps the first callback, and either stop function stops only its own.
+  `packages/core/test/helpers-public.test.js`,
+  `packages/core/test/scheduler.test.js`.
+- **Motion.** `tween(0, 100, { duration: 0 })` ends on its target (it ended
+  on `NaN`) and a tween stops with its owner, as a spring does; `useGesture`
+  starts each gesture from rest, so a tap after a swipe is a tap, and
+  removes its window listeners with its owner.
+  `packages/core/test/animation-loops.test.js`.
+- **`useSkeleton` shows its latest run**, where a request that settled last
+  overwrote newer data, keeps a function the call resolves to as its data,
+  and the skeleton components render with no props, as ui.d.ts allows.
+  **`useFocus().current()`** is `null` once focus has left for nothing.
+  `packages/core/test/skeleton-focus-revalidate.test.js`.
+- **`what-framework/testing`'s `expect`**: `toBeInTheDocument` fails for a
+  detached tree, `toBeVisible` checks the element's ancestors, and
+  `toBeDisabled` passes for a control in a disabled `<fieldset>`.
+  `packages/core/test/testing-helpers.test.js`.
+- **`boostIslandPriority` raises every waiting instance of an island and
+  never lowers one** (what-server): it changed only the first, and its
+  default of 100 lowered a `load` island.
+  `packages/server/test/island-scheduling.test.js`.
+- **Docs.** what-server's ISR wiring example no longer passes `render` to
+  `createRequestHandler`, which made `mode: 'server'` routes wait for the
+  whole page (first chunk 1,204 ms where it is 26 ms, on a page with a
+  1,200 ms query). A bare store read in JSX (`{todos.remaining}`) may be
+  evaluated once, as it is when the store is imported from another file; the
+  function form always updates (API.md, GOTCHAS.md).
 - **Capture-phase handlers in compiled JSX fire.** `onClickCapture`,
   `onKeyDownCapture` and the rest listen for their event in the capture
   phase, with modifiers too (`onClickCapture__once`), as `h()` and spreads
@@ -1994,6 +2129,42 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   fresh pages per side, interleaved, production dist; the client render of
   the same page 5.70 to 5.60). Size: compiled-hydrate +326 B gzip,
   mixed-hydrate +276 B. `packages/core/test/row-keys-in-order.test.js`.
+- **Components with static props are built faster.** A props object is
+  marked as What's only when it holds a getter; one with none is handed on
+  as a plain copy. Measured in Chromium, interleaved builds, click to
+  microtasks drained: 10,000 static-props components 8.69 ms to 7.93 ms,
+  below the time before props were plain objects; 10,000 `onMount` or
+  `useEffect` components mount in 0.85 and 0.82 of the time. Size: -12 to
+  +25 B gzip per scenario. `packages/core/test/props-mark-when-needed.test.js`.
+- **A reactive text child that changes writes its node without reading it
+  back**, and only text in an `<option>`, an `<optgroup>` or a `<select>`
+  reaches the select code. krausest's update of every 10th row 0.240 ms to
+  0.185 ms of script (0.79 of the time, 12 interleaved rounds, every round
+  faster). Size: +39 to +71 B gzip in the compiled scenarios.
+  `packages/core/test/text-last-written.test.js`.
+- **A keyed list's swap and its removals update its row arrays in place**,
+  where every diff past the prefix and suffix scan allocated two arrays of
+  the list's length and copied the rows through them. krausest swap 0.91
+  and remove 0.89 of the script time (interleaved, every round faster);
+  -23 to +2 B gzip. `packages/core/test/reconcile-in-place.test.js`.
+- **Server components render faster.** Compiled server output calls a
+  component with no children and no spread through `ssrLeaf`, which hands
+  it its props literal instead of a copy; the string renderers call a
+  component in its frame without a closure; a server frame is made with the
+  fields every render gives it; keyed lists count repeated keys without a
+  string per key and enter a row without `splice`. The SSR benchmark's page
+  of 200 components renders in 0.89 of the time plain and 0.92 hydratable,
+  with 8 to 9% less heap per render (interleaved builds); against Solid 2.0 it
+  goes from 1.84x to 1.63x plain. The output is byte-identical.
+  `packages/server/test/ssr-leaf-props.test.js`.
+- **Hydration leaves a claimed element's bound attributes to their
+  bindings.** A `class`, `id`, `title`, `data-*` or `aria-*` attribute that
+  the element's bindings write in full is no longer removed and written
+  again; any other attribute the server wrote and the client does not render
+  is still removed. A warm hydration of the 1,000-row table in Chromium
+  2.80 ms to 2.60 ms median; a cold one does not move beyond noise. Size:
+  compiled-hydrate +67 B gzip, mixed-hydrate +73 B.
+  `packages/core/test/hydration-owned-attrs.test.js`.
 - **A list row that is a component costs close to the same row written
   inline.** A component that returns one element adds no DOM node: 1,000
   rows of `<Row key={item.id} item={item} />` leave 1,001 nodes in the list's
