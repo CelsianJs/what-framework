@@ -16,19 +16,24 @@
 // redirectExternal(), which takes an absolute http(s) URL with no credentials,
 // or a mailto: or tel: URL, as what-router's redirect() leaves the site for
 // in the browser. A refused target is
-// not an exception: the response redirects to the app's root instead, the
-// same fallback the action handler uses, and development logs
-// ERR_SSR_UNSAFE_REDIRECT. A request-supplied target therefore never turns
-// into a 500.
+// not an exception: the response redirects to the app's root instead ('/',
+// or '/app/' below a base), the same fallback the action handler uses, and
+// development logs ERR_SSR_UNSAFE_REDIRECT. A request-supplied target
+// therefore never turns into a 500.
 //
 // The base. A path redirect() is given is a URL of the app, whoever calls it:
-// a loader, a component, a server action, what-router's redirect(),
-// navigate() or a middleware verdict, which hand it the URL without the base,
-// as their route state holds it. The response is the one place that puts it
-// below the base the app is served at ('/login' answers Location
+// a loader, a component, a server action. The response is the one place that
+// puts it below the base the app is served at ('/login' answers Location
 // '/app/login'), so `location` is what the browser is sent. The base is the
 // request handler's or exportStatic's `basePath`, else what-router's
 // (setBase(), or Vite's `base` when Vite builds this module).
+//
+// what-router's navigate() on a server (and so its redirect(), <Redirect>
+// and a middleware verdict) resolves its target as the browser does, against
+// the URL the render shows, which is below that base, and hands the response
+// the URL the browser would go to (_redirectAt): the client's navigate()
+// pushes that same URL, or leaves the app for it when it is outside the base
+// ('../../x' at '/app/a/b' is '/x').
 
 import { safeLocalPath } from './action-handler.js';
 import { _base } from './actions.js';
@@ -64,14 +69,15 @@ export function externalRedirectTarget(value) {
   return url.href;
 }
 
-function refused(method, value) {
+// The app's root, which a refused target goes to below `base`.
+function refused(method, value, base) {
   if (_isDevMode) {
     console.warn(
-      `[what-server] ${method}: refusing unsafe redirect target ${JSON.stringify(value)}; redirecting to "/" instead. ` +
+      `[what-server] ${method}: refusing unsafe redirect target ${JSON.stringify(value)}; redirecting to ${JSON.stringify(base + '/')} instead. ` +
       '(ERR_SSR_UNSAFE_REDIRECT)',
     );
   }
-  return '/';
+  return base + '/';
 }
 
 /** Whether `value` is a response createResponse() made. */
@@ -128,11 +134,24 @@ class RenderResponse {
     };
     /** Redirect to a path of the app ("/account"), below its base. */
     this.redirect = (location, status = 302) => {
-      redirectTo(base + (localRedirectTarget(location) ?? refused('redirect', location)), status);
+      const path = localRedirectTarget(location);
+      redirectTo(path === null ? refused('redirect', location, base) : base + path, status);
     };
     /** Redirect off the site, to an absolute http(s), mailto: or tel: URL. */
     this.redirectExternal = (url, status = 302) => {
-      redirectTo(externalRedirectTarget(url) ?? base + refused('redirectExternal', url), status);
+      redirectTo(externalRedirectTarget(url) ?? refused('redirectExternal', url, base), status);
+    };
+    /**
+     * Redirect to `location`, a URL of this origin as the browser resolves
+     * it, below the base already or outside it: what-router's navigate() on
+     * a server, which names `to`, the target the app wrote, when it is
+     * refused (null `location`, or one that is no local path).
+     * @internal
+     * @param {string | null} location
+     * @param {unknown} to
+     */
+    this._redirectAt = (location, to) => {
+      redirectTo(localRedirectTarget(location) ?? refused('navigate', to, base), 302);
     };
     /**
      * The base a path redirect goes below, which the render this response

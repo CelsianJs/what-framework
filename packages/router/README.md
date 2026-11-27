@@ -178,7 +178,9 @@ middleware, `preload` and the navigation hooks are given. A relative href
 resolves it. A URL outside the base is not the app's: no route shows it (a
 catch-all included: the Router shows its `fallback`, and `route.url` and
 `route.path` are `''`), and `navigate()` and `<Link>` leave it to the browser.
-A server render of a request below the base renders the same page, and its
+A relative target can resolve outside the base (`'../../x'` at `/app/a/b` is
+`/x`): the browser goes there, and a server render's redirect answers that
+same path. A server render of a request below the base renders the same page, and its
 redirects go below the base: a path is a URL of the app whoever redirects to
 it, so a loader's `response.redirect('/login')` and a component's
 `getResponse().redirect('/login')` answer `/app/login`, as `redirect('/login')`
@@ -239,8 +241,9 @@ requests never see each other's. Without an async context provider
 after an `await` in a component sees no route state at all (the root URL,
 empty params and query), never another request's. A middleware redirect (a
 path, or `redirect()`), `<Redirect>` and a `guard()` path fallback redirect
-the render's response (`getResponse().redirect(to)` for a path,
-`redirectExternal(to)` for another origin's URL) on the server, and so do
+the render's response on the server, to the URL the browser would go to (a
+target resolved as the client resolves it, below the base), or off the site
+for another origin's URL (`getResponse().redirectExternal(to)`), and so do
 `redirect()` thrown from a component body and
 `navigate()`: a server never navigates, and nothing a render does reaches the
 route state of another one. A `beforeNavigate` or `afterNavigate` subscribed

@@ -1081,9 +1081,9 @@ const [posts] = createResource(() =&gt;
   fetch(API, { signal: AbortSignal.timeout(5000) }).then((r) =&gt; r.json()));</code></pre>
 
           <h2 id="ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</h2>
-          <p class="subtitle">[what-server] method: refusing unsafe redirect target target; redirecting to &quot;/&quot; instead. (ERR_SSR_UNSAFE_REDIRECT)</p>
+          <p class="subtitle">[what-server] method: refusing unsafe redirect target target; redirecting to root instead. (ERR_SSR_UNSAFE_REDIRECT)</p>
           <p><span class="badge badge-warning">warning</span> Raised by <code>what-server</code>.</p>
-          <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to &quot;/&quot; instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.</p>
+          <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to the app's root (&quot;/&quot;, or &quot;/app/&quot; below a base) instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.</p>
 <pre><code>// Bad — an absolute URL through redirect() is refused:
 export function loader({ query, response }) {
   response.redirect(query.next);          // ?next=https://evil.example -&gt; &quot;/&quot;

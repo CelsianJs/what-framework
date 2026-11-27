@@ -1083,8 +1083,8 @@ renderDocumentStream(page, req, { nonce });`,
   SSR_UNSAFE_REDIRECT: {
     code: 'ERR_SSR_UNSAFE_REDIRECT',
     severity: 'warning',
-    template: '[what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT)',
-    suggestion: 'A server response redirect(), from a loader\'s `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler\'s _redirect field. An absolute URL, "//host", "/\\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.',
+    template: '[what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to {{root}} instead. (ERR_SSR_UNSAFE_REDIRECT)',
+    suggestion: 'A server response redirect(), from a loader\'s `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler\'s _redirect field. An absolute URL, "//host", "/\\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to the app\'s root ("/", or "/app/" below a base) instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.',
     codeExample: `// Bad — an absolute URL through redirect() is refused:
 export function loader({ query, response }) {
   response.redirect(query.next);          // ?next=https://evil.example -> "/"

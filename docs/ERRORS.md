@@ -111,7 +111,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_SSR_INVALID_ID_PREFIX`](#err-ssr-invalid-id-prefix) | error | idPrefix `idPrefix` is not a letter followed by letters, digits, "_" or "-". |
 | [`ERR_SSR_LATE_HEAD`](#err-ssr-late-head) | warning | [what-server] <Head> inside a streamed <Suspense> (boundary `boundaryId`) set head tags after the shell was sent. |
 | [`ERR_SSR_SUSPENSE_TIMEOUT`](#err-ssr-suspense-timeout) | error | [what-server] A resource was still pending after 12 attempts during streaming SSR. |
-| [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] `method`: refusing unsafe redirect target `target`; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT) |
+| [`ERR_SSR_UNSAFE_REDIRECT`](#err-ssr-unsafe-redirect) | warning | [what-server] `method`: refusing unsafe redirect target `target`; redirecting to `root` instead. (ERR_SSR_UNSAFE_REDIRECT) |
 | [`ERR_STATE_READ_ONCE`](#err-state-read-once) | warning | State ``name`` is read once in <`component`>: `reason`. |
 | [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path` |
 | [`ERR_STORAGE_FAILED`](#err-storage-failed) | warning | useLocalStorage("`key`") could not `operation` localStorage: `reason`. |
@@ -1579,9 +1579,9 @@ const [posts] = createResource(() =>
   ·  **Raised by:** `what-server`
   ·  **Detected:** server
 
-> [what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT)
+> [what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to {{root}} instead. (ERR_SSR_UNSAFE_REDIRECT)
 
-A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler's _redirect field. An absolute URL, "//host", "/\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.
+A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler's _redirect field. An absolute URL, "//host", "/\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to the app's root ("/", or "/app/" below a base) instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.
 
 ```jsx
 // Bad — an absolute URL through redirect() is refused:

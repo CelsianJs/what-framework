@@ -575,19 +575,20 @@ export async function navigate(to, opts = {}) {
   // On a server, the response of the render redirects, by the browser's
   // rule: a target isSafeUrl() refuses is refused there too (development
   // logs ERR_SSR_UNSAFE_REDIRECT, and it goes to the app's root). A URL of
-  // the app (a path, or a relative one, resolved against the URL the render
-  // shows as the browser resolves it against the address bar) is handed to
-  // redirect() without the base, as a loader hands it one, and the response
-  // puts it below the base. Another origin's URL (https:, mailto:, tel:)
-  // leaves the site through redirectExternal(), as navigate() leaves it in
-  // the browser; a relative one that resolves outside the base is no such
-  // URL, and redirectExternal() refuses it.
+  // this origin (a path, or a relative one, resolved against the URL the
+  // render shows as the browser resolves it against the address bar) is the
+  // one the browser would go to, below the base or outside it, and the
+  // response answers with it (what-server's _redirectAt, which refuses one
+  // that is no local path, such as '//host'). Another origin's URL (https:,
+  // mailto:, tel:) leaves the site through redirectExternal(), as navigate()
+  // leaves it in the browser. Outside every render (code after an await,
+  // with no async context) there is no response to redirect.
   if (onServer()) {
     const response = getResponse();
-    if (!isSafeUrl(to)) response.redirect(to);
-    else if (!to.startsWith('#')) {
-      const href = resolveHref(to);
-      href === null ? response.redirectExternal(to) : response.redirect(href);
+    if (!isSafeUrl(to)) response._redirectAt?.(null, to);
+    else if (to[0] !== '#') {
+      const written = resolveUrl(to);
+      written === null ? response.redirectExternal(to) : response._redirectAt?.(written, to);
     }
     return;
   }

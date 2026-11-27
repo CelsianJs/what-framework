@@ -562,6 +562,13 @@ export interface ServerResponse {
    * like redirect()'s.
    */
   redirectExternal(url: string, status?: 301 | 302 | 303 | 307 | 308): void;
+  /**
+   * @internal what-router's navigate() on a server: redirect to a URL of this
+   * origin as the browser resolves it (below the base already, or outside
+   * it); `to` is what the app wrote, named when it is refused. Absent where
+   * there is no server render.
+   */
+  _redirectAt?(location: string | null, to: unknown): void;
 }
 
 /**
