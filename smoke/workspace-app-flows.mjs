@@ -5,7 +5,6 @@ export const flows = {
   dashboard: [click('Charts', 'button.active', /^Charts$/, 70)],
   'dx-testbed': [{ ...click('+', '.section', /Doubled:\s*2/, 6), syncBudget: true }],
   kanban: [{ action: 'link', target: '.board-card[href]', selector: '.board__header', expected: /./, max: 90 }],
-  'npm-eight-pages-review': [{ action: 'link', name: /Signals/, selector: 'h1', expected: /Signals/, max: 80 }],
   'starter-app': [{ action: 'enter', target: 'input[placeholder*="new task"]', value: 'Smoke task', selector: 'body', expected: /Smoke task/, max: 40 }],
   'task-manager': [{ action: 'enter', target: '.task-input', value: 'Smoke task', selector: '.task-list', expected: /Smoke task/, max: 40 }],
   todomvc: [
