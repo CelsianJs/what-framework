@@ -195,9 +195,9 @@ describe('an app served below a base path', () => {
     assert.equal(page(), 'home');
   });
 
-  it('takes a base as Vite writes it or without its slash, and no base from one that is not a path', async () => {
+  it('takes a base as Vite writes it or without either slash, and no base from one that is not a path', async () => {
     history.replaceState(null, '', '/app/about');
-    for (const [base, url] of [['/app/', '/about'], ['/app', '/about'], ['/', '/app/about'], ['./', '/app/about'], ['', '/app/about'], ['https://cdn.example/app/', '/app/about'], ['//cdn.example/app/', '/app/about'], [undefined, '/app/about']]) {
+    for (const [base, url] of [['/app/', '/about'], ['/app', '/about'], ['app', '/about'], ['app/', '/about'], ['/app//', '/about'], ['/', '/app/about'], ['./', '/app/about'], ['.', '/app/about'], ['', '/app/about'], ['https://cdn.example/app/', '/app/about'], ['//cdn.example/app/', '/app/about'], ['/\\cdn.example/app/', '/app/about'], [undefined, '/app/about']]) {
       setBase(base);
       assert.equal(route.url, url, String(base));
     }

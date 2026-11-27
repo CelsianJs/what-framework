@@ -579,8 +579,8 @@ export interface RequestHandlerOptions {
   /** Body for unmatched paths. */
   notFound?: () => string;
   /**
-   * The path the app is served below (`'/app'`, or `'/app/'` as Vite writes
-   * it), stripped from a request's path on a segment boundary before
+   * The path the app is served below (`'/app'`, `'/app/'` as Vite writes
+   * it, or `'app'`, all the same base; `''` and `'/'` are none), stripped from a request's path on a segment boundary before
    * matching: `/app/x` matches `/x`, `/app` matches `/`, and a path outside
    * it (`/application`) is matched as it is and rendered outside the cache,
    * whose keys are the paths below the base. The action endpoint is

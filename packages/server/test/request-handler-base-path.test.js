@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { h, getResponse } from 'what-core';
 import { Router, setBase } from 'what-router';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
-import { createRequestHandler, createRouteRenderer } from '../src/index.js';
+import { action, createRequestHandler, createRouteRenderer } from '../src/index.js';
 
 const routes = [
   { path: '/', component: () => h('p', null, 'home'), mode: 'server' },
@@ -25,7 +25,7 @@ async function get(handler, path) {
 }
 
 describe('createRequestHandler basePath', () => {
-  for (const basePath of ['/app', '/app/']) {
+  for (const basePath of ['/app', '/app/', 'app', 'app/']) {
     it(`strips ${basePath} on a segment boundary`, async () => {
       const handler = createRequestHandler({ routes, basePath, csrf: false });
       assert.match((await get(handler, '/app/x')).body, /page x/);
@@ -33,6 +33,36 @@ describe('createRequestHandler basePath', () => {
       assert.match((await get(handler, '/app')).body, /home/);
       assert.match((await get(handler, '/app?q=1')).body, /home/);
       assert.match((await get(handler, '/application')).body, /application page/);
+    });
+  }
+
+  // A base written without its leading slash is the same base: a page below
+  // it is cached, and a redirect goes below it. Before, 'app' was never a
+  // prefix of a path, so every request was outside it, rendered outside the
+  // cache, and a 303 answered the relative 'app/thanks'.
+  it('reads a base written without its leading slash as the path from the root', async () => {
+    action(async () => {
+      getResponse().redirect('/thanks');
+      return { ok: true };
+    }, { id: 'base-path/thanks' });
+    const cached = [{ path: '/about', component: () => h('h1', null, 'about'), page: { mode: 'static', revalidate: 60 } }];
+    const handler = createRequestHandler({ routes: cached, cache: createCacheEngine({ store: createMemoryStore() }), basePath: 'app/', csrf: false });
+    assert.equal((await handler(new Request('http://app.test/app/about'))).headers.get('x-what-cache'), 'MISS');
+    assert.equal((await handler(new Request('http://app.test/app/about'))).headers.get('x-what-cache'), 'HIT');
+    const posted = await handler(new Request('http://app.test/app/__what_action', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: '_action=base-path%2Fthanks',
+    }));
+    assert.equal(posted.status, 303);
+    assert.equal(posted.headers.get('location'), '/app/thanks');
+  });
+
+  for (const basePath of ['', '/']) {
+    it(`reads ${JSON.stringify(basePath)} as no base`, async () => {
+      const handler = createRequestHandler({ routes, basePath, csrf: false });
+      assert.match((await get(handler, '/x')).body, /page x/);
+      assert.match((await get(handler, '/')).body, /home/);
     });
   }
 });

@@ -72,11 +72,12 @@ export function isSafeUrl(url) {
 
 let BASE = baseOf(import.meta.env && import.meta.env.BASE_URL);
 
-// A base as Vite writes it ('/app/') or without its trailing slash: the path,
-// without that slash. One that is not a path from the root ('./', a CDN's
-// URL) is no base: it does not say where the app's pages are.
+// A base as Vite writes it ('/app/'), or without either slash ('/app', 'app/',
+// 'app'): the path from the root, without its trailing slash. '' and '/' are
+// no base, nor is one that is not a path ('./', a CDN's URL, '//host'): it
+// does not say where the app's pages are.
 function baseOf(base) {
-  return /^\/(?!\/)/.test(base) ? base.replace(/\/+$/, '') : '';
+  return typeof base == 'string' && !/^([a-z][\w+.-]*:|[/\\]{2}|\.)|\\/i.test(base) ? ('/' + base.replace(/^\//, '')).replace(/\/+$/, '') : '';
 }
 
 // What setBase() set, shared with what-server's actions under this key: the

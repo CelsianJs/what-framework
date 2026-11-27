@@ -23,7 +23,7 @@ import { matchRoute, parseQuery } from 'what-router/match';
 import { renderDocument, renderDocumentStream } from '../index.js';
 import { UNPARSABLE_BODY, bodyLimitOf, createActionHandler, createFormPostHandler, parseRequestBody, readFetchBodyCapped, readFormBody, tooLargeResponse } from '../action-handler.js';
 import { setRevalidationHandler } from '../revalidation-registry.js';
-import { generateCsrfToken } from '../actions.js';
+import { _baseOf, generateCsrfToken } from '../actions.js';
 import { createResponse } from '../response.js';
 import { _isDevMode } from '../html.js';
 import { requestScheme } from '../request-url.js';
@@ -362,7 +362,8 @@ export function createRequestHandler(options = {}) {
     onError,
   } = options;
   const bodyLimit = bodyLimitOf(options);
-  const base = (basePath || '').replace(/\/+$/, '');
+  // '/app', written '/app/', 'app/' or 'app' alike; '' (and '/') for none.
+  const base = _baseOf(basePath);
 
   // Auto-provisioning (cookie + meta tag) only applies to the built-in
   // handler; a user-supplied actionHandler owns its own CSRF policy.

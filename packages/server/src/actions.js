@@ -40,17 +40,25 @@ function actionRegistry() {
 // --- Base ---
 // The path the app is served below ('/app'), or '' at the root of its origin,
 // as what-router has it: what its setBase() set (shared under this key), else
-// Vite's `base` (import.meta.env.BASE_URL) when Vite builds this module. One
-// that is not a path from the root ('./') is no base. The action endpoint is
-// below it, and a path from the root that an action redirects to, or a <Form>
-// names, is a URL of the app, below it too.
+// Vite's `base` (import.meta.env.BASE_URL) when Vite builds this module. The
+// action endpoint is below it, and a path from the root that an action
+// redirects to, or a <Form> names, is a URL of the app, below it too.
 const SHARED_BASE = Symbol.for('what.base.v1');
+
+/**
+ * @internal The path a base names, as what-router's setBase() reads one:
+ * '/app/' (as Vite writes it), '/app', 'app/' and 'app' are all '/app'. '' and
+ * '/' are no base, nor is one that is not a path ('./', a URL, '//host').
+ * @param {unknown} base
+ */
+export function _baseOf(base) {
+  return typeof base === 'string' && !/^([a-z][\w+.-]*:|[/\\]{2}|\.)|\\/i.test(base) ? ('/' + base.replace(/^\//, '')).replace(/\/+$/, '') : '';
+}
 
 /** @internal */
 export function _base() {
   const set = /** @type {any} */ (globalThis)[SHARED_BASE];
-  const base = typeof set === 'string' ? set : import.meta.env && import.meta.env.BASE_URL;
-  return /^\/(?!\/)/.test(base) ? base.replace(/\/+$/, '') : '';
+  return _baseOf(typeof set === 'string' ? set : import.meta.env && import.meta.env.BASE_URL);
 }
 
 /** @internal A URL of the app as the browser sees it: a path from the root goes below the base. */

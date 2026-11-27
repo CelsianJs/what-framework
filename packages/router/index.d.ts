@@ -81,8 +81,8 @@ export function navigate(to: string, options?: NavigateOptions): Promise<void>;
 // --- Base path ---
 
 /**
- * Serve the app below `base`, the path it is deployed at: `'/app'`, or
- * `'/app/'` as Vite writes it. A path from the root that the app writes
+ * Serve the app below `base`, the path it is deployed at: `'/app'`, `'/app/'`
+ * as Vite writes it, or `'app'`, all the same base. A path from the root that the app writes
  * (`'/x'` in a `<Link>`, `navigate()`, `redirect()`, a middleware verdict, the
  * `url` of a `<Router>`) is a URL of the app, which the address bar and a
  * server see below the base (`'/app/x'`); route state (`route.url`,
@@ -90,8 +90,9 @@ export function navigate(to: string, options?: NavigateOptions): Promise<void>;
  * `preload` and the navigation hooks are given) holds URLs without it. A URL
  * outside the base is not routed: no route shows it, and `navigate()` and
  * `<Link>` leave it to the browser. Without a call, the base is Vite's `base`
- * (`import.meta.env.BASE_URL`) when Vite builds what-router, else none. One
- * that is not a path from the root (`'./'`, a CDN's URL) is no base. Call it
+ * (`import.meta.env.BASE_URL`) when Vite builds what-router, else none.
+ * `''` and `'/'` are no base, nor is one that is not a path (`'./'`, a CDN's
+ * URL). Call it
  * before the app renders, in code that the client and a server both run: a
  * server build that keeps what-router external does not see Vite's `base`.
  * what-server's actions and `<Form>` use the base it sets too.

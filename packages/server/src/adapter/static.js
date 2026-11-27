@@ -7,6 +7,7 @@ import { join, resolve, sep } from 'node:path';
 import { matchRoute } from 'what-router/match';
 import { renderDocument, serializeState } from '../index.js';
 import { createResponse } from '../response.js';
+import { _baseOf } from '../actions.js';
 import { escapeHtml } from '../html.js';
 
 // What a static host can do with a redirect: a page that sends the browser on
@@ -65,7 +66,7 @@ function resolveInsideOutDir(outDir, urlPath) {
  * @param {string} [options.basePath]
  */
 export async function exportStatic({ routes = [], outDir, render, documentOptions = {}, basePath = '' } = {}) {
-  const base = basePath.replace(/\/+$/, '');
+  const base = _baseOf(basePath);
   const written = [];
   /** @type {Array<{ path: string, location: string, status: number }>} */
   const redirects = [];
