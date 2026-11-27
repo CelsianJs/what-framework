@@ -165,18 +165,19 @@ function createFormController(options = {}) {
   // array (useFieldArray), where an item's index is replaced by the item's
   // own segment (`vehicles.<item>.vin`): its value, error and touched state
   // stay with the item when it moves. `arrays` holds each field array's
-  // items, `bases` each item's values as it was added. `ext` translates
-  // names to keys and back once a field array exists; until then a key is
-  // its name.
+  // items. `ext`, the field array support, is installed by the first
+  // useFieldArray and replaces keyOf, nameOf and defaultAt with its own;
+  // until then a key is its name.
   /** @type {Record<string, any>} */
   const arrays = {};
-  /** @type {Record<string, any>} */
-  const bases = {};
-  /** @type {null | ReturnType<typeof fieldArrays>} */
-  let ext = null;
-  const keyOf = (name) => (ext ? ext.k(name) : name);
+  /** @type {any} */
+  let ext;
+  let keyOf = (name) => name;
   // The name a key has now, or null for a key of an item that was removed.
-  const nameOf = (key) => (ext ? ext.p(key) : key);
+  let nameOf = keyOf;
+  // The default at a key in the defaults, or in the item's values for a key
+  // under a field array item.
+  let defaultAt = getIn;
 
   // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
   const fieldSignals = {};
@@ -199,9 +200,7 @@ function createFormController(options = {}) {
   const fieldCount = signal(0);
   const counted = () => fieldCount.set((n) => n + 1);
 
-  // The default at a key: from defaultValues, or from the item's values for
-  // a key under a field array item.
-  const defaultOf = (key) => (ext ? ext.d(key, defaultValues) : getIn(defaultValues, key)) ?? '';
+  const defaultOf = (key) => defaultAt(defaultValues, key) ?? '';
 
   function getFieldSignal(key) {
     let sig = fieldSignals[key];
@@ -251,7 +250,7 @@ function createFormController(options = {}) {
   function getAllValues() {
     fieldCount();
     let result = clone(defaultValues);
-    if (ext) ext.v(result);
+    ext?.v(result);
     for (const key in hidden) {
       const name = nameOf(key);
       if (name != null) result = unsetIn(result, name.split('.'));
@@ -338,9 +337,9 @@ function createFormController(options = {}) {
 
     const run = ++runCount;
     const key = fieldName && keyOf(fieldName);
-    // The keys of the names as they are now: the answer is about the items
-    // in the places they had when the run started.
-    const keyAtStart = ext ? ext.s() : keyOf;
+    // Errors by name to errors by key, with the keys the names have now: the
+    // answer is about the items in the places they had when the run started.
+    const byKey = ext ? ext.s() : (errors) => ({ ...errors });
     if (fieldName) fieldRuns[key] = run;
     else formRun = run;
     if (inFlight++ === 0) isValidating.set(true);
@@ -354,11 +353,7 @@ function createFormController(options = {}) {
         return !nextError;
       }
       if (formRun === run) {
-        const shown = {};
-        for (const name in nextErrors) {
-          const at = keyAtStart(name);
-          if (at != null) shown[at] = nextErrors[name];
-        }
+        const shown = byKey(nextErrors);
         for (const at in fieldRuns) {
           if (fieldRuns[at] < run) continue;
           const own = errorSignals[at] ? errorSignals[at].peek() : null;
@@ -400,10 +395,10 @@ function createFormController(options = {}) {
     batch(() => {
       if (!options.keepValue) {
         // A field array's name: its items go, each with its state.
-        if (ext && arrays[key]) ext.a(key, []);
+        if (arrays[key]) ext.a(key, []);
         if (!gone && (options.keepDefaultValue || shouldUnregister)) {
           if (!arrays[key]) hidden[key] = true;
-        } else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
+        } else if (!ext?.u(key)) defaultValues = unsetIn(defaultValues, key.split('.'));
         each(hidden, () => {});
         each(fieldSignals, (k, sig) => {
           pending[k] = sig;
@@ -640,7 +635,7 @@ function createFormController(options = {}) {
 
   // A field array's name takes new items, as its replace() gives them.
   function setKey(key, value, shouldDirty = true) {
-    if (ext && arrays[key]) ext.a(key, value);
+    if (arrays[key]) ext.a(key, value);
     else getFieldSignal(key).set(value);
     if (shouldDirty) isDirty.set(true);
   }
@@ -673,10 +668,10 @@ function createFormController(options = {}) {
   function reset(newValues) {
     if (newValues !== undefined) defaultValues = newValues;
     batch(() => {
-      if (ext) ext.r(defaultValues);
+      ext?.r(defaultValues);
       for (const map of [fieldSignals, pending]) {
         for (const key in map) {
-          if (ext && nameOf(key) == null) delete map[key];
+          if (nameOf(key) == null) delete map[key];
           else map[key].set(defaultOf(key));
         }
       }
@@ -744,7 +739,7 @@ function createFormController(options = {}) {
     // What useFieldArray works with: `x(make)` installs the field array
     // support make() builds over this form's state, once.
     control: {
-      x: (make) => ext ||= make(arrays, bases, keyOf, forget, getAllValues, isDirty),
+      x: (make) => ext ||= ({ k: keyOf, p: nameOf, d: defaultAt } = make(arrays, forget, getAllValues, isDirty)),
     },
     // Form state
     formState: {
@@ -775,7 +770,10 @@ let itemCount = 0;
 
 // Field array support for one form, installed by its first useFieldArray.
 // An item's segment is '\0' and its id: no name a person writes has it.
-function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
+function fieldArrays(arrays, forget, getAllValues, isDirty) {
+  // Each item's values as it was added, by its segment.
+  /** @type {Record<string, any>} */
+  const bases = {};
   const add = (value) => {
     const segment = '\0' + (++itemCount).toString(36);
     bases[segment] = value ?? {};
@@ -843,7 +841,7 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     k: key,
     p: nameAt,
     // A key's default: under an item, from the item's values.
-    d(k, defaults) {
+    d(defaults, k) {
       const segments = k.split('.');
       const at = lastItem(segments);
       let cur = at < 0 ? defaults : bases[segments[at]];
@@ -867,12 +865,18 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
         if (name != null) setIn(result, name, arrays[k]().map((segment) => clone(bases[segment])));
       }
     },
+    // Errors by name to errors by key, with the items in their places now;
+    // an error of an item removed by the time it lands goes.
     s() {
       const items = {};
       for (const k in arrays) items[k] = arrays[k].peek();
-      return (name) => {
-        const k = key(name, items);
-        return nameAt(k) == null ? null : k;
+      return (errors) => {
+        const out = {};
+        for (const name in errors) {
+          const k = key(name, items);
+          if (nameAt(k) != null) out[k] = errors[name];
+        }
+        return out;
       };
     },
     e(errors) {
@@ -902,7 +906,7 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     },
     // One field array's controls.
     array(name) {
-      const k = keyOf(name);
+      const k = key(name);
       if (!arrays[k]) seed(k, getIn(getAllValues(), name) || []);
       const items = arrays[k];
       // One object per item for as long as it is in the list: a keyed row
