@@ -525,6 +525,10 @@ export default function whatVitePlugin(options = {}) {
         ...(productionBuild ? { define: { __WHAT_DEV__: 'false' } } : {}),
         ...jsxPreserve,
         optimizeDeps: {
+          // Vite 8's dependency scan transforms .jsx with these options, not
+          // `oxc`, and defaults to React's automatic runtime: it would look for
+          // react/jsx-dev-runtime and print "Failed to run dependency scan".
+          ...(jsxPreserve.oxc ? { rolldownOptions: { transform: { jsx: 'preserve' } } } : {}),
           // Exclude framework packages from Vite's dependency pre-bundling.
           //
           // Bug class this prevents — "dual module instance":

@@ -96,6 +96,17 @@ describe('config() hook output', () => {
     assert.ok(cfg.optimizeDeps.exclude.includes('what-framework'));
   });
 
+  it('keeps JSX in the dependency scan on rolldown, so the scan never looks for react/jsx-dev-runtime', async () => {
+    // Vite 8's dependency scan transforms .jsx with optimizeDeps.rolldownOptions.transform,
+    // whose default is React's automatic runtime: a first `vite` run printed
+    // "(!) Failed to run dependency scan ... react/jsx-dev-runtime ... Are they installed?".
+    const plugin = whatVitePlugin();
+    const cfg = await plugin.config.call({ meta: { rolldownVersion: '1.0.0' } }, {}, env);
+    assert.deepEqual(cfg.optimizeDeps.rolldownOptions, { transform: { jsx: 'preserve' } });
+    const classic = jsxPreserveConfig({ viteVersion: '7.3.5' });
+    assert.equal(classic.optimizeDeps, undefined, 'Vite 7 has no rolldownOptions');
+  });
+
   it('emits esbuild (and NO oxc key) under classic Vite (installed vite is ≤7)', async () => {
     const installedMajor = parseInt((await import('vite')).version, 10);
     if (installedMajor >= 8) {
