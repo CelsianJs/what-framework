@@ -1644,9 +1644,10 @@ function rowEnd(start, endMarker) {
 // moveBefore (Chromium, Firefox) moves a node without taking it out, so a
 // field being edited in the row keeps the focus and its caret; insertBefore
 // blurs it (and Chromium fires blur, which a form validating on blur reads
-// as the visitor leaving the field).
+// as the visitor leaving the field). Only in a connected parent: a detached
+// one holds no focus, and the first browsers to ship moveBefore threw for it.
 function moveRow(parent, start, end, ref) {
-  const move = parent.moveBefore || parent.insertBefore;
+  const move = (parent.isConnected && parent.moveBefore) || parent.insertBefore;
   let n = start;
   while (n !== null && n !== end) {
     const next = n.nextSibling;

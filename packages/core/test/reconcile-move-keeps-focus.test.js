@@ -28,7 +28,9 @@ before(() => {
     if (node.isConnected) inserted.push(node);
     return realInsertBefore.call(this, node, ref);
   };
+  // As the first browsers to ship it did, it refuses a parent that is not in a document.
   Element.prototype.moveBefore = function moveBefore(node, ref) {
+    if (!this.isConnected) throw new DOMException('moveBefore needs a connected parent', 'HierarchyRequestError');
     moved.push(node);
     return realInsertBefore.call(this, node, ref);
   };
@@ -83,4 +85,21 @@ describe('a keyed row moved where the browser has moveBefore', () => {
       assert.deepEqual(rowsMovedBy(inserted), [], `rows taken out and put back: ${rowsMovedBy(inserted).join(', ')}`);
     });
   }
+});
+
+describe('a keyed list in a parent that is not in a document', () => {
+  it('reorders with insertBefore, where moveBefore would refuse it', () => {
+    const el = document.createElement('div');
+    const items = signal(['a', 'b', 'c'].map((id) => ({ id })));
+    mapArray(items, (item) => {
+      const row = document.createElement('p');
+      row.dataset.id = item.id;
+      return row;
+    }, { key: (item) => item.id, raw: true })(el, null);
+    flushSync();
+    const [a, b, c] = items.peek();
+    items([c, a, b]);
+    flushSync();
+    assert.deepEqual([...el.children].map((n) => n.dataset.id), ['c', 'a', 'b']);
+  });
 });
