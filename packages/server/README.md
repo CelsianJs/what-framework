@@ -229,8 +229,11 @@ stops reading.
 
 `redirect(path, status = 302)` takes a same-origin path only (`/account?tab=2`,
 fragment kept), by the same rule as the action handler's `_redirect` field, so
-it is safe to hand request data (`redirect(query.next)`). Leaving the site is
-a separate, explicit call:
+it is safe to hand request data (`redirect(query.next)`). The path is the
+app's: below a base (the request handler's `basePath: '/app'`, else
+what-router's base), `redirect('/login')` answers `Location: /app/login`, as
+a server action's redirect and what-router's `redirect()` do. Leaving the site
+is a separate, explicit call:
 
 ```js
 response.redirectExternal('https://billing.example.com/portal', 303);
@@ -239,7 +242,8 @@ response.redirectExternal('https://billing.example.com/portal', 303);
 `redirectExternal` takes an absolute `http:` or `https:` URL with no
 credentials. A target either method refuses (`https://evil.example` through
 `redirect`, `//host`, `/\host`, `javascript:`) is not an error: the response
-redirects to `/` instead, and development logs `ERR_SSR_UNSAFE_REDIRECT`.
+redirects to the app's root (`/`, or `/app/` below a base) instead, and
+development logs `ERR_SSR_UNSAFE_REDIRECT`.
 A status that is not a redirect status throws a `RangeError`.
 
 ### Cached routes and the response
@@ -510,9 +514,10 @@ loading the page). `setHeader()` (a cookie) reaches the response either way.
 **Below a base path** (what-router's `setBase('/app')`, or Vite's
 `base: '/app/'`), an action posts to `/app/__what_action`, and a `<Form>`'s
 action, `redirect` and permalink are written below the base. A path an action
-redirects to is a URL of the app, as for the router: with JavaScript the
-`<Router>` goes to `/app/x`, and a request handler with `basePath: '/app'`
-answers a no-JS post with `/app/x`.
+redirects to is a URL of the app, as a loader's and the router's are: the
+response of its call sends `/app/x`, in a no-JS post's 303 (a request handler
+with `basePath: '/app'`) and in `X-What-Redirect` alike, and with JavaScript
+the `<Router>` goes there.
 
 **A custom server.** `nodeActionMiddleware` serves only the action endpoint.
 For page-posted forms, run the post with `createFormPostHandler(options)` (the
