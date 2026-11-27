@@ -1007,6 +1007,11 @@ function handleRedirect(target, options, guard) {
     return null;
   }
 
+  // The hop goes where the target resolves now, as navigate() resolves it
+  // ('login' on /account/settings is '/account/login'): what a re-match of it
+  // compares below, and what the cycle check counts.
+  const to = resolveHref(target) ?? target;
+
   // A navigation to this exact target is already in flight, so this is a
   // re-match of the same hop, not a second one.
   //
@@ -1022,11 +1027,11 @@ function handleRedirect(target, options, guard) {
   //
   // Chromium-only, because without View Transitions doNavigation() runs
   // synchronously and the URL and the flag change together.
-  if (_pendingUrl.peek() === target) return null;
+  if (_pendingUrl.peek() === to) return null;
 
   // Each hop: where the navigation was going when that route's guard sent it on.
   const from = _pendingUrl.peek() ?? readUrl();
-  _redirectHistory.push({ from, to: target, guard });
+  _redirectHistory.push({ from, to, guard });
 
   if (_redirectHistory.length > MAX_REDIRECTS) {
     redirectLoop(_redirectHistory.slice(-5), 'too many redirects');
@@ -1036,9 +1041,9 @@ function handleRedirect(target, options, guard) {
 
   const seen = new Set();
   let hasCycle = false;
-  for (const { to } of _redirectHistory) {
-    if (seen.has(to)) { hasCycle = true; break; }
-    seen.add(to);
+  for (const hop of _redirectHistory) {
+    if (seen.has(hop.to)) { hasCycle = true; break; }
+    seen.add(hop.to);
   }
   if (hasCycle) {
     redirectLoop(_redirectHistory.slice(), 'a cycle');
@@ -1046,7 +1051,7 @@ function handleRedirect(target, options, guard) {
     return loopScreen('Circular redirect detected. Check your middleware configuration.');
   }
 
-  navigate(target, { replace: true, ...options, _redirectChain: true });
+  navigate(to, { replace: true, ...options, _redirectChain: true });
   return null;
 }
 
