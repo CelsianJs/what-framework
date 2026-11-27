@@ -149,6 +149,18 @@ async function prepare(name, work) {
       });
       shell = request => handler.fetch(request, {});
     }
+  } else if (name === 'showcase') {
+    // Buildless: serve.js serves the site and the framework's source, every
+    // asset included.
+    const { respond } = await import(pathToFileURL(join(root, 'sites/showcase/serve.js')));
+    return {
+      staticRoot: work,
+      assets: true,
+      shell: request => {
+        const { status, type, body } = respond(new URL(request.url).pathname);
+        return new Response(body, { status, headers: { 'content-type': type } });
+      },
+    };
   } else if (name === 'package-demos/02-what-router') {
     const demo = join(examples, name);
     auditImports(demo);
@@ -176,7 +188,7 @@ async function prepare(name, work) {
   return { staticRoot, shell };
 }
 
-async function browse(browser, name, { staticRoot, shell }) {
+async function browse(browser, name, { staticRoot, shell, assets = false }) {
   const page = await browser.newPage();
   const errors = [];
   page.setDefaultTimeout(3500);
@@ -196,7 +208,7 @@ async function browse(browser, name, { staticRoot, shell }) {
       }
       const file = staticFile(staticRoot, url.pathname, !shell);
       if (file) return route.fulfill({ path: file, contentType: types[extname(file)] });
-      if (shell && !extname(url.pathname)) {
+      if (shell && (assets || !extname(url.pathname))) {
         // A form post reaches the app as the browser sent it: method, body,
         // and the headers the action endpoint's CSRF check reads.
         const request = route.request();

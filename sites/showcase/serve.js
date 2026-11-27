@@ -1,7 +1,7 @@
 // Showcase app dev server
 import { createServer } from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { join, extname, sep } from 'path';
+import { join, extname, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -61,48 +61,36 @@ function transformImports(code, fromDir) {
     });
 }
 
-const server = createServer((req, res) => {
-  const url = new URL(req.url, `http://localhost:${port}`);
-  let pathname = url.pathname;
-
-  // Serve framework source files
+// The response for a request path: { status, type, body }. The dev server
+// below sends it, and the workspace smoke (smoke/workspace-apps.mjs) serves
+// the site through it.
+export function respond(pathname) {
+  // Framework source files
   if (pathname.startsWith('/framework/')) {
     const frameworkPath = join(packagesDir, pathname.slice(11));
     if (frameworkPath.startsWith(packagesDir + sep) && existsSync(frameworkPath) && statSync(frameworkPath).isFile()) {
       const code = transformImports(readFileSync(frameworkPath, 'utf-8'), pathname.split('/')[2]);
-      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
-      res.end(code);
-      return;
+      return { status: 200, type: 'application/javascript', body: code };
     }
   }
 
-  if (pathname === '/') pathname = '/index.html';
-
-  const file = resolveFile(pathname);
+  const file = resolveFile(pathname === '/' ? '/index.html' : pathname);
   if (file) {
-    let content = readFileSync(file);
     const ext = extname(file);
-    if (ext === '.js') {
-      content = transformImports(content.toString('utf-8'));
-    }
-    res.writeHead(200, {
-      'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
-    });
-    res.end(content);
-  } else {
-    // SPA fallback
-    const index = join(__dirname, 'public', 'index.html');
-    if (existsSync(index)) {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(readFileSync(index));
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
-    }
+    const content = readFileSync(file);
+    return { status: 200, type: MIME[ext] || 'application/octet-stream', body: ext === '.js' ? transformImports(content.toString('utf-8')) : content };
   }
-});
 
-server.listen(port, () => {
-  console.log(`\n  What Showcase\n  http://localhost:${port}\n`);
-});
+  // SPA fallback
+  return { status: 200, type: 'text/html', body: readFileSync(join(__dirname, 'public', 'index.html')) };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  createServer((req, res) => {
+    const { status, type, body } = respond(new URL(req.url, `http://localhost:${port}`).pathname);
+    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
+    res.end(body);
+  }).listen(port, () => {
+    console.log(`\n  What Showcase\n  http://localhost:${port}\n`);
+  });
+}

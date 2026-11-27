@@ -36,6 +36,15 @@ export const flows = {
   'scaffold-spa': [click('+', 'output', /^1$/)],
   'scaffold-islands': [click('Increase', '.counter output', /^4$/)],
   'scaffold-fullstack': [click('Like', '.like-demo output', /^1$/)],
+  // sites/showcase, served by its serve.js from the workspace source.
+  showcase: [
+    click('Month', '.chart-tab.active', /^Month$/),
+    { action: 'link', name: /Projects/, selector: '.main-header h1', expected: /^Projects$/ },
+    click('Bug', 'button.btn-primary', /^Bug$/),
+    { action: 'link', name: /Team/, selector: '.team-grid', expected: /Online/ },
+    { action: 'link', name: /Settings/, selector: '.settings-nav-item.active', expected: /^Profile$/ },
+    click('Toggle theme', '.toast', /Switched to light theme/),
+  ],
   'package-demos/02-what-router': [{ action: 'link', name: 'About', selector: 'h2', expected: /^About$/ }],
   'blog': [{ action: 'link', name: /New Post/i, selector: 'h1', expected: /New post/i }],
   // "Add to cart" is a plain form post from a cached product page (no token
