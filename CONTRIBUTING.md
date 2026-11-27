@@ -81,9 +81,8 @@ the string, buffered document, and stream entries.
 the installed workspace. It also checks the buildless blog and shop against
 their request handlers. Build the workspace with `npm run build` and install
 Chromium with `npx playwright install chromium` first. The smoke itself uses
-local files and in-process HTTP responses. Two examples declare dependencies
-the root install does not provide: install them with
-`npm ci --prefix examples/playground` and
+local files and in-process HTTP responses. examples/compat-tests declares
+dependencies the root install does not provide: install them with
 `npm install --prefix examples/compat-tests --no-package-lock` (the React
 compatibility playground has no lockfile), as CI does.
 

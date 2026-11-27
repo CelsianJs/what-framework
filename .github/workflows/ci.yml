@@ -334,10 +334,8 @@ jobs:
       - name: Install Playwright system deps (browser cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
-      - name: Install the playground's and the compat tests' own dependencies
-        run: |
-          npm ci --prefix examples/playground --ignore-scripts
-          npm install --prefix examples/compat-tests --no-package-lock --ignore-scripts
+      - name: Install the compat tests' own dependencies
+        run: npm install --prefix examples/compat-tests --no-package-lock --ignore-scripts
       - name: App smoke suite
         run: npm run -s smoke:apps
       - name: Server round trips in Chromium

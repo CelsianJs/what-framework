@@ -1,9 +1,8 @@
-// The Babel plugin also runs in a browser: the playground (examples/playground)
+// The Babel plugin also runs in a browser: sites/playground's compile worker
 // bundles it with @babel/standalone. It is a module graph (babel-plugin.js,
 // babel/*.js, what-core's markup rules), so it has to bundle as one, and the
 // bundle has to run where there is no `process`, no `require` and no Node
-// built-in. The playground once copied babel-plugin.js in as a single file's
-// source, which stopped building the day the plugin was split into modules.
+// built-in.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

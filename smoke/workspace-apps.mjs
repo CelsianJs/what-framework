@@ -1,7 +1,7 @@
 // Offline browser smoke. The root npm ci supplies Vite, Chromium is installed
 // separately, and package resolution uses the real workspace exports.
-// compat-tests and playground declare dependencies of their own, installed in
-// their directories (CONTRIBUTING.md, Browser round trips and app budgets).
+// compat-tests declares dependencies of its own, installed in its directory
+// (CONTRIBUTING.md, Browser round trips and app budgets).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -65,10 +65,9 @@ function staticFile(base, pathname, fallback) {
     .find(candidate => existsSync(candidate) && statSync(candidate).isFile());
 }
 
-const registered = [...Object.keys(flows), 'compat-tests', 'playground'];
+const registered = [...Object.keys(flows), 'compat-tests'];
 const OWN_DEPENDENCIES = {
   'compat-tests': '`npm install --prefix examples/compat-tests --no-package-lock`',
-  playground: '`npm ci --prefix examples/playground`',
 };
 assert.deepEqual(selected.filter(name => !registered.includes(name)), [], 'unknown smoke case');
 const discovered = [...files(examples)]
@@ -233,9 +232,6 @@ async function browse(browser, name, { staticRoot, shell, assets = false }) {
     if (name === 'compat-tests') {
       await page.getByRole('heading', { name: /Package Tests/ }).waitFor();
       await page.locator('#root button').first().click();
-    } else if (name === 'playground') {
-      await page.getByRole('button', { name: /Run/ }).first().click();
-      await page.locator('iframe').first().waitFor();
     } else {
       for (const flow of flows[name]) await drive(page, flow, budgets);
     }
