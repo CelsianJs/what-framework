@@ -1,7 +1,10 @@
 // A lazy() component whose download failed shows the error to its boundary
 // once, and the next render downloads it again: an error boundary's reset
-// ("Try again"), or the component rendered again later. A chunk that failed
-// on a network blip, or one a deploy replaced, is not lost until a reload.
+// ("Try again"), or the component rendered again later. A download only a
+// prefetch started (what-router's hover) is no render's to show, so the first
+// render after it downloads again; one a navigation waited on is shown by the
+// page it renders. A chunk that failed on a network blip, or one a deploy
+// replaced, is not lost until a reload.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -99,6 +102,36 @@ describe('lazy() after a failed download', () => {
     });
     assert.equal(chunk.calls, 2);
     assert.equal(el.querySelector('#page')?.textContent, 'PAGE');
+  });
+
+  it('after a prefetch\'s download failed, the first render downloads again', async () => {
+    const el = container();
+    const chunk = flaky();
+    await chunk.component._load(true);
+    assert.equal(chunk.calls, 1);
+    chunk.failing = false;
+    await quiet(async () => {
+      mount(h(ErrorBoundary, { fallback: ({ error }) => h('p', { id: 'failed' }, String(error.message)) },
+        h(Suspense, { fallback: h('p', {}, 'loading') }, h(chunk.component))), el);
+      await flush();
+    });
+    assert.equal(chunk.calls, 2);
+    assert.equal(el.querySelector('#page')?.textContent, 'PAGE');
+  });
+
+  it('after a download a navigation waited on failed, the next render shows its error', async () => {
+    const el = container();
+    const chunk = flaky();
+    const prefetched = chunk.component._load(true);
+    await chunk.component._load();
+    await prefetched;
+    await quiet(async () => {
+      mount(h(ErrorBoundary, { fallback: ({ error }) => h('p', { id: 'failed' }, String(error.message)) },
+        h(Suspense, { fallback: h('p', {}, 'loading') }, h(chunk.component))), el);
+      await flush();
+    });
+    assert.equal(chunk.calls, 1, 'one download, which the prefetch started and the navigation waited on');
+    assert.equal(el.querySelector('#failed')?.textContent, 'chunk failed (1)');
   });
 
   it('once loaded, it is never downloaded again', async () => {

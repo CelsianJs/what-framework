@@ -37,18 +37,23 @@ export function memo(Component, _areEqual) {
 // renders that waited on it (the nearest error boundary gets its error), and
 // then forgotten: the next render (an error boundary's reset, the component
 // rendered again) downloads again, as does the next navigation to its route
-// (`_load`, which what-router's navigation and prefetch wait on). React's
-// lazy keeps the error until the page is reloaded.
+// (`_load`, which what-router's navigation waits on, and its prefetch
+// starts). A navigation waits on behalf of the page it renders, which shows
+// the failure; a download only a prefetch started is no render's, so its
+// failure is forgotten at once and the first render after it downloads
+// again. React's lazy keeps the error until the page is reloaded.
 
 export function lazy(loader) {
   _enableSuspense();
   let Component = null;
   // The download in flight, or the last one; `failed` holds the error of the
-  // last one until it has been shown.
+  // last one until it has been shown. `awaited`: a render or a navigation
+  // waits on the download in flight, and shows its failure.
   /** @type {Promise<void> | null} */
   let loading = null;
   /** @type {{ error: any } | null} */
   let failed = null;
+  let awaited = false;
   const listeners = new Set();
 
   // A download, which settles once the module has loaded or the download has
@@ -56,14 +61,17 @@ export function lazy(loader) {
   // render shows.
   function load() {
     failed = null;
-    return loading = new Promise((resolve) => resolve(loader())).then((mod) => {
+    awaited = false;
+    const download = loading = new Promise((resolve) => resolve(loader())).then((mod) => {
       Component = mod.default || mod;
       // Notify all waiting instances
       listeners.forEach(fn => fn());
       listeners.clear();
     }, (error) => {
-      failed = { error };
+      if (awaited) failed = { error };
+      else if (loading === download) loading = null;
     });
+    return download;
   }
 
   function LazyWrapper(props) {
@@ -78,14 +86,22 @@ export function lazy(loader) {
       throw shown.error;
     }
     // Throw promise for Suspense to catch
-    throw loading || load();
+    if (loading === null) load();
+    awaited = true;
+    throw loading;
   }
 
   LazyWrapper.displayName = 'Lazy';
   LazyWrapper._lazy = true;
   // What a navigation to it waits for: the download in flight, or a new one
-  // (none yet, or the last one failed); null once loaded.
-  LazyWrapper._load = () => (Component ? null : loading === null || failed !== null ? load() : loading);
+  // (none yet, or the last one failed); null once loaded. A prefetch's
+  // download (`prefetch` true) is not waited on.
+  LazyWrapper._load = (prefetch) => {
+    if (Component) return null;
+    if (loading === null || failed !== null) load();
+    if (!prefetch) awaited = true;
+    return loading;
+  };
   LazyWrapper._onLoad = (fn) => {
     if (Component) fn();
     else listeners.add(fn);

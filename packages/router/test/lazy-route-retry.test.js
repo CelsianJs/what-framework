@@ -3,8 +3,9 @@
 // hover's download failed) keeps the page being left on screen while the
 // chunk downloads, and the route's error page's reset ("Try again") keeps the
 // error page on screen while it downloads, then shows the page, or the error
-// page again with the new error. A chunk that loaded is never downloaded
-// again.
+// page again with the new error. A hover's failed download is no render's to
+// show: the component rendered anywhere after it downloads again. A chunk
+// that loaded is never downloaded again.
 //
 // Its own file: the router keeps module-scoped URL state.
 
@@ -15,7 +16,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 const { window } = installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 window.scrollTo = () => {};
 
-const { h, mount, lazy } = await import('what-core');
+const { h, mount, lazy, ErrorBoundary, Suspense } = await import('what-core');
 const { Router, navigate, prefetch } = await import('../src/index.js');
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,6 +44,7 @@ function chunk(name) {
 const guide = chunk('guide');
 const intro = chunk('intro');
 const hovered = chunk('hovered');
+const card = chunk('card');
 let retry = null;
 const ErrorPage = ({ error, reset }) => {
   retry = reset;
@@ -55,6 +57,7 @@ const routes = [
   { path: '/guide', component: guide.component, error: ErrorPage },
   { path: '/intro', component: intro.component, error: ErrorPage },
   { path: '/hovered', component: hovered.component, error: ErrorPage },
+  { path: '/card', component: card.component, error: ErrorPage },
 ];
 
 const quiet = async (fn) => {
@@ -64,6 +67,7 @@ const quiet = async (fn) => {
 };
 
 mount(h(Router, { routes }), '#app');
+const aside = document.body.appendChild(document.createElement('aside'));
 
 describe('a lazy() route whose chunk failed', () => {
   it('downloads it again on the next navigation, the page being left on screen meanwhile', async () => {
@@ -138,6 +142,20 @@ describe('a lazy() route whose chunk failed', () => {
     await going;
     await flush();
     assert.equal(shown(), 'hovered page');
+  });
+
+  it('downloads it again on a render outside a route after a hover\'s download failed', async () => {
+    prefetch('/card');
+    await flush();
+    assert.equal(card.calls, 1);
+    card.failing = false;
+    await quiet(async () => {
+      mount(h(ErrorBoundary, { fallback: ({ error }) => h('p', {}, `error: ${error.message}`) },
+        h(Suspense, { fallback: h('p', {}, 'loading') }, h(card.component))), aside);
+      await flush();
+    });
+    assert.equal(card.calls, 2);
+    assert.equal(aside.textContent, 'card page');
   });
 
   it('shows a loader that throws on its error page, and calls it again on the next navigation', async () => {

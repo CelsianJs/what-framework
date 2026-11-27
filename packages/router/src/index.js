@@ -352,11 +352,13 @@ function noop() {}
 
 // A lazy() component's chunk, loading, or null once loaded: what-core's
 // lazy() downloads it again when the last download failed, so a navigation
-// to its route (or a hover) is a new attempt. Another lazy (React's, through
-// what-react) is called: it throws its promise until that has settled.
-function chunkOf(component) {
+// to its route (or a hover) is a new attempt. A prefetch's (`prefetch` true)
+// failure is forgotten, as no page waits to show it. Another lazy (React's,
+// through what-react) is called: it throws its promise until that has
+// settled.
+function chunkOf(component, prefetch) {
   if (!component || !component._lazy) return null;
-  if (component._load) return component._load();
+  if (component._load) return component._load(prefetch);
   try {
     component({});
     return null;
@@ -1638,7 +1640,7 @@ export function prefetch(href) {
   prefetchedUrls.add(url);
 
   const matched = target !== null && _routes !== null ? matchRoute(pathOf(target), _routes) : null;
-  if (matched && !matched.route.middleware) chunkOf(matched.route.component);
+  if (matched && !matched.route.middleware) chunkOf(matched.route.component, true);
 
   const link = document.createElement('link');
   link.rel = 'prefetch';
