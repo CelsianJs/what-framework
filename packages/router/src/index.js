@@ -99,12 +99,11 @@ function outward(url) {
   return url[0] === '/' ? BASE + url : url;
 }
 
-// What history writes for a URL of the app: the URL below the base, and a
-// path that starts with two slashes ('//x') written '/.//x', which resolves
-// to that path on this origin, where '//x' would name another host.
-function historyUrl(url) {
-  const out = outward(url);
-  return out.startsWith('//') ? '/.' + out : out;
+// What history writes for a path of this origin (with its search and hash):
+// one that starts with two slashes ('//x') written '/.//x', which resolves to
+// that path on this origin, where '//x' would name another host.
+function historyUrl(path) {
+  return path.startsWith('//') ? '/.' + path : path;
 }
 
 // The URL of the app that a path from the root (with its search and hash)
@@ -263,22 +262,30 @@ function pageOf(url) {
   return i === -1 ? url : url.slice(0, i);
 }
 
-// The URL of the app a navigation to `to` (a path, a relative URL, a '#hash',
-// a URL of this origin) commits: its path, search and hash, resolved against
-// the page as history.pushState resolves it, dot segments and
-// percent-encoding included, without the base. On a server the page is the
-// URL the render shows (its nearest <Router>'s), so a relative link resolves
-// there as it does in the browser. Null for another origin's URL (mailto:, an
-// external site) and one outside the base, which no route shows, and for one
-// the URL parser rejects.
-function resolveHref(to) {
+// Where a navigation to `to` (a path, a relative URL, a '#hash', a URL of
+// this origin) takes the address bar: its path, search and hash on this
+// origin, resolved against the page as history.pushState resolves it, dot
+// segments and percent-encoding included. A '#x' or '?q' keeps the path the
+// address bar shows ('/app#x' at '/app'). On a server the page is the URL the
+// render shows (its nearest <Router>'s), so a relative link resolves there as
+// it does in the browser. Null for another origin's URL (mailto:, an external
+// site) and for one the URL parser rejects.
+function resolveUrl(to) {
   const page = onServer() || typeof location === 'undefined' ? NO_PAGE + outward(here().url()) : location.href;
   try {
     const parsed = new URL(outward(to), page);
-    return parsed.origin === new URL(page).origin ? inward(parsed.pathname + parsed.search + parsed.hash) : null;
+    return parsed.origin === new URL(page).origin ? parsed.pathname + parsed.search + parsed.hash : null;
   } catch {
     return null;
   }
+}
+
+// The URL of the app a navigation to `to` commits: where it takes the address
+// bar, without the base. Null for another origin's URL and one outside the
+// base, which no route shows.
+function resolveHref(to) {
+  const url = resolveUrl(to);
+  return url && inward(url);
 }
 
 // --- Navigation Hooks ---
@@ -573,9 +580,10 @@ export async function navigate(to, opts = {}) {
   // queued by handleRedirect continues the current one.
   if (!_redirectChain) _redirectHistory.length = 0;
 
-  // The URL the address bar will show, without the base: what the router
-  // commits.
-  const href = resolveHref(to);
+  // The URL the address bar will show, and that URL without the base: what
+  // the router commits.
+  const written = resolveUrl(to);
+  const href = written && inward(written);
   // Another origin's URL (another site, mailto:, tel:), or one outside the
   // base, is the browser's to load, as a click on a <Link> to it is: no guard
   // runs, and the route state stays while the document leaves.
@@ -592,7 +600,7 @@ export async function navigate(to, opts = {}) {
   // '#hash' target replaces the history entry, as it always has here, and so
   // does the URL on screen, as in the browser.
   if (typeof window !== 'undefined' && pageOf(href) === pageOf(readUrl())) {
-    fragmentNavigation(href, replace || to.startsWith('#') || href === readUrl(), opts.state, _fromPopstate);
+    fragmentNavigation(written, replace || to.startsWith('#') || href === readUrl(), opts.state, _fromPopstate);
     return;
   }
 
@@ -621,7 +629,7 @@ export async function navigate(to, opts = {}) {
       const allowed = await waitFor(fn(href, from), nav);
       if (nav !== _navigation) return;
       if (allowed === false) {
-        if (typeof location !== 'undefined' && browserUrl() !== from) history.pushState(null, '', historyUrl(from));
+        if (typeof location !== 'undefined' && browserUrl() !== from) history.pushState(null, '', historyUrl(outward(from)));
         return;
       }
     }
@@ -654,7 +662,7 @@ export async function navigate(to, opts = {}) {
         if (typeof window !== 'undefined') {
           scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
         }
-        history[replace ? 'replaceState' : 'pushState'](state, '', historyUrl(href));
+        history[replace ? 'replaceState' : 'pushState'](state, '', historyUrl(written));
       }
       committed = true;
       batch(() => {
@@ -747,19 +755,19 @@ function supersede() {
   return nav;
 }
 
-// A navigation to `href` on the page on screen. It supersedes a navigation to
-// another page still preparing, as a browser's does. For a popstate the
-// browser has already moved the URL, and scrolled.
+// A navigation to `written` (the address bar's new URL) on the page on screen.
+// It supersedes a navigation to another page still preparing, as a browser's
+// does. For a popstate the browser has already moved the URL, and scrolled.
 // An entry it replaces keeps its history.state unless the caller passed
 // `state`; a new entry starts with the caller's state, else none.
-function fragmentNavigation(href, replace, state, fromPopstate) {
+function fragmentNavigation(written, replace, state, fromPopstate) {
   if (_preparing.peek()) {
     supersede();
     end();
   }
   if (!fromPopstate) {
     scrollPositions.set(readUrl(), { x: window.scrollX, y: window.scrollY });
-    history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', historyUrl(href));
+    history[replace ? 'replaceState' : 'pushState'](state !== undefined ? state : replace ? history.state : null, '', historyUrl(written));
   }
   _url.set(browserUrl());
   const target = !fromPopstate && location.hash ? queryFragment(location.hash) : null;
@@ -1625,7 +1633,7 @@ const prefetchedUrls = new Set();
 export function prefetch(href) {
   if (typeof document === 'undefined') return;
   const target = resolveHref(href);
-  const url = target === null ? outward(href) : historyUrl(pageOf(target));
+  const url = target === null ? outward(href) : historyUrl(outward(pageOf(target)));
   if (prefetchedUrls.has(url)) return;
   prefetchedUrls.add(url);
 

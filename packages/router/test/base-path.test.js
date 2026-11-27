@@ -55,6 +55,8 @@ const nav = [
   { href: '/users', id: 'users' },
   { href: '8', id: 'relative' },
   { href: 'http://localhost/elsewhere', id: 'outside' },
+  { href: '#x', id: 'fragment' },
+  { href: '?q=2', id: 'query' },
 ];
 const page = () => document.getElementById('page').textContent;
 const link = (id) => document.getElementById(id);
@@ -202,5 +204,36 @@ describe('an app served below a base path', () => {
     setBase('/app/');
     await flush();
     assert.equal(page(), 'about');
+  });
+
+  // The browser keeps the path of the page for a '#x' or '?q' reference, so
+  // relative URLs resolve on the new entry as they did before it.
+  it('keeps the path the address bar shows for a fragment or query navigation at the base itself', async () => {
+    const shown = () => location.pathname + location.search + location.hash;
+    for (const [bar, to, written, url] of [
+      ['/app', '#x', '/app#x', '/#x'],
+      ['/app', '?q=1', '/app?q=1', '/?q=1'],
+      ['/app?q=1', '#y', '/app?q=1#y', '/?q=1#y'],
+      ['/app/', '#x', '/app/#x', '/#x'],
+      ['/app/', '?q=1', '/app/?q=1', '/?q=1'],
+      ['/app', '/#x', '/app/#x', '/#x'],
+    ]) {
+      history.replaceState(null, '', bar);
+      setBase('/app/');
+      await navigate(to, { transition: false });
+      await flush();
+      assert.equal(shown(), written, `${to} at ${bar}`);
+      assert.equal(route.url, url, `${to} at ${bar}`);
+      assert.equal(page(), 'home');
+    }
+    for (const [id, written] of [['fragment', '/app#x'], ['query', '/app?q=2']]) {
+      history.replaceState(null, '', '/app');
+      setBase('/app/');
+      await flush();
+      assert.equal(click(id).defaultPrevented, true);
+      await flush();
+      assert.equal(shown(), written, id);
+      assert.equal(page(), 'home');
+    }
   });
 });
