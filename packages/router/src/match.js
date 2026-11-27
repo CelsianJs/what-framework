@@ -10,7 +10,7 @@ export function compilePath(path) {
   // (group) -> route group (ignored in URL)
 
   // Remove route groups from path (they don't affect URL matching)
-  const normalized = withoutSlash(path
+  const normalized = comparable(path
     .replace(/\([\w-]+\)\//g, '') // Remove (group)/ prefixes
     .replace(/\[\.\.\.(\w+)\]/g, (_, name) => `*:${name}`) // Preserve catch-all name
     .replace(/\[(\w+)\]/g, ':$1')); // File-based [param] to :param
@@ -37,7 +37,7 @@ export function compilePath(path) {
       if (segment) statics++;
       // As the URL holds it: the URL parser percent-encodes a path's spaces,
       // controls, non-ASCII characters and "<>`{}, and keeps an escape
-      // already written ('%C3%A9').
+      // already written ('%C3%A9', which comparable() put in upper case).
       return segment.replace(/[^\x21-\x7e]|["<>`{}]/gu, encodeURIComponent).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     })
     .join('/');
@@ -89,15 +89,19 @@ function specificity({ paramNames, catchAll, statics }) {
   return catchAll === null ? paramNames.length : 1e6 - 10 * statics - 3 * (paramNames.length - 1);
 }
 
-// A path without the slashes that end it after a segment: '/about/' is
-// matched as '/about', as a static host serves about/index.html at both. The
-// root, and '//', are as they are.
-function withoutSlash(path) {
-  return path.replace(/([^/])\/+$/, '$1');
+// A path as a route and a URL are compared: without the slashes that end it
+// after a segment ('/about/' is matched as '/about', as a static host serves
+// about/index.html at both; the root, and '//', are as they are), and with
+// its percent escapes in upper case, as the URL parser writes the ones it
+// makes ('/caf%c3%a9' is '/caf%C3%A9', the route '/café'). An escape decodes
+// the same in either case; a '%' that starts none ('/50%off') is changed the
+// same way in a route and a URL, so they still match as written.
+function comparable(path) {
+  return path.replace(/([^/])\/+$/, '$1').replace(/%../g, (escape) => escape.toUpperCase());
 }
 
 export function matchRoute(path, routes) {
-  path = withoutSlash(path);
+  path = comparable(path);
   // Filter out routes without a path (layout-only routes, etc.)
   // `filter` already copies, so sorting below never touches the caller's array.
   const sorted = routes.filter(r => r.path);

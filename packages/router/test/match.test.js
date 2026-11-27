@@ -102,6 +102,27 @@ describe('a static segment the URL percent-encodes', () => {
     }
   });
 
+  // The URL parser keeps an escape as the address bar or the request wrote
+  // it, so '/caf%c3%a9' reaches the matcher in lower case.
+  it('matches a percent escape written in either case, and decodes a param the same', () => {
+    const routes = [{ path: '/café' }, { path: '/caf%c3%a9-lower' }, { path: '/50%off' }, { path: '/blog/:slug' }, { path: '/files/[...rest]' }];
+    for (const [path, route, params] of [
+      ['/caf%c3%a9', '/café', {}],
+      ['/caf%C3%a9', '/café', {}],
+      ['/caf%C3%A9', '/café', {}],
+      ['/caf%c3%a9-lower', '/caf%c3%a9-lower', {}],
+      ['/caf%C3%A9-lower', '/caf%c3%a9-lower', {}],
+      ['/50%off', '/50%off', {}],
+      ['/blog/caf%c3%a9', '/blog/:slug', { slug: 'café' }],
+      ['/files/caf%c3%a9/a%2fb', '/files/[...rest]', { rest: 'café/a/b' }],
+    ]) {
+      const m = matchRoute(path, routes);
+      assert.equal(m && m.route.path, route, path);
+      assert.deepEqual(m.params, params, path);
+    }
+    assert.equal(matchRoute('/caf%c3%a8', routes), null);
+  });
+
   it('keeps an astral character and the URL parser\'s other encoded characters', () => {
     for (const written of ['/emoji-😀', '/q"uote', '/a<b>', '/x{y}', '/tick`']) {
       assert.ok(matchRoute(new URL('http://x' + written).pathname, [{ path: written }]), written);

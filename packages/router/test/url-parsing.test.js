@@ -37,6 +37,10 @@ describe('a server <Router> reads any URL without throwing', () => {
     }
   });
 
+  it('a route written with characters the URL percent-encodes shows at a URL that writes its escapes in lower case', async () => {
+    assert.match(await render('/caf%c3%a9'), /<nav><a [^>]*href="\/café"[^>]*>Café/);
+  });
+
   it('a path that looks like an authority is that path', async () => {
     assert.match(await render('//'), /missing \/\//);
     assert.match(await render('//other.test/x?q=1'), /missing \/\/other\.test\/x/);
