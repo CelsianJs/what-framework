@@ -122,6 +122,7 @@ export const CAPABILITIES = {
   'form:large': { area: 'forms', desc: 'a 300-field form validated as the user types runs only the edited field\'s rules and re-renders only that field, and a summary over every field follows' },
   'stream:reconnect': { area: 'load', desc: 'a stream from the app\'s own server, dropped cleanly, mid-event and all at once throughout the run, resumes from the last event id with no message lost or repeated' },
   'list:capped-log': { area: 'load', desc: 'an append-only keyed log of thousands of messages keeps its last N rows in order, follows the bottom (an effect after an append sees the new row), holds still while the reader is scrolled up, and an optimistic row keeps its element when the server confirms it' },
+  'list:cross-parent-move': { area: 'load', desc: 'cards dragged with pointer events within and between keyed lists of 1,000 land exactly where the model puts them, one element per key; a move within a list keeps the element, undo and redo restore the exact order, and an untouched list keeps its elements' },
   'form:input-under-load': { area: 'forms', desc: 'typing into a controlled field while bursts of updates re-render the page around it loses no character and keeps the caret' },
   'form:async-validation': { area: 'forms', desc: 'answers of an async field check that arrive out of order never leave a stale error, and the form reports validating until the last one lands' },
 };
