@@ -802,11 +802,15 @@ function recordRead(node, field) {
  * replacement that keeps the field keeps the row; a getter that returns
  * something else made from the item (`item={wrap(item)}`), or reads it more
  * than once, records the whole item, as the read it replaces did.
+ * `record`, in a development build: the ERR_PROP_READ_ONCE of a value the
+ * body derives from the read, reported once when the read records nothing,
+ * as no row is built again when the value changes.
  * @param {any} props
  * @param {string} name
  * @param {string | number} key
+ * @param {any} [record]
  */
-export function _propField(props, name, key) {
+export function _propField(props, name, key, record) {
   const outerField = propField;
   const outerCell = propCell;
   propField = key;
@@ -821,6 +825,10 @@ export function _propField(props, name, key) {
     propCell = outerCell;
   }
   if (cell !== null) recordRead(cell, value === cell.value ? key : undefined);
+  else if (__DEV__ && record !== undefined && !record.seen) {
+    record.seen = true;
+    report(record.code, { data: record.data, loc: record.loc, subject: { kind: 'component', name: record.data.component, id: record.loc } });
+  }
   return value[key];
 }
 

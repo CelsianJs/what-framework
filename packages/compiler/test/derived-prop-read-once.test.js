@@ -5,7 +5,7 @@
 // at build time, in development. What the compiler reads where it is used, a
 // read inside a function or JSX, a hook's seed, a route's params and a handle
 // fetched once (an accessor, a spread, an object read for its fields) are not.
-import { after, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileJSX } from '../../../test-utils/compile.js';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -130,5 +130,85 @@ export function App({ name }) { return <p><Stale name={name()} /><Live name={nam
     assert.equal(host.querySelector('i').textContent, 'GRACE', 'the suggested function follows the prop');
     stop();
     host.remove();
+  });
+});
+
+// A keyed .map() row hands a component its item (`<Row key={item.id}
+// item={item} />`), and a field its body reads (`item.title`) is recorded:
+// the row is built again when that field changes, so a value derived from it
+// is never stale there. Which components are rows is known only where they
+// render, so a development build with devMetadata (what-compiler/vite) leaves
+// a value derived only from fields of props to the page: the read reports
+// ERR_PROP_READ_ONCE unless it read a field of the row's item.
+describe('ERR_PROP_READ_ONCE: a value derived from a field of a keyed row\'s item', () => {
+  let env;
+  before(() => { env = installDOM(); });
+  after(() => env.cleanup());
+  const ROW = `import { signal } from 'what-framework';
+export const items = signal([{ id: 1, title: 'ada' }]);
+export const picked = signal({ id: 2, title: 'grace' });
+function Row({ item }) {
+  const label = item.title.toUpperCase();
+  return <li>{label}</li>;
+}
+function Card(props) {
+  const heading = 'card ' + props.item.title;
+  return <b>{heading}</b>;
+}
+`;
+  const DEV = { devMetadata: true, projectRoot: '/proj' };
+
+  async function render(app, name) {
+    const { h, mount, flushSync, clearDiagnostics, getDiagnostics } = await import('what-framework');
+    const warn = console.warn;
+    const warned = [];
+    console.warn = (...args) => warned.push(args.join(' '));
+    const host = document.createElement('div');
+    let mod;
+    let stop;
+    try {
+      mod = await loadCompiled(ROW + app, { filename: `/proj/src/${name}.jsx`, pluginOptions: DEV });
+      clearDiagnostics();
+      document.body.appendChild(host);
+      stop = mount(h(mod.App, {}), host);
+      flushSync();
+    } finally {
+      console.warn = warn;
+    }
+    const reported = () => getDiagnostics().events.filter((e) => e.code === 'ERR_PROP_READ_ONCE');
+    return { mod, host, flushSync, reported, warned: warned.filter((w) => w.includes('[what-compiler] ERR_PROP_READ_ONCE')), stop: () => { stop(); host.remove(); } };
+  }
+
+  it('is not reported in a row, where a change of the field builds the row again', async () => {
+    const r = await render(`export function App() { return <ul>{items().map((item) => <Row key={item.id} item={item} />)}{items().map((item) => <Card key={item.id} item={item} />)}</ul>; }`, 'rows');
+    try {
+      assert.deepEqual(r.warned, [], 'nothing at build time');
+      assert.deepEqual(r.reported(), [], 'nothing on the page');
+      r.mod.items([{ id: 1, title: 'lovelace' }]);
+      r.flushSync();
+      assert.equal(r.host.textContent, 'LOVELACEcard lovelace');
+      assert.deepEqual(r.reported(), []);
+    } finally {
+      r.stop();
+    }
+  });
+
+  it('is reported where the component is no row, when it reads the prop', async () => {
+    const r = await render(`export function App() { return <div><Row item={picked()} /><Card item={picked()} /></div>; }`, 'single');
+    try {
+      assert.deepEqual(r.warned, []);
+      const found = r.reported().map((e) => [e.data.component, e.data.name, e.loc]);
+      assert.deepEqual(found, [['Row', 'item', 'src/single.jsx:5:9'], ['Card', 'props.item', 'src/single.jsx:9:9']]);
+      r.mod.picked({ id: 2, title: 'hopper' });
+      r.flushSync();
+      assert.equal(r.host.textContent, 'GRACEcard grace', 'the value it reports is stale');
+    } finally {
+      r.stop();
+    }
+  });
+
+  it('is reported at build time without devMetadata, as no page can tell', () => {
+    const found = warnings(`${ROW}export function App() { return <ul>{items().map((item) => <Row key={item.id} item={item} />)}</ul>; }`);
+    assert.equal(found.length, 2, found.join('\n'));
   });
 });

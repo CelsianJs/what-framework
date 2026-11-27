@@ -11,7 +11,7 @@ import {
   isVoidHtmlElement, normalizeJsxText, parseEventModifiers, propKey,
   addImports, helper, helperLocals, readSwitch, uniqueName,
   checkElementName, checkIslandProp, checkStaticAttribute, checkStaticRawText, directiveValue,
-  islandOptions, renderFunctionChild,
+  islandOptions, renderFunctionChild, diagnosticRecord,
 } from './common.js';
 import {
   buildEachValue, buildWhenCondition, isPotentiallyReactive, isSignalIdentifier, isUncertainReactive,
@@ -3242,11 +3242,7 @@ export function finishDomProgram(path, state) {
   }
 
   if (state._buildDiagnostics?.length) {
-    const records = state._buildDiagnostics.map(({ code, data, loc }) => t.objectExpression([
-      t.objectProperty(t.identifier('code'), t.stringLiteral(code)),
-      t.objectProperty(t.identifier('data'), t.objectExpression(Object.entries(data).map(([k, v]) => t.objectProperty(t.identifier(k), t.stringLiteral(String(v)))))),
-      t.objectProperty(t.identifier('loc'), t.stringLiteral(loc)),
-    ]));
+    const records = state._buildDiagnostics.map(diagnosticRecord);
     path.pushContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$buildDiagnostics'), [t.arrayExpression(records)])));
   }
 

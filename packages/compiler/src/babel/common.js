@@ -896,21 +896,44 @@ function inComponentRun(path, fnPath) {
   return true;
 }
 
-/** Rewrite each marked member read of props (markPropFieldReads) as `_$propField(props, "name", "key")`. */
+/**
+ * Rewrite each marked member read of props (markPropFieldReads) as
+ * `_$propField(props, "name", "key")`, with the ERR_PROP_READ_ONCE record of
+ * a value derived from it that the page checks (warnDerivedPropOnce) as a
+ * fourth argument. A value whose reads are not all rewritten is reported
+ * now, at build time.
+ */
 export function readPropFields(path, state) {
+  for (const check of state._readOnceChecks ?? []) {
+    if (check.nodes.every((node) => node._whatPropField === true)) continue;
+    for (const node of check.nodes) node._whatReadOnce = undefined;
+    check.warn();
+  }
   if (!state.marksPropFields) return;
+  /** @type {any[]} */
+  const records = [];
   path.traverse({
     MemberExpression(member) {
       const node = member.node;
       if (node._whatPropField !== true) return;
       const inner = /** @type {any} */ (node.object);
-      member.replaceWith(t.callExpression(helper(state, '_$propField'), [
+      const args = [
         t.identifier(inner.object.name),
         t.stringLiteral(/** @type {string} */ (propertyName(inner.property, inner.computed))),
         t.stringLiteral(/** @type {string} */ (propertyName(node.property, node.computed))),
-      ]));
+      ];
+      const check = node._whatReadOnce;
+      if (check) {
+        if (check.id === null) {
+          check.id = path.scope.generateUidIdentifier('readOnce');
+          records.push(t.variableDeclarator(check.id, diagnosticRecord(check.record)));
+        }
+        args.push(t.identifier(check.id.name));
+      }
+      member.replaceWith(t.callExpression(helper(state, '_$propField'), args));
     },
   });
+  if (records.length > 0) path.unshiftContainer('body', t.variableDeclaration('const', records));
 }
 
 // --- Which functions are components ---
@@ -1291,6 +1314,11 @@ export function warnStateReadOnce(fnPath, state) {
 //   `query` and `route`: a page is built again for each URL, and a layout's
 //   read in the body is documented as read once (packages/router/README.md);
 // - a name used as a tag (`const Icon = icons[kind]`, docs/GOTCHAS.md).
+// A value derived only from fields of props (`item.title.toUpperCase()`) is
+// left to the page in a build with devMetadata (fieldReads): a keyed row
+// handed its item builds the row again when such a field changes, so the
+// read reports it (what-core _propField) only where the component renders
+// outside such a row.
 const UNREPORTED_PROPS = new Set(['children', 'params', 'query', 'route']);
 
 export function warnDerivedPropOnce(fnPath, state) {
@@ -1320,9 +1348,47 @@ export function warnDerivedPropOnce(fnPath, state) {
       const fix = t.isIdentifier(id)
         ? `write the expression in the JSX where it is shown${text === null ? '' : ` (\`{${text}}\`)`}, or make \`${shown}\` a function (\`const ${shown} = () => ${text ?? '…'}\`) and call it there (\`{${shown}()}\`); \`untrack(() => ${read})\` keeps the first value on purpose`
         : `read it where it is shown${text === null ? '' : ` (\`{${text}.${shown}}\`)`} instead of destructuring it in the body, or make it a function (\`const ${shown} = () => …\`) and call it there (\`{${shown}()}\`)`;
-      warnReadOnce(fnPath, state, decl.node, read, `\`${shown}\` is computed from it in the component body and shown in JSX`, fix);
+      const why = `\`${shown}\` is computed from it in the component body and shown in JSX`;
+      const warn = () => warnReadOnce(fnPath, state, decl.node, read, why, fix);
+      const fields = fieldReads(decl.get('init'), props.read);
+      const record = fields === null ? null : diagnosticOf(state, 'ERR_PROP_READ_ONCE', { name: read, component: componentName(fnPath), reason: why }, decl.node);
+      if (fields === null || record === null) {
+        warn();
+        continue;
+      }
+      const check = { warn, record, nodes: fields, id: null };
+      for (const node of fields) node._whatReadOnce = check;
+      (state._readOnceChecks ??= []).push(check);
     }
   }
+}
+
+// The member reads of props in `path` (outside functions and JSX written in
+// it) when every prop it reads is read for one field (`item.title`,
+// `props.item.title`), which readPropFields rewrites as `_$propField` reads,
+// else null. A keyed row component handed its item records such a field,
+// and its row is built again when the field changes: whether the component
+// is a row is known only where it renders, so the page decides.
+function fieldReads(path, read) {
+  /** @type {any[]} */
+  const fields = [];
+  let other = false;
+  const visit = (inner) => {
+    if (read(inner) === null) return false;
+    const parent = inner.parentPath;
+    if ((parent.isMemberExpression() && inner.key === 'object' && propertyName(parent.node.property, parent.node.computed) !== null && isReadOnly(parent))) fields.push(parent.node);
+    else other = true;
+    return true;
+  };
+  if (!visit(path)) {
+    path.traverse({
+      enter(inner) {
+        if (inner.isFunction() || inner.isJSXElement() || inner.isJSXFragment() || visit(inner)) inner.skip();
+        if (other) inner.stop();
+      },
+    });
+  }
+  return other || fields.length === 0 ? null : fields;
 }
 
 // The props of the component `fnPath`, for derived values: `read` names the
@@ -1604,13 +1670,29 @@ function warnReadOnce(fnPath, state, node, name, why, fix) {
 // written), on every compile of the module: the console warning above is
 // printed once per process.
 function recordBuildDiagnostic(state, code, data, node) {
-  if (state.opts?.devMetadata !== true || state.opts?.production === true || !node.loc) return;
+  const record = diagnosticOf(state, code, data, node);
+  if (record !== null) (state._buildDiagnostics ??= []).push(record);
+}
+
+// What a development DOM build hands the page for `code` at `node`, or null
+// when it hands nothing (no devMetadata, a production build, no location).
+function diagnosticOf(state, code, data, node) {
+  if (state.opts?.devMetadata !== true || state.opts?.production === true || state.ssr || !node.loc) return null;
   const file = String(state.file?.opts?.filename || '').replace(/\\/g, '/').replace(/[?#].*$/, '');
   const root = String(state.opts?.projectRoot || state.file?.opts?.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '');
   const path = root && file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
   const start = node.loc.start;
   const at = typeof state.opts?.sourceLoc === 'function' ? state.opts.sourceLoc(start.line, start.column) ?? start : start;
-  (state._buildDiagnostics ??= []).push({ code, data, loc: `${path}:${at.line}:${at.column + 1}` });
+  return { code, data, loc: `${path}:${at.line}:${at.column + 1}` };
+}
+
+/** A diagnostic record (diagnosticOf) as an object literal: `{ code, data, loc }`. */
+export function diagnosticRecord({ code, data, loc }) {
+  return t.objectExpression([
+    t.objectProperty(t.identifier('code'), t.stringLiteral(code)),
+    t.objectProperty(t.identifier('data'), t.objectExpression(Object.entries(data).map(([k, v]) => t.objectProperty(t.identifier(k), t.stringLiteral(String(v)))))),
+    t.objectProperty(t.identifier('loc'), t.stringLiteral(loc)),
+  ]);
 }
 
 // A function named as a component is (`function Card`, `const Card = …`).
