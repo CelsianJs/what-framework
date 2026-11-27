@@ -55,77 +55,87 @@ function refused(method, value) {
   return '/';
 }
 
-// The responses createResponse() made: what a render accepts as `response`.
-const responses = new WeakSet();
-
 /** Whether `value` is a response createResponse() made. */
 export function isRenderResponse(value) {
-  return responses.has(value);
+  return RenderResponse.is(value);
 }
 
-export function createResponse() {
-  let committed = false;
+// A response createResponse() made: what a render accepts as `response`,
+// told by its private brand, which nothing else can carry. Its methods are
+// its own functions, which work when taken off it (`const { redirect } =
+// response`); `committed` is read through the class.
+class RenderResponse {
+  #committed = false;
   /** @type {((location: string) => void) | null} */
-  let lateRedirect = null;
+  #lateRedirect = null;
 
-  function late(what) {
-    if (_isDevMode) {
-      console.warn(`[what-server] ${what} after the response was committed (the shell has been sent) has no effect.`);
-    }
-  }
-
-  function redirectTo(location, status) {
-    if (!REDIRECT_STATUSES.has(status)) {
-      throw new RangeError(`[what-server] redirect: ${status} is not a redirect status (301, 302, 303, 307 or 308).`);
-    }
-    if (committed) {
-      if (lateRedirect) lateRedirect(location);
-      return;
-    }
-    response.location = location;
-    response.status = status;
-  }
-
-  const response = {
-    status: 200,
-    headers: new Headers(),
+  constructor() {
+    const late = (what) => {
+      if (_isDevMode) {
+        console.warn(`[what-server] ${what} after the response was committed (the shell has been sent) has no effect.`);
+      }
+    };
+    const redirectTo = (location, status) => {
+      if (!REDIRECT_STATUSES.has(status)) {
+        throw new RangeError(`[what-server] redirect: ${status} is not a redirect status (301, 302, 303, 307 or 308).`);
+      }
+      if (this.#committed) {
+        if (this.#lateRedirect) this.#lateRedirect(location);
+        return;
+      }
+      this.location = location;
+      this.status = status;
+    };
+    this.status = 200;
+    this.headers = new Headers();
     /** The redirect target, once redirect() has been called. */
-    location: null,
-    get committed() {
-      return committed;
-    },
-    setStatus(code) {
-      if (committed) return late(`setStatus(${code})`);
+    /** @type {string | null} */
+    this.location = null;
+    /** @param {number} code */
+    this.setStatus = (code) => {
+      if (this.#committed) return late(`setStatus(${code})`);
       if (!Number.isInteger(code) || code < 200 || code > 599) {
         throw new RangeError(`[what-server] setStatus: ${code} is not a valid response status.`);
       }
-      response.status = code;
-    },
+      this.status = code;
+    };
     // Set-Cookie always appends: several parts of a page may each set a cookie.
-    setHeader(name, value, { append = false } = {}) {
-      if (committed) return late(`setHeader(${JSON.stringify(name)})`);
-      if (append || String(name).toLowerCase() === 'set-cookie') response.headers.append(name, String(value));
-      else response.headers.set(name, String(value));
-    },
+    /** @param {string} name @param {unknown} value */
+    this.setHeader = (name, value, { append = false } = {}) => {
+      if (this.#committed) return late(`setHeader(${JSON.stringify(name)})`);
+      if (append || String(name).toLowerCase() === 'set-cookie') this.headers.append(name, String(value));
+      else this.headers.set(name, String(value));
+    };
     /** Redirect to a same-origin path ("/account"). */
-    redirect(location, status = 302) {
+    this.redirect = (location, status = 302) => {
       redirectTo(localRedirectTarget(location) ?? refused('redirect', location), status);
-    },
+    };
     /** Redirect off the site, to an absolute http(s) URL. */
-    redirectExternal(url, status = 302) {
+    this.redirectExternal = (url, status = 302) => {
       redirectTo(externalRedirectTarget(url) ?? refused('redirectExternal', url), status);
-    },
-  };
+    };
+    /**
+     * Freeze status and headers. `onRedirect` receives a redirect made after
+     * this point (a streamed boundary's render).
+     * @internal
+     * @param {((location: string) => void) | undefined} [onRedirect]
+     */
+    this._commit = (onRedirect) => {
+      this.#committed = true;
+      this.#lateRedirect = onRedirect || null;
+    };
+  }
 
-  /**
-   * Freeze status and headers. `onRedirect` receives a redirect made after
-   * this point (a streamed boundary's render).
-   * @internal
-   */
-  response._commit = (onRedirect) => {
-    committed = true;
-    lateRedirect = onRedirect || null;
-  };
-  responses.add(response);
-  return response;
+  get committed() {
+    return this.#committed;
+  }
+
+  /** @param {unknown} value */
+  static is(value) {
+    return typeof value === 'object' && value !== null && #committed in value;
+  }
+}
+
+export function createResponse() {
+  return new RenderResponse();
 }
