@@ -818,7 +818,7 @@ packages/
 +-- router/             Client-side routing (Router, Link, navigate, guards)
 +-- server/             SSR, SSG, islands hydration, server actions
 +-- react-compat/       React compatibility layer (see REACT-COMPAT.md for the tested matrix)
-+-- devtools/           Browser DevTools extension
++-- devtools/           In-page instrumentation (__WHAT_DEVTOOLS__) and the DevPanel component
 +-- devtools-mcp/       MCP-based AI debugging bridge (25 tools)
 +-- eslint-plugin/      Lint rules for What Framework patterns
 +-- mcp-server/         MCP documentation server (deprecated — see what-devtools-mcp)

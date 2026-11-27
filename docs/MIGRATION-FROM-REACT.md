@@ -683,7 +683,7 @@ React Server Components (RSC) are not available. There is no `.server.js` / `.cl
 
 ### No React DevTools
 
-React DevTools does not work with WhatFW. The framework has its own DevTools extension and an MCP-based debugging bridge for AI-assisted development, but the tooling is less mature.
+React DevTools does not work with WhatFW, and there is no browser extension. In development, what-devtools instruments the page (a `DevPanel` component from `what-devtools/panel`, and the `__WHAT_DEVTOOLS__` console global listing signals, effects and components), and what-devtools-mcp is an MCP debugging bridge for AI agents. A scaffolded app has both wired up. The tooling is less mature than React's.
 
 ### Ecosystem Libraries
 
