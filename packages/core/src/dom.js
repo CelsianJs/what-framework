@@ -122,16 +122,14 @@ export function _liveRegionNodes(tracked) {
 // first.
 export function mount(node, container) {
   container = _mountTarget(container, 'mount');
-  /** @type {() => void} */
-  let unmount = () => {};
-  createRoot((dispose) => {
-    unmount = _trackRoot(container, dispose);
+  return createRoot((dispose) => {
+    const unmount = _trackRoot(container, dispose);
     container.textContent = '';
     const nodes = _valuesToNodes(node, container, [], false);
     _adoptDetached(nodes);
     for (let i = 0; i < nodes.length; i++) container.appendChild(nodes[i]);
+    return unmount;
   });
-  return unmount;
 }
 
 // The element mount() or hydrate() (`fn`) renders into: `container`, or the

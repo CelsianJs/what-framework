@@ -3343,10 +3343,8 @@ function clientBuild(fn, a, b, c) {
  */
 export function hydrate(tree, container, options) {
   container = _mountTarget(container, 'hydrate');
-  /** @type {() => void} */
-  let unmount = () => {};
-  createRoot((dispose) => {
-    unmount = _trackRoot(container, dispose);
+  return createRoot((dispose) => {
+    const unmount = _trackRoot(container, dispose);
     const saved = { cur, depth: outer.length, session, pendingKey };
     if (__DEV__ && __devtools?.onRecord) /** @type {any} */ (saved).devNodes = devHydrationNodes(container);
     const walk = (session = newSession(container, (options && options.onHydrationError) || null, _hydrationRoot(container)));
@@ -3376,8 +3374,8 @@ export function hydrate(tree, container, options) {
     });
     _adoptDetached(container.childNodes);
     if (__DEV__ && /** @type {any} */ (saved).devNodes) devHydrationComplete(container, /** @type {any} */ (saved).devNodes);
+    return unmount;
   });
-  return unmount;
 }
 
 // Count the completed tree by node identity. Comments are hydration protocol
