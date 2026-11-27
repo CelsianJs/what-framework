@@ -807,10 +807,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   assigned again, a computed key, one destructured twice, a default that
   reads another prop or calls something, a nested rest or array pattern, a
   `var` pattern), a component that picks what it returns from a prop
-  (`return on ? <A /> : <B />`, `if (!open) return null`), and one that hands
-  its props to a JSX helper as a value (`return mk({ value })`): it names the
-  prop, the component, `file:line:column` and the fix, so a prop never keeps
-  its first value in silence.
+  (`return on ? <A /> : <B />`, `if (!open) return null`), one that hands
+  its props to a JSX helper as a value (`return mk({ value })`), and a value
+  computed from a prop in the body and shown in JSX
+  (`const label = name.toUpperCase()`, then `{label}`; a route page's
+  `params` and `query`, a hook's seed and a handle called or spread are not
+  reported): it names the prop, the component, `file:line:column` and the
+  fix, so a prop never keeps its first value in silence. Compiling the
+  repo's 184 app files reports one new case, a real one.
+  `packages/compiler/test/derived-prop-read-once.test.js`.
 - **`ERR_STATE_READ_ONCE`**, the same compile-time warning for state: a
   component that picks what it returns from its own state
   (`if (loading()) return <p>Loading…</p>`, which showed "Loading…" forever)
@@ -1146,6 +1151,32 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   its URL below it. An app with no base pays about 140 B gzip.
   `packages/router/test/base-path.test.js`, `base-path-server.test.js`,
   `base-path-vite.test.js`.
+- **Field arrays, paths and `unregister` in `useForm`** (what-framework/form),
+  with React Hook Form's names: a field's name is a path
+  (`register('vehicles.0.vin')` is `values.vehicles[0].vin`), so values,
+  `watch()`, `handleSubmit`'s values and a resolver's input are nested and a
+  zod schema validates arrays, while errors, touched and `dirtyFields` stay
+  keyed by the name. `unregister(name | names, options?)` forgets a field
+  (value, default, error, touched, with RHF's keep options) and drops a
+  validation still in flight for it; `shouldUnregister` on `useForm` or
+  `register` forgets a field when its component goes. `useFieldArray({ form,
+  name })` gives `fields()` with an `id` per item, `append`, `prepend`,
+  `insert`, `remove`, `move`, `swap`, `update` and `replace`: an item's
+  values, errors and touched state move with it and go when it is removed,
+  and rows keyed by `field.id` keep their elements and focus. It is left out
+  of a bundle that does not import it; paths and `unregister` cost a
+  `useForm` app about 880 B gzip. `packages/core/test/form-field-array.test.js`,
+  `form-paths.test.js`, `form-unregister.test.js`.
+- **A React component's `useContext` reads a What context** (what-react)
+  from the What providers around its island, and renders again when the
+  value changes. It got the context's default.
+  `packages/react-compat/test/mixed.test.js`.
+- **what-compiler: a `verbose` option.** Notes on correct code (an
+  auto-selector rewrite, `<For>` where `.map()` would do) print only with
+  `what({ verbose: true })`; they printed on every build.
+- **eslint-plugin-what: `no-moved-imports` reports router names imported
+  from `what-framework`** (`Router`, `Link`, `navigate`, …) and `--fix` moves
+  them to `what-framework/router`.
 - **eslint-plugin-what: `reactive-jsx-children` reports any JSX child or
   element attribute that reads a signal once** without the compiler
   (`{count() * 2}`, `{items().map(...)}`, `{user().name}`, a template
@@ -1211,11 +1242,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   SSR benchmark has a page of 200 small components beside the 1,000-row
   table, measures each hydration against a client render of the same page
   from the same bundle, and puts the hydration tables of the same commit in
-  its RESULTS.md. `npm run smoke:apps` runs fifteen apps in Chromium, or in
+  its RESULTS.md. `npm run smoke:apps` runs sixteen apps in Chromium, or in
   WebKit or Firefox with `WHAT_SMOKE_BROWSER=webkit|firefox` (a check its
   browser cannot run is skipped with its reason; an app whose checks hang
-  fails after five minutes and the run goes on), eleven of them under load:
-  an eight-step quote with a conditional step, dependent fields, nested field
+  fails after five minutes and the run goes on), twelve of them under load:
+  a native What shell hosting fifteen React packages (recharts, TanStack
+  Table, react-window, react-hook-form, Radix, React Flow and more) with a
+  signal store written 100 times a second into React and back, 35 route
+  changes that release every React mount, a Radix dialog's focus over a What
+  page, and a hydrated island typed into before it hydrates, an eight-step quote with a conditional step, dependent fields, nested field
   arrays moved from the keyboard, four kinds of validation, a draft saved as
   you type and errors the server maps back to their step, twelve code-split chapters whose chunks are delayed, failed, overtaken,
   prefetched on hover and guarded, a wall redrawn every frame with springs,
@@ -2169,6 +2204,26 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`no-camelcase-events` leaves a file that imports from React, Preact or
   what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
   correct there.
+- **`ERR_MISSING_SIGNAL_READ` names every coercion it reports** (a template
+  literal, `+`, arithmetic, a comparison, a property key; it said "converted
+  to a string" for `count > 0`) and is located where the signal was used, in
+  the component that used it; where it was created is `data.createdAt`.
+  `packages/core/test/signal-read-guard.test.js`.
+- **An error core or what-react throws with a catalogue code names the code
+  and its fix in development**: `[what] ERR_HOOK_OUTSIDE_COMPONENT …` and
+  the `fix:` line a logged diagnostic prints. Production text is unchanged,
+  and a reported `ERR_HOOK_OUTSIDE_COMPONENT` no longer prints `[what]`
+  twice.
+- **A React `onChange` above a native field hears only the fields
+  what-react rendered**, as React does. A native field inside a React
+  `<form onChange>` fired it on every keystroke and again on blur.
+  `packages/react-compat/test/onchange-native-field.test.js`.
+- **A React mouse handler no longer reads Firefox's deprecated
+  `mozPressure` and `mozInputSource`**, which put two warnings in the
+  console of every page with one.
+- **eslint-plugin-what:** `no-moved-imports` no longer rewrites an import
+  from what-core to a `what-core/<kit>` path that does not exist, and
+  `no-camelcase-events` is a `suggestion`.
 - **A spread of `register()` follows `setValue` and `reset` however
   `register` is called.** `const { register } = useForm(); <select
   {...register('x')} />`, the idiom the guides show, wrote the value the field
@@ -2570,6 +2625,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   compiled 200-component page renders in 0.87× plain and 0.93× hydratable.
   The output is byte for byte the same.
   `packages/server/test/element-tag-kinds.test.js`.
+- **A compiled app built for hydration carries the hydration of `h()`
+  elements, `<Suspense>`, `<ErrorBoundary>`, `<Portal>` and keyed `h()` rows
+  only when its code makes them.** what-compiler/vite serves a stand-in for
+  what-core's `vnode-adoption.js` in which the vnode producers install that
+  adoption with the vnode renderer, so a compiled-only client leaves it out:
+  `compiled-hydrate` is 3,426 B gzip smaller (17%), and its script loads and
+  evaluates 8% faster. A build without the plugin reaches it from `hydrate()`
+  as before. `packages/compiler/test/vnode-adoption.test.js`,
+  `packages/core/test/feature-reach.test.js`.
 - A hydrating app that creates no async value no longer carries async
   adoption: `hydrate()` installs it with the first seed it hands out, so a
   Vite build drops it. `compiled-hydrate` is 472 B gzip smaller and

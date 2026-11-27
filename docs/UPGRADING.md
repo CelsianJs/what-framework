@@ -746,6 +746,19 @@ and navigations that are transitions. Each change below has its migration.
   to them, where 0.14 went back to the first `defaultValues`. This affects a
   form that called `reset(fetched)` and then `reset()` to clear it: pass the
   values to clear to.
+- **A dotted field name is a path**, as in React Hook Form:
+  `register('address.city')` reads and writes `values.address.city`, and a
+  numeric segment makes an array (`vehicles.0.vin`). `formState.values`,
+  `watch()`, `handleSubmit`'s values and a resolver's values nest by the
+  dots; errors, `error(name)`, `touched`, `dirtyFields`, `getValue`,
+  `setValue`, `setError`, `clearError`, `simpleResolver` maps and
+  `rules.match` still take the full name. 0.14 kept `'address.city'` as one
+  flat key. This affects code that read `values['address.city']` (read
+  `values.address.city`) and a custom resolver (read the path); a literal
+  dot in a flat key has no spelling, so rename such a field
+  (`address_city`). Names without a dot are unchanged. `unregister` removes
+  a field's default too, so a later `reset()` does not bring it back unless
+  you pass `keepDefaultValue`.
 - **A registered file input's value is its `FileList`**
   (`values.photo[0]` is the `File`), where 0.14 held the browser's
   `C:\fakepath\…` string. This affects a resolver or submit handler that
@@ -1178,6 +1191,21 @@ options.
   after 100 flush rounds (0.14: 25) and reported as `ERR_INFINITE_EFFECT`,
   with its name. This affects tests and tools that matched the old console
   text: assert on the code. [ERRORS.md](ERRORS.md) lists every code.
+- **`ERR_MISSING_SIGNAL_READ` reads "Signal "count" was used as a value
+  without being called (…)"**, and its `owner` and `loc` are where the
+  signal was used; where it was created is `data.createdAt`. A tool that
+  matched "converted to a string" matches the code.
+- **An error thrown with a catalogue code reads `[what] ERR_… <text>`, then
+  a `fix:` line, in development** (core and what-react: a hook outside a
+  component, a missing mount target, a computed cycle, …). A test that
+  matches `err.message` from its start asserts `err.code` instead.
+  Production text is unchanged.
+- **A build can report `ERR_PROP_READ_ONCE` for a value computed from a prop
+  in the body and shown in JSX** (`const label = name.toUpperCase()`, then
+  `{label}`), which keeps the first value. Write the expression in the JSX,
+  or make it a function and call it there. what-compiler's notes on correct
+  code (auto-selector rewrites, `<For>`) print only with
+  `what({ verbose: true })`.
 
 ### Bundle size
 
@@ -1187,8 +1215,8 @@ which records the cause of every change.
 
 | App | 0.14 | 0.15 |
 |---|---|---|
-| A counter written with `h()` | 6601 B | 9611 B |
-| The create-what counter, runtime JSX | 6702 B | 9633 B |
+| A counter written with `h()` | 6601 B | 9609 B |
+| The create-what counter, runtime JSX | 6702 B | 9632 B |
 | The create-what counter's JavaScript, built as the scaffold builds it (what-compiler), without the modulepreload polyfill Vite adds to a build from `index.html` | 7731 B | 5514 B |
 
 The compiled counter, what the scaffold ships, is 2217 B (29%) smaller in
@@ -1199,7 +1227,7 @@ component is handed any, no class component bridge when every component is a
 function the module defines, no `<select>` code when it makes no select). 0.14's numbers
 include development-only code (828 B of the `h()` counter: 5773 B with its
 flag folded out), which 0.15 leaves out of production builds; the `h()`
-counter still grows by 3838 B, for the new engine, the engine hooks async
+counter still grows by 3836 B, for the new engine, the engine hooks async
 values and transitions need, and for fixes to keyed rows, class composition,
 delegated events, form fields (a value, checked and the defaults written as
 React 19 writes them, on every path, and a controlled select that follows its
@@ -1219,7 +1247,7 @@ Three kinds of app grow more than the counters:
   ([ASYNC.md](ASYNC.md)): the compiled counter with one `computed()` is
   9470 B, against 7979 B in 0.14 (+1491 B).
 - **An app that hydrates** carries the hydration runtime: the compiled
-  hydrating counter is 20594 B, more than twice the same app mounted without
+  hydrating counter is 17168 B, more than twice the same app mounted without
   hydration.
   0.14's compiler had no hydratable output to compare with.
 - **A production build that does not resolve the production files.** Each
@@ -1326,6 +1354,11 @@ Beyond that:
   `what-react/class`, which `reactCompat()` imports for you; a build without
   the plugin imports it once, in its entry, or the class throws
   `ERR_CLASS_COMPONENT_NOT_INSTALLED`.
+  A React `onChange` on an element above a field (`<form onChange>`) hears
+  only fields what-react rendered, as React does; it also heard native
+  What fields, on each keystroke and on blur. A React component's
+  `useContext` of a context what-core's `createContext` made reads the What
+  providers around its island, where it got the default.
 
 ## MCP tools
 
