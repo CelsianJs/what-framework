@@ -20,6 +20,12 @@ import { startProcess, waitForHttp } from '../../harness/index.mjs';
 
 const MAX_ROWS = 1000;
 const RUN_MS = 12_000;
+// The run goes on past RUN_MS until the page has reconnected this often (up
+// to MAX_RUN_MS). The server asks for `retry: 150`; Chromium and WebKit
+// reopen 150 ms after a drop, Firefox waits at least 500 ms whatever the
+// server asks, so it needs a few seconds more for the same reconnects.
+const MIN_RECONNECTS = 10;
+const MAX_RUN_MS = 30_000;
 const ROOM = { rate: 600, burst: 400, burstEvery: 1500, drop: [500, 1500], running: true };
 const MIN_SESSIONS = 6;
 // The 99th-percentile frame: about the eighth longest of the run, so frames
@@ -137,7 +143,9 @@ export default {
       const follows = [];
       let anchorCheck = null;
       let manualDrops = 0;
-      for (let k = 0; k < MIN_SESSIONS || Date.now() - t0 < RUN_MS; k++) {
+      let opened = 0;
+      const more = () => Date.now() - t0 < RUN_MS || (opened - 1 < MIN_RECONNECTS && Date.now() - t0 < MAX_RUN_MS);
+      for (let k = 0; k < MIN_SESSIONS || more(); k++) {
         // A burst lands while the keys go in.
         post('/__burst', { n: 400 });
         if (k % 3 === 1) { post('/__drop'); manualDrops++; }
@@ -187,6 +195,7 @@ export default {
           await post('/__control', ROOM);
         }
         await sleep(250);
+        ({ opened } = await fetch(`${base}/__stats`).then((r) => r.json()));
       }
       await post('/__control', { running: false });
       const frames = await page.evaluate(() => {
@@ -219,7 +228,7 @@ export default {
 
       const reconnects = served.opened - 1;
       check('stream:reconnect',
-        reconnects >= 10 && served.drops >= 10 && end.reconnects >= 10
+        reconnects >= MIN_RECONNECTS && served.drops >= MIN_RECONNECTS && end.reconnects >= MIN_RECONNECTS
           && end.lastSeq === served.emitted && end.gaps === 0 && end.repeats === 0
           && dom.received === served.emitted.toLocaleString('en-US'),
         'across streams dropped mid-run (cleanly, mid-event and all at once) the page received every message exactly once',
