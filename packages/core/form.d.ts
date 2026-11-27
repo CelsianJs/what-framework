@@ -50,8 +50,9 @@ export type RegisterProps = {
   oninput?: (e: any) => void;
 };
 
-export interface FormState {
-  readonly values: Record<string, any>;
+/** `TValues` is the form's values type, given to useForm or inferred from its defaultValues. */
+export interface FormState<TValues extends object = Record<string, any>> {
+  readonly values: TValues;
   readonly errors: Record<string, FieldError>;
   error: (name: string) => FieldError | null;
   readonly touched: Record<string, boolean>;
@@ -65,10 +66,10 @@ export interface FormState {
   dirtyFields: Computed<Record<string, boolean>>;
 }
 
-export interface UseFormReturn {
+export interface UseFormReturn<TValues extends object = Record<string, any>> {
   register: (name: string, options?: Record<string, any>) => RegisterProps;
   handleSubmit: (
-    onValid: (values: Record<string, any>) => void | Promise<void>,
+    onValid: (values: TValues) => void | Promise<void>,
     onInvalid?: (errors: Record<string, FieldError>) => void,
   ) => (e?: Event) => Promise<void>;
   setValue: (name: string, value: any, options?: Record<string, any>) => void;
@@ -77,14 +78,19 @@ export interface UseFormReturn {
   clearError: (name: string) => void;
   clearErrors: () => void;
   /** Back to the defaults, or to `newValues`, which become the defaults that dirtyFields measures from (React Hook Form's reset). */
-  reset: (newValues?: Record<string, any>) => void;
+  reset: (newValues?: Partial<TValues>) => void;
   watch: (name?: string) => Computed<any>;
   validate: (fieldName?: string) => Promise<boolean>;
-  formState: FormState;
+  formState: FormState<TValues>;
 }
 
-export function useForm(options?: {
-  defaultValues?: Record<string, any>;
+/**
+ * `useForm<LoginValues>()` types the values the submit handler, formState.values
+ * and reset() take; without it they are inferred from `defaultValues`, and
+ * without either they are Record<string, any>.
+ */
+export function useForm<TValues extends object = Record<string, any>>(options?: {
+  defaultValues?: Partial<TValues>;
   mode?: 'onSubmit' | 'onChange' | 'onBlur';
   reValidateMode?: 'onChange' | 'onBlur';
   /**
@@ -93,7 +99,7 @@ export function useForm(options?: {
    * that field alone.
    */
   resolver?: (values: Record<string, any>, context?: undefined, options?: ResolverOptions) => Promise<{ values: Record<string, any>; errors: Record<string, FieldError> }>;
-}): UseFormReturn;
+}): UseFormReturn<TValues>;
 
 /** What a resolver is told about a validation: `names` is set when it is for those fields only. */
 export interface ResolverOptions {
