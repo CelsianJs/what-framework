@@ -268,7 +268,8 @@ function _plainText(value) {
 }
 
 // What the h() renderers decide from a vnode's tag name, once per name
-// (tagInfo): its kind, and its start and end tags. A boundary marker and a
+// (tagInfo): its kind, the head of its start tag (`<name`), its start tag
+// with no attributes, and its end tag. A boundary marker and a
 // skipped tag render as such; any other name is an element's and must pass
 // SAFE_TAG_NAME. An element is TAG_PLAIN when, in HTML, its name asks for no
 // further rule: no void, raw-text, text-only or leading-newline element, no
@@ -296,7 +297,7 @@ function tagKind(tag) {
 // Tag names that passed SAFE_TAG_NAME, with their records. Bounded, because
 // tag names can come from data (<Dynamic component={name}>) and a cache an
 // attacker can grow without limit is a memory leak.
-/** @type {Map<string, { kind: number, open: string, close: string }>} */
+/** @type {Map<string, { kind: number, open: string, start: string, close: string }>} */
 const _safeTags = new Map();
 const SAFE_TAG_CACHE_SIZE = 512;
 
@@ -309,7 +310,7 @@ function tagInfo(tag, vnode) {
 
 function newTagInfo(tag, vnode) {
   if (typeof tag === 'string' && SAFE_TAG_NAME.test(tag)) {
-    const info = { kind: tagKind(tag), open: '<' + tag, close: '</' + tag + '>' };
+    const info = { kind: tagKind(tag), open: '<' + tag, start: '<' + tag + '>', close: '</' + tag + '>' };
     if (_safeTags.size < SAFE_TAG_CACHE_SIZE) _safeTags.set(tag, info);
     return info;
   }
@@ -359,6 +360,12 @@ function attrInfo(propKey) {
   const key = markupName(propKey);
   info = {
     key,
+    // What writes the attribute, with a value (` name="`, the value follows)
+    // or bare, and the same after the open quote of an attribute before it.
+    lead: ' ' + key + '="',
+    leadAfterQuote: '" ' + key + '="',
+    bare: ' ' + key,
+    bareAfterQuote: '" ' + key,
     skip: SKIPPED_PROPS.has(propKey) || (key.length > 2 && key.toLowerCase().startsWith('on')),
     safe: SAFE_ATTR_NAME.test(key),
     enumerated: isEnumeratedAttr(key),
@@ -371,8 +378,31 @@ function attrInfo(propKey) {
   return info;
 }
 
+// The attributes are written after a head (a start tag's `<name`, or
+// nothing): attributesAfter returns the head and the attributes, leaving the
+// closing quote of a last attribute that has a value open (quoteOpen), so
+// that quote and what follows it (the next attribute, the `>` that ends the
+// start tag) are written as one piece. Fewer pieces make a shorter rope for
+// the response to flatten.
+let quoteOpen = false;
+
+/** The attributes of `props`, each written in full. */
 function renderAttrs(props) {
-  let out = '';
+  const attrs = attributesAfter('', props);
+  return quoteOpen ? attrs + '"' : attrs;
+}
+
+/** The start tag of an element whose tag's record is `tag` (tagInfo), with the attributes of `props`. */
+function startTag(tag, props) {
+  const head = attributesAfter(tag.open, props);
+  if (head === tag.open) return tag.start;
+  return head + (quoteOpen ? '">' : '>');
+}
+
+function attributesAfter(head, props) {
+  let out = head;
+  // Whether the last attribute written has a value whose quote is open.
+  let open = false;
   const keys = Object.keys(props);
   // With a classList, class, className and classList make one attribute
   // between them, written where the first of them stands.
@@ -384,7 +414,11 @@ function renderAttrs(props) {
       if (classWritten) continue;
       classWritten = true;
       const cls = classAttribute(props, keys);
-      if (cls !== null) out += ` class="${escapeHtml(cls)}"`;
+      if (cls !== null) {
+        out += open ? '" class="' : ' class="';
+        out += escapeHtml(cls);
+        open = true;
+      }
       continue;
     }
     const info = attrInfo(propKey);
@@ -421,34 +455,39 @@ function renderAttrs(props) {
     // `aria-expanded="false"` means "collapsed", and `[data-open="false"]` is an
     // ordinary selector. Every other attribute keeps HTML boolean semantics,
     // where false means omit. Checked before the falsy skip for that reason.
-    if (val === false && info.enumerated) {
-      out += ` ${key}="false"`;
-      continue;
-    }
-    if (val === false || val == null) continue;
-    if (info.refused) {
+    let value;
+    if (val === false && info.enumerated) value = 'false';
+    else if (val === false || val == null) continue;
+    else if (info.refused) {
       if (_isDevMode) {
         console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(key)}`);
       }
       continue;
-    }
-
-    if (info.isClass) {
-      out += ` class="${escapeHtml(typeof val === 'string' ? val : String(val))}"`;
+    } else if (info.isClass) {
+      value = escapeHtml(typeof val === 'string' ? val : String(val));
     } else if (info.isStyle && typeof val === 'object') {
-      out += ` style="${escapeHtml(styleText(val))}"`;
+      value = escapeHtml(styleText(val));
     } else if (val === true) {
       // ARIA and data-* are enumerated and need an explicit ="true" so the
       // markup matches what both client paths produce; genuine HTML boolean
       // attributes can be bare.
-      out += info.enumerated ? ` ${key}="true"` : ` ${key}`;
+      if (info.enumerated) value = 'true';
+      else {
+        out += open ? info.bareAfterQuote : info.bare;
+        open = false;
+        continue;
+      }
     } else {
       const str = typeof val === 'string' ? val : String(val);
       if (info.url && isUnsafeUrl(str) && str !== REACT_FORM_GUARD) continue;
-      out += ` ${key}="${escapeHtml(str)}"`;
+      value = escapeHtml(str);
     }
+    out += open ? info.leadAfterQuote : info.lead;
+    out += value;
+    open = true;
   }
 
+  quoteOpen = open;
   return out;
 }
 
@@ -765,6 +804,7 @@ export {
   TAG_BOUNDARY,
   TAG_SKIPPED,
   renderAttrs,
+  startTag,
   styleText,
   escapeHtml,
 };

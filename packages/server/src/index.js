@@ -39,6 +39,7 @@ import {
   _claimThrow,
   _plainText,
   renderAttrs,
+  startTag,
   _field,
   _enterSelect,
   _leaveSelect,
@@ -288,7 +289,7 @@ function _renderHydratable(vnode, notHtml) {
   // Element
   const { props, children } = vnode;
   if (_ns === null && info.kind <= TAG_VOID) {
-    const open = out(info.open + (props ? renderAttrs(props) : '') + '>');
+    const open = out(props ? startTag(info, props) : info.start);
     if (info.kind === TAG_VOID) return open;
     const rawInner = _resolveInnerHTML(props);
     if (rawInner != null) return open + out(String(rawInner)) + out(info.close);
@@ -501,7 +502,7 @@ function _renderString(vnode, notHtml) {
   // written straight from its tag's record.
   const { props, children } = vnode;
   if (_ns === null && info.kind <= TAG_VOID) {
-    const open = info.open + (props ? renderAttrs(props) : '') + '>';
+    const open = props ? startTag(info, props) : info.start;
     if (info.kind === TAG_VOID) return open;
     const rawInner = _resolveInnerHTML(props);
     if (rawInner != null) return open + String(rawInner) + info.close;
