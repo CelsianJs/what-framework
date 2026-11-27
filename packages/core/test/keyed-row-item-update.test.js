@@ -4,9 +4,10 @@
 //
 // Compiled rows read their item through an accessor (what-compiler's
 // readItemThroughAccessor, mapArray's follow mode): the row's bindings follow
-// the new item and keep their nodes, and a row that handed the item to
-// something that reads it once (a component's props) is built again from the
-// new item. h() and JSX-runtime rows are vnodes made again on every run: a
+// the new item and keep their nodes, and a row whose building code (a
+// component's body included) read a field the new item holds another value in
+// is built again from the new item. h() and JSX-runtime rows are vnodes made
+// again on every run: a
 // kept key whose vnode renders something else gets a row built from it.
 
 import { describe, it, beforeEach } from 'node:test';
@@ -82,7 +83,7 @@ describe('a keyed .map() row after an immutable update', () => {
     assert.equal(app.querySelector('span').textContent, 'a!');
   });
 
-  it('builds a row again when it handed its item to a component, which reads props once', async () => {
+  it('keeps a row whose component read in its body only fields the new item holds the same', async () => {
     const { items, List, built } = await loadCompiled(`
       import { signal } from 'what-framework';
       export const items = signal([{ id: 1, title: 'a', done: false }, { id: 2, title: 'b', done: false }]);
@@ -96,12 +97,38 @@ describe('a keyed .map() row after an immutable update', () => {
       }
     `);
     mount(() => List(), app);
+    const [first, second] = app.querySelectorAll('li');
+    built.length = 0;
+    items(toggle(1));
+    flushSync();
+    assert.deepEqual(built, [], 'no row is built again');
+    assert.equal(app.querySelector('li'), first);
+    assert.equal(first.textContent, 'a!');
+    assert.equal(first.className, 'done');
+    assert.equal(app.querySelectorAll('li')[1], second);
+  });
+
+  it('builds a row again when its component read in its body a field the new item changed', async () => {
+    const { items, List, built } = await loadCompiled(`
+      import { signal } from 'what-framework';
+      export const items = signal([{ id: 1, title: 'a', done: false }, { id: 2, title: 'b', done: false }]);
+      export const built = [];
+      function Item({ todo }) {
+        const label = todo.title.toUpperCase();
+        built.push(label);
+        return <li class={todo.done ? 'done' : 'open'}>{label}</li>;
+      }
+      export function List() {
+        return <ul>{items().map((t) => <Item key={t.id} todo={t} />)}</ul>;
+      }
+    `);
+    mount(() => List(), app);
     const second = app.querySelectorAll('li')[1];
     built.length = 0;
     items(toggle(1));
     flushSync();
-    assert.deepEqual(built, [1], 'only the replaced row is built again');
-    assert.equal(app.querySelector('li').textContent, 'a!');
+    assert.deepEqual(built, ['A!'], 'only the replaced row is built again');
+    assert.equal(app.querySelector('li').textContent, 'A!');
     assert.equal(app.querySelector('li').className, 'done');
     assert.equal(app.querySelectorAll('li')[1], second);
   });

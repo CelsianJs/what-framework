@@ -3042,6 +3042,8 @@ export function initDomState(state) {
   // A module whose JSX has an SVG element with an XLink or XML attribute
   // (`xlinkHref`, `xmlLang`) or a spread installs their writer (_$xlink()).
   state.writesXlink = false;
+  // A component reads a field of a prop in its run (common.js markPropFieldReads).
+  state.marksPropFields = false;
   state._selectorDecls = [];
   state._selectorIds = new Map();
   state.delegatedEvents = new Set();
@@ -3073,6 +3075,7 @@ const RENDER_IMPORTS = [
   ['_$plain', '_$plain'],
   ['_$hplain', '_$hplain'],
   ['_$rowFields', '_$rowFields'],
+  ['_$propField', '_$propField'],
   ['_$createSelector', 'createSelector'],
   ['_$spread', '_$spread'],
   ['_$spreads', '_$spreads'],

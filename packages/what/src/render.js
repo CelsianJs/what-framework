@@ -22,6 +22,8 @@ export {
   _$plain,
   _$hplain,
   _$rowFields,
+  // A component body's read of a field of a prop (`props.item.id`).
+  _$propField,
   _$controlled,
   // O(1) selection, emitted for `sel() === row.key` in keyed .map() rows.
   createSelector,

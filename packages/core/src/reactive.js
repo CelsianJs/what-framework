@@ -764,16 +764,64 @@ export function _rowItem(item) {
 /** @type {string | null | undefined} */
 let readingKey;
 
+// While _$propField reads a prop for one field of it: that field, and the row
+// item the prop's getter read whole (null while none). Undefined otherwise.
+/** @type {string | number | undefined} */
+let propField;
+/** @type {any} */
+let propCell = null;
+
 /** @internal Read a list row's item (see _rowItem), for its field `key` when given. */
 export function _readRowItem(node, key) {
   if (node.building && (activeSub === null || activeSub === node.builder)) {
     const field = key !== undefined ? key : readingKey;
-    if (node.taken || field === null) { /* the whole item already, or a peek */ }
-    else if (field === undefined) node.taken = true;
-    else if (node.keys === null) node.keys = [field];
-    else if (!node.keys.includes(field)) node.keys.push(field);
+    // Read whole, once, by the getter of a prop that a component reads one
+    // field of: which it records waits for what the getter returns
+    // (_propField). A second read in the getter records the whole item.
+    if (field === undefined && propField !== undefined && propCell === null) propCell = node;
+    else recordRead(node, field);
   } else if (activeSub !== null) link(node, activeSub);
   return node.value;
+}
+
+// A read of the row item `node` by the code building its row: of the field
+// `field`, of the whole item (undefined), or a peek (null), which records nothing.
+function recordRead(node, field) {
+  if (node.taken || field === null) return;
+  if (field === undefined) node.taken = true;
+  else if (node.keys === null) node.keys = [field];
+  else if (!node.keys.includes(field)) node.keys.push(field);
+}
+
+/**
+ * @internal `props[name][key]`, a member read of a prop in a component body
+ * (what-compiler writes it for `props.item.id`, and for `item.id` with `item`
+ * destructured from the props). A prop whose getter returns a list row's item
+ * as it is (`<Row item={item} />` in a keyed `.map()`) makes the read record
+ * the field `key` of that item, as `row.id` in the row's own code does, so a
+ * replacement that keeps the field keeps the row; a getter that returns
+ * something else made from the item (`item={wrap(item)}`), or reads it more
+ * than once, records the whole item, as the read it replaces did.
+ * @param {any} props
+ * @param {string} name
+ * @param {string | number} key
+ */
+export function _propField(props, name, key) {
+  const outerField = propField;
+  const outerCell = propCell;
+  propField = key;
+  propCell = null;
+  let value;
+  let cell;
+  try {
+    value = props[name];
+  } finally {
+    cell = propCell;
+    propField = outerField;
+    propCell = outerCell;
+  }
+  if (cell !== null) recordRead(cell, value === cell.value ? key : undefined);
+  return value[key];
 }
 
 /**

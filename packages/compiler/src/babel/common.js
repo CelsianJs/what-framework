@@ -811,6 +811,91 @@ function firstKey(node) {
   return propertyName(node.property, node.computed);
 }
 
+// --- Fields of props read in a component's run ---
+//
+// A keyed `.map()` row hands a component its item through a getter
+// (`get item() { return _$item(cell) }`). A read of the item by the code that
+// builds the row records what it read (what-core reactive.js _rowItem), and a
+// getter cannot tell which field the component goes on to read: `props.item.id`
+// in the body recorded the whole item, so any replacement under the key built
+// the row again, with the component's state. So a member read of a prop,
+// `props.<name>.<key>` with both keys static (`item.id` for a destructured
+// `item`), reads as `_$propField(props, "name", "key")` (render.js), which
+// records the field `key` when the getter returns the row's item as it is:
+// - where the component's run reads it: its body, and functions of it, which
+//   read the item once when they run during the build and plainly after;
+// - in a prop it hands a component (`<Title text={props.item.title} />`),
+//   whose getter the child's body reads.
+// A read in the JSX that builds elements is a binding, which follows the
+// item, and stays as it is. A call (`props.item.format()`), a write, an
+// optional chain and the server back end keep the read as written. The reads
+// are marked here, before JSX is lowered, and rewritten once it is
+// (readPropFields), so the reactivity analysis sees the member reads they are.
+
+/** Mark the member reads of props that readPropFields rewrites, in the component `fnPath`. */
+export function markPropFieldReads(fnPath, state) {
+  const name = fnPath.node._whatPropsParam;
+  if (state.ssr || name === undefined) return;
+  const binding = fnPath.scope.getBinding(name);
+  if (!binding || binding.kind !== 'param' || binding.constantViolations.length > 0) return;
+  for (const ref of binding.referencePaths) {
+    const inner = ref.parentPath;
+    if (!inner.isMemberExpression() || ref.key !== 'object') continue;
+    const outer = inner.parentPath;
+    if (!outer.isMemberExpression() || inner.key !== 'object') continue;
+    const prop = propertyName(inner.node.property, inner.node.computed);
+    if (prop === null || prop === 'children' || propertyName(outer.node.property, outer.node.computed) === null) continue;
+    if (!isReadOnly(outer) || !inComponentRun(outer, fnPath)) continue;
+    outer.node._whatPropField = true;
+    state.marksPropFields = true;
+  }
+}
+
+// Whether the member expression `path` is only read: not called as a method,
+// a tag, written, deleted or a pattern's target.
+function isReadOnly(path) {
+  const parent = path.parent;
+  const key = path.key;
+  if ((t.isCallExpression(parent) || t.isOptionalCallExpression(parent) || t.isNewExpression(parent)) && key === 'callee') return false;
+  if (t.isTaggedTemplateExpression(parent) && key === 'tag') return false;
+  if ((t.isAssignmentExpression(parent) || t.isForInStatement(parent) || t.isForOfStatement(parent)) && key === 'left') return false;
+  if (t.isUpdateExpression(parent) || t.isUnaryExpression(parent, { operator: 'delete' })) return false;
+  return !(t.isArrayPattern(parent) || t.isRestElement(parent) || (t.isAssignmentPattern(parent) && key === 'left') || (t.isObjectProperty(parent) && t.isObjectPattern(path.parentPath.parent)));
+}
+
+// Whether `path`, in the component `fnPath`, is read by the component's run
+// rather than by a binding of its JSX: outside JSX, or in the value of a prop
+// handed to a component, outside any function there.
+function inComponentRun(path, fnPath) {
+  let inFunction = false;
+  for (let p = path.parentPath; p !== null && p !== fnPath; p = p.parentPath) {
+    if (p.isFunction()) inFunction = true;
+    else if (p.isJSXExpressionContainer()) {
+      const attr = p.parentPath;
+      if (inFunction || !attr.isJSXAttribute() || !t.isJSXIdentifier(attr.node.name) || attr.node.name.name === 'key' || attr.node.name.name === 'ref') return false;
+      return isComponentElement(attr.parentPath.parent);
+    } else if (p.isJSXElement() || p.isJSXFragment() || p.isJSXSpreadAttribute() || p.isJSXSpreadChild()) return false;
+  }
+  return true;
+}
+
+/** Rewrite each marked member read of props (markPropFieldReads) as `_$propField(props, "name", "key")`. */
+export function readPropFields(path, state) {
+  if (!state.marksPropFields) return;
+  path.traverse({
+    MemberExpression(member) {
+      const node = member.node;
+      if (node._whatPropField !== true) return;
+      const inner = /** @type {any} */ (node.object);
+      member.replaceWith(t.callExpression(helper(state, '_$propField'), [
+        t.identifier(inner.object.name),
+        t.stringLiteral(/** @type {string} */ (propertyName(inner.property, inner.computed))),
+        t.stringLiteral(/** @type {string} */ (propertyName(node.property, node.computed))),
+      ]));
+    },
+  });
+}
+
 // --- Which functions are components ---
 // Reading props where they are used changes what a function's parameter
 // reads (`_$place`, `_$omit`, `props.<key>` for a destructured name), so it

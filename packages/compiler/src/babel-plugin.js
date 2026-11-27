@@ -48,7 +48,7 @@
  */
 
 import { t, setTypes } from './babel/types.js';
-import { deferPlacedProps, warnLiveCleanup, warnStateReadOnce, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
+import { deferPlacedProps, markPropFieldReads, readPropFields, warnLiveCleanup, warnStateReadOnce, initFileState, isComponentElement, isWhatModuleSource, recordName, spreadChildren } from './babel/common.js';
 import { initDomState, finishDomProgram, transformJsxRoot, mayBuildTag } from './babel/dom.js';
 import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js';
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
@@ -200,6 +200,7 @@ export default function whatBabelPlugin({ types }) {
               warnLiveCleanup(fnPath, state);
               deferPlacedProps(fnPath, state);
               warnStateReadOnce(fnPath, state);
+              markPropFieldReads(fnPath, state);
             },
             CallExpression(callPath) {
               if (!state.frameworkFile) {
@@ -224,7 +225,10 @@ export default function whatBabelPlugin({ types }) {
 
         exit(path, state) {
           if (state.ssr) finishSsrProgram(path, state);
-          else finishDomProgram(path, state);
+          else {
+            readPropFields(path, state);
+            finishDomProgram(path, state);
+          }
         },
       },
 

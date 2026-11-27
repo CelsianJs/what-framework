@@ -12,6 +12,7 @@ export {
   _$plain,
   _$hplain,
   _$rowFields,
+  _$propField,
   _$controlled,
   createSelector,
   spread,

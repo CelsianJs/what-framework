@@ -107,6 +107,8 @@ export interface RowItem<T> {
 }
 /** @internal Read a compiled `.map()` row's item from its cell; bindings that read it track it. */
 export function _$item<T>(cell: RowItem<T>): T;
+/** @internal A component body's read of one field of a prop, `props[name][key]`: a row item's getter records that field. */
+export function _$propField(props: object, name: string, key: string | number): any;
 
 /**
  * @internal The keyed-only list the compiler imports (as `_$mapArray`) in modules

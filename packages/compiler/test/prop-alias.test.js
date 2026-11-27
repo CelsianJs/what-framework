@@ -57,7 +57,7 @@ test('an alias of a prop is read as the prop; other initializers are read once',
   assert.match(code, /"title", props\.ev\.title/);
   assert.doesNotMatch(code, /const (ev|item|deep) =/, 'the aliases are gone');
   assert.match(code, /const n = props\.count \* 2;/, 'arithmetic is read once');
-  assert.match(code, /const up = props\.ev\.label\.toUpperCase\(\);/, 'a call is read once');
+  assert.match(code, /const up = _\$propField\(props, "ev", "label"\)\.toUpperCase\(\);/, 'a call is read once');
   assert.match(code, /let l = props\.ev;/, '`let` is read once');
   const tag = body(compileJSX(`export function A(props) { const ui = props.ui; return <ui.Icon />; }`));
   assert.match(tag, /const ui = props\.ui;/, 'an alias used as a tag stays');
