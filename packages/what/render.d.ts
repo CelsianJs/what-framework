@@ -47,6 +47,7 @@ export {
   _$createLeaf,
   _$createFn,
   _$componentVNode,
+  _$hcomponentVNode,
   _$htemplate,
   _$claim,
   _$next,

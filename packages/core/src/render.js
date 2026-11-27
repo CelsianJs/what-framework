@@ -133,6 +133,16 @@ export function _$componentVNode(Component, props, children, devLoc) {
   return vnode;
 }
 
+/**
+ * _$componentVNode for a root whose tag may be a string held in a binding
+ * (`hydrate(<Tag />)`): hydrate() runs it as the component that claims the
+ * server's element where its walk stands (claimedTag), as _$hcreateComponent
+ * runs such a tag anywhere else.
+ */
+export function _$hcomponentVNode(Component, props, children, devLoc) {
+  return _$componentVNode(typeof Component === 'string' ? claimedTag(Component) : Component, props, children, devLoc);
+}
+
 function componentVNode(Component, props, children) {
   // Deferred children (compiled JSX): the compiler passes a zero-arg factory
   // when children contain elements, so their DOM is not built before this

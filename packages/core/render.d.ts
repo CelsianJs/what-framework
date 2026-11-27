@@ -221,6 +221,8 @@ export function _$createFn(component: unknown, props?: unknown, ...args: unknown
  * its walk reaches it.
  */
 export function _$componentVNode(component: unknown, props?: unknown, ...args: unknown[]): VNodeChild;
+/** @internal `_$componentVNode` for a root whose tag may be a string held in a binding: it claims the server's element. */
+export function _$hcomponentVNode(component: unknown, props?: unknown, ...args: unknown[]): VNodeChild;
 
 // @internal The helpers what-compiler's `hydratable` output calls instead of
 // cloning templates and walking them by path (render.js has the protocol).

@@ -1899,7 +1899,9 @@ function transformComponentFineGrained(path, state) {
   if (slots.length > 0 || !isEmptyArray(childrenArg)) state.needsLazyProps = true;
   // And one whose every component is a plain function imports the call that
   // does not look for a class component.
-  if (!isPlainFunctionComponent(path.scope ?? state.file?.path?.scope, openingElement.name)) state.classComponents = true;
+  const scope = path.scope ?? state.file?.path?.scope;
+  const plain = isPlainFunctionComponent(scope, openingElement.name);
+  if (!plain) state.classComponents = true;
 
   const componentArgs = [componentRef, propsExpr, childrenArg];
   const meta = componentMetadata(node, state);
@@ -1910,7 +1912,10 @@ function transformComponentFineGrained(path, state) {
   const site = state.hydratable && !isHydrateRoot ? listSlot(node) : null;
   if (site !== null || (meta && state.hydratable && !isHydrateRoot)) componentArgs.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) componentArgs.push(meta);
-  const call = t.callExpression(helper(state, isHydrateRoot ? '_$componentVNode' : '_$createComponent'), componentArgs);
+  // The root handed to hydrate() arrives unbuilt; one whose tag may be a
+  // string claims the server's element when hydrate() runs it.
+  const vnodeCall = !plain && mayHoldTag(scope, openingElement.name) ? '_$hcomponentVNode' : '_$componentVNode';
+  const call = t.callExpression(helper(state, isHydrateRoot ? vnodeCall : '_$createComponent'), componentArgs);
   // A component placed in SVG or MathML is told so, for a tag held in a
   // binding that it builds (render.js _$inNs). Not one this module defines
   // whose JSX, and that of the components it calls, names no such tag: the
@@ -3078,6 +3083,7 @@ const RENDER_IMPORTS = [
   ['_$setChecked', 'setChecked'],
   ['_$createComponent', null],
   ['_$componentVNode', '_$componentVNode'],
+  ['_$hcomponentVNode', '_$hcomponentVNode'],
   ['_$delegateEvents', 'delegateEvents'],
   ['_$changes', '_$changes'],
   ['_$own', '_$own'],
@@ -3144,6 +3150,16 @@ function isPlainFunctionComponent(scope, name) {
   const statement = t.isVariableDeclarator(decl.node) ? decl.parentPath : decl;
   if (t.isExportNamedDeclaration(statement.parent) || t.isExportDefaultDeclaration(statement.parent)) return false;
   return binding.referencePaths.every((ref) => t.isJSXOpeningElement(ref.parent) || t.isJSXClosingElement(ref.parent));
+}
+
+// Whether a component tag may hold a string at run time (a tag held in a
+// binding: a prop, a parameter, a variable), unlike a name, or a member of a
+// name, that the module imports.
+function mayHoldTag(scope, name) {
+  let root = name;
+  while (t.isJSXMemberExpression(root)) root = root.object;
+  const binding = t.isJSXIdentifier(root) && scope != null ? scope.getBinding(root.name) : null;
+  return binding?.kind !== 'module';
 }
 
 function isEmptyArray(node) {

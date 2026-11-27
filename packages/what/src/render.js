@@ -80,6 +80,8 @@ export {
   // The unbuilt sibling of _$createComponent. Emitted for the JSX handed
   // straight to hydrate(), which needs a VNode rather than finished DOM.
   _$componentVNode,
+  // _$componentVNode for a root whose tag may be a string held in a binding.
+  _$hcomponentVNode,
   // What what-compiler's `hydratable` output calls: templates that claim the
   // server's nodes while hydrating and clone otherwise.
   _$htemplate,

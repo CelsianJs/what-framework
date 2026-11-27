@@ -141,4 +141,28 @@ describe('a client built with the stand-in hydrates the vnodes it makes', () => 
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(server[1].textContent, '1');
   });
+
+  it('a compiled-only client whose hydrate() root is a tag held in a binding claims the server\'s element', async () => {
+    const { loadCompiled } = await import('../../../test-utils/load-compiled.js');
+    const { renderToString } = await import('../../server/src/index.js');
+    const server = await loadCompiled('import { signal } from "what-framework"; const n = signal(0); export const page = (Tag) => <Tag class="x">hi {n()}</Tag>;', { pluginOptions: { generate: 'ssr' } });
+    const client = await buildClient(`
+      import { hydrate, signal } from 'what-framework';
+      const n = signal(0);
+      const Tag = globalThis.__rootTag;
+      globalThis.__mismatches = [];
+      hydrate(<Tag class="x" onClick={() => n(n() + 1)}>hi {n()}</Tag>, document.getElementById('app'), { onHydrationError: (info) => globalThis.__mismatches.push(info.kind) });
+    `);
+    document.body.innerHTML = '<div id="app"></div>';
+    const container = /** @type {HTMLElement} */ (document.getElementById('app'));
+    container.innerHTML = renderToString(server.page('p'));
+    const p = /** @type {HTMLElement} */ (container.firstChild);
+    /** @type {any} */ (globalThis).__rootTag = 'p';
+    await import(pathToFileURL(client.file).href);
+    assert.deepEqual(/** @type {any} */ (globalThis).__mismatches, []);
+    assert.equal(container.firstChild, p, 'the server\'s element is kept');
+    p.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(p.textContent, 'hi 1');
+  });
 });
