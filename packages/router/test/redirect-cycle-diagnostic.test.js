@@ -7,19 +7,31 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM('<!DOCTYPE html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/login' });
-const { h, mount, signal } = await import('what-core');
+const { h, mount, signal, subscribeDiagnostics } = await import('what-core');
 const { captureDiagnostics } = await import('what-core/testing');
 const { Router } = await import('../src/index.js');
+
+// The guards redirect on timers and microtasks, so the loop is reported some
+// turns after mount: wait for the report itself, or at most 20 s, after which
+// the test's assertions say what was reported instead.
+function reported(code) {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); stop(); resolve(); };
+    const timer = setTimeout(done, 20000);
+    const stop = subscribeDiagnostics((event) => { if (event.code === code) done(); });
+  });
+}
 
 test('two guards that send each other round are reported with the cycle and the guards', async () => {
   const user = signal({ admin: false });
   let stop = () => {};
   const { events } = await captureDiagnostics(async () => {
+    const loop = reported('ERR_REDIRECT_CYCLE');
     stop = mount(h(Router, { routes: [
       { path: '/login', component: () => h('p', {}, 'login'), middleware: [() => !user() || '/dashboard'] },
       { path: '/dashboard', component: () => h('p', {}, 'dash'), middleware: [() => user().admin || '/login'] },
     ] }), document.getElementById('app'));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await loop;
   });
   stop();
   const loop = events.find((e) => e.code === 'ERR_REDIRECT_CYCLE');
@@ -38,11 +50,12 @@ test('the report carries paths and route patterns, never the query or fragment',
   const user = signal({ admin: false });
   let stop = () => {};
   const { events } = await captureDiagnostics(async () => {
+    const loop = reported('ERR_REDIRECT_CYCLE');
     stop = mount(h(Router, { routes: [
       { path: '/login', component: () => h('p', {}, 'login'), middleware: [() => !user() || '/team/7?from=SECRET-NEXT'] },
       { path: '/team/:id', component: () => h('p', {}, 'team'), middleware: [() => user().admin || '/login?again=SECRET-AGAIN'] },
     ] }), document.getElementById('app'));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await loop;
   });
   stop();
   const loop = events.find((e) => e.code === 'ERR_REDIRECT_CYCLE');
@@ -64,10 +77,11 @@ test('a path segment the visitor sent stays out of the report, in development', 
   history.replaceState(null, '', '/verify/SECRET-PATH-TOKEN');
   let stop = () => {};
   const { events } = await captureDiagnostics(async () => {
+    const loop = reported('ERR_REDIRECT_CYCLE');
     // eslint-disable-next-line no-new-func
     const routes = new Function('h', `return ${tokenRoutes}`)(h);
     stop = mount(h(Router, { routes }), document.getElementById('app'));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await loop;
   });
   stop();
   const loop = events.find((e) => e.code === 'ERR_REDIRECT_CYCLE');
@@ -88,7 +102,9 @@ test('and in production', async () => {
     const { Router } = await import(${JSON.stringify(new URL('../src/index.js', import.meta.url).href)});
     const routes = ${tokenRoutes};
     mount(h(Router, { routes }), document.getElementById('app'));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (const end = Date.now() + 20000; Date.now() < end && !lines.some((line) => line.includes('Redirect loop'));) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     process.stdout.write(JSON.stringify(lines));
   `;
   const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: new URL('.', import.meta.url), encoding: 'utf8' }));
