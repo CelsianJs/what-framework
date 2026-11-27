@@ -807,8 +807,18 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     return out;
   };
   // Each array's items by their place, so a key's name is found without
-  // searching the items.
-  const places = {};
+  // searching the items: made once for each list the array holds, from the
+  // list as a read of it finds it. Not a computed, which would belong to the
+  // component that first used the array and go with it, while the array
+  // lives as long as the form.
+  const placeMaps = new WeakMap();
+  const places = (k) => {
+    const list = arrays[k]?.();
+    if (list === undefined) return undefined;
+    let map = placeMaps.get(list);
+    if (map === undefined) placeMaps.set(list, map = new Map(list.map((segment, i) => [segment, i])));
+    return map;
+  };
   const nameAt = (k) => {
     if (!k.includes('\0')) return k;
     let at = '';
@@ -816,7 +826,7 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
     for (const segment of k.split('.')) {
       let part = segment;
       if (segment[0] === '\0') {
-        part = places[at]?.().get(segment);
+        part = places(at)?.get(segment);
         if (part === undefined) return null;
       }
       at += (at ? '.' : '') + segment;
@@ -831,13 +841,11 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
       if (!inner.startsWith(k + '.')) continue;
       for (const segment of arrays[inner].peek()) delete bases[segment];
       delete arrays[inner];
-      delete places[inner];
     }
   };
   const seed = (k, items) => {
     if (arrays[k]) return arrays[k].set(items.map(add));
-    const list = arrays[k] = signal(items.map(add));
-    places[k] = computed(() => new Map(list().map((segment, i) => [segment, i])));
+    arrays[k] = signal(items.map(add));
   };
   // The last item segment of a key, and where it is.
   const lastItem = (segments) => {
@@ -903,10 +911,7 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
       for (const k in arrays) {
         for (const segment of arrays[k].peek()) delete bases[segment];
         if (!k.includes('\0')) seed(k, getIn(defaults, k) || []);
-        else {
-          delete arrays[k];
-          delete places[k];
-        }
+        else delete arrays[k];
       }
     },
     // One field array's controls.

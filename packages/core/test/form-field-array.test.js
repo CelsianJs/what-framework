@@ -13,7 +13,7 @@ import { loadCompiled } from '../../../test-utils/load-compiled.js';
 const { document } = installDOM();
 
 const { useForm, useFieldArray } = await import('what-framework/form');
-const { mount, flushSync } = await import('what-framework');
+const { mount, flushSync, signal, h } = await import('what-framework');
 
 const typed = (reg, value) => reg.onchange({ type: 'input', target: { type: 'text', value } });
 const ids = (array) => array.fields().map((f) => f.id);
@@ -172,6 +172,40 @@ describe('useFieldArray', () => {
     form.reset({ vehicles: [{ vin: 'N' }] });
     assert.deepEqual(array.fields().map((f) => f.vin), ['N']);
     assert.equal(form.getValue('vehicles.0.vin'), 'N');
+  });
+
+  it('outlives the component that first used it: a step shown later takes its items on', () => {
+    const step = signal(1);
+    let form;
+    let later;
+    function Drivers() {
+      useFieldArray({ control: form.control, name: 'vehicles' });
+      return h('p', null, 'drivers');
+    }
+    function Review() {
+      later = useFieldArray({ control: form.control, name: 'vehicles' });
+      return h('p', null, 'review');
+    }
+    function Wizard() {
+      form = useForm({ defaultValues: { vehicles: [{ vin: 'A' }] } });
+      return h('div', null, () => (step() === 1 ? h(Drivers) : h(Review)));
+    }
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = mount(h(Wizard), host);
+    flushSync();
+    step(2);
+    flushSync();
+    later.append({ vin: 'B' });
+    const vin = form.register('vehicles.1.vin');
+    typed(vin, 'B!');
+    assert.equal(vin.name, 'vehicles.1.vin');
+    assert.deepEqual(form.formState.values.vehicles, [{ vin: 'A' }, { vin: 'B!' }]);
+    later.move(1, 0);
+    assert.equal(vin.name, 'vehicles.0.vin');
+    assert.deepEqual(form.formState.values.vehicles, [{ vin: 'B!' }, { vin: 'A' }]);
+    dispose();
+    host.remove();
   });
 });
 
