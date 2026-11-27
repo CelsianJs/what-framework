@@ -1762,6 +1762,16 @@ function reconcileKeyed(parent, endMarker, oldItems, newItems, mappedNodes, disp
     }
     return;
   }
+  reconcileRows(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals);
+}
+
+// reconcileKeyed for a list that had rows and has rows. Kept out of it, so
+// that the frame a row built into an empty list stands on is small: a
+// recursive keyed tree holds one at each level, and this one has dozens of
+// locals.
+function reconcileRows(parent, endMarker, oldItems, newItems, mappedNodes, disposeFns, mapFn, keyFn, keyedSignals) {
+  const newLen = newItems.length;
+  const oldLen = oldItems.length;
 
   // The key of the item at `i`. A key function is handed the item's index:
   // a key that reads it (`key={`${t.term}-${i}`}`) keys the row by item and
