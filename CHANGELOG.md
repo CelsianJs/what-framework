@@ -2183,12 +2183,13 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   At the release, after the React commit-order fixes and the three React
   habits in native What (plain-object props, React's effect order, `onChange`
   per keystroke), the `onDoubleClick` fix, the field-writing fixes and the
-  one-pass row-key check after it, and the hill climb's second and third
-  rounds (props marked only with a getter, text compared with the text
-  written last, hydration leaving bound attributes to their bindings, a
+  one-pass row-key check after it, and the hill climb's second, third and
+  fourth rounds (props marked only with a getter, text compared with the
+  text written last, hydration leaving bound attributes to their bindings, a
   Symbol child; `draggable`, `spellcheck` and `contenteditable` written as
-  `"true"` and `"false"`), the three measure 16,340 B, 24,299 B and
-  44,112 B.
+  `"true"` and `"false"`; a nullish class writing no attribute, owner
+  disposal that skips empty children, the sliding-list path), the three
+  measure 16,340 B, 24,322 B and 44,306 B.
 
 - **Smaller runtime with the rest-prop fixes in.** Measured by
   `npm run check:size` against the previous commit (638e7c49): hooks-app
@@ -2209,11 +2210,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   (15,378 B); every app `npm run check:size` builds is smaller. At the
   release, with plain-object props, React's effect order, `onChange` per
   keystroke, the `onDoubleClick` fix, the field-writing fixes and the
-  cheaper effect order after it, and the hill climb's second and third
-  rounds (props marked only with a getter, text compared with the text
-  written last, a Symbol child; `draggable`, `spellcheck` and
-  `contenteditable` written as `"true"` and `"false"`) in, the three are
-  5,510 B, 9,427 B and 15,172 B. A compiled
+  cheaper effect order after it, and the hill climb's second, third and
+  fourth rounds (props marked only with a getter, text compared with the
+  text written last, a Symbol child; `draggable`, `spellcheck` and
+  `contenteditable` written as `"true"` and `"false"`; owner disposal that
+  skips empty children, the form fixes, the sliding-list path) in, the
+  three are 5,514 B, 9,470 B and 15,541 B. A compiled
   module imports the component call it needs: with no component handed
   children or JSX in a prop it leaves out the lazy getters, and when every
   component is a function the module defines (or one of what-framework's or
@@ -2391,6 +2393,12 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   only that field's rules: a keystroke in a 300-field form in `onChange`
   mode ran every field's rules and every async check.
   `packages/core/test/form-field-validation-scope.test.js`.
+- A keyed list that drops rows at its start and adds items at its end (a
+  capped log, a chat) updates without a map of every key: on a 1,000-row
+  log fed in bursts of 400, the reconcile takes about 45 µs per message
+  instead of 115, and no task of a burst is over 50 ms (Chromium). It falls
+  back to the general path whenever that would claim rows differently.
+  `packages/core/test/reconcile-slide.test.js`.
 
 ## [0.14.0] - 2026-10-13
 
