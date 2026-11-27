@@ -95,7 +95,17 @@ function registerActionId(callPath, state, id, bindingName, relativeFilename) {
 export function transformServerAction(callPath, state) {
   if (!isServerActionCall(callPath, state)) return;
 
+  // An explicit { id } needs no binding to derive one from; a static one is
+  // still checked for duplicates, under the ID itself as its name.
+  const optionsNode = callPath.node.arguments[1];
+  const explicit = staticActionId(optionsNode);
   const bindingName = actionBindingName(callPath);
+  if (!bindingName && explicit.property) {
+    if (explicit.value !== null) {
+      registerActionId(callPath, state, explicit.value, explicit.value, state.serverActionFilename);
+    }
+    return;
+  }
   if (!bindingName) {
     if (!state.opts?.production) {
       console.warn(
@@ -107,8 +117,6 @@ export function transformServerAction(callPath, state) {
     return;
   }
 
-  const optionsNode = callPath.node.arguments[1];
-  const explicit = staticActionId(optionsNode);
   if (explicit.property) {
     if (explicit.value !== null) {
       registerActionId(callPath, state, explicit.value, bindingName, state.serverActionFilename);
