@@ -498,9 +498,7 @@ function createFormController(options = {}) {
       if (e.type === 'change' && type !== 'file' && JSON.stringify(value) === JSON.stringify(getFieldSignal(key).peek())) return;
       setKey(key, value);
 
-      if (mode === 'onChange' || (isSubmitted.peek() && reValidateMode === 'onChange')) {
-        validateKey(key);
-      }
+      validateOn('onChange', key);
     };
 
     const result = {
@@ -508,12 +506,11 @@ function createFormController(options = {}) {
       onBlur: () => {
         getTouchedSignal(key).set(true);
 
-        if (mode === 'onBlur' || (isSubmitted.peek() && reValidateMode === 'onBlur')) {
-          validateKey(key);
-        }
+        validateOn('onBlur', key);
       },
       onFocus: () => {},
       ref: options.ref,
+      onchange: handler,
     };
     // The name of a field of a field array item follows the item's place (a
     // radio's is written by its ref, below).
@@ -540,7 +537,6 @@ function createFormController(options = {}) {
       // reactive-binding protocol — setProp() wraps it in an effect, and the SSR
       // serializer calls it — so one thunk covers both renderers.
       result.checked = isChecked;
-      result.onchange = handler;
       result.ref = (el) => {
         // The caller's ref, a callback or a { current } box, is applied as
         // the renderer applies a ref.
@@ -578,7 +574,6 @@ function createFormController(options = {}) {
         get() { return !!read(); },
         enumerable: true,
       });
-      result.onchange = handler;
     } else {
       // Text/select/textarea: use value prop + onchange, React's change event,
       // which a text field fires as the user types and a select when its
@@ -587,7 +582,6 @@ function createFormController(options = {}) {
         get: read,
         enumerable: true,
       });
-      result.onchange = handler;
       // 0.14 code wires `oninput: register('x').oninput` by hand: it keeps the
       // handler, not enumerable, so a spread attaches only `onchange` and
       // the field is not handled twice per keystroke.
@@ -623,10 +617,11 @@ function createFormController(options = {}) {
     return _markProps(result);
   }
 
-  // A field's own validation, by the name its key has now.
-  function validateKey(key) {
+  // A field's own validation, by the name its key has now, when the event
+  // is the one the form validates on (reValidateMode's once submitted).
+  function validateOn(event, key) {
     const name = nameOf(key);
-    if (name != null) validate(name);
+    if (name != null && (mode === event || (isSubmitted.peek() && reValidateMode === event))) validate(name);
   }
 
   // A field array's name takes new items, as its replace() gives them.
