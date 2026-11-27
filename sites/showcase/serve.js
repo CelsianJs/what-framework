@@ -1,7 +1,7 @@
 // Showcase app dev server
 import { createServer } from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { join, extname } from 'path';
+import { join, extname, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -24,20 +24,41 @@ function resolveFile(pathname) {
   return null;
 }
 
-function transformImports(code) {
-  return code
-    .replace(/from\s+['"]what-framework['"]/g, `from '/framework/core/src/index.js'`)
-    .replace(/from\s+['"]what-framework\/router['"]/g, `from '/framework/router/src/index.js'`)
-    .replace(/from\s+['"]what-framework\/server['"]/g, `from '/framework/server/src/index.js'`)
-    .replace(/from\s+['"]what-(?:framework|core)\/(a11y|ui|motion|dom|form|data|internal)['"]/g, `from '/framework/core/src/entries/$1.js'`)
-    // Legacy aliases
-    .replace(/from\s+['"]@what\/core['"]/g, `from '/framework/core/src/index.js'`)
-    .replace(/from\s+['"]@what\/router['"]/g, `from '/framework/router/src/index.js'`)
-    .replace(/from\s+['"]@what\/server['"]/g, `from '/framework/server/src/index.js'`)
-    // Internal package aliases used by router/server
-    .replace(/from\s+['"]what-core['"]/g, `from '/framework/core/src/index.js'`)
-    .replace(/from\s+['"]what-router['"]/g, `from '/framework/router/src/index.js'`)
-    .replace(/from\s+['"]what-server['"]/g, `from '/framework/server/src/index.js'`);
+// The framework is served from the workspace source. A bare specifier
+// (`what-framework/router`) or a package import (`#env`) is resolved the way
+// Node and Vite resolve it, through the package's `exports` or `imports` map
+// with the `development` condition, and rewritten to a /framework/ URL.
+const packagesDir = join(__dirname, '..', '..', 'packages');
+const PACKAGES = { 'what-framework': 'what', 'what-core': 'core', 'what-router': 'router', 'what-server': 'server' };
+const manifests = new Map();
+
+function manifest(dir) {
+  if (!manifests.has(dir)) manifests.set(dir, JSON.parse(readFileSync(join(packagesDir, dir, 'package.json'), 'utf-8')));
+  return manifests.get(dir);
+}
+
+function target(entry) {
+  if (typeof entry === 'string') return entry;
+  return entry && target(entry.development ?? entry.import ?? entry.default);
+}
+
+function resolveSpecifier(specifier, fromDir) {
+  if (specifier.startsWith('#')) {
+    const file = fromDir && target(manifest(fromDir).imports?.[specifier]);
+    return file && `/framework/${fromDir}/${file.slice(2)}`;
+  }
+  const [, name, subpath] = specifier.match(/^(what-[a-z]+)(\/.*)?$/) ?? [];
+  const dir = PACKAGES[name];
+  const file = dir && target(manifest(dir).exports?.['.' + (subpath ?? '')]);
+  return file && `/framework/${dir}/${file.slice(2)}`;
+}
+
+function transformImports(code, fromDir) {
+  return code.replace(/(\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"./][^'"]*)\2/g,
+    (whole, keyword, quote, specifier) => {
+      const url = resolveSpecifier(specifier, fromDir);
+      return url ? keyword + quote + url + quote : whole;
+    });
 }
 
 const server = createServer((req, res) => {
@@ -46,10 +67,9 @@ const server = createServer((req, res) => {
 
   // Serve framework source files
   if (pathname.startsWith('/framework/')) {
-    const frameworkPath = join(__dirname, '..', '..', 'packages', pathname.slice(11));
-    if (existsSync(frameworkPath) && statSync(frameworkPath).isFile()) {
-      let code = readFileSync(frameworkPath, 'utf-8');
-      code = transformImports(code);
+    const frameworkPath = join(packagesDir, pathname.slice(11));
+    if (frameworkPath.startsWith(packagesDir + sep) && existsSync(frameworkPath) && statSync(frameworkPath).isFile()) {
+      const code = transformImports(readFileSync(frameworkPath, 'utf-8'), pathname.split('/')[2]);
       res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
       res.end(code);
       return;
