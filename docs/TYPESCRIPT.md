@@ -153,6 +153,70 @@ where it renders. A prop can also be typed and passed as an accessor
 (`onClick={(e) => props.onClick?.(e)}`), so it follows the parent's current
 one; `onClick={props.onClick}` is read once.
 
+### Typed Refs and Lists
+
+A ref to an element is typed as in React: `useRef<HTMLInputElement>(null)`
+holds `HTMLInputElement | null`, null until the element mounts. `<For>`
+takes the signal itself and types each row's item from it:
+
+```tsx
+import { useRef, useSignal, onMount, For } from 'what-framework';
+
+interface Todo {
+  id: number;
+  text: string;
+}
+
+function TodoList() {
+  const input = useRef<HTMLInputElement>(null);
+  const todos = useSignal<Todo[]>([]);
+  onMount(() => input.current?.focus());
+
+  return (
+    <div>
+      <input ref={input} />
+      <ul>
+        <For each={todos}>{(todo) => <li>{todo.text}</li>}</For>
+      </ul>
+    </div>
+  );
+}
+```
+
+### Typed Forms
+
+`useForm<Values>()` types the values the submit handler, `formState.values`
+and `reset()` take. Without the type argument they are inferred from
+`defaultValues`:
+
+```tsx
+import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework/form';
+
+interface LoginValues {
+  email: string;
+  password: string;
+}
+
+function Login() {
+  const { register, handleSubmit, formState } = useForm<LoginValues>({
+    defaultValues: { email: '', password: '' },
+    resolver: simpleResolver({ email: [rules.required(), rules.email()] }),
+  });
+  const onSubmit = async (values: LoginValues) => {
+    await fetch('/api/login', { method: 'POST', body: JSON.stringify(values) });
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register('email')} type="email" />
+      <ErrorMessage name="email" formState={formState} />
+      <input {...register('password')} type="password" />
+      <button type="submit">Log in</button>
+    </form>
+  );
+}
+```
+
 ### Typed Events
 
 A handler on an element types `e.currentTarget` as that element, as React's
@@ -255,10 +319,12 @@ function ThemedButton() {
 
 ## IDE Support
 
-Install the **What Framework** VS Code extension for:
-- Syntax highlighting for event modifiers, bindings, and directives
-- Code snippets for signals, effects, components, and more
-- TypeScript-aware completions
+There is no What-specific editor extension; none is needed. The editor's own
+TypeScript service reads What's JSX types through `jsxImportSource`, so
+completions, hover types and errors work in `.tsx` files. A scaffolded app's
+`.vscode/settings.json` points VS Code at the project's TypeScript
+(`typescript.tsdk`). VS Code's ESLint extension shows eslint-plugin-what's
+warnings as you type.
 
 ## ESLint
 
