@@ -9,6 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { loadCompiled } from '../../../test-utils/load-compiled.js';
 
 const { document } = installDOM();
 
@@ -86,6 +87,12 @@ describe('useForm unregister', () => {
     form.reset();
     assert.deepEqual(form.formState.values, { name: 'Ann', note: 'n' }, 'the default went with the field');
 
+    form.register('name');
+    form.unregister('name', { keepDefaultValue: true });
+    assert.deepEqual(form.formState.values, { note: 'n' }, 'the value leaves, its default stays');
+    form.reset();
+    assert.deepEqual(form.formState.values, { name: 'Ann', note: 'n' }, 'and reset() brings it back');
+
     form.register('note').onBlur();
     form.setError('note', { message: 'Too short' });
     form.unregister('note', { keepValue: true, keepError: true, keepTouched: true });
@@ -162,5 +169,42 @@ describe('useForm unregister', () => {
     createRoot((d) => { dispose = d; typed(everyField, 'a', '1'); });
     dispose();
     assert.deepEqual(everyField.formState.values, {});
+  });
+
+  it('a field inside <Show> registered with shouldUnregister leaves the values when hidden, and comes back from its default', async () => {
+    const mod = await loadCompiled(`
+      import { signal, Show } from 'what-framework';
+      import { useForm } from 'what-framework/form';
+      export const mailing = signal(true);
+      export function Address({ expose }) {
+        const form = useForm({ defaultValues: { city: 'Lyon', street: '1 Main St' } });
+        expose(form);
+        return <form>
+          <input class="city" {...form.register('city')} />
+          <Show when={mailing}><input class="street" {...form.register('street', { shouldUnregister: true })} /></Show>
+        </form>;
+      }
+    `);
+    const { mount: mountApp, flushSync: flush } = await import('what-framework');
+    let form;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = mountApp(mod.Address({ expose: (f) => { form = f; } }), host);
+    flush();
+    const street = () => host.querySelector('.street');
+    street().value = '9 Side St';
+    street().dispatchEvent(new Event('input', { bubbles: true }));
+    flush();
+    assert.deepEqual(form.formState.values, { city: 'Lyon', street: '9 Side St' });
+    mod.mailing(false);
+    flush();
+    assert.equal(street(), null);
+    assert.deepEqual(form.formState.values, { city: 'Lyon' });
+    mod.mailing(true);
+    flush();
+    assert.equal(street().value, '1 Main St', 'shown again, the field starts from its default');
+    assert.deepEqual(form.formState.values, { city: 'Lyon', street: '1 Main St' });
+    dispose();
+    host.remove();
   });
 });

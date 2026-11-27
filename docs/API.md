@@ -789,7 +789,8 @@ shows its default, and the next edit in it brings the field back.
 `register(name, { shouldUnregister: true })`, or `useForm({ shouldUnregister:
 true })` for every field, unregisters a field when the component (or scope)
 that registered it goes: a field inside `<Show>` leaves the values when it is
-hidden.
+hidden. It keeps the field's default, as `keepDefaultValue` does, so the field
+shown again starts from it.
 
 ### Field arrays: `useFieldArray`
 

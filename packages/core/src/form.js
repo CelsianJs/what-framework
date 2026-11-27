@@ -131,6 +131,8 @@ function unsetIn(obj, segments) {
 // --- useForm Hook ---
 // Complete form state management with validation
 
+const KEEP_DEFAULT = { keepDefaultValue: true };
+
 // One instance per call site of a component, made on its first run.
 function hookStable(make) {
   const ctx = getCurrentComponent();
@@ -179,6 +181,9 @@ function createFormController(options = {}) {
   // wrote yet (or that was unregistered) follows it, and the field joins the
   // values when something writes it.
   const pending = {};
+  // Fields forgotten with their defaults kept: left out of the values until
+  // something writes them again.
+  const hidden = {};
   const errorSignals = {};
   const touchedSignals = {};
   const errorsState = signal({});
@@ -200,6 +205,7 @@ function createFormController(options = {}) {
     if (sig === undefined) {
       sig = fieldSignals[key] = pending[key] || signal(defaultOf(key));
       delete pending[key];
+      delete hidden[key];
       counted();
     }
     return sig;
@@ -241,8 +247,12 @@ function createFormController(options = {}) {
   // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
   function getAllValues(tracked) {
     if (tracked) fieldCount();
-    const result = clone(defaultValues);
+    let result = clone(defaultValues);
     if (ext) ext.v(result, tracked);
+    for (const key in hidden) {
+      const name = nameOf(key);
+      if (name != null) result = unsetIn(result, name.split('.'));
+    }
     for (const key in fieldSignals) {
       const name = nameOf(key);
       if (name != null) setIn(result, name, tracked ? fieldSignals[key]() : fieldSignals[key].peek());
@@ -365,12 +375,13 @@ function createFormController(options = {}) {
   }
 
   // Forget the field at `key` and every field under it: its value (and its
-  // default, unless options.keepDefaultValue), its error and its touched
-  // state, each unless options keeps it (React Hook Form's unregister
-  // options). A reader of the field (a mounted input, watch()) keeps its
-  // signal, which shows the field's default now, and an edit in the input
-  // brings the field back. `gone` is for the keys of a removed item, which
-  // nothing can name again: their signals are dropped.
+  // default, unless options.keepDefaultValue or the form's shouldUnregister
+  // keeps it, so a field shown again starts from it), its error and its
+  // touched state, each unless options keeps it (React Hook Form's
+  // unregister options). A reader of the field (a mounted input, watch())
+  // keeps its signal, which shows the field's default now, and an edit in
+  // the input brings the field back. `gone` is for the keys of a removed
+  // item, which nothing can name again: their signals are dropped.
   function forget(key, options = {}, gone) {
     const under = (k) => k === key || k.startsWith(key + '.');
     if (inFlight) fieldRuns[key] = ++runCount;
@@ -387,7 +398,9 @@ function createFormController(options = {}) {
         if (!gone) pending[k] = fieldSignals[k];
         delete fieldSignals[k];
       }
-      if (!options.keepDefaultValue && !(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
+      for (const k in hidden) if (gone && under(k)) delete hidden[k];
+      if (!gone && (options.keepDefaultValue || shouldUnregister)) hidden[key] = true;
+      else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
     }
     batch(() => {
       for (const [k, sig] of reset) sig.set(defaultOf(k));
@@ -423,7 +436,7 @@ function createFormController(options = {}) {
     const key = untrack(() => keyOf(name));
     getFieldSignal(key);
     const read = () => readKey(key);
-    if (options.shouldUnregister ?? shouldUnregister) onCleanup(() => forget(key));
+    if (options.shouldUnregister ?? shouldUnregister) onCleanup(() => forget(key, KEEP_DEFAULT));
     const isRadio = options.type === 'radio';
     const isCheckbox = options.type === 'checkbox';
     // A radio does NOT store its own checkedness: every radio in a group shares
@@ -672,6 +685,7 @@ function createFormController(options = {}) {
           else map[key].set(defaultOf(key));
         }
       }
+      for (const key in hidden) delete hidden[key];
       counted();
       replaceAllErrors({});
       for (const key in touchedSignals) touchedSignals[key].set(false);

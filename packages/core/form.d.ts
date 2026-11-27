@@ -71,7 +71,7 @@ export interface UnregisterOptions {
   keepValue?: boolean;
   keepError?: boolean;
   keepTouched?: boolean;
-  /** Keep the field's default, so a later reset() brings the field back with it. */
+  /** Keep the field's default, so a later reset(), or the field registered again, starts from it. A form or field with shouldUnregister keeps it. */
   keepDefaultValue?: boolean;
 }
 
@@ -121,7 +121,7 @@ export interface UseFormReturn<TValues extends object = Record<string, any>> {
 export function useForm<TValues extends object = Record<string, any>>(options?: {
   defaultValues?: Partial<TValues>;
   mode?: 'onSubmit' | 'onChange' | 'onBlur';
-  /** Forget each field when the component (or scope) that registered it goes. */
+  /** Forget each field when the component (or scope) that registered it goes, keeping its default for when it is registered again. */
   shouldUnregister?: boolean;
   reValidateMode?: 'onChange' | 'onBlur';
   /**
