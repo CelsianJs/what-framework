@@ -288,10 +288,10 @@ function FrameworkInfo() {
 
     h('div', { style: 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;' },
       ...[
-        { label: 'Framework', value: 'What Framework v0.10' },
-        { label: 'Core Size', value: '~8 kB gzipped' },
+        { label: 'Framework', value: 'What Framework' },
+        { label: 'Rendering', value: 'Fine-grained, no virtual DOM' },
         { label: 'Dependencies', value: '0' },
-        { label: 'Modules Used', value: '14' },
+        { label: 'Components', value: 'Run once' },
       ].map(item =>
         h('div', {
           style: {
