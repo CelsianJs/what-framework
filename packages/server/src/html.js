@@ -24,7 +24,7 @@ import {
   isUrlAttr,
   rawTextContent,
 } from 'what-core/internal/markup-rules';
-import { isVNode } from 'what-core/internal';
+import { isVNode, _symbolChild } from 'what-core/internal';
 import { isHtml, rowKeys } from './compiled.js';
 
 // <ErrorBoundary> and <Suspense> are not elements. They return vnodes carrying
@@ -253,7 +253,10 @@ function _isDomNode(value) {
 // way the client renders it. A DOM node is client output that reached a
 // server renderer, which assertSafeTag explains, never text.
 function _plainText(value) {
-  if (typeof value === 'symbol') return '';
+  if (typeof value === 'symbol') {
+    _symbolChild(value, 'server');
+    return '';
+  }
   if (_isDomNode(value)) assertSafeTag(undefined, value);
   return escapeHtml(String(value));
 }
@@ -766,7 +769,11 @@ function _afterOpen(tag, ns) {
 function textOf(tag, value) {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'bigint') return String(value);
-  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return '';
+  if (value == null || typeof value === 'boolean') return '';
+  if (typeof value === 'symbol') {
+    _symbolChild(value, 'server');
+    return '';
+  }
   if (typeof value === 'function') {
     try {
       return textOf(tag, value());

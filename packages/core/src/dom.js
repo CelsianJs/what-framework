@@ -3,7 +3,7 @@ import { report, setNextBinding } from './diagnostics.js';
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
 
-import { effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _serverComponentOwner, _enterFrame, _exitFrame, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
+import { _symbolChild, effect, untrack, createRoot, getOwner, onCleanup, _currentComponent, _serverComponentOwner, _enterFrame, _exitFrame, _isDisposed, _tracking, runWithOwner, _runOwned, __DEV__ } from './reactive.js';
 import { _renderComponent, _region, _listFragment, _valuesToNodes, _toFunctionComponent, _adoptDetached, _isDomNode, _afterWalk, _installOptionsChanged, applyRef, setClassList, setStyle, _writeClass } from './render.js';
 import { REFUSED_ATTRS, URL_ATTRS, ATTRIBUTE_VALUE_TYPES, isAriaAttr, isEnumeratedAttr, isUnsafeUrl, selectedOptions } from './markup-rules.js';
 import { isVNode, SVG_TAG } from './vnode-renderer.js';
@@ -175,6 +175,7 @@ export function _trackRoot(container, dispose) {
 export function createDOM(vnode, parent, isSvg) {
   // Null/false/true → placeholder comment (preserves child indices for reconciliation)
   if (vnode == null || vnode === false || vnode === true || typeof vnode === 'symbol') {
+    if (__DEV__ && typeof vnode === 'symbol') _symbolChild(vnode, 'client');
     return document.createComment('');
   }
 

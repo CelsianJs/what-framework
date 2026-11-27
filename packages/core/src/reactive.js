@@ -3668,6 +3668,19 @@ export function _currentComponent() {
   return null;
 }
 
+/**
+ * @internal Development: a Symbol given as a child, which renders nothing
+ * (ERR_SYMBOL_CHILD). `path` says where it was dropped: 'client', 'server' or
+ * 'hydration'. Reported once for each component and Symbol on each path.
+ */
+export function _symbolChild(value, path) {
+  if (!__DEV__) return;
+  const owner = _currentComponent();
+  const component = owner ? owner.Component.displayName || owner.Component.name || 'Anonymous' : 'root';
+  const symbol = String(value);
+  report('ERR_SYMBOL_CHILD', { data: { symbol, component, path }, subject: { kind: 'component', name: component, id: `${path}|${component}|${symbol}` } });
+}
+
 export function onCleanup(fn) {
   const now = ownerNow();
   if (now === null) return;

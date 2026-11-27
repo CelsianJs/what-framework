@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 78 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 79 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every code in What's error catalogue, all 78 of them: 44 errors and 34 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 79 of them: 44 errors and 35 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -141,6 +141,7 @@
             <li><a href="#ERR_STATIC_WRITE_ESCAPE">ERR_STATIC_WRITE_ESCAPE</a></li>
             <li><a href="#ERR_STORAGE_FAILED">ERR_STORAGE_FAILED</a></li>
             <li><a href="#ERR_SUSPEND_IN_TRANSITION">ERR_SUSPEND_IN_TRANSITION</a></li>
+            <li><a href="#ERR_SYMBOL_CHILD">ERR_SYMBOL_CHILD</a></li>
             <li><a href="#ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</a></li>
             <li><a href="#ERR_UNKNOWN">ERR_UNKNOWN</a></li>
             <li><a href="#ERR_UNKNOWN_TOOL">ERR_UNKNOWN_TOOL</a></li>
@@ -1139,6 +1140,25 @@ function Panel() {
   return &lt;p&gt;{data().text}&lt;/p&gt;;
 }
 &lt;button onClick={() =&gt; startTransition(() =&gt; tab('b'))}&gt;B&lt;/button&gt;</code></pre>
+
+          <h2 id="ERR_SYMBOL_CHILD">ERR_SYMBOL_CHILD</h2>
+          <p class="subtitle">A Symbol (symbol) is a child of &lt;component&gt;, which renders nothing for it (path).</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A Symbol is not renderable. The server, the client and hydration all render nothing in its place, as for null, so the page shows a gap where a value was meant to be. The usual cause is a Symbol used as an enum value or a sentinel reaching JSX. Render a string for it instead: its description (sym.description), or a label looked up by it. Reported once for each component and Symbol, in development.</p>
+<pre><code>// Bad — a Symbol status renders nothing:
+const OPEN = Symbol('open');
+function Status() {
+  const status = OPEN;
+  return &lt;span&gt;{status}&lt;/span&gt;; // an empty span
+}
+
+// Good — render a label for it:
+const OPEN = Symbol('open');
+const LABELS = { [OPEN]: 'Open' };
+function Status() {
+  const status = OPEN;
+  return &lt;span&gt;{LABELS[status]}&lt;/span&gt;;
+}</code></pre>
 
           <h2 id="ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</h2>
           <p class="subtitle">The compiled template for &lt;tag&gt; has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML.</p>

@@ -937,6 +937,19 @@
       "example": "// Bad — React's tabs pattern: the fallback replaces the old tab:\nfunction Panel(props) {\n  const data = use(props.promise);\n  return <p>{data.text}</p>;\n}\n<button onClick={() => startTransition(() => tab('b'))}>B</button>\n\n// Good — the tab's data is an async value of the tab:\nconst data = computed(({ signal }) => fetchTab(tab(), { signal }));\nfunction Panel() {\n  return <p>{data().text}</p>;\n}\n<button onClick={() => startTransition(() => tab('b'))}>B</button>"
     },
     {
+      "code": "ERR_SYMBOL_CHILD",
+      "severity": "warning",
+      "detects": [
+        "reported"
+      ],
+      "raisedBy": [
+        "what-core"
+      ],
+      "trigger": "A Symbol ({{symbol}}) is a child of <{{component}}>, which renders nothing for it ({{path}}).",
+      "fix": "A Symbol is not renderable. The server, the client and hydration all render nothing in its place, as for null, so the page shows a gap where a value was meant to be. The usual cause is a Symbol used as an enum value or a sentinel reaching JSX. Render a string for it instead: its description (sym.description), or a label looked up by it. Reported once for each component and Symbol, in development.",
+      "example": "// Bad — a Symbol status renders nothing:\nconst OPEN = Symbol('open');\nfunction Status() {\n  const status = OPEN;\n  return <span>{status}</span>; // an empty span\n}\n\n// Good — render a label for it:\nconst OPEN = Symbol('open');\nconst LABELS = { [OPEN]: 'Open' };\nfunction Status() {\n  const status = OPEN;\n  return <span>{LABELS[status]}</span>;\n}"
+    },
+    {
       "code": "ERR_TEMPLATE_NAMESPACE",
       "severity": "error",
       "detects": [

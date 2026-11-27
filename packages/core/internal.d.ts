@@ -221,6 +221,8 @@ export function _devHoldsState(): void;
  * proxies cannot carry. Every renderer decides "element or text" by this.
  */
 export function isVNode(value: unknown): value is VNode<any>;
+/** @internal Development: a Symbol given as a child, which renders nothing (ERR_SYMBOL_CHILD), dropped on `path`. */
+export function _symbolChild(value: symbol, path: 'client' | 'server' | 'hydration'): void;
 /** @internal Used by what-server. The keyed-array mapping `<For>` compiles down to. */
 export function _mapArrayToArray(...args: unknown[]): unknown;
 /** @internal Used by what-server. A keyed list row key's digest under a render's salt, as the server writes it and hydrate() compares it; null for a key that is not a string or a finite number. */

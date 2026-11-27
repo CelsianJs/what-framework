@@ -3,7 +3,7 @@
 
 # Error codes
 
-Every code in What's error catalogue, all 78 of them: 44 errors and 34 warnings.
+Every code in What's error catalogue, all 79 of them: 44 errors and 35 warnings.
 
 Each one carries a suggestion and a worked example, and says how it reaches you.
 The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as
@@ -115,6 +115,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_STATIC_WRITE_ESCAPE`](#err-static-write-escape) | error | [what-server] Refusing to write outside outDir: `path` |
 | [`ERR_STORAGE_FAILED`](#err-storage-failed) | warning | useLocalStorage("`key`") could not `operation` localStorage: `reason`. |
 | [`ERR_SUSPEND_IN_TRANSITION`](#err-suspend-in-transition) | warning | Component "`component`" suspended while a transition committed: its fallback shows. |
+| [`ERR_SYMBOL_CHILD`](#err-symbol-child) | warning | A Symbol (`symbol`) is a child of <`component`>, which renders nothing for it (`path`). |
 | [`ERR_TEMPLATE_NAMESPACE`](#err-template-namespace) | error | The compiled template for <`tag`> has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML. |
 | [`ERR_UNKNOWN`](#err-unknown) | error | createWhatError() was called with a code that is not in this catalogue. |
 | [`ERR_UNKNOWN_TOOL`](#err-unknown-tool) | error | The MCP client called a tool this server does not expose. |
@@ -1663,6 +1664,33 @@ function Panel() {
   return <p>{data().text}</p>;
 }
 <button onClick={() => startTransition(() => tab('b'))}>B</button>
+```
+
+## ERR_SYMBOL_CHILD
+
+**Severity:** warning
+  ·  **Raised by:** `what-core`
+  ·  **Detected:** reported
+
+> A Symbol ({{symbol}}) is a child of <{{component}}>, which renders nothing for it ({{path}}).
+
+A Symbol is not renderable. The server, the client and hydration all render nothing in its place, as for null, so the page shows a gap where a value was meant to be. The usual cause is a Symbol used as an enum value or a sentinel reaching JSX. Render a string for it instead: its description (sym.description), or a label looked up by it. Reported once for each component and Symbol, in development.
+
+```jsx
+// Bad — a Symbol status renders nothing:
+const OPEN = Symbol('open');
+function Status() {
+  const status = OPEN;
+  return <span>{status}</span>; // an empty span
+}
+
+// Good — render a label for it:
+const OPEN = Symbol('open');
+const LABELS = { [OPEN]: 'Open' };
+function Status() {
+  const status = OPEN;
+  return <span>{LABELS[status]}</span>;
+}
 ```
 
 ## ERR_TEMPLATE_NAMESPACE

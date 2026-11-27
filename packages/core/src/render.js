@@ -7,7 +7,8 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { isServerRender } from './server-context.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
@@ -843,7 +844,10 @@ export function _$plain(parent, read, marker, devName) {
 function bindPlain(value, source, read, parent, marker, owner) {
   if (source === null) {
     const type = typeof value;
-    if (value == null || type === 'boolean' || type === 'symbol') return null;
+    if (value == null || type === 'boolean' || type === 'symbol') {
+      if (__DEV__ && type === 'symbol') symbolChild(value);
+      return null;
+    }
     if (type === 'string' || type === 'number') {
       const str = String(value);
       textAt(parent, str, marker);
@@ -1226,7 +1230,10 @@ function asNodeArray(value) {
 // are flattened, because inserting a fragment empties it and a later reconcile
 // must still be able to find and remove the nodes it carried.
 function valuesToNodes(value, parent, out, isSvg) {
-  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return out;
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') {
+    if (__DEV__ && typeof value === 'symbol') symbolChild(value);
+    return out;
+  }
 
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
@@ -3867,7 +3874,10 @@ function hydrateReactiveProp(el, key, value, svg, name) {
 // Adopt `value` at the cursor: what the client renders for it claims the
 // server's nodes for it, in document order.
 function adopt(value) {
-  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return;
+  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') {
+    if (__DEV__ && typeof value === 'symbol') symbolChild(value);
+    return;
+  }
   const type = typeof value;
   if (type === 'string' || type === 'number') {
     claimText(String(value));
@@ -5438,7 +5448,14 @@ function fieldText(value) {
   const type = typeof value;
   if (type === 'string') return value;
   if (type === 'number') return String(value);
+  if (__DEV__ && type === 'symbol') symbolChild(value);
   return value == null || type === 'boolean' || type === 'symbol' ? '' : null;
+}
+
+// Development: a Symbol child dropped here (ERR_SYMBOL_CHILD), on the path
+// the render is on.
+function symbolChild(value) {
+  _symbolChild(value, cur !== null && cur.h ? 'hydration' : isServerRender() ? 'server' : 'client');
 }
 
 function writeField(fields, i, item) {

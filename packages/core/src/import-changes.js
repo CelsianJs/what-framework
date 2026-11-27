@@ -115,7 +115,7 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '_actionStateKey', '_actionKeySalt', '_currentRowPath', '_enterRow', '_installRowKeys', '_leaveRow', '_renderSalt', '_tracksRows', '__flushOutsideServerContext', '__outsideServerContext', '__markServerProcess',
-    '_rowKeyDigest', '_engine', '_runComponentAsync', '_runComponentSync',
+    '_rowKeyDigest', '_engine', '_runComponentAsync', '_runComponentSync', '_symbolChild',
   ], note: 'Server-rendering internals are what-server\'s interface in what-core/internal; apps use getResponse() and useLoaderData().' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '__invalidateFromDevtools', '_tagQueries', '_formStatus', '_formStatusContext', '_resetForm', '_formMember', '_devAction', '__DEV__', '_urgent', '_currentTransition', '_onCommit', '_pathLoaded',

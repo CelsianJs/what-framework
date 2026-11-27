@@ -8,6 +8,8 @@
 import { createDOM, _setVNodeProp, _isUnsafeAttr } from './dom.js';
 import { _vnodeRows, _isSvgParent } from './render.js';
 import { VNode, _installVNodeRuntime } from './vnode-renderer.js';
+import { _symbolChild, __DEV__ } from './reactive.js';
+import { isServerRender } from './server-context.js';
 
 // Every vnode is made by h, _jsxVNode or _vnode, and defining each of them
 // installs the renderer for vnodes and the keyed rows for keyed vnode lists
@@ -131,7 +133,10 @@ export const Fragment = /* @__PURE__ */ lowered(function Fragment({ children }) 
 
 // Fast path for single child (most common case)
 function _flattenSingle(child) {
-  if (child == null || child === false || child === true || typeof child === 'symbol') return EMPTY_ARR;
+  if (child == null || child === false || child === true || typeof child === 'symbol') {
+    if (__DEV__ && typeof child === 'symbol') symbolChild(child);
+    return EMPTY_ARR;
+  }
   if (Array.isArray(child)) {
     const out = [];
     _flattenInto(child, out);
@@ -141,9 +146,17 @@ function _flattenSingle(child) {
   return [type === 'object' || type === 'function' ? child : String(child)];
 }
 
+// Development: a Symbol child h() drops (ERR_SYMBOL_CHILD).
+function symbolChild(child) {
+  _symbolChild(child, isServerRender() ? 'server' : 'client');
+}
+
 // Flatten a child (or array of children) into the output array
 function _flattenInto(child, out) {
-  if (child == null || child === false || child === true || typeof child === 'symbol') return;
+  if (child == null || child === false || child === true || typeof child === 'symbol') {
+    if (__DEV__ && typeof child === 'symbol') symbolChild(child);
+    return;
+  }
   if (Array.isArray(child)) {
     for (let i = 0; i < child.length; i++) {
       _flattenInto(child[i], out);

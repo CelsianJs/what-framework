@@ -51,4 +51,5 @@ export { _mapArrayToArray, _rowKeyDigest, isHydrating, _claimRegion, _afterWalk 
 // The vnode brand: what-server's renderers and its compiled-markup runtime,
 // islands and react-compat recognise vnodes by it.
 export { isVNode } from '../vnode-renderer.js';
+export { _symbolChild } from '../reactive.js';
 export { __readHydrationData, __resetHydrationData, _assignOwnerPath, _ownerCounter, _currentOwnerPath, _actionStateKey, _actionKeySalt, _currentRowPath, _enterRow, _installRowKeys, _leaveRow, _renderSalt, _tracksRows } from '../hydration-data.js';

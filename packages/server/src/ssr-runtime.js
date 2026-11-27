@@ -39,7 +39,7 @@
 
 import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
-import { _enterRow, _leaveRow, getServerContext, isVNode } from 'what-core/internal';
+import { _enterRow, _leaveRow, _symbolChild, getServerContext, isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
 import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, OWN_PROPS, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
@@ -357,7 +357,11 @@ export function ssrRow(t) {
 export function ssrText(v) {
   if (typeof v === 'string') return escapeHtml(v);
   if (typeof v === 'number') return '' + v;
-  if (v == null || typeof v === 'boolean' || typeof v === 'symbol') return '';
+  if (v == null || typeof v === 'boolean') return '';
+  if (typeof v === 'symbol') {
+    _symbolChild(v, 'server');
+    return '';
+  }
   if (typeof v === 'function' || isHtml(v) || isVNode(v)) return v;
   if (Array.isArray(v)) {
     const m = new Markup('', false, false);
@@ -800,7 +804,11 @@ class RawText extends Html {
 }
 
 function collect(value, out) {
-  if (value == null || typeof value === 'boolean' || typeof value === 'symbol') return;
+  if (value == null || typeof value === 'boolean') return;
+  if (typeof value === 'symbol') {
+    _symbolChild(value, 'server');
+    return;
+  }
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) collect(value[i], out);
   } else if (typeof value === 'function' || isVNode(value) || isHtml(value) || (typeof value === 'object' && typeof value.nodeType === 'number')) {

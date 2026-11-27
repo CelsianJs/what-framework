@@ -530,6 +530,27 @@ function ChatRoom({ roomId }) {
 {todos().map(todo => <li key={todo.id}>{todo.title}</li>)}`,
   },
 
+  SYMBOL_CHILD: {
+    code: 'ERR_SYMBOL_CHILD',
+    severity: 'warning',
+    template: 'A Symbol ({{symbol}}) is a child of <{{component}}>, which renders nothing for it ({{path}}).',
+    suggestion: 'A Symbol is not renderable. The server, the client and hydration all render nothing in its place, as for null, so the page shows a gap where a value was meant to be. The usual cause is a Symbol used as an enum value or a sentinel reaching JSX. Render a string for it instead: its description (sym.description), or a label looked up by it. Reported once for each component and Symbol, in development.',
+    codeExample: `// Bad — a Symbol status renders nothing:
+const OPEN = Symbol('open');
+function Status() {
+  const status = OPEN;
+  return <span>{status}</span>; // an empty span
+}
+
+// Good — render a label for it:
+const OPEN = Symbol('open');
+const LABELS = { [OPEN]: 'Open' };
+function Status() {
+  const status = OPEN;
+  return <span>{LABELS[status]}</span>;
+}`,
+  },
+
   ASYNC_MIDDLEWARE: {
     code: 'ERR_ASYNC_MIDDLEWARE',
     severity: 'error',
