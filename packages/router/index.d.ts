@@ -67,7 +67,10 @@ export interface NavigateOptions {
  * one the address bar shows (`/old/../find` commits `/find`). A target that
  * changes only the hash (`#x`, or `/settings#x` on /settings) is a fragment
  * navigation: the page stays mounted, the URL and `route.hash` move and the
- * element scrolls into view, and no guard, middleware or preload runs. On a server,
+ * element scrolls into view, and no guard, middleware or preload runs. A URL
+ * of another origin (another site, `mailto:`, `tel:`) is the browser's to
+ * load, as a click on a `<Link>` to it is: it calls `location.assign()`
+ * (`location.replace()` with `replace: true`) and runs no guard. On a server,
  * where nothing navigates, it redirects the response of the render in
  * progress instead.
  */

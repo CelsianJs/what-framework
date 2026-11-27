@@ -460,8 +460,10 @@ let _navigation = 0;
  * them and `transition` is not false. `flushSync: true` commits at once,
  * without holding the screen for async values the URL change starts.
  * Resolves once the new page is on screen; a newer navigation supersedes this
- * one while it prepares, and it stops at once. On a server, where nothing
- * navigates, it redirects the response of the render in progress instead.
+ * one while it prepares, and it stops at once. Another origin's URL is the
+ * browser's to load (location.assign, or location.replace for `replace`). On
+ * a server, where nothing navigates, it redirects the response of the render
+ * in progress instead.
  */
 export async function navigate(to, opts = {}) {
   const { replace = false, state = null, transition = true, flushSync: sync = false, _fromPopstate = false, _redirectChain = false } = opts;
@@ -492,8 +494,14 @@ export async function navigate(to, opts = {}) {
   if (!_redirectChain) _redirectHistory.length = 0;
 
   // The URL the address bar will show, which is what the router commits.
-  const target = resolveHref(to);
-  const href = target ?? to;
+  const href = resolveHref(to);
+  // Another origin's URL (another site, mailto:, tel:) is the browser's to
+  // load, as a click on a <Link> to it is: no guard runs, and the route state
+  // stays while the document leaves.
+  if (href === null) {
+    location[replace ? 'replace' : 'assign'](to);
+    return;
+  }
 
   // Another place on the page on screen ('#teams', '/settings#teams' on
   // /settings, the URL on screen itself, the browser moving the hash): a
@@ -502,7 +510,7 @@ export async function navigate(to, opts = {}) {
   // view. No guard, middleware or preload runs: the route has not changed. A
   // '#hash' target replaces the history entry, as it always has here, and so
   // does the URL on screen, as in the browser.
-  if (typeof window !== 'undefined' && target !== null && pageOf(target) === pageOf(readUrl())) {
+  if (typeof window !== 'undefined' && pageOf(href) === pageOf(readUrl())) {
     fragmentNavigation(href, replace || to.startsWith('#') || href === readUrl(), opts.state, _fromPopstate);
     return;
   }

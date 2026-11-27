@@ -97,6 +97,7 @@ navigate('/login', { replace: true });
 navigate('/page', { transition: false }); // skip View Transition
 navigate('/page', { flushSync: true });   // commit at once, without holding for async values
 navigate('/settings#teams');              // on /settings: a fragment navigation (below)
+navigate('https://example.com/docs');     // another origin: the browser loads it (below)
 
 // Route state: getters on the global `route` object. Read inside a binding,
 // an effect or a computed, they subscribe, so the reader updates on navigation.
@@ -119,6 +120,12 @@ guard, middleware or `preload` runs, and `afterNavigate` is not called. A
 `'#hash'` target replaces the history entry; a path with a hash adds one
 unless `replace: true`. A replaced entry keeps its `history.state` unless you
 pass `state`, so `navigate()` to the URL on screen changes nothing.
+
+A URL of another origin (another site, `mailto:`, `tel:`) is the browser's to
+load, as a click on a `<Link>` to it is: `navigate()` calls
+`location.assign()`, or `location.replace()` with `replace: true`, and runs no
+guard. A middleware or `redirect()` that sends a navigation to another origin
+replaces the entry the same way.
 
 ## Route data: `preload`
 
