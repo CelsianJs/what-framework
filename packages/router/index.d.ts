@@ -143,7 +143,10 @@ export interface RouteMiddlewareContext {
  * redirect with a path. Use asyncGuard for async checks. It runs before the
  * route's `preload`, which never runs for a route it declines. It runs once
  * for a navigation, whose verdict the page renders by, and again only when a
- * signal it read changes. A fragment navigation (only the hash changes) keeps
+ * signal it read changes. While a navigation away from its page is in
+ * flight, that page keeps its verdict, so writing what a guard reads and then
+ * navigating (sign out, then go to sign-in) goes where navigate() asked; the
+ * guard's new verdict applies if that navigation does not commit. A fragment navigation (only the hash changes) keeps
  * the page and runs no middleware. On the server, a redirect redirects the
  * render's response.
  */

@@ -345,6 +345,13 @@ function prepare(url, routes, current, state = null) {
     let first = true;
     effect(() => {
       const decided = decide(r, context);
+      // The tab's page being left keeps the verdict it shows while a
+      // navigation to another page is in flight: an app that writes what its
+      // guard reads and then navigates away (sign out, then go to sign-in)
+      // goes where it asked. The verdict is decided again once that
+      // navigation ends: one that never commits leaves this page shown, and
+      // its guard's verdict then applies.
+      if (!first && state === null && decided !== prep.verdict.peek() && leaving(url)) return;
       untrack(() => {
         if (decided === true && !loaded && !(first && current !== undefined && !current())) admit();
         prep.verdict.set(decided);
@@ -353,6 +360,13 @@ function prepare(url, routes, current, state = null) {
     });
   }));
   return prep;
+}
+
+// Whether a navigation to a page other than `url`'s is in flight. Tracked: a
+// verdict held by it is decided again when the navigation ends.
+function leaving(url) {
+  const to = _pendingUrl();
+  return to !== null && pageOf(to) !== pageOf(url);
 }
 
 // The route's middleware verdict, with what it threw as `{ error }`.

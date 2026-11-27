@@ -131,11 +131,8 @@ export function ReviewStep() {
     });
     const project = await res.json();
     ws.addProject(project);
-    // Leave the review step before emptying the draft: emptied while the step
-    // is on screen, the draft fails its guard, and the guard's redirect to
-    // step one replaces this navigation (smoke/FINDINGS.md, E).
-    await navigate(`/projects/${project.id}`);
     ws.resetDraft();
+    navigate(`/projects/${project.id}`);
   };
   return (
     <div data-form="review">

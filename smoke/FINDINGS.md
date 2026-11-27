@@ -610,6 +610,19 @@ as well as to the ISR engine. A handler given any `render` renders
 1,204 ms, the time of its slow query. The example now gives the renderer to
 the engine only and says why.
 
+### 28. A guard's re-check redirect replaced a navigation the app started after it
+`packages/router/src/index.js` (`prepare`)
+
+A route's middleware runs again when a signal it read changes. An app that
+wrote that signal and then navigated away in the same tick (reset the draft,
+then go to the created project; sign out, then go to sign-in) lost its
+navigation: the re-check of the page being left redirected, and the redirect
+superseded it. workspace-ssr's wizard landed on step one instead of the new
+project. The page being left now keeps its verdict while a navigation to
+another page is in flight, and decides again when that navigation ends, so a
+navigation that never commits still gets the guard's redirect.
+- Test: `packages/router/test/guard-recheck-supersedes-navigate.test.js`.
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -667,19 +680,6 @@ SERVER console at render time, which is not where the developer is looking.
 The storefront works around it by putting the review form on `/review`, a
 `mode: 'server'` page. Worth either documenting loudly or having `<Form>` detect
 a cached render and say so.
-
-### E. A guard's re-check redirect replaces a navigation the app started after it
-`packages/router/src/index.js` (`navigate`, `handleRedirect`)
-
-A route's middleware runs again when a signal it read changes. An app that
-writes that signal and then navigates away in the same tick (reset the draft,
-then go to the created project; sign out, then go to sign-in) loses its
-navigation: the re-check of the page being left redirects, and the redirect
-supersedes it. workspace-ssr's wizard landed on step one instead of the new
-project. The fix (hold that redirect while a navigation to another URL is in
-flight, and make it only if that one never commits) changes router semantics
-in a file another change is reworking, so it is left with a failing test (in
-the round-2 smoke report). workspace-ssr navigates first and resets after.
 
 ### F. ISR tags are per route
 
