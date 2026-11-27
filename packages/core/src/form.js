@@ -230,12 +230,11 @@ function createFormController(options = {}) {
   }
 
   function getTouchedSignal(key) {
-    let sig = touchedSignals[key];
-    if (sig === undefined) {
-      sig = touchedSignals[key] = signal(false);
+    if (!touchedSignals[key]) {
+      touchedSignals[key] = signal(false);
       counted();
     }
-    return sig;
+    return touchedSignals[key];
   }
 
   // Aggregate signals for bulk operations
@@ -686,7 +685,7 @@ function createFormController(options = {}) {
 
       isSubmitting.set(true);
       isSubmitted.set(true);
-      submitCount.set(submitCount.peek() + 1);
+      submitCount.set((n) => n + 1);
 
       // try/finally, because anything that throws between here and the release
       // leaves isSubmitting stuck true forever, which in practice means a submit
