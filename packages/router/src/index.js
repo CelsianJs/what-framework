@@ -999,10 +999,11 @@ function redirectLoop(hops, kind) {
 // `guard` is the pattern of the route whose middleware or component sent the
 // navigation on, when the caller knows it.
 function handleRedirect(target, options, guard) {
-  // A server render answers with a redirect: it has no history to push, and
-  // the navigation state below is the browser tab's.
+  // A server render answers with a redirect, as navigate() does there (a
+  // relative target resolved against the URL the render shows): it has no
+  // history to push, and the navigation state below is the browser tab's.
   if (onServer()) {
-    getResponse().redirect(outward(target));
+    navigate(target);
     return null;
   }
 
