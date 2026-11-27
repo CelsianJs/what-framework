@@ -67,23 +67,24 @@ import {
 /** @type {'svg' | 'math' | 'foreign' | null} */
 let _ns = null;
 
-function renderIn(render, child, ns) {
-  if (ns === _ns) return render(child);
+function renderIn(render, child, ns, notHtml) {
+  if (ns === _ns) return render(child, notHtml);
   const outer = _ns;
   _ns = ns;
   try {
-    return render(child);
+    return render(child, notHtml);
   } finally {
     _ns = outer;
   }
 }
 
-// What compiled markup (ssr-runtime.js) renders its children with.
-const renderStringIn = (child, ns) => renderIn(_renderString, child, ns);
+// What compiled markup (ssr-runtime.js) renders its children with; `notHtml`
+// is its word that the child is no Html (compiled.js).
+const renderStringIn = (child, ns, notHtml) => renderIn(_renderString, child, ns, notHtml);
 // The pending hydration key of the component renderToHydratableString is
 // rendering (compiled.js). Compiled markup settles it through the same object.
 let HK = createHydrationKeys();
-const renderHydratableIn = (child, ns) => renderIn(_renderHydratable, child, ns);
+const renderHydratableIn = (child, ns, notHtml) => renderIn(_renderHydratable, child, ns, notHtml);
 
 // An element's children, in the namespace its tag gives them.
 // A select carries its scope down to its options (html.js Options): `field`
@@ -167,7 +168,8 @@ function renderRegionValue(value) {
   return Array.isArray(value) ? renderArray(value, arrayKeys(value)) : _renderHydratable(value);
 }
 
-function _renderHydratable(vnode) {
+// `notHtml` true: the caller found `vnode` is no Html (renderIn).
+function _renderHydratable(vnode, notHtml) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
   // Text. A number's string form has nothing to escape. An option collecting
@@ -226,7 +228,7 @@ function _renderHydratable(vnode) {
   // Array — wrap in list markers
   if (Array.isArray(vnode)) return renderArray(vnode, '');
 
-  if (isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
+  if (notHtml !== true && isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
   if (!isVNode(vnode)) {
     const text = _plainText(vnode);
     if (sink.text !== null) sink.text += String(vnode);
@@ -358,7 +360,8 @@ export function renderToString(vnode, options) {
 
 // The recursion behind renderToString. Separate from the public entry so the
 // render-context lookup above runs once per render, not once per node.
-function _renderString(vnode) {
+// `notHtml` true: the caller found `vnode` is no Html (renderIn).
+function _renderString(vnode, notHtml) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
   // Text. A number's string form has nothing to escape. An option collecting
@@ -407,7 +410,7 @@ function _renderString(vnode) {
   // Array
   if (Array.isArray(vnode)) return renderChildren(vnode, _renderString);
 
-  if (isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
+  if (notHtml !== true && isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
   if (!isVNode(vnode)) {
     const text = _plainText(vnode);
     if (sink.text !== null) sink.text += String(vnode);

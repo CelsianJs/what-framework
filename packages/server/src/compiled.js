@@ -15,8 +15,10 @@
 //
 // The protocol every Html implements:
 //   render(renderChild, hk, ns)  its HTML, for a synchronous renderer.
-//       renderChild(child, ns) renders a child the way the renderer renders
-//       it; hk is null for a plain render and, for a hydratable one, holds
+//       renderChild(child, ns, notHtml) renders a child the way the renderer
+//       renders it; `notHtml` true says the caller found the child is not
+//       Html (isHtml), so the renderer need not ask again, and leaving it out
+//       only costs that question; hk is null for a plain render and, for a hydratable one, holds
 //       the hydration key the next element takes (hk.key, or null); ns is the
 //       namespace the markup sits in (null for HTML, see what-core's
 //       childNamespace).
@@ -68,7 +70,11 @@ checks.add(Html.is);
 /** Whether `value` is compiled markup made by this or another copy of what-server. */
 export function isHtml(value) {
   if (typeof value !== 'object' || value === null) return false;
-  if (Html.is(value)) return true;
+  return Html.is(value) || isForeignHtml(value);
+}
+
+/** Whether `value`, an object this copy's Html.is refused, is compiled markup made by another copy. */
+export function isForeignHtml(value) {
   if (checks.size > 1) {
     for (const is of checks) if (is !== Html.is && is(value)) return true;
   }

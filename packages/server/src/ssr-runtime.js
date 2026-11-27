@@ -42,7 +42,7 @@ import { _$Island } from 'what-core/render';
 import { _enterRow, _leaveRow, _symbolChild, _tracksRows, getServerContext, isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
 import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, OWN_PROPS, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
-import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
+import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isForeignHtml, isHtml, rowKeys } from './compiled.js';
 
 // Compiled JSX: HTML, or HTML with what is rendered when it is placed. The
 // HTML is `h` followed by `s`, or by the parts in `p`: `h` is the markup's
@@ -85,7 +85,7 @@ class Markup extends Html {
     for (let i = 0; i < p.length; i++) {
       const part = p[i];
       if (typeof part === 'string') html += part;
-      else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs);
+      else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs, true);
       else if (part instanceof AttrSlot) {
         html += part.take(p, i);
         i += part.n;
@@ -106,7 +106,7 @@ class Markup extends Html {
       for (let i = 0; i < p.length; i++) {
         const part = p[i];
         if (typeof part === 'string') html += hk.key !== null ? claim(hk, part) : part;
-        else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs);
+        else if (typeof part !== 'object' || part === null || !isHtml(part)) html += renderChild(part, partNs, true);
         else if (part instanceof AttrSlot) {
           html += keyed(hk, part.take(p, i));
           i += part.n;
@@ -203,6 +203,22 @@ function append(m, hole) {
   if (typeof hole === 'string') addHtml(m, hole);
   else if (typeof hole === 'object' && hole !== null && Html.is(hole) && hole instanceof Markup && !hole.list) inline(m, hole);
   else defer(m, hole);
+}
+
+// append(m, ssrText(v)), with one brand check for markup or a vnode.
+function appendText(m, v) {
+  if (typeof v === 'object' && v !== null) {
+    if (Html.is(v)) {
+      if (v instanceof Markup && !v.list) inline(m, v);
+      else defer(m, v);
+      return;
+    }
+    if (isForeignHtml(v) || isVNode(v)) {
+      defer(m, v);
+      return;
+    }
+  }
+  append(m, ssrText(v));
 }
 
 // How many parts that can render a component (anything but a reactive
@@ -365,7 +381,7 @@ export function ssrText(v) {
   if (typeof v === 'function' || isHtml(v) || isVNode(v)) return v;
   if (Array.isArray(v)) {
     const m = new Markup('', false, false);
-    for (let i = 0; i < v.length; i++) append(m, ssrText(v[i]));
+    for (let i = 0; i < v.length; i++) appendText(m, v[i]);
     return finish(m);
   }
   if (typeof v === 'object' && typeof v.nodeType === 'number') return v;
@@ -411,7 +427,7 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
         const at = rowList !== null ? /** @type {any[]} */ (m.p).length : 0;
         const before = deferred;
         const row = rowFns === undefined ? fn(list[i], i, list) : fn(rowFns, list[i], i, list);
-        if (row !== WRITTEN) append(m, ssrText(row));
+        if (row !== WRITTEN) appendText(m, row);
         if (rowList !== null && deferred !== before) keyRow(m, at, rowList, i);
       }
     } finally {
@@ -421,7 +437,7 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
     // The source's own map() calls the callback, when it chooses to and with
     // what it chooses to pass: each call takes this list's functions first.
     const mapped = list.map(rowFns === undefined ? fn : (...args) => fn(rowFns, ...args));
-    for (let i = 0; i < mapped.length; i++) append(m, ssrText(mapped[i]));
+    for (let i = 0; i < mapped.length; i++) appendText(m, mapped[i]);
   }
   return finish(m);
 }
@@ -506,7 +522,7 @@ export function ssrFor(each, fn, key, fallback, slot) {
 function emptyList(slot, fallback) {
   const m = new Markup('', false, false);
   if (_tracksRows()) defer(m, new RowEdge({ keys: [], slot }, undefined, 0, null));
-  append(m, ssrText(fallback));
+  appendText(m, fallback);
   return finish(m);
 }
 
