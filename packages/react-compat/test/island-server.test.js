@@ -19,10 +19,10 @@ globalThis.__WHAT_DEV__ = true;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pk = path.resolve(here, '../..');
 const server = await import(path.join(pk, 'server/src/index.js'));
-const { h } = await import(path.join(pk, 'core/src/index.js'));
+const { h, createContext: nativeContext } = await import(path.join(pk, 'core/src/index.js'));
 const React = await import('../src/index.js');
-const { ReactIsland } = await import('../src/mixed.js');
-const { createElement: e, useSyncExternalStore } = React;
+const { ReactIsland, native } = await import('../src/mixed.js');
+const { createElement: e, useSyncExternalStore, useContext } = React;
 
 function serverHtml(view) {
   return server.renderToString(h(ReactIsland, { view }));
@@ -113,4 +113,15 @@ test('useSyncExternalStore without getServerSnapshot: React\'s error on the serv
   // With one, the server reads it.
   function Served() { return e('b', null, useSyncExternalStore(() => () => {}, () => 'client', () => 'server')); }
   assert.match(serverHtml(() => e(Served)), /<b>server<\/b>/);
+});
+
+test("React's useContext reads a What context from the What providers around the island, on the server as in the browser", () => {
+  const Desk = nativeContext('none');
+  function Reader() { return e('b', null, useContext(Desk)); }
+  assert.equal(server.renderToString(h(Desk.Provider, { value: 'Rates' }, h(ReactIsland, { view: () => e('p', null, e(Reader)) }))), '<p><b>Rates</b></p>');
+  // A What provider inside the island, around a React island of its own.
+  const Inner = native((props) => h(Desk.Provider, { value: 'FX' }, h(ReactIsland, { view: () => e(Reader) }), props.children));
+  assert.equal(server.renderToString(h(Desk.Provider, { value: 'Rates' }, h(ReactIsland, { view: () => e('p', null, e(Reader), e(Inner)) }))), '<p><b>Rates</b><b>FX</b></p>');
+  // Outside every What provider: the context's default.
+  assert.equal(serverHtml(() => e(Reader)), '<b>none</b>');
 });

@@ -24,7 +24,7 @@
  * A plain renderToString writes none of them.
  */
 
-import { h } from 'what-core';
+import { h, getOwner } from 'what-core';
 import { isVNode, _provide, _currentOwnerPath, getServerContext } from 'what-core/internal';
 import { Suspense } from './index.js';
 import { _islandIds } from './hooks.js';
@@ -42,8 +42,11 @@ function serverTree(element, parent) {
     _islandIds(islandId);
   }
   // The island's own instance names its components' ids (islandId), from
-  // its owner path, which a hydratable render gives it.
+  // its owner path, which a hydratable render gives it. It stands where the
+  // island does in native code, so React's useContext of a What context
+  // reads the What providers around it, as in the browser.
   const root = _serverInstance(serverTree, null, parent);
+  /** @type {any} */ (root)._nativeOwner = getOwner();
   const path = _currentOwnerPath();
   if (path !== undefined) root._ids = idsOf(path);
   return childList(expand(element, root, false));
