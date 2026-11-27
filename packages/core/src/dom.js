@@ -666,9 +666,12 @@ function createElementFromVNode(vnode, parent, isSvg) {
     ? document.createElementNS(SVG_NS, tag)
     : document.createElement(tag);
 
-  // Apply props
-  if (props) {
-    applyProps(el, props, {}, svgContext);
+  // Its props (an object, or null), written once with no diffing: a
+  // reactive prop updates through an effect of its own (setProp).
+  for (const key in props) {
+    if (key === 'key' || key === 'children') continue;
+    if (key === 'ref') applyRef(props.ref, el);
+    else setProp(el, key, props[key], svgContext);
   }
 
   // Append children. A <noscript>'s are not rendered: with scripts on, the
@@ -681,24 +684,6 @@ function createElementFromVNode(vnode, parent, isSvg) {
   }
 
   return el;
-}
-
-// --- Prop Application ---
-// Only applied once for fine-grained (no diffing). Reactive props use effects.
-
-function applyProps(el, newProps, oldProps, isSvg) {
-  if (!newProps) return;
-
-  for (const key in newProps) {
-    if (key === 'key' || key === 'children') continue;
-
-    if (key === 'ref') {
-      applyRef(newProps.ref, el);
-      continue;
-    }
-
-    setProp(el, key, newProps[key], isSvg);
-  }
 }
 
 // --- Form fields ---

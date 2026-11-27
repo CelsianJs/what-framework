@@ -413,7 +413,7 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
   // accept an object and only two accept a function: render.js spread() treats
   // any function-valued prop as a reactive accessor and would CALL a callback
   // ref with no arguments. An object is assigned `.current` by dom.js
-  // applyProps (h()), render.js setProp() (compiled spread) and
+  // createElementFromVNode (h()), render.js setProp() (compiled spread) and
   // hydrateElementProps() (SSR) alike, and renderToString() skips `ref`
   // entirely, so nothing lands in the HTML and there is no hydration mismatch
   // to have.
