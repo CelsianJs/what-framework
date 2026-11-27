@@ -632,7 +632,7 @@ const routes = [
   HOOK_OUTSIDE_COMPONENT: {
     code: 'ERR_HOOK_OUTSIDE_COMPONENT',
     severity: 'error',
-    template: '[what] {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.',
+    template: '{{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.',
     suggestion: 'A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.',
     codeExample: `import { onMount, useState } from 'what-framework';
 

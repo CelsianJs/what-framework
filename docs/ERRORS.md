@@ -71,7 +71,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_FORM_HANDLER_WITHOUT_EVENT`](#err-form-handler-without-event) | warning | register("`name`") change handler was called without an event; the field was left unchanged. |
 | [`ERR_FORM_RADIO_UNTYPED`](#err-form-radio-untyped) | warning | register("`name`") was spread onto a radio without { type: 'radio' }, which overwrote the radio's value. |
 | [`ERR_FORM_RADIO_WITHOUT_VALUE`](#err-form-radio-without-value) | warning | Radio for field "`name`" has no value, so it cannot record a choice. |
-| [`ERR_HOOK_OUTSIDE_COMPONENT`](#err-hook-outside-component) | error | [what] `hookName`() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly. |
+| [`ERR_HOOK_OUTSIDE_COMPONENT`](#err-hook-outside-component) | error | `hookName`() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly. |
 | [`ERR_HOOK_OUTSIDE_RENDER`](#err-hook-outside-render) | error | [what-react] `hookName`() called outside of a component render. |
 | [`ERR_HYDRATION_MISMATCH`](#err-hydration-mismatch) | error | Hydration mismatch (`kind`) in <`component`> at `path`: the server rendered `found` where the client renders `expected`. Recovery: `recovery`. |
 | [`ERR_HYDRATION_OWNER_MISMATCH`](#err-hydration-owner-mismatch) | warning | A keyless resource or async value at owner path `path` was rendered by <`server`> on the server and <`client`> on the client, so it fetches instead of adopting the server value. |
@@ -676,7 +676,7 @@ Radios in a group share one field that holds the selected option's value. A radi
   ·  **Raised by:** `what-core`
   ·  **Detected:** reported, thrown
 
-> [what] {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.
+> {{hookName}}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.
 
 A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.
 

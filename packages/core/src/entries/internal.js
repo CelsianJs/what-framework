@@ -15,7 +15,7 @@ export { _urgent, _currentTransition, _onCommit, _contextOf, _provide, _devHolds
 // The development flag, for sibling packages whose development-only text must
 // fold away in a production build (what-router's error fixes).
 export { __DEV__ } from '../reactive.js';
-export { report as reportDiagnostic, subscribe as subscribeDiagnostics, getDiagnostics } from '../diagnostics.js';
+export { report as reportDiagnostic, subscribe as subscribeDiagnostics, getDiagnostics, _thrownMessage } from '../diagnostics.js';
 export {
   configureGuardrails,
   getGuardrailConfig,

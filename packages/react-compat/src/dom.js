@@ -16,6 +16,7 @@ import {
   _canFlushSynchronously,
   _getCurrentInstance,
 } from './runtime.js';
+import { _thrownMessage, __DEV__ } from 'what-core/internal';
 import { useFormStatus, useActionState, _islandIds } from './hooks.js';
 import { createElement } from './index.js';
 
@@ -26,7 +27,9 @@ import { createElement } from './index.js';
 // development (what-core dom.js _mountTarget).
 function rootContainer(container, fn) {
   if (container == null || typeof container.nodeType !== 'number') {
-    throw Object.assign(new Error(`[what] ${fn}() got no container element: it was ${String(container)}`), { code: 'ERR_MOUNT_TARGET_MISSING' });
+    throw Object.assign(new Error(__DEV__
+      ? _thrownMessage('ERR_MOUNT_TARGET_MISSING', `${fn}() got no container element: it was ${String(container)}`)
+      : `[what] ${fn}() got no container element: it was ${String(container)}`), { code: 'ERR_MOUNT_TARGET_MISSING' });
   }
   return container;
 }

@@ -40,7 +40,7 @@ import {
 import { _seedFor } from './hydration-data.js';
 import { _enableSuspense } from './render.js';
 import { useContext } from './hooks.js';
-import { report, recordObservation } from './diagnostics.js';
+import { report, recordObservation, _thrownMessage } from './diagnostics.js';
 
 /**
  * A computed. Its function may return a promise, a thenable or an async
@@ -226,7 +226,7 @@ function suspendOn(x) {
     const component = frame.Component.displayName || frame.Component.name || 'Anonymous';
     if (__DEV__) report('ERR_USE_UNCACHED_PROMISE', { data: { component } });
     throw Object.assign(new Error(__DEV__
-      ? `[what] Component "${component}" keeps suspending on a new promise: use() received a promise made in the component body. Make it outside the component, or use computed().`
+      ? _thrownMessage('ERR_USE_UNCACHED_PROMISE', `Component "${component}" keeps suspending on a new promise: use() received a promise made in the component body. Make it outside the component, or use computed().`)
       : '[what] use: a new promise on every run'), { code: 'ERR_USE_UNCACHED_PROMISE' });
   }
   d.last = x;

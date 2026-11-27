@@ -32,6 +32,7 @@
 
 import { runWithOwner, flushSync, _detached, _engine, _setOwnerFallback, _isDisposed, _serverStoreKey as STORE, __DEV__ } from './reactive.js';
 import { _installServerSeeding } from './hydration-data.js';
+import { _thrownMessage } from './diagnostics.js';
 
 // The process's render context, its async context provider and whether it is
 // a server, kept once for every tier of what-core the process loaded: the
@@ -72,7 +73,9 @@ function serving() {
 function refuse() {
   if (getServerContext() != null) {
     // ERROR_CODES.FOREIGN_ENGINE_IN_SSR
-    throw Object.assign(new Error('[what] An async value was made by a second copy of what-core during a server render. Bundle one copy of what-framework.'), { code: 'ERR_FOREIGN_ENGINE_IN_SSR' });
+    throw Object.assign(new Error(__DEV__
+      ? _thrownMessage('ERR_FOREIGN_ENGINE_IN_SSR', 'An async value was made by a second copy of what-core during a server render. Bundle one copy of what-framework.')
+      : '[what] An async value was made by a second copy of what-core during a server render. Bundle one copy of what-framework.'), { code: 'ERR_FOREIGN_ENGINE_IN_SSR' });
   }
 }
 

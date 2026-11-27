@@ -79,6 +79,12 @@ export interface DiagnosticDetail {
 
 /** Report a diagnostic by its ERR_* code. Call it only behind a development check. */
 export function reportDiagnostic(code: string, detail?: DiagnosticDetail): DiagnosticEvent;
+/**
+ * Development: the message of an error thrown with a catalogue code, in the
+ * shape the console prints a reported one: `[what] <code> <message>`, then the
+ * line naming its fix.
+ */
+export function _thrownMessage(code: string, message: string): string;
 
 // --- Guardrails ---
 

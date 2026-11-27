@@ -65,6 +65,10 @@ function docsUrl(code) {
   return `https://github.com/CelsianJs/what-framework/blob/v${VERSION}/docs/ERRORS.md#${code.toLowerCase().replace(/_/g, '-')}`;
 }
 
+function fixLine(code) {
+  return `  fix: what_fix({ error: "${code}" }) · ${SKILL_PATH} · ${docsUrl(code)}`;
+}
+
 function print(ev) {
   for (const c of captures) if (c.quiet) return;
   const lines = [`[what] ${ev.code} ${ev.message}`];
@@ -72,10 +76,23 @@ function print(ev) {
   if (ev.loc) lines.push(`  at ${ev.loc}`);
   if (!pointed.has(ev.code)) {
     pointed.add(ev.code);
-    lines.push(`  fix: what_fix({ error: "${ev.code}" }) · ${SKILL_PATH} · ${docsUrl(ev.code)}`);
+    lines.push(fixLine(ev.code));
   }
   if (typeof console === 'undefined') return;
   (ev.severity === 'error' ? console.error : console.warn)(lines.join('\n'));
+}
+
+/**
+ * @internal Development: the message of an error what-core throws with a
+ * catalogue code, in the shape the console prints a reported one: the code
+ * after `[what]`, then the line that says where its fix is. A throw site
+ * writes `__DEV__ ? _thrownMessage(code, text) : shortText`, so the production
+ * tier keeps its short text and none of this.
+ * @param {string} code ERR_* code from ERROR_CODES
+ * @param {string} message
+ */
+export function _thrownMessage(code, message) {
+  return `[what] ${code} ${message.replace(/^\[what\] /, '')}\n${fixLine(code)}`;
 }
 
 /**

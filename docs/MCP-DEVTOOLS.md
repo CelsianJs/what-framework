@@ -163,7 +163,7 @@ Coded diagnostics the page reported and errors it threw (in effects, in event ha
  "diagnostics":[{"code":"ERR_MISSING_SIGNAL_READ","severity":"warning","count":2,
    "message":"«Signal \"count\" was used as a value without being called (in a template literal, …»",
    "owner":"<App> › <Total>","loc":"src/Total.jsx:4:9","subject":{"kind":"signal","id":3,"name":"count"},"seq":41}],
- "errors":[{"code":"ERR_HOOK_OUTSIDE_COMPONENT","type":"uncaught","message":"«[what] useState() can only be called inside a component function. …»","component":"HookButton","at":"src/App.jsx:12:5","seq":57}],
+ "errors":[{"code":"ERR_HOOK_OUTSIDE_COMPONENT","type":"uncaught","message":"«[what] ERR_HOOK_OUTSIDE_COMPONENT useState() can only be called inside a component function. …»","component":"HookButton","at":"src/App.jsx:12:5","seq":57}],
  "fixes":{"ERR_MISSING_SIGNAL_READ":"Signals are functions. Call them to read: …"},"note":"…","seq":57}
 ```
 

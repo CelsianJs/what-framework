@@ -13,7 +13,7 @@ import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
 import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_TYPES } from './markup-rules.js';
 import { _onChange } from './dom.js';
-import { report, setNextBinding, recordObservation } from './diagnostics.js';
+import { report, setNextBinding, recordObservation, _thrownMessage } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
 // package's elements in a program that has none of what-core's: what-react's
@@ -89,10 +89,10 @@ function inOptions(parent) {
 
 function vnodeRuntimeMissing(what) {
   return Object.assign(new Error(__DEV__
-    ? `[what] ${what} reached the compiled-JSX runtime, but no vnode renderer is installed. ` +
+    ? _thrownMessage('ERR_NO_VNODE_RENDERER', `${what} reached the compiled-JSX runtime, but no vnode renderer is installed. ` +
       'Compiled JSX builds DOM directly; the renderer for vnodes is installed by importing h, ' +
       'Fragment or html from what-framework, by the automatic JSX runtime, or by a component ' +
-      'that returns vnodes (ErrorBoundary, Suspense, Portal, lazy, Island).'
+      'that returns vnodes (ErrorBoundary, Suspense, Portal, lazy, Island).')
     : '[what] no vnode renderer installed'), { code: 'ERR_NO_VNODE_RENDERER' });
 }
 
@@ -601,10 +601,9 @@ function invalidNesting(root) {
   const name = (node) => (node ? node.nodeName.toLowerCase() : 'that element');
   const inner = nodes.find((node, i) => i > 0 && node.nodeType === 1);
   return Object.assign(
-    new Error(
-      `[what] <${name(nodes[0])}> cannot contain <${name(inner)}>: ` +
-      'the HTML parser closed the outer tag early, so the rendered tree does not match your JSX.',
-    ),
+    new Error(_thrownMessage('ERR_INVALID_HTML_NESTING',
+      `<${name(nodes[0])}> cannot contain <${name(inner)}>: ` +
+      'the HTML parser closed the outer tag early, so the rendered tree does not match your JSX.')),
     { code: 'ERR_INVALID_HTML_NESTING' },
   );
 }
@@ -635,12 +634,12 @@ export function _$template(html, flag) {
 function checkTemplateRoot(node) {
   // An SVG or MathML name the HTML parser took as an unknown HTML element.
   if (node.nodeType !== 1 || node.namespaceURI !== NAMESPACES[0] || !(SVG_TAG.test(node.localName) || MATH_TAG.test(node.localName))) return;
-  throw Object.assign(new Error(
-    `[what] The template for <${node.localName}> has no namespace flag, so its root would render ` +
+  throw Object.assign(new Error(_thrownMessage('ERR_TEMPLATE_NAMESPACE',
+    `The template for <${node.localName}> has no namespace flag, so its root would render ` +
     'as an unknown HTML element instead of SVG or MathML. Compiled output like this comes from a ' +
     'what-compiler older than this runtime: compiler and runtime versions move together, so ' +
     'recompile it with the what-compiler release that matches what-framework.',
-  ), { code: 'ERR_TEMPLATE_NAMESPACE' });
+  )), { code: 'ERR_TEMPLATE_NAMESPACE' });
 }
 
 // template() and svgTemplate() are the hand-written forms. They parse

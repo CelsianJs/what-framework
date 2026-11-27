@@ -111,7 +111,7 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
 
   // New in 0.15, never on the root entry.
   { to: 'what-core/internal', neverOnRoot: true, names: [
-    '__depsOf', '__subsOf', '__currentEffect', '__ownerOf', '__ownerPath', 'reportDiagnostic', 'IMPORT_CHANGES', 'SUBPATH_ONLY',
+    '__depsOf', '__subsOf', '__currentEffect', '__ownerOf', '__ownerPath', 'reportDiagnostic', '_thrownMessage', 'IMPORT_CHANGES', 'SUBPATH_ONLY',
   ], note: 'Devtools hooks, guardrails and the error catalogue are tool interfaces in what-core/internal.' },
   { to: 'what-core/internal', neverOnRoot: true, names: [
     '_escapeHtml', '_runInComponentSSR', '_assignOwnerPath', '_ownerCounter', '_currentOwnerPath', '_actionStateKey', '_actionKeySalt', '_currentRowPath', '_enterRow', '_installRowKeys', '_leaveRow', '_renderSalt', '_tracksRows', '__flushOutsideServerContext', '__outsideServerContext', '__markServerProcess',

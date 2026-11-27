@@ -62,7 +62,7 @@
 //   SOFTWARE.
 
 import { __DEV__ } from '#env';
-import { report, _setOwnerSource, nextBinding, clearNextBinding } from './diagnostics.js';
+import { report, _setOwnerSource, _thrownMessage, nextBinding, clearNextBinding } from './diagnostics.js';
 
 export { __DEV__ } from '#env';
 
@@ -629,7 +629,7 @@ function refreshRead(c) {
 /** A computed read itself, directly or through other computeds. */
 function cycleError(node) {
   return Object.assign(new Error(__DEV__
-    ? `Computed "${devName(node)}" reads its own value, directly or through computeds that read it.`
+    ? _thrownMessage('ERR_COMPUTED_CYCLE', `Computed "${devName(node)}" reads its own value, directly or through computeds that read it.`)
     : '[what] Cycle detected: a computed reads its own value'), { code: 'ERR_COMPUTED_CYCLE' });
 }
 
@@ -1591,7 +1591,7 @@ function notReady(node, f) {
     const component = c.displayName || c.name || 'Anonymous';
     if (__DEV__) report('ERR_ASYNC_READ_IN_BODY', { data: { component } });
     throw Object.assign(new Error(__DEV__
-      ? `[what] Component "${component}" read an async value it made in its own body before the value landed. Read it in JSX, or make it outside the component.`
+      ? _thrownMessage('ERR_ASYNC_READ_IN_BODY', `Component "${component}" read an async value it made in its own body before the value landed. Read it in JSX, or make it outside the component.`)
       : '[what] async value read in the body that made it'), { code: 'ERR_ASYNC_READ_IN_BODY' });
   }
   return w;

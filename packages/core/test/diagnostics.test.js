@@ -300,6 +300,26 @@ describe('core checks report through the channel', () => {
     assert.throws(() => useState(0), (err) => err.code === 'ERR_HOOK_OUTSIDE_COMPONENT' && err.message.includes('useState()'));
   });
 
+  it('a thrown catalogue error reads as the console prints a reported one: its code, then its fix', async () => {
+    const { useState } = await import('../src/hooks.js');
+    const { mount } = await import('../src/dom.js');
+    const { computed } = await import('../src/reactive.js');
+    const loop = computed(() => loop() + 1, 'loop');
+    for (const [code, run, text] of [
+      ['ERR_HOOK_OUTSIDE_COMPONENT', () => useState(0), 'useState() can only be called inside a component function.'],
+      ['ERR_MOUNT_TARGET_MISSING', () => mount(null, '#nowhere'), 'mount() got no container element: no element matches "#nowhere"'],
+      ['ERR_COMPUTED_CYCLE', () => loop(), 'Computed "loop" reads its own value'],
+    ]) {
+      assert.throws(run, (err) => {
+        const [first, fix] = err.message.split('\n');
+        assert.equal(err.code, code);
+        assert.ok(first.startsWith(`[what] ${code} ${text}`), first);
+        assert.equal(fix, `  fix: what_fix({ error: "${code}" }) · node_modules/what-framework/skills/what-diagnostics/SKILL.md · https://github.com/CelsianJs/what-framework/blob/v${VERSION}/docs/ERRORS.md#${code.toLowerCase().replace(/_/g, '-')}`);
+        return true;
+      }, code);
+    }
+  });
+
   it('useContext outside a component reports and still returns the default', async () => {
     const { useContext, createContext } = await import('../src/hooks.js');
     const Theme = createContext('light');

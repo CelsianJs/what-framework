@@ -18,6 +18,7 @@ const { h, signal, computed, effect } = W;
 const catalogue = new Map(JSON.parse(readFileSync(new URL('../../what/diagnostics.json', import.meta.url), 'utf8')).codes
   .map((entry) => [entry.code, entry]));
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const { version: VERSION } = JSON.parse(readFileSync(new URL('../../core/package.json', import.meta.url), 'utf8'));
 
 function triggerComponent(run) {
   const host = document.createElement('div');
@@ -43,7 +44,7 @@ const browserCases = {
   CLEANUP_WITHOUT_OWNER: () => W.onCleanup(() => {}),
   COMPUTED_CYCLE: () => {
     const loop = computed(() => loop() + 1, 'namedLoop');
-    assert.throws(loop, { code: 'ERR_COMPUTED_CYCLE', message: /^Computed "namedLoop"/ });
+    assert.throws(loop, { code: 'ERR_COMPUTED_CYCLE', message: /^\[what\] ERR_COMPUTED_CYCLE Computed "namedLoop"/ });
     loop();
   },
   CONTEXT_NOT_PROVIDED: () => triggerComponent(function Example() { W.useContext(W.createContext()); return null; })(),
@@ -173,7 +174,14 @@ for (const [name, trigger] of Object.entries({ ...browserCases, ...serverCases }
     const reported = result.events.find((event) => event.code === code);
     const warning = warnings.mock.calls.find(({ arguments: args }) => args.join(' ').includes(`(${code})`));
     assert.ok(reported || error?.code === code || warning, JSON.stringify({ events: result.events, error: error?.message }));
-    const message = reported?.message ?? error?.message ?? (code === 'ERR_DUPLICATE_ACTION_ID' ? warning.arguments[0] : warning.arguments.join(' '));
+    let message = reported?.message ?? error?.message ?? (code === 'ERR_DUPLICATE_ACTION_ID' ? warning.arguments[0] : warning.arguments.join(' '));
+    // A development error what-core throws reads as a reported one prints:
+    // the code after [what], the message, then the line naming its fix.
+    if (!reported && error?.code === code && message.startsWith(`[what] ${code} `)) {
+      const [first, fix] = message.slice(`[what] ${code} `.length).split('\n');
+      assert.equal(fix, `  fix: what_fix({ error: "${code}" }) · node_modules/what-framework/skills/what-diagnostics/SKILL.md · https://github.com/CelsianJs/what-framework/blob/v${VERSION}/docs/ERRORS.md#${code.toLowerCase().replace(/_/g, '-')}`);
+      message = first;
+    }
     assert.match(message, matcher(catalogue.get(code).trigger));
     if (reported) assert.equal(reported.fix, catalogue.get(code).fix);
   });

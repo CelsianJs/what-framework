@@ -9,7 +9,7 @@ import { getLoaderData as _getLoaderData, getResource as _getResource, getResour
 import { computed as asyncComputed } from './async.js';
 import { _enableSuspense } from './render.js';
 import { _isLiveProp } from './dom.js';
-import { report } from './diagnostics.js';
+import { report, _thrownMessage } from './diagnostics.js';
 
 // --- useLoaderData ---
 // Returns the current page's server loader data. Works during SSR (reads the
@@ -43,9 +43,9 @@ function getCtx(hookName) {
   if (!ctx) {
     // The production tier keeps the code and the first sentence; the
     // catalogue (ERR_HOOK_OUTSIDE_COMPONENT) has the rest.
-    throw Object.assign(new Error(`[what] ${hookName || 'Hook'}() can only be called inside a component function.` + (__DEV__
-      ? ' Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.'
-      : '')), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' });
+    throw Object.assign(new Error(__DEV__
+      ? _thrownMessage('ERR_HOOK_OUTSIDE_COMPONENT', `${hookName || 'Hook'}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.`)
+      : `[what] ${hookName || 'Hook'}() can only be called inside a component function.`), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' });
   }
   return ctx;
 }

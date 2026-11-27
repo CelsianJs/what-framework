@@ -1,4 +1,4 @@
-import { report, setNextBinding } from './diagnostics.js';
+import { report, setNextBinding, _thrownMessage } from './diagnostics.js';
 // What Framework - Fine-Grained DOM Runtime
 // Components run ONCE. Signals create individual DOM effects.
 // No VDOM reconciler, no diffing — direct DOM manipulation driven by signals.
@@ -140,8 +140,9 @@ export function mount(node, container) {
 export function _mountTarget(container, fn) {
   const el = typeof container === 'string' ? document.querySelector(container) : container;
   if (el == null || typeof el.nodeType !== 'number') {
-    const what = __DEV__ ? `: ${typeof container === 'string' ? `no element matches "${container}"` : `it was ${String(container)}`}` : '';
-    throw Object.assign(new Error(`[what] ${fn}() got no container element${what}`), { code: 'ERR_MOUNT_TARGET_MISSING' });
+    throw Object.assign(new Error(__DEV__
+      ? _thrownMessage('ERR_MOUNT_TARGET_MISSING', `${fn}() got no container element: ${typeof container === 'string' ? `no element matches "${container}"` : `it was ${String(container)}`}`)
+      : `[what] ${fn}() got no container element`), { code: 'ERR_MOUNT_TARGET_MISSING' });
   }
   return el;
 }
