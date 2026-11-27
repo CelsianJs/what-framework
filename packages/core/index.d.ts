@@ -9,10 +9,14 @@ export type Updater<T> = T | ((prev: T) => T);
 // --- Reactive Primitives ---
 
 export interface Signal<T> {
-  /** Read current value */
-  (): T;
   /** Callable setter compatibility: sig(next) */
   (value: Updater<T>): void;
+  /**
+   * Read current value. Declared after the write: TypeScript takes a function
+   * type's return from the last call signature, so a signal handed where an
+   * accessor is taken (`<For each={todos}>`, `untrack(count)`) gives `T`.
+   */
+  (): T;
   /** Setter method compatibility: sig.set(next) */
   set(value: Updater<T>): void;
   /** Read without dependency tracking */
