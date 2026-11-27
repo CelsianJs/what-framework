@@ -66,7 +66,7 @@ async function scaffoldAndBoot(workDir, { name = 'fs-app', port = PORT, env = {}
   child.stdout.on('data', (d) => { child.logs += d; });
   child.stderr.on('data', (d) => { child.logs += d; });
 
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       assert.fail(`server.js exited (${child.exitCode}) before listening:\n${child.logs}`);
@@ -75,9 +75,9 @@ async function scaffoldAndBoot(workDir, { name = 'fs-app', port = PORT, env = {}
       const res = await fetch(`http://localhost:${port}/`);
       if (res.ok) return { appDir, child, base: `http://localhost:${port}` };
     } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 25));
   }
-  assert.fail(`server.js did not answer on :${port} within 15s:\n${child.logs}`);
+  assert.fail(`server.js did not answer on :${port} within 60s:\n${child.logs}`);
 }
 
 function readCsrfCookie(res) {

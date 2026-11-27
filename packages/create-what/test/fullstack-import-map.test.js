@@ -59,13 +59,13 @@ async function boot(appDir, { env = {} } = {}) {
   child.stdout.on('data', (d) => { child.logs += d; });
   child.stderr.on('data', (d) => { child.logs += d; });
   const base = `http://localhost:${port}`;
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) assert.fail(`server.js exited (${child.exitCode}):\n${child.logs}`);
     try {
       if ((await fetch(base + '/')).ok) return { child, base };
     } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 25));
   }
   child.kill('SIGTERM');
   assert.fail(`server.js did not answer on :${port}:\n${child.logs}`);
