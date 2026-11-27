@@ -3735,13 +3735,13 @@ function checkAttrs(list, s) {
   const saved = session;
   session = s;
   try {
-    checkEach(list, s);
+    checkEach(list);
   } finally {
     session = saved;
   }
 }
 
-function checkEach(list, s) {
+function checkEach(list) {
   for (const { el, server, want, owner, at } of list) {
     const custom = el.localName.includes('-');
     for (const name of new Set([...want, ...server.keys()])) {
