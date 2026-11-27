@@ -52,6 +52,7 @@ export class SnippetRunner {
     this.repo = repo;
     this.packages = packages;
     this.selfLocating = new Map();
+    this.resolutions = new Map();
     this.concurrency = concurrency;
     this.timeout = timeout;
     this.active = 0;
@@ -134,7 +135,7 @@ export class SnippetRunner {
   }
 
   externals() {
-    const { packages } = this;
+    const { packages, resolutions } = this;
     const workspace = join(this.repo, 'packages') + sep;
     const selfLocating = (file) => {
       if (!this.selfLocating.has(file)) this.selfLocating.set(file, SELF_LOCATING_RE.test(readFileSync(file, 'utf8')));
@@ -149,10 +150,18 @@ export class SnippetRunner {
           // A `#` import is its package's own (package.json `imports`), bundled with it.
           const bare = !args.path.startsWith('.') && !args.path.startsWith('/') && !args.path.startsWith('#');
           if (bare && !packages.has(splitSpecifier(args.path).name)) return { path: args.path, external: true };
+          // An import made by a workspace module resolves the same way in
+          // every snippet's build, so it is resolved once per run.
+          const shared = args.importer.startsWith(workspace);
+          const key = shared ? `${args.kind}\0${args.importer}\0${args.path}` : null;
+          if (shared && resolutions.has(key)) return resolutions.get(key);
           const resolved = await b.resolve(args.path, { kind: args.kind, importer: args.importer, resolveDir: args.resolveDir, pluginData: { resolving: true } });
           if (resolved.errors.length) return { errors: resolved.errors };
-          if (resolved.path.startsWith(workspace) && selfLocating(resolved.path)) return { path: resolved.path, external: true };
-          return { path: resolved.path, sideEffects: resolved.sideEffects };
+          const result = resolved.path.startsWith(workspace) && selfLocating(resolved.path)
+            ? { path: resolved.path, external: true }
+            : { path: resolved.path, sideEffects: resolved.sideEffects };
+          if (shared) resolutions.set(key, result);
+          return result;
         });
       },
     };
