@@ -52,6 +52,22 @@ function hText() {
   return { value, Page: () => h('main', null, h('pre', null, '\nabc'), h('textarea', null, value), h('title', null, value)) };
 }
 
+// A comment in <title>, <textarea> or <style> is text, so a client render
+// puts no `<!>` placeholder between two values there: the children from the
+// first value on are one value, an array of them.
+const adjacentSource = `import { signal } from 'what-framework';
+  export function make() {
+    const a = signal('A');
+    const b = signal('');
+    function Page() {
+      return <main><title>{a()}{b()}</title><textarea>{a()}{b()}{a()}</textarea><title>x{a()}y{b()}z</title><style>{b()}{a()}</style></main>;
+    }
+    return { Page, a, b };
+  }`;
+const adjacentClient = await loadCompiled(adjacentSource, { pluginOptions: { hydratable: true } });
+const adjacentPlain = await loadCompiled(adjacentSource, {});
+const adjacentServer = await loadCompiled(adjacentSource, { pluginOptions: { generate: 'ssr' } });
+
 describe('text-only elements and the leading newline', () => {
   for (const [label, serverMake, clientMake] of [['h()', hText, hText], ['compiled', textServer.make, textClient.make]]) {
     it(`${label}: the server writes no markers in <textarea> or <title>, and a newline after <pre>`, () => {
@@ -82,6 +98,36 @@ describe('text-only elements and the leading newline', () => {
     let html = '';
     for await (const chunk of server.renderToStream(h(hText().Page))) html += Buffer.from(chunk).toString();
     assert.match(html, /<pre>\n\nabc<\/pre><textarea>\nabc<\/textarea><title>abc<\/title>/, html);
+  });
+
+  const shown = (host) => [...host.querySelectorAll('title, textarea, style')].map((el) => (el.localName === 'textarea' ? el.value : el.textContent));
+
+  for (const [label, client] of [['a client render', adjacentPlain], ['a hydratable client render', adjacentClient]]) {
+    it(`two values side by side in <title>, <textarea> and <style>: ${label} shows them, and they update`, () => {
+      const app = client.make();
+      const host = document.body.appendChild(document.createElement('div'));
+      const stop = mount(h(app.Page), host);
+      assert.deepEqual(shown(host), ['A', 'AA', 'xAyz', 'A']);
+      app.b('B');
+      flushSync();
+      assert.deepEqual(shown(host), ['AB', 'ABA', 'xAyBz', 'BA']);
+      app.a('');
+      flushSync();
+      assert.deepEqual(shown(host), ['B', 'B', 'xyBz', 'B']);
+      stop();
+      host.remove();
+    });
+  }
+
+  it('two values side by side in <title>, <textarea> and <style>: hydrated with no report, and they update', () => {
+    const app = adjacentClient.make();
+    const { host, reports, stop } = adopt(server.renderToHydratableString(h(adjacentServer.make().Page)), h(app.Page));
+    assert.deepEqual(reports, []);
+    assert.deepEqual(shown(host), ['A', 'AA', 'xAyz', 'A']);
+    app.b('B');
+    flushSync();
+    assert.deepEqual(shown(host), ['AB', 'ABA', 'xAyBz', 'BA']);
+    stop();
   });
 
   it('a <title> inside <svg> is not text-only', () => {

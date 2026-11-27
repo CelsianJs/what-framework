@@ -1,7 +1,7 @@
 // The DOM back end: JSX lowered to cloned templates, fine-grained bindings and
 // keyed list inserters (what-framework/render).
 
-import { RAW_TEXT_ELEMENTS, INNER_HTML_PROPS, ATTRIBUTE_ALIASES, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
+import { RAW_TEXT_ELEMENTS, TEXT_ONLY_ELEMENTS, INNER_HTML_PROPS, ATTRIBUTE_ALIASES, attributeName, markupName, isEnumeratedAttr } from '../tables/markup-rules.js';
 import { t } from './types.js';
 import {
   EVENT_OPTION_MODIFIERS, captureEventName, compileError, componentCallee, createEventHandler, eventType,
@@ -59,7 +59,21 @@ const _forInfoWarned = new Set();
 //
 // With `withHtml`, `rawTag` names the <script> or <style> whose children these
 // are, if any: its text is raw text, written as it is (checkStaticRawText).
-function layoutChildren(children, withHtml, state, rawTag = null) {
+//
+// In an element whose content is text (`textOnly`: <title>, <textarea>,
+// <script>, <style> in HTML) a comment is text too, so no `<!>` can stand
+// there: where one would be written, the layout is made again (`textOnly`
+// 2) with the children from the first dynamic one on as one dynamic child,
+// an array of them, the static text as strings, and the template holds only
+// the text before it.
+/**
+ * @param {any[]} children
+ * @param {boolean} withHtml
+ * @param {any} state
+ * @param {string | null} [rawTag]
+ * @param {boolean | 2} [textOnly]
+ */
+function layoutChildren(children, withHtml, state, rawTag = null, textOnly = false) {
   const slots = [];
   const flatten = (list) => {
     for (const child of list) {
@@ -86,6 +100,12 @@ function layoutChildren(children, withHtml, state, rawTag = null) {
   const entries = [];
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
+    if (textOnly === 2 && slot.kind !== 'text') {
+      const rest = slots.slice(i).map((r) => (r.kind === 'text' ? t.stringLiteral(r.text) : t.isJSXExpressionContainer(r.node) ? r.node.expression : r.node));
+      const node = rest.length === 1 ? slot.node : t.jsxExpressionContainer(t.arrayExpression(rest));
+      entries.push({ kind: 'dynamic', node, marker: i === 0 ? undefined : null, placeholder: false });
+      break;
+    }
     if (slot.kind === 'text') {
       if (withHtml && rawTag !== null) {
         checkStaticRawText(slot.node, rawTag, slot.text, state);
@@ -110,6 +130,7 @@ function layoutChildren(children, withHtml, state, rawTag = null) {
       } else if (next.kind === 'element' || (next.kind === 'text' && !afterText)) {
         marker = index;
       } else {
+        if (textOnly) return layoutChildren(children, withHtml, state, rawTag, 2);
         if (withHtml) html += '<!>';
         marker = index;
         placeholder = true;
@@ -456,7 +477,13 @@ function extractStaticHTML(node, state) {
     return html + '>';
   }
   const rawTag = RAW_TEXT_ELEMENTS.has(tagName) && node._whatNs === 'html' ? tagName : null;
-  return `${html}>${layoutChildren(node.children, true, state, rawTag).html}</${tagName}>`;
+  return `${html}>${layoutChildren(node.children, true, state, rawTag, isTextOnly(node)).html}</${tagName}>`;
+}
+
+// Whether `node`'s content is text, a comment included (layoutChildren).
+function isTextOnly(node) {
+  const tag = node.openingElement.name.name;
+  return node._whatNs === 'html' && (RAW_TEXT_ELEMENTS.has(tag) || TEXT_ONLY_ELEMENTS.has(tag));
 }
 
 function escapeHTML(str) {
@@ -1283,7 +1310,7 @@ function writesContent(attributes) {
 // `rowCell`: the item cell of the keyed row whose callback returns this
 // template, when it is one.
 function applyDynamicChildren(statements, elId, children, parentNode, state, rowCell) {
-  const { entries } = layoutChildren(children, false, state);
+  const { entries } = layoutChildren(children, false, state, null, isTextOnly(parentNode));
   const hydratable = state.hydratable;
   // Static children since the last step (hydratable output).
   let skip = 0;
