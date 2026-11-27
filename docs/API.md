@@ -150,29 +150,28 @@ Without a view, a render callback is handed the raw item, as in React
 is built again when a refetch replaces the item. A view is not `===` to the
 item and is not an array, so a callback that compares items or calls array
 methods on one gets the raw item. A component (`<Cell item={item} />`) is
-handed the raw item too, and keeps its nodes the same way a view does while it
-reads the item in its JSX (`<span>{props.item.name}</span>`): those reads are
-bindings, which follow a replaced item.
+handed the raw item too, and keeps its nodes the same way a view does: reads of
+the item in its JSX (`<span>{props.item.name}</span>`) are bindings, which
+follow a replaced item, and a read of one field in its body records that field.
 
-A keyed row is built again for a replaced item when its building code (a
+A keyed row is built again for a replaced item only when its building code (a
 statement in the row callback, a component body) read something of the item
-that the new item holds another value in. What a read records depends on where
-it is:
+that the new item holds another value in:
 
-- A read of one field in the row's own code (`row.name` in the `.map()`
-  callback, a prop given one field, `<Row kind={row.kind} />`), or through a
-  live view anywhere (`view.name`, in a component body too), records that
-  field: the row is kept while the new item holds the same value there.
-- A read of the item a component was handed, in that component's body
-  (`const id = props.item.id`, `const { title } = item`), records the whole
-  item, as does any read of the whole item (handed to a function, a method
-  called on it): every replacement rebuilds the row, with its nodes and the
-  component's state, even when each field the body read is unchanged.
+- A read of one field records that field: `row.name` in the `.map()` callback,
+  a prop given one field (`<Row kind={row.kind} />`), `props.item.id` or a
+  destructured `item.id` in the body of a component handed the item, the same
+  read in a component it hands that field to (`<Title text={item.title} />`),
+  and `view.name` through a live view. The row, its nodes and the component's
+  state are kept while the new item holds the same value in every field read
+  there.
+- A read of the whole item records the item: the item handed to a function
+  (`format(row)`), a method called on it (`row.describe()`), destructuring it
+  (`const { title } = item`), or a prop handed something made from it
+  (`<Row item={{ ...item, extra }} />`). Any replacement rebuilds the row.
 
-So a row component that keeps its state across refetches reads its item in its
-JSX, or, when its body needs a field, is handed that field as a prop or a view
-of the item (`<Row item={live(() => item)} />`). The view is read-only and
-reads `undefined` while `source` returns null or undefined.
+The view is read-only and reads `undefined` while `source` returns null or
+undefined.
 
 You rarely need to call it: inside a keyed `.map()` row the compiler rewrites
 `selected() === row.id` (or `!==`, either order) in a render binding to a
