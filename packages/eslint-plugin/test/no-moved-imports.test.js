@@ -3,6 +3,7 @@
 // Vite plugin and validateImports() use.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Linter } from 'eslint';
 import * as espree from 'espree';
 import { ERROR_CODES, IMPORT_CHANGES, SUBPATH_ONLY } from 'what-core/internal';
@@ -106,6 +107,22 @@ test('a router name imported from what-framework is answered and moves to what-f
   assert.equal(routerAnswer('Router'), "The router lives in what-framework/router. Import it with: import { Router } from 'what-framework/router'.");
   assert.equal(output, "import { mount } from 'what-framework';\nimport { Router, Link as A } from 'what-framework/router';");
   assert.equal(lint("const { navigate } = await import('what-framework');").output, "const { navigate } = await import('what-framework/router');");
+});
+
+test('a name of a kit what-core has no twin of, imported from what-core, is answered and left in place', () => {
+  const { messages, output } = lint("import { Island, useForm } from 'what-core';");
+  assert.deepEqual(messages.map((m) => [m.message.split('.')[0], m.fix === undefined]), [
+    ['"Island" is not exported by what-core', true],
+    ['"useForm" is not exported by what-core', false],
+  ]);
+  assert.equal(output, "import { Island } from 'what-core';\nimport { useForm } from 'what-core/form';");
+});
+
+test('the what-core kits the fix moves to are the subpaths what-core exports', async () => {
+  const { CORE_KITS } = await import('../src/rules/no-moved-imports.js');
+  const { exports } = JSON.parse(readFileSync(new URL('../../core/package.json', import.meta.url), 'utf8'));
+  const kits = Object.keys(exports).map((k) => k.slice(2)).filter((k) => k !== '' && !k.includes('/') && !k.startsWith('jsx'));
+  assert.deepEqual([...CORE_KITS].sort(), kits.sort());
 });
 
 test('a router name imported from what-core is answered and left in place: what-core has no router', () => {

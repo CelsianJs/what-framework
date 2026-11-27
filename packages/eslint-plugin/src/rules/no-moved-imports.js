@@ -9,12 +9,12 @@
  * the import per destination. A removed name has no destination, so it is
  * reported and left in place. An import from what-core moves to the what-core
  * twin of a what-framework/<kit> path, so a package that depends on what-core
- * alone keeps resolving.
+ * alone keeps resolving; a kit what-core has no twin of (what-framework/server,
+ * what-framework/router) leaves the name reported and in place.
  *
  * A name only a subpath has ever exported (SUBPATH_ONLY: the router's `Router`,
  * `Link`, `navigate`, …) gets the same answer, and an import of it from
- * what-framework moves to what-framework/router. what-core has no router, so
- * one from what-core is reported and left in place.
+ * what-framework moves to what-framework/router.
  *
  * Bad:  import { signal, useForm, Spinner, Router } from 'what-framework';
  * Good: import { signal } from 'what-framework';
@@ -27,6 +27,10 @@ import { IMPORT_CHANGES, SUBPATH_ONLY } from 'what-core/internal';
 
 const ROOT_ENTRIES = new Set(['what-framework', 'what-core']);
 
+// The kits what-core exports as subpaths of its own (packages/core/package.json
+// "exports"; eslint-plugin's tests keep the two equal).
+export const CORE_KITS = new Set(['a11y', 'ui', 'motion', 'dom', 'form', 'data', 'testing', 'render', 'internal']);
+
 const nameOf = (node) => (node.type === 'Identifier' ? node.name : node.value);
 const textOf = (node) => (node.type === 'Identifier' ? node.name : node.raw);
 
@@ -36,11 +40,11 @@ function changeFor(name) {
 }
 
 // Where an import of the change's name from `source` goes, or null when it
-// cannot move there: a removed name, or a subpath-only name from what-core.
+// cannot move there: a removed name, or from what-core a kit it has no twin of.
 function destinationFor(change, source) {
-  if (!change.to) return null;
-  if (source !== 'what-core') return change.to;
-  return SUBPATH_ONLY.includes(change) ? null : change.to.replace(/^what-framework\//, 'what-core/');
+  if (!change.to || source !== 'what-core') return change.to;
+  const to = change.to.replace(/^what-framework\//, 'what-core/');
+  return CORE_KITS.has(to.slice('what-core/'.length)) ? to : null;
 }
 
 export default {
