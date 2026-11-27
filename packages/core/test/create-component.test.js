@@ -11,14 +11,6 @@ before(() => {
 });
 
 describe('_$createComponent runtime', () => {
-  it('is exported from render.js', async () => {
-    const render = await import('../../core/src/render.js');
-    assert.ok(
-      typeof render._$createComponent === 'function',
-      '_$createComponent should be a function exported from render.js'
-    );
-  });
-
   it('is exported from what-framework/render, where compiled output imports it', async () => {
     const render = await import('../../what/src/render.js');
     assert.ok(

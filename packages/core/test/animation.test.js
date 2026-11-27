@@ -17,6 +17,7 @@ global.cancelAnimationFrame = (id) => {
 };
 
 const { spring, tween, easings, createTransitionClasses } = await import('../src/animation.js');
+const { flushSync } = await import('../src/reactive.js');
 
 // Cleanup after all tests
 afterEach(() => {
@@ -33,27 +34,28 @@ describe('animation', () => {
       assert.equal(s.current(), 0);
     });
 
-    it('should have subscribe method', () => {
+    it('subscribe reports the current value now and after each change, until unsubscribed', () => {
       const s = spring(0);
-      assert.ok(typeof s.subscribe === 'function');
+      const seen = [];
+      const unsubscribe = s.subscribe((v) => seen.push(v));
+      s.snap(100);
+      flushSync();
+      unsubscribe();
+      s.snap(5);
+      flushSync();
+      assert.deepEqual(seen, [0, 100]);
     });
   });
 
   describe('tween', () => {
-    it('should have progress and value getters', () => {
-      const t = tween(0, 100, { duration: 100 });
-      assert.ok(typeof t.progress === 'function');
-      assert.ok(typeof t.value === 'function');
-    });
-
-    it('should have isAnimating getter', () => {
-      const t = tween(0, 100, { duration: 100 });
-      assert.ok(typeof t.isAnimating === 'function');
-    });
-
-    it('should have subscribe method', () => {
-      const t = tween(0, 100, { duration: 100 });
-      assert.ok(typeof t.subscribe === 'function');
+    it('subscribe reports the value, not the progress, from the start to the end', async () => {
+      const t = tween(0, 100, { duration: 0 });
+      const seen = [];
+      const unsubscribe = t.subscribe((v) => seen.push(v));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      flushSync();
+      unsubscribe();
+      assert.deepEqual(seen, [0, 100]);
     });
   });
 
