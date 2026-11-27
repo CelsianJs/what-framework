@@ -50,8 +50,9 @@ function resolveInsideOutDir(outDir, urlPath) {
 }
 
 /**
- * Each page's loader and components get a `request` (a GET of the page's URL,
- * below `basePath` when the site is served below one) and a `response`
+ * Each page's loader and components get a `request` (a GET of the URL its
+ * file is served at, `/about/` for `about/index.html`, below `basePath` when
+ * the site is served below one) and a `response`
  * (createResponse()), as on a server. A page that redirects is written as a redirect stub (a meta
  * refresh to the target, with a canonical link) and listed in `redirects`. A
  * page that sets any other status but 200 cannot be served with that status by
@@ -89,10 +90,15 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
       const response = createResponse(base);
-      // A GET of the page's own URL, below the base: a <Router> in the page
-      // shows the route this file is served for, as it does for a request on
-      // a server.
-      const request = new Request(new URL(base + urlPath, 'http://localhost'));
+      // A GET of the URL the page's file is served at, below the base: a
+      // <Router> in the page shows the route it is served for, as it does for
+      // a request on a server. The file is a directory's index
+      // (`about/index.html`), which a static host serves at the directory's
+      // URL, with its trailing slash (`/about/`, redirecting `/about` there),
+      // so the page renders at that URL: its route state and the relative
+      // links it resolves are the ones the browser hydrates with.
+      const served = urlPath.endsWith('/') ? urlPath : urlPath + '/';
+      const request = new Request(new URL(base + served, 'http://localhost'));
       const reqCtx = { params, query: {}, request, response };
       const pageModule = { default: route.component, loader: route.loader };
       const hasLoader = typeof pageModule.loader === 'function';

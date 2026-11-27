@@ -166,7 +166,7 @@ describe('exportStatic', () => {
     const html = await readFile(join(outDir, 'guide/intro/index.html'), 'utf8');
     assert.match(html, /<h1[^>]*>guide intro<\/h1>/);
     assert.doesNotMatch(html, />home</);
-    assert.deepEqual([...new Set(urls)], ['http://localhost/guide/intro']);
+    assert.deepEqual([...new Set(urls)], ['http://localhost/guide/intro/']);
   });
 
   it('renders each page below `basePath`, where a Router below that base shows it and links below it', async () => {
@@ -188,7 +188,7 @@ describe('exportStatic', () => {
       assert.match(html, /<a [^>]*href="\/app\/"[^>]*>contents/);
       assert.doesNotMatch(html, /not found/);
       assert.deepEqual(redirects.map((r) => [r.path, r.location]), [['/old', '/app/about']]);
-      assert.deepEqual([...new Set(urls)], ['http://localhost/app/about', 'http://localhost/app/old']);
+      assert.deepEqual([...new Set(urls)], ['http://localhost/app/about/', 'http://localhost/app/old/']);
     } finally {
       setBase('');
     }
