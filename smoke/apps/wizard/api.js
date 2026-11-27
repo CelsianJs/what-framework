@@ -1,9 +1,10 @@
 // Harbor's quote server, as Connect middleware for Vite's dev and preview
-// servers: the region lists, the email lookup, and the quote endpoint that
-// validates a submission on the server. Each answer takes the time
-// src/data.js gives it, so answers to quick requests arrive out of order.
+// servers: the region lists, the email lookup, the visitor's current policy,
+// and the quote endpoint that validates a submission on the server. Each
+// answer takes the time src/data.js gives it, so answers to quick requests
+// arrive out of order.
 
-import { EMAIL_DELAY, REGIONS, REGION_DELAY, TAKEN, judgeQuote } from './src/data.js';
+import { CURRENT_POLICY, EMAIL_DELAY, REGIONS, REGION_DELAY, TAKEN, judgeQuote } from './src/data.js';
 
 const stats = { emailLookups: 0, regionLookups: 0, quotes: [] };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38,6 +39,11 @@ export async function handle(req, res, next) {
     const taken = TAKEN.includes(address);
     await sleep(taken ? EMAIL_DELAY.taken : EMAIL_DELAY.free);
     return send(res, 200, { address, available: !taken });
+  }
+
+  if (url.pathname === '/api/policy') {
+    await sleep(80);
+    return send(res, 200, CURRENT_POLICY);
   }
 
   if (url.pathname === '/api/quote' && req.method === 'POST') {

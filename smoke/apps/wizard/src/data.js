@@ -48,6 +48,10 @@ export const ADDONS = [
 ];
 export const NOTES_MAX = 500;
 
+// The coverage of the policy the visitor holds now, which the Coverage step
+// can start from.
+export const CURRENT_POLICY = { limit: '250/500', deductible: '1000', roadside: true, rental: false, glass: true };
+
 // The steps, in order. `when` decides whether a step applies to this draft:
 // the business step is added only when a vehicle is used for business.
 export const STEPS = [

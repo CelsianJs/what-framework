@@ -108,7 +108,9 @@ export default {
       await withPage(browser, `${base}/quote/about`, async (page, diag) => {
         await deepLinks(page, { base, data, check });
         await timings(page, { base, data, check, log });
-        reporter.assert(diag.errors.length === 0, 'no console errors on deep links', diag.errors.slice(0, 3).join(' | '));
+        // The quote sent without its photo is refused with a 422, on purpose.
+        const errors = diag.errors.filter((e) => !/status of 422/.test(e));
+        reporter.assert(errors.length === 0, 'no console errors on deep links', errors.slice(0, 3).join(' | '));
       }, { context: fresh });
     } finally {
       await fresh.close();
@@ -281,8 +283,16 @@ async function walk(page, { base, data, check, reporter, log }) {
   };
   await fillVehicle(v0, { year: '2019', make: 'Subaru', model: 'Outback', vin: 'BAD', miles: '12000', usage: 'commute' });
   const vinError = await waitError(page, `vehicles.${v0}.vin`, 'A VIN is 17 letters and digits, without I, O or Q');
-  await page.fill(vn(v0, 'vin'), '4S4BSANC5K3123456');
+  // A character typed in the middle that makes the VIN valid: the error goes
+  // and the caret stays after the character.
+  await page.fill(vn(v0, 'vin'), '4S4BSNC5K3123456');
+  await waitError(page, `vehicles.${v0}.vin`, 'A VIN is 17 letters and digits, without I, O or Q');
+  await page.evaluate((sel) => document.querySelector(sel).setSelectionRange(5, 5), vn(v0, 'vin'));
+  await page.keyboard.type('A');
   const vinFixed = await waitError(page, `vehicles.${v0}.vin`, '');
+  const vinCaret = await page.$eval(vn(v0, 'vin'), (el) => ({ value: el.value, caret: el.selectionStart, focused: el === document.activeElement }));
+  check('form:fast-typing', vinFixed && vinCaret.value === '4S4BSANC5K3123456' && vinCaret.caret === 6 && vinCaret.focused,
+    'a character typed mid-field that clears its error keeps the focus and the caret after it', JSON.stringify(vinCaret));
 
   const baseListeners = await listeners(page, 'pointerdown');
   await page.click('[data-add-vehicle]');
@@ -479,10 +489,23 @@ async function walk(page, { base, data, check, reporter, log }) {
   await page.fill('#f-end', isoDay(10 + 400));
   const tooLong = await waitError(page, 'end', 'A policy lasts at most a year');
   await page.fill('#f-end', isoDay(10 + 180));
-  await page.check('[data-limit="250/500"]');
+  // Start from the current policy (reset() with fetched values): no change
+  // counted until the visitor makes one.
+  await page.click('[data-load-policy]');
+  const loaded = await page.waitForFunction(() => document.querySelector('[data-policy-changes]').textContent !== '', null, { timeout: 3000 }).then(() => true, () => false);
+  const policyShown = {
+    changes: await page.$eval('[data-policy-changes]', (el) => el.textContent),
+    limit: await page.$eval('[data-limit="250/500"]', (el) => el.checked),
+    deductible: await page.$eval('#f-deductible', (el) => el.value),
+    end: await page.$eval('#f-end', (el) => el.value),
+  };
+  await page.selectOption('#f-deductible', '500');
+  const oneChange = await page.$eval('[data-policy-changes]', (el) => el.textContent);
   await page.selectOption('#f-deductible', '1000');
-  await page.check('[data-addon="roadside"]');
-  await page.check('[data-addon="glass"]');
+  const backToNone = await page.$eval('[data-policy-changes]', (el) => el.textContent);
+  check('form:dependent-fields', loaded && policyShown.changes === '0 changes from your current policy' && policyShown.limit && policyShown.deductible === '1000'
+    && policyShown.end === isoDay(10 + 180) && oneChange === '1 change from your current policy' && backToNone === '0 changes from your current policy',
+    'values loaded with reset() show in their fields and become what changes are counted from', `${JSON.stringify(policyShown)} then "${oneChange}", "${backToNone}"`);
   const addons = await page.$eval('[data-addon-count]', (el) => el.textContent);
   check('form:dependent-fields', endBefore && endFixed && tooLong && addons === '2 add-ons',
     'the end date is judged against the start date: an earlier end is refused, moving the start fixes it, over a year is refused', `before=${endBefore} fixed=${endFixed} year=${tooLong} addons="${addons}"`);
@@ -629,6 +652,25 @@ async function deepLinks(page, { base, data, check }) {
   await page.evaluate((d) => localStorage.setItem('harbor:quote', JSON.stringify(d)), seed);
   const added = await go('/quote/review');
   const name = await go('/quote/about').then(() => page.$eval('#f-firstName', (el) => el.value));
+
+  // A reload loses the chosen file (a browser rule): sent from Review, the
+  // server's error on it lands on the Documents step's file input.
+  const complete = emptyDraft();
+  complete.about = seed.about;
+  complete.address = { country: 'US', region: 'Maine', city: 'Portland', postal: '04101', mailingDiffers: false, mailingStreet: '' };
+  complete.vehicles = [{ id: 'v0', year: '2019', make: 'Subaru', model: 'Outback', vin: '4S4BSANC5K3123456', usage: 'commute', miles: '12000' }];
+  complete.drivers = [{ id: 'd0', name: 'Ada Byron', license: 'AB123456', since: '2010-06-01', incidents: [] }];
+  complete.coverage = { ...complete.coverage, start: isoDay(5), end: isoDay(100) };
+  complete.done = { about: true, address: true, vehicles: true, drivers: true, coverage: true, documents: true };
+  await page.evaluate((d) => localStorage.setItem('harbor:quote', JSON.stringify(d)), complete);
+  await go('/quote/review');
+  await page.click('[data-submit]');
+  const toDocuments = await stepShown(page, 'documents');
+  const fileError = await waitError(page, 'license', 'Attach a photo of your license');
+  const fileFocused = (await focusedName(page)) === 'license';
+  check('form:server-errors', toDocuments && fileError && fileFocused,
+    'after a reload, a quote sent without its photo comes back from the server as an error on the Documents step\'s file input, focused',
+    `path=${pathOf(page)} error=${fileError} focus=${await focusedName(page)}`);
   check('route:conditional-step',
     empty === '/quote/about' && skipped === '/quote/coverage' && open === '/quote/coverage' && ahead === '/quote/coverage' && kept === '/quote/address' && added === '/quote/business' && name === 'Ada',
     'deep links: a step goes there when the steps before it are done, a skipped step sends on to the next, an added step not done is where review sends you back to',

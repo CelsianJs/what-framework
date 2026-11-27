@@ -1,9 +1,12 @@
 // Step 6: coverage. A zod schema with a cross-field rule (the end date after
 // the start date, within a year): a change to the start date judges the end
-// date again. The comprehensive deductible is asked for only with
-// comprehensive cover.
+// date again. "Start from my current policy" loads the visitor's policy into
+// the form with reset(), the way React Hook Form fills a form from fetched
+// data, and the step then counts what the visitor changed from it.
 
 import { Link } from 'what-router';
+
+import { useState } from 'what-framework';
 
 import { ADDONS, DEDUCTIBLES, LIMITS } from '../data.js';
 import { coverageResolver } from '../validation.js';
@@ -20,6 +23,17 @@ export function CoverageStep() {
     mode: 'onChange',
   });
   const { register, formState } = form;
+  const [policy, setPolicy] = useState('none');
+  const loadPolicy = async () => {
+    setPolicy('loading');
+    const current = await (await fetch('/api/policy')).json();
+    form.reset({ ...formState.values, ...current });
+    setPolicy('loaded');
+  };
+  const changes = () => {
+    const n = Object.keys(formState.dirtyFields()).length;
+    return `${n} ${n === 1 ? 'change' : 'changes'} from your current policy`;
+  };
   const start = register('start');
   const onStart = (e) => {
     start.onchange(e);
@@ -39,6 +53,10 @@ export function CoverageStep() {
         {field('start', 'Starts', <input id="f-start" type="date" {...start} onchange={onStart} />)}
         {field('end', 'Ends', <input id="f-end" type="date" {...register('end')} />)}
       </div>
+      <p class="muted">
+        <button type="button" class="link" data-load-policy onClick={loadPolicy} disabled={policy() === 'loading'}>Start from my current policy</button>
+        {' '}<span data-policy-changes>{policy() === 'loaded' ? changes() : ''}</span>
+      </p>
       <div class="field" role="radiogroup" aria-label="Liability limit">
         <span class="label">Liability limit (thousands)</span>
         <div class="radios">
