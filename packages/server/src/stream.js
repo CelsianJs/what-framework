@@ -92,7 +92,11 @@ import { createRenderContext, ensureServerRuntime, resourcePayload, errorRecord 
 import { getIslandStoresSnapshot } from './islands.js';
 import { serializeState } from './serialize.js';
 import {
-  SERVER_SKIPPED_TAGS,
+  TAG_BOUNDARY,
+  TAG_SKIPPED,
+  TAG_VOID,
+  tagInfo,
+  startTag,
   VOID_ELEMENTS,
   _componentProps,
   _boundaryFallback,
@@ -104,7 +108,6 @@ import {
   _isTextContent,
   _afterOpen,
   _plainText,
-  assertSafeTag,
   renderAttrs,
   _field,
   _selectScope,
@@ -443,6 +446,8 @@ function step(seg, node, owner) {
     }
   }
 
+  if (isVNode(node)) return stepVNode(seg, node, owner);
+
   if (node instanceof ElementParts) return stepElement(seg, node.tag, node.props, node.children, owner);
 
   // Compiled JSX (ssr-runtime.js, compiled.js): finished markup, or markup and
@@ -467,18 +472,22 @@ function step(seg, node, owner) {
     return null;
   }
 
-  if (!isVNode(node)) {
-    put(seg, _plainText(node));
-    if (seg.option !== null) seg.option.text += String(node);
-    return null;
-  }
+  put(seg, _plainText(node));
+  if (seg.option !== null) seg.option.text += String(node);
+  return null;
+}
 
+function stepVNode(seg, node, owner) {
   const tag = node.tag;
-  if (SERVER_SKIPPED_TAGS.has(tag)) return null;
+  if (typeof tag === 'function') return stepComponent(seg, node, owner, 0);
+
+  // Throws for a name no element may have.
+  const info = tagInfo(tag, node);
+  if (info.kind === TAG_SKIPPED) return null;
 
   // A boundary's work items: its closing marker, SCOPE_END, then its children.
   // bufStart is where its content starts, right after <!--b-->.
-  if (tag === '__suspense' || tag === '__errorBoundary') {
+  if (info.kind === TAG_BOUNDARY) {
     put(seg, BOUNDARY_OPEN);
     seg.scopes.push({
       suspense: tag === '__suspense',
@@ -498,9 +507,22 @@ function step(seg, node, owner) {
     return null;
   }
 
-  if (typeof tag === 'function') return stepComponent(seg, node, owner, 0);
-
-  assertSafeTag(tag, node);
+  // An element whose name asks for no further rule (html.js TAG_PLAIN) is
+  // written straight from its tag's record, its end tag through the one
+  // marker the record keeps for it.
+  if (seg.ns === null && info.kind <= TAG_VOID) {
+    const props = node.props;
+    put(seg, props ? startTag(info, props) : info.start);
+    if (info.kind === TAG_VOID) return null;
+    const rawInner = _resolveInnerHTML(props);
+    if (rawInner != null) {
+      seg.buf += String(rawInner) + info.close;
+      return null;
+    }
+    push(seg, info.endMark ??= mark(CLOSE, { html: info.close }), owner);
+    pushChildren(seg, node.children || [], owner);
+    return null;
+  }
   return stepElement(seg, tag, node.props, node.children, owner);
 }
 

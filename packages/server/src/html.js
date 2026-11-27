@@ -269,7 +269,8 @@ function _plainText(value) {
 
 // What the h() renderers decide from a vnode's tag name, once per name
 // (tagInfo): its kind, the head of its start tag (`<name`), its start tag
-// with no attributes, and its end tag. A boundary marker and a
+// with no attributes, its end tag, and the marker the stream writes that end
+// tag through (stream.js, made on first use). A boundary marker and a
 // skipped tag render as such; any other name is an element's and must pass
 // SAFE_TAG_NAME. An element is TAG_PLAIN when, in HTML, its name asks for no
 // further rule: no void, raw-text, text-only or leading-newline element, no
@@ -297,7 +298,7 @@ function tagKind(tag) {
 // Tag names that passed SAFE_TAG_NAME, with their records. Bounded, because
 // tag names can come from data (<Dynamic component={name}>) and a cache an
 // attacker can grow without limit is a memory leak.
-/** @type {Map<string, { kind: number, open: string, start: string, close: string }>} */
+/** @type {Map<string, { kind: number, open: string, start: string, close: string, endMark: object | null }>} */
 const _safeTags = new Map();
 const SAFE_TAG_CACHE_SIZE = 512;
 
@@ -310,7 +311,7 @@ function tagInfo(tag, vnode) {
 
 function newTagInfo(tag, vnode) {
   if (typeof tag === 'string' && SAFE_TAG_NAME.test(tag)) {
-    const info = { kind: tagKind(tag), open: '<' + tag, start: '<' + tag + '>', close: '</' + tag + '>' };
+    const info = { kind: tagKind(tag), open: '<' + tag, start: '<' + tag + '>', close: '</' + tag + '>', endMark: null };
     if (_safeTags.size < SAFE_TAG_CACHE_SIZE) _safeTags.set(tag, info);
     return info;
   }
