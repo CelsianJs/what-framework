@@ -39,7 +39,7 @@
 
 import { h, Fragment } from 'what-core';
 import { _$Island } from 'what-core/render';
-import { _enterRow, _leaveRow, _symbolChild, getServerContext, isVNode } from 'what-core/internal';
+import { _enterRow, _leaveRow, _symbolChild, _tracksRows, getServerContext, isVNode } from 'what-core/internal';
 import { TEXT_ONLY_ELEMENTS, isUnsafeUrl } from 'what-core/internal/markup-rules';
 import { _afterOpen, _enterSelect, _field, _isDevMode, _leaveSelect, _rawText, _renderOption, _resolveInnerHTML, ElementParts, escapeHtml, OWN_PROPS, renderAttrs, styleText, VOID_ELEMENTS } from './html.js';
 import { ARRAY_CLOSE, ARRAY_OPEN, Html, claim, isHtml, rowKeys } from './compiled.js';
@@ -397,9 +397,11 @@ export function ssrList(list, fn, asArray, keyFn, slot, rowFns) {
     const keys = keyFn ? list.map((item, i) => keyFn(item, i)) : null;
     if (asArray) m.keys = keys;
     // A keyed list's rows are keyed rows (what-core hydration-data.js
-    // _enterRow): it takes its place where it starts, with no rows too, and
-    // the components a row renders take theirs in that row.
-    const rowList = keys !== null ? { keys, slot } : null;
+    // _enterRow) once keyed rows are tracked, which an app's first server
+    // action turns on (_tracksRows): the list takes its place where it
+    // starts, with no rows too, and the components a row renders take theirs
+    // in that row. Until then nothing reads a row's place, and none is made.
+    const rowList = keys !== null && _tracksRows() ? { keys, slot } : null;
     if (rowList !== null) defer(m, new RowEdge(rowList, undefined, 0, null));
     const outer = rows;
     rows = m;
@@ -499,11 +501,11 @@ export function ssrFor(each, fn, key, fallback, slot) {
   };
 }
 
-// A keyed list with no rows, which takes its place (ssrList), and what shows
-// in its stead.
+// A keyed list with no rows, which takes its place while keyed rows are
+// tracked (ssrList), and what shows in its stead.
 function emptyList(slot, fallback) {
   const m = new Markup('', false, false);
-  defer(m, new RowEdge({ keys: [], slot }, undefined, 0, null));
+  if (_tracksRows()) defer(m, new RowEdge({ keys: [], slot }, undefined, 0, null));
   append(m, ssrText(fallback));
   return finish(m);
 }

@@ -13,6 +13,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h } from 'what-core';
+import { _installRowKeys } from 'what-core/internal';
 import { ssr, ssrComponent, ssrList, ssrRow, ssrTemplate, ssrText } from '../src/ssr-runtime.js';
 import { renderToString, renderToHydratableString, renderToStream } from '../src/index.js';
 import { collect, content } from './stream-helpers.js';
@@ -153,6 +154,9 @@ describe('a row\'s reactive attribute in markup', () => {
   const edges = (markup) => (markup.p || []).filter((part) => part !== null && typeof part === 'object' && typeof part.edge === 'function').length;
 
   it('a keyed row that defers only reactive attributes gets no row frame', () => {
+    // Lists make edges once keyed rows are tracked, which an app's first
+    // server action turns on (ssr-untracked-rows.test.js).
+    _installRowKeys();
     const fns = fnsOf('K');
     const only = ssrList(A, (f, item) => row(f, item), true, (item) => item.id, 1, fns);
     // The list's own edge, where it takes its place, and none for its rows.
