@@ -69,6 +69,18 @@ describe('flat configs work out of the box', () => {
     assert.ok(/always truthy/.test(msg.message), `the message says why, got: ${msg.message}`);
   });
 
+  it('recommended config leaves state from React hooks alone in a what-react file', () => {
+    const code = (source) => `import { useState } from '${source}';\n` +
+      'export function Menu() { const [open, setOpen] = useState(false); ' +
+      'return <div onClick={() => setOpen(true)}>{open && <p>menu</p>}{open ? <b>on</b> : null}</div>; }';
+    const reported = (source) => new Linter().verify(code(source), [plugin.configs.recommended], { filename: 'menu.jsx' })
+      .filter(m => m.ruleId === 'what/signal-call-in-jsx' || m.ruleId === 'what/no-uncalled-signals')
+      .map(m => m.ruleId);
+    assert.deepEqual(reported('react'), []);
+    assert.deepEqual(reported('what-react'), []);
+    assert.equal(reported('what-framework').filter(id => id === 'what/signal-call-in-jsx').length, 2, "What's own useState still is");
+  });
+
   it('strict config lints the same fixture as errors', async () => {
     const eslint = makeESLint(plugin.configs.strict);
     const results = await eslint.lintFiles(['bad-component.jsx']);

@@ -14,6 +14,7 @@
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
+import { declaredAsSignal } from '../utils/what-state.js';
 
 export default {
   meta: {
@@ -33,6 +34,7 @@ export default {
 
   create(context) {
     const tracker = createSignalTracker();
+    const sourceCode = context.sourceCode ?? context.getSourceCode?.();
 
     function isInsideJSXExpression(node) {
       let current = node.parent;
@@ -97,7 +99,9 @@ export default {
         if (isJSXAttributeValue(node)) return;
 
         // Only check signals inside JSX expressions
-        if (!tracker.isSignalLike(node.name)) return;
+        // The name's own declaration made the signal (not React's useState,
+        // not a same-named variable of another scope)
+        if (!tracker.isSignalLike(node.name) || !declaredAsSignal(sourceCode, node)) return;
         if (!isInsideJSXExpression(node)) return;
 
         // A condition: {isLoading && …}, {open ? … : …}
