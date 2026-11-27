@@ -3421,6 +3421,19 @@ function next(c) {
   return n === c.e ? null : n;
 }
 
+// Where a keyed row starts: past empty text, the list's keys and the array
+// markers between rows (a row of several nodes then starts at its own, the
+// node before the cursor), but at a region's opening marker, the row's own
+// when its output is a reactive child. Server text a value before it may have
+// rendered (x) stays for the row's first claim to read.
+function rowStart(c) {
+  if (c.o > 0 || c.x) return;
+  let n = c.n;
+  while (n !== null && n !== c.e
+    && (n.nodeType === 8 ? n.data !== REGION_OPEN && transparent(n.data) : n.nodeType === 3 && n.data === '')) n = n.nextSibling;
+  c.n = n;
+}
+
 // Where next() would stand, without moving the cursor.
 function past(c) {
   let n = c.n;
@@ -4612,7 +4625,7 @@ export function _adoptVNodeRows(value, scope) {
     for (let i = 0; i < vnodes.length; i++) {
       const vnode = vnodes[i];
       rows.push(runWithOwner(scope, () => createRoot((dispose) => {
-        next(rc);
+        rowStart(rc);
         splitHere(rc);
         const anchor = anchorOf(rc);
         adoptRow(list, vnode.key, adopt, vnode);
@@ -4756,10 +4769,9 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
     for (let i = 0; i < newItems.length; i++) {
       const item = newItems[i];
       const cell = keyedSignals === RAW ? null : _rowItem(item);
-      // Markers the server wrapped the rows in (a region, the list's array)
-      // stay outside the rows; a row of several nodes the server bracketed as
-      // an array starts at its opening marker.
-      next(rc);
+      // The list's markers stay outside the rows (rowStart); a row of several
+      // nodes the server bracketed as an array starts at its opening marker.
+      rowStart(rc);
       splitHere(rc);
       const anchor = anchorOf(rc);
       const build = () => _runScope(_itemScope(undefined, disposeFns, i), mapFn, cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item, adopt);

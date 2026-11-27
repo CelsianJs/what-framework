@@ -438,3 +438,58 @@ describe('an empty value before text the server merged', () => {
     stop();
   });
 });
+
+// A keyed row whose output is a reactive child (a <Show> per row, a row
+// component that returns a function) starts at the server's markers for it:
+// a row that shows nothing leaves the text of the row after it to that row,
+// and each row moves with its own nodes.
+const shownSource = `import { For, Show, signal } from 'what-framework';
+  export function make(initial) {
+    const rows = signal(initial.map(([label, on]) => ({ label, on: signal(on) })));
+    function Page() { return <ul><For each={rows()}>{(row) => <Show when={row.on()}>{row.label}</Show>}</For></ul>; }
+    return { Page, rows };
+  }`;
+const shownClient = await loadCompiled(shownSource, { pluginOptions: { hydratable: true } });
+const shownServer = await loadCompiled(shownSource, { pluginOptions: { generate: 'ssr' } });
+
+function hShown(initial) {
+  const rows = signal(initial.map(([label, on]) => ({ label, on: signal(on) })));
+  const Row = (props) => () => (props.row.on() ? props.row.label : null);
+  const Page = () => h('ul', null, () => rows().map((row) => h(Row, { key: row.label, row })));
+  return { Page, rows };
+}
+
+// Rows a, b, c, d with b and d shown: hydrated, then moved and toggled.
+function hydrateShown(html, app) {
+  const host = document.body.appendChild(document.createElement('div'));
+  host.innerHTML = html;
+  const ul = host.querySelector('ul');
+  const texts = nodesOf(ul).filter((n) => n.nodeType === 3);
+  const reports = [];
+  const stop = hydrate(h(app.Page), host, { onHydrationError: (r) => reports.push([r.kind, r.expected, r.found]) });
+  const shown = [ul.textContent];
+  const rows = app.rows();
+  for (const step of [
+    () => app.rows([rows[3], rows[2], rows[1], rows[0]]),
+    () => { rows[0].on(true); rows[1].on(false); },
+    () => app.rows(rows),
+  ]) {
+    step();
+    flushSync();
+    shown.push(ul.textContent);
+  }
+  stop();
+  return { reports, texts, kept: nodesOf(ul).filter((n) => n.nodeType === 3), shown };
+}
+const SHOWN = [['a', false], ['b', true], ['c', false], ['d', true]];
+
+describe('a keyed row whose output is a reactive child', () => {
+  for (const [label, serverMake, clientMake] of [['compiled <For> of <Show>', shownServer.make, shownClient.make], ['h() rows of a component returning a function', hShown, hShown]]) {
+    it(`${label}: a row that shows nothing leaves the next row's text alone, and each row moves whole`, () => {
+      const { reports, texts, shown } = hydrateShown(server.renderToHydratableString(h(serverMake(SHOWN).Page)), clientMake(SHOWN));
+      assert.deepEqual(reports, []);
+      assert.equal(texts.length, 2);
+      assert.deepEqual(shown, ['bd', 'db', 'da', 'ad']);
+    });
+  }
+});

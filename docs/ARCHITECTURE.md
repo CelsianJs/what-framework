@@ -585,7 +585,8 @@ or mounting into a container that holds a root disposes that root first.
   a text the client renders differently (the index of a row that moved) takes
   exactly its own share of the server's text: the text after it, which the
   parser merged with it, is still claimed by what follows. A compiled row of several nodes
-  starts at the array marker the server bracketed it with, and a compiled
+  starts at the array marker the server bracketed it with, a row whose output
+  is a reactive child (a `<Show>` per row) at its region's markers, and a compiled
   `<For fallback>` adopts its rows, or its fallback, whichever the server
   rendered. A compiled keyed row's plain field of its item (`{row.label}`) is a
   text node of its own that the row's item cell rewrites when the row gets a
