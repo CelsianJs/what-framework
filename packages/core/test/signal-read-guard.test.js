@@ -46,7 +46,7 @@ describe('a coerced signal reports ERR_MISSING_SIGNAL_READ', () => {
     assert.equal(ev.code, 'ERR_MISSING_SIGNAL_READ');
     assert.equal(ev.severity, 'warning');
     assert.deepEqual(ev.subject, { kind: 'signal', id: undefined, name: 'count' });
-    assert.match(ev.message, /^Signal "count" was converted to a string/);
+    assert.equal(ev.message, 'Signal "count" was used as a value without being called (in a template literal, `+`, arithmetic, a comparison or as a property key), so the function\'s source text stood in for its value.');
   });
 
   it('in a concatenation and as a property key', () => {
@@ -103,6 +103,15 @@ describe('a coerced signal reports ERR_MISSING_SIGNAL_READ', () => {
     ]);
   });
 
+  it('is located at the line that used it, with where the signal was created in data.createdAt', () => {
+    const count = signal(1, 'count@src/state.js:3:7');
+    let stack;
+    const events = quietly(() => { stack = new Error().stack; return `${count}`; });
+    const line = stack.split('\n')[1].match(/:(\d+):\d+\)?$/)[1];
+    assert.match(events[0].loc, new RegExp(`signal-read-guard\\.test\\.js:${line}:\\d+$`), 'the use, not the creation');
+    assert.equal(events[0].data.createdAt, 'src/state.js:3:7');
+  });
+
   it('carries the id devtools gave the signal', () => {
     const count = signal(1, 'count');
     /** @type {any} */ (count)._devId = 7;
@@ -145,6 +154,16 @@ describe('in a mounted component', () => {
     const events = quietly(() => mount(h(Counter), app()));
     assert.equal(app().textContent, `Count: ${source(accessor)}`);
     assert.deepEqual(events.map((e) => [e.code, e.subject.kind]), [['ERR_MISSING_SIGNAL_READ', 'signal']]);
+  });
+
+  it('h(): the report names the component that used a signal created outside it', () => {
+    const shared = signal(1, 'shared@src/store.js:1:14');
+    function Badge() {
+      return h('p', {}, `n: ${shared}`);
+    }
+    const events = quietly(() => mount(h(Badge), app()));
+    assert.deepEqual(events.map((e) => [e.code, e.owner.at(-1), e.data.createdAt]), [['ERR_MISSING_SIGNAL_READ', '<Badge>', 'src/store.js:1:14']]);
+    assert.notEqual(events[0].loc, 'src/store.js:1:14', 'never located where the signal was created');
   });
 
   it('h(): a bare accessor as a child or an attribute is a live binding, not a coercion', () => {

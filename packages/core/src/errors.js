@@ -85,8 +85,8 @@ button.addEventListener('click', () => {
   MISSING_SIGNAL_READ: {
     code: 'ERR_MISSING_SIGNAL_READ',
     severity: 'warning',
-    template: 'Signal "{{signalName}}" was converted to a string without being called, so the function\'s source text was used instead of its value.',
-    suggestion: 'Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`) and in a comparison (`count() > 5`). On its own as a JSX child or attribute value (`<span>{count}</span>`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug.',
+    template: 'Signal "{{signalName}}" was used as a value without being called (in a template literal, `+`, arithmetic, a comparison or as a property key), so the function\'s source text stood in for its value.',
+    suggestion: 'Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`), in a comparison (`count() > 5`: `count > 5` compares the source text and is false) and as a key (`labels[count()]`). On its own as a JSX child or attribute value (`<span>{count}</span>`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug. The report names the scope that used the signal, and its location is the line that used it when the browser\'s stack names one (the module as the dev server serves it, so the line can differ from the source), else that scope\'s; `data.createdAt` is where the signal was created.',
     codeExample: `// Bad - the accessor itself is converted:
 const [count, setCount] = useState(3);
 const label = \`Total: \${count}\`;   // "Total: function sig(next) {..."

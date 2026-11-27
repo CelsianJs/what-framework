@@ -4036,7 +4036,10 @@ function devSplit(meta) {
 // such coercion ends in toString(), because a function's valueOf() returns the
 // function itself, so one override per prototype reports them all. It returns
 // what production renders, the function's source text: a development page that
-// showed the value would hide the bug from whoever checks the page.
+// showed the value would hide the bug from whoever checks the page. The report
+// is where the coercion ran: the scope running now, at the line of the app's
+// that coerced when the stack names one (_devStackLoc), else at that scope's
+// location. Where the signal was created travels as `data.createdAt`.
 if (__DEV__) {
   const readGuard = (kind) => ({
     configurable: true,
@@ -4047,12 +4050,10 @@ if (__DEV__) {
       const node = this[NODE];
       const rawName = this._debugName;
       const name = rawName ? devSplit(rawName)[0] : kind === 'computed' && node ? devName(node) : '(unnamed)';
-      const where = __ownerPath(this);
       report('ERR_MISSING_SIGNAL_READ', {
-        data: { signalName: name },
+        data: { signalName: name, createdAt: __ownerPath(this).loc },
         subject: { kind, id: (kind === 'computed' ? node : this)?._devId, name },
-        owner: where,
-        loc: where.loc,
+        loc: _devStackLoc(toString),
       });
       return text;
     },

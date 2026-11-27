@@ -77,7 +77,7 @@ The shipped set is 24, documented tool by tool in [docs/MCP-DEVTOOLS.md](../../d
 
 ```
 → what_connection_status
-← { "connected": true, "session": "s1", "issues": ["ERR_MISSING_SIGNAL_READ «Signal \"title\" was converted …»"], … , "seq": 12 }
+← { "connected": true, "session": "s1", "issues": ["ERR_MISSING_SIGNAL_READ «Signal \"title\" was used as a value without being called …»"], … , "seq": 12 }
 
 → what_set_signal { signalId: 4, value: 5 }
 ← { "previous": 0, "current": 5, "since": 12, "events": ["#13 write count=5", "#14 run Counter#2 (2) ← count#4"], "seq": 14 }

@@ -86,7 +86,7 @@ package exports removes it. A bundler resolves one of three files per export:
 | [`ERR_LATE_REDIRECT`](#err-late-redirect) | error | [what-server] redirect(`location`) after the shell was sent needs an inline script, and this stream has noScripts. |
 | [`ERR_MISSING_CLEANUP`](#err-missing-cleanup) | warning | Effect sets up "`resource`" but does not return a cleanup function. |
 | [`ERR_MISSING_KEY`](#err-missing-key) | warning | A .map() returns JSX without a key prop. |
-| [`ERR_MISSING_SIGNAL_READ`](#err-missing-signal-read) | warning | Signal "`signalName`" was converted to a string without being called, so the function's source text was used instead of its value. |
+| [`ERR_MISSING_SIGNAL_READ`](#err-missing-signal-read) | warning | Signal "`signalName`" was used as a value without being called (in a template literal, `+`, arithmetic, a comparison or as a property key), so the function's source text stood in for its value. |
 | [`ERR_MOUNT_TARGET_MISSING`](#err-mount-target-missing) | error | `fn`() got no container element. |
 | [`ERR_MOVED_IMPORT`](#err-moved-import) | error | "`name`" is not exported by `source`. `answer` |
 | [`ERR_NESTED_FLUSH_SYNC`](#err-nested-flush-sync) | warning | flushSync() was called while `context` was running, so it did nothing: the effects it would run already run when the current flush reaches them. |
@@ -1001,9 +1001,9 @@ Add a unique key prop to each item in a list. Use a stable identifier (like an I
   ·  **Raised by:** `eslint-plugin-what`, `what-core`
   ·  **Detected:** reported, lint
 
-> Signal "{{signalName}}" was converted to a string without being called, so the function's source text was used instead of its value.
+> Signal "{{signalName}}" was used as a value without being called (in a template literal, `+`, arithmetic, a comparison or as a property key), so the function's source text stood in for its value.
 
-Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`) and in a comparison (`count() > 5`). On its own as a JSX child or attribute value (`<span>{count}</span>`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug.
+Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`), in a comparison (`count() > 5`: `count > 5` compares the source text and is false) and as a key (`labels[count()]`). On its own as a JSX child or attribute value (`<span>{count}</span>`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug. The report names the scope that used the signal, and its location is the line that used it when the browser's stack names one (the module as the dev server serves it, so the line can differ from the source), else that scope's; `data.createdAt` is where the signal was created.
 
 ```jsx
 // Bad - the accessor itself is converted:
