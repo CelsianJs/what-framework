@@ -41,6 +41,9 @@ export {
   _$retype,
   _$setValue,
   _$selects,
+  // What the user changed before hydration goes to the fields built before the
+  // walk reached them, installed by a module whose JSX can build a field.
+  _$carryFields,
   // Specialized setters emitted by the compiler for statically-known
   // attribute names.
   setClass,

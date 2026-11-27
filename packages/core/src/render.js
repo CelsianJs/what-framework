@@ -15,7 +15,7 @@ import { isEnumeratedAttr, markupName, FIELD_PROPS, FIELD_TAGS, ATTRIBUTE_VALUE_
 import { _onChange } from './dom.js';
 import { report, setNextBinding, recordObservation, _thrownMessage } from './diagnostics.js';
 import { VNode, isVNode, vnodeRenderer, vnodeRows, vnodeProp, vnodeRefuses, SVG_TAG } from './vnode-renderer.js';
-import { adoptVNodeKinds, adoptVNodeRows } from './vnode-adoption.js';
+import { adoptVNodeKinds, adoptVNodeRows, fieldCarry } from './vnode-adoption.js';
 // The vnode renderer slot (vnode-renderer.js), for a renderer of another
 // package's elements in a program that has none of what-core's: what-react's
 // mixed mode places its elements, and keeps a hole's keyed rows, through it.
@@ -23,6 +23,10 @@ import { adoptVNodeKinds, adoptVNodeRows } from './vnode-adoption.js';
 // a build serves that module's stand-in, hydration adopts the vnodes it
 // renders too.
 export { installVNodeRuntime as _installVNodeRuntime } from './vnode-adoption.js';
+// Compiler output, once at module scope in a module whose JSX can build a form
+// field: what the user changed before hydration goes to the fields built
+// before the walk reached them (placeBuilt, vnode-adoption.js).
+export { installFieldCarry as _$carryFields } from './vnode-adoption.js';
 import { _assignHydrationOwnerPath, _hydrationRoot, _ownerCounter, _installSeeding, _swapArrived } from './hydration-data.js';
 export { effect, untrack };
 // The eager memo, for compiled output (branch memoization: the compiler emits
@@ -4082,7 +4086,8 @@ function adoptNode(node) {
 // are consumed by the built nodes' structure and replaced by them. JSX built
 // off the walk (_$outside) is reported where it replaces the server's nodes
 // (kind prebuilt), and what the user changed in the server's form controls
-// there goes to the built ones (carryFields).
+// there goes to the built ones (_carryFields), once what can build a form
+// field is in the program (vnode-adoption.js fieldCarry).
 function placeBuilt(c, value) {
   if (frozen()) return;
   const nodes = value.nodeType === 11 ? Array.from(value.childNodes) : [value];
@@ -4096,7 +4101,7 @@ function placeBuilt(c, value) {
       if (s !== null && s.nodeType === 1 && s.localName === b.localName) {
         if (report) mismatch('prebuilt', describe(b), describe(s), s);
         report = false;
-        carryFields(s, b);
+        fieldCarry?.(s, b);
         c.n = s.nextSibling;
         s.remove();
       } else {
@@ -4134,7 +4139,8 @@ function placeBuilt(c, value) {
 // they do not, nothing is carried for them, never what another control
 // holds. A control in a <noscript> corresponds to none: the server's document
 // parsed that as text, a built tree (cloned from a template) as controls.
-function carryFields(server, built) {
+/** @internal Reached through vnode-adoption.js, as _adoptVNodeKinds is. */
+export function _carryFields(server, built) {
   const from = controlsIn(server);
   if (from.size === 0) return;
   const to = controlsIn(built);
@@ -4164,7 +4170,7 @@ function carryField(f, t) {
 }
 
 // The form controls of `el` and its descendants outside a <noscript>, by what
-// makes them correspond (carryFields), each list in document order, which a
+// makes them correspond (_carryFields), each list in document order, which a
 // selector list on a detached tree does not give in every DOM (jsdom).
 function controlsIn(el) {
   /** @type {Map<string, any[]>} */

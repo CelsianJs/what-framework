@@ -46,6 +46,12 @@
 //     hydrate(), except in a client build
 //     what-compiler/vite compiles for hydration, where the first vnode
 //     producer installs it (the plugin's stand-in for vnode-adoption.js)
+//   the carrying of what the user changed in a form before hydration into
+//     the fields built before the walk reached them (render.js _carryFields,
+//     controlsIn, carryField): reached from hydrate(), except in a client
+//     build what-compiler/vite compiles for hydration, where a compiled
+//     module whose JSX can build a field (`_$carryFields()`) or the first
+//     vnode producer installs it (the same stand-in)
 //
 // Bundled from the source with the production tier's define and dev-flag
 // plugin, unminified, so the functions keep their names.
@@ -130,6 +136,7 @@ const SELECT_CODE = ['selectProp', '_setSelectValue', 'markOptions', 'setSelectD
 const PULL_PHASE = ['checkDirty', 'updateComputed', 'settleDeferred', 'markPending', 'unwatched'];
 const SEEDING = ['seedFrom', 'trackRun', 'makeAsync'];
 const VNODE_KINDS = ['_adoptVNodeKinds', 'hydrateSuspense', 'hydrateErrorBoundary', 'hydrateElementProps', 'awaitStream', '_adoptVNodeRows', 'vnodeKey'];
+const FIELD_CARRY = ['_carryFields', 'controlsIn', 'carryField'];
 
 describe('feature reach in production bundles', () => {
   it('an app of signals and effects carries no pull phase', async () => {
@@ -220,6 +227,11 @@ describe('feature reach in production bundles', () => {
     assert.deepEqual(VNODE_KINDS.filter((name) => !has(code, name)), []);
   });
 
+  it('hydrate() brings the carrying of what the user changed into built fields', async () => {
+    const code = await bundle(`import { hydrate } from ${INDEX}; hydrate(() => null, document.body);`);
+    assert.deepEqual(FIELD_CARRY.filter((name) => !has(code, name)), []);
+  });
+
   it('an app that mounts h() elements and boundaries does not carry their hydration', async () => {
     const code = await bundle(`
       import { h, mount, Suspense, ErrorBoundary } from ${INDEX};
@@ -237,7 +249,27 @@ describe('feature reach in production bundles', () => {
     `);
     assert.ok(has(code, 'adoptComponent'), 'its root, a component vnode, is adopted');
     assert.deepEqual(VNODE_KINDS.filter((name) => has(code, name)), []);
+    assert.ok(has(code, 'placeBuilt'), 'it places what was built before the walk reached it');
+    assert.deepEqual(FIELD_CARRY.filter((name) => has(code, name)), [], 'and carries no field into it');
   });
+
+  for (const [what, imports, jsx] of [
+    ['a form field', '', '<main><input name="q" /></main>'],
+    ['innerHTML', '', '<main innerHTML={{ __html: String(n()) }} />'],
+    ['a spread on an element', '', '<main {...{ id: String(n()) }} />'],
+    ['a tag held in a binding', '', '<main><Tag /></main>'],
+    ['an h() element', ', h', "<div>{h('p', {}, () => n())}</div>"],
+    ['a <Suspense>', ', Suspense', '<Suspense fallback={<p>wait</p>}><p>{n()}</p></Suspense>'],
+  ]) {
+    it(`one with ${what} brings the carrying of what the user changed into built fields (what-compiler/vite)`, async () => {
+      const code = await compilerBundle(`
+        import { hydrate, signal${imports} } from 'what-framework';
+        function App(props) { const n = signal(0); const Tag = props.tag; return ${jsx}; }
+        hydrate(<App tag="p" />, document.body);
+      `);
+      assert.deepEqual(FIELD_CARRY.filter((name) => !has(code, name)), []);
+    });
+  }
 
   for (const [what, name, jsx] of [
     ['<Suspense>', 'Suspense', '<Suspense fallback={<p>wait</p>}><p>{n()}</p></Suspense>'],

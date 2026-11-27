@@ -223,13 +223,18 @@ function ssrGuardError(id) {
 // <Portal>) is made by what-core's vnode producers (h.js), and hydrate()
 // reaches their adoption (render.js _adoptVNodeKinds, and _adoptVNodeRows for
 // a region's keyed rows) through src/vnode-adoption.js, so every program that
-// hydrates carries it. In a client build compiled for hydration, this
-// stand-in takes that file's place (in any copy of what-core, from its source
-// or either dist tier): installing the vnode renderer, which every producer
-// does when it is defined, installs the adoption too. A program whose code makes no such vnode bundles none of
-// it, and one that does adopts its vnodes as before. The adoption is a var: a
-// producer installs it while the import cycle this module is in may not have
-// evaluated the module yet.
+// hydrates carries it. So it does the carrying of what the user changed in a
+// form before hydration into the fields built before the walk reached them
+// (render.js _carryFields), which that file applies once a compiled module
+// whose JSX can build a field (`_$carryFields()`) or a vnode producer is in
+// the program. In a client build compiled for hydration, this stand-in takes
+// that file's place (in any copy of what-core, from its source or either
+// dist tier): installing the vnode renderer, which every producer does when
+// it is defined, installs the adoption and the carrying, and `_$carryFields()`
+// installs the carrying. A program whose code makes no such vnode and builds
+// no field bundles none of it, and one that does adopts its vnodes and
+// carries its fields as before. Both are vars: a producer installs them while
+// the import cycle this module is in may not have evaluated the module yet.
 const VNODE_ADOPTION_FILE = /[\\/](?:src|dist)[\\/]vnode-adoption(\.min)?\.js$/;
 
 function vnodeAdoptionStandIn(id) {
@@ -237,12 +242,16 @@ function vnodeAdoptionStandIn(id) {
   const match = VNODE_ADOPTION_FILE.exec(file);
   if (match === null || !isFrameworkFile(file, fs, 'what-core')) return null;
   const ext = match[1] ? '.min.js' : '.js';
-  return `import { _adoptVNodeKinds, _adoptVNodeRows } from './render${ext}';
+  return `import { _adoptVNodeKinds, _adoptVNodeRows, _carryFields } from './render${ext}';
 import { _installVNodeRuntime } from './vnode-renderer${ext}';
-export var adoptVNodeKinds, adoptVNodeRows;
+export var adoptVNodeKinds, adoptVNodeRows, fieldCarry;
+export function installFieldCarry() {
+  fieldCarry = _carryFields;
+}
 export function installVNodeRuntime(render, keyedRows, setProp, refuses) {
   adoptVNodeKinds = _adoptVNodeKinds;
   adoptVNodeRows = _adoptVNodeRows;
+  fieldCarry = _carryFields;
   _installVNodeRuntime(render, keyedRows, setProp, refuses);
 }
 `;

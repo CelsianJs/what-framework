@@ -19,6 +19,13 @@
 //                       setValue() install for a select; `_$selects()`, once
 //                       at module scope, installs it in a module whose JSX
 //                       writes a prop of a <select> or an <option>.
+//   _$carryFields()     once at module scope, on both targets of the DOM
+//                       compiler, in a module whose JSX can build a form
+//                       field: a field's tag, inner HTML an element's props
+//                       write (innerHTML, dangerouslySetInnerHTML, a spread),
+//                       a tag held in a binding. It installs the carrying of
+//                       what the user changed before hydration into the
+//                       fields built before the walk reached them.
 //
 // The choice is per module, as `_$mapKeyed` against `mapArray` is, and the
 // calls themselves are emitted as before. The runtime side is in what-core
@@ -185,6 +192,41 @@ describe('the setters compiled output calls, and the select code', () => {
       assert.doesNotMatch(compile(source), /_\$selects/);
     });
   }
+});
+
+describe('the carrying of what the user changed in a form before hydration', () => {
+  for (const [what, source] of [
+    ['an input', 'export const A = () => <form><input name="q" /></form>;'],
+    ['a select and a textarea', 'export const A = (p) => <form><select name="s"><option>a</option></select><textarea>{p.t}</textarea></form>;'],
+    ['innerHTML', 'export const A = (p) => <div innerHTML={{ __html: p.html }} />;'],
+    ['dangerouslySetInnerHTML', 'export const A = (p) => <div dangerouslySetInnerHTML={{ __html: p.html }} />;'],
+    ['a spread on an element', 'export const A = (p) => <div {...p} />;'],
+    ['a tag read from props', 'export const A = (props) => { const Tag = props.as; return <main><Tag name="q" /></main>; };'],
+    ['a tag held in a parameter', 'export const A = (Tag) => <Tag name="q" />;'],
+  ]) {
+    for (const hydratable of [true, false]) {
+      it(`a module with ${what} installs it once, at module scope${hydratable ? ' (hydratable)' : ''}`, () => {
+        const code = compile(source, { hydratable });
+        assert.equal(renderImports(code)._$carryFields, '_$carryFields');
+        assert.equal(code.match(/^_\$carryFields\(\);$/gm)?.length, 1, code);
+      });
+    }
+  }
+
+  for (const [what, source] of [
+    ['elements that hold no field', 'export const A = (p) => <form id="f"><label>{p.label}</label><button>go</button></form>;'],
+    ['components it defines or imports', 'import Field from "./field.js"; const Row = (p) => <p>{p.children}</p>; export const A = () => <Row><Field name="q" /></Row>;'],
+    ['a constant tag naming an element that is no field', 'const Tag = "section"; export const A = () => <Tag id="x" />;'],
+  ]) {
+    it(`a module with ${what} does not`, () => {
+      assert.doesNotMatch(compile(source, { hydratable: true }), /_\$carryFields/);
+      assert.doesNotMatch(compile(source), /_\$carryFields/);
+    });
+  }
+
+  it('the server target never does', () => {
+    assert.doesNotMatch(compile('export const A = (p) => <form><input name="q" /><div {...p} /></form>;', { generate: 'ssr' }), /_\$carryFields/);
+  });
 });
 
 describe('the leaf call for a module whose every component is a plain function', () => {

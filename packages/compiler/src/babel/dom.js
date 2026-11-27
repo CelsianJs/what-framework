@@ -408,6 +408,7 @@ function extractStaticHTML(node, state) {
   checkElementName(node, state);
   const el = node.openingElement;
   const tagName = el.name.name;
+  if (buildsField(tagName, el.attributes)) state.carriesFields = true;
 
   let html = `<${tagName}`;
   let afterQuote = false;
@@ -1257,6 +1258,15 @@ function memoizeBranchCondition(expr, statements, state) {
     : t.logicalExpression(expr.operator, condRead, expr.right);
 }
 
+// Whether an element can be or hold a form field: a field's tag, or inner
+// HTML its props write (innerHTML, dangerouslySetInnerHTML, or a spread that
+// can give either). Its module installs the carrying of what the user changed
+// in a form before hydration into the fields built before the walk reached
+// them (what-core _$carryFields, once at module scope).
+function buildsField(tagName, attributes) {
+  return FIELD_TAGS.has(tagName.toLowerCase()) || attributes.some((attr) => t.isJSXSpreadAttribute(attr) || INNER_HTML_PROPS.has(getAttrName(attr)));
+}
+
 // Whether a binding writes the element's content as raw HTML: a hydratable
 // claim then keeps what the server put in it (render.js claimNode, flag 2).
 function writesContent(attributes) {
@@ -1902,6 +1912,9 @@ function transformComponentFineGrained(path, state) {
   const scope = path.scope ?? state.file?.path?.scope;
   const plain = isPlainFunctionComponent(scope, openingElement.name);
   if (!plain) state.classComponents = true;
+  // A tag held in a binding can name a form field (render.js tagComponent).
+  const holdsTag = !plain && mayHoldTag(scope, openingElement.name);
+  if (holdsTag) state.carriesFields = true;
 
   const componentArgs = [componentRef, propsExpr, childrenArg];
   const meta = componentMetadata(node, state);
@@ -1914,7 +1927,7 @@ function transformComponentFineGrained(path, state) {
   if (meta) componentArgs.push(meta);
   // The root handed to hydrate() arrives unbuilt; one whose tag may be a
   // string claims the server's element when hydrate() runs it.
-  const vnodeCall = !plain && mayHoldTag(scope, openingElement.name) ? '_$hcomponentVNode' : '_$componentVNode';
+  const vnodeCall = holdsTag ? '_$hcomponentVNode' : '_$componentVNode';
   const call = t.callExpression(helper(state, isHydrateRoot ? vnodeCall : '_$createComponent'), componentArgs);
   // A component placed in SVG or MathML is told so, for a tag held in a
   // binding that it builds (render.js _$inNs). Not one this module defines
@@ -3028,6 +3041,9 @@ export function initDomState(state) {
   // A module whose JSX has an SVG element with an XLink or XML attribute
   // (`xlinkHref`, `xmlLang`) or a spread installs their writer (_$xlink()).
   state.writesXlink = false;
+  // A module whose JSX can build a form field installs the carrying of what
+  // the user changed before hydration (_$carryFields(), buildsField).
+  state.carriesFields = false;
   // A component reads a field of a prop in its run (common.js markPropFieldReads).
   state.marksPropFields = false;
   state._selectorDecls = [];
@@ -3105,6 +3121,7 @@ const RENDER_IMPORTS = [
   ['_$omit', '_$omit'],
   ['_$inNs', '_$inNs'],
   ['_$selects', '_$selects'],
+  ['_$carryFields', '_$carryFields'],
 ];
 
 // The export a helper whose RENDER_IMPORTS entry is null imports.
@@ -3220,6 +3237,7 @@ export function finishDomProgram(path, state) {
   // components builds a select.
   if (state.makesSelects) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$selects'), [])));
   if (state.writesXlink) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$xlink'), [])));
+  if (state.carriesFields) path.unshiftContainer('body', t.expressionStatement(t.callExpression(helper(state, '_$carryFields'), [])));
 
   for (const reader of state.rowFieldReaders.reverse()) {
     path.unshiftContainer('body', t.variableDeclaration('const', [t.variableDeclarator(t.identifier(reader.id), reader.fn)]));

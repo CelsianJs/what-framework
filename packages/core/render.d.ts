@@ -40,6 +40,8 @@ export function _$retype(el: Element, key: string, value: any): void;
 export function _$setValue(el: Element, value: any, bound?: 1): void;
 /** @internal Compiler output, once at module scope in a module whose JSX writes a prop of a <select> or an <option>: installs the code that keeps their selection. */
 export function _$selects(): void;
+/** @internal Compiler output, once at module scope in a module whose JSX can build a form field: what the user changed in a form before hydration goes to the fields built before the walk reached them. */
+export function _$carryFields(): void;
 /**
  * One listener per event type on `root` (the document by default; a shadow root
  * or an element delegates for its own subtree) runs the `$$event` handlers on

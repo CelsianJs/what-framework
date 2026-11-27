@@ -22,6 +22,7 @@ export {
   _$retype,
   _$setValue,
   _$selects,
+  _$carryFields,
   setClass,
   className,
   setClassList,

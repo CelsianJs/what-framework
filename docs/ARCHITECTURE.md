@@ -646,7 +646,14 @@ rendering of it where it is placed, reported as a mismatch of kind
 `prebuilt`, and what the user changed in the server's form controls there (a
 value, checkedness, a selection, files) goes to the built controls that
 correspond: the same tag, type, name and `form` attribute, in order where
-both hold as many, and never one inside a `<noscript>`.
+both hold as many, and never one inside a `<noscript>`. That carrying is
+installed by what can build a form field: a compiled module whose JSX has a
+field's tag, gives an element inner HTML (`innerHTML`,
+`dangerouslySetInnerHTML`, a spread) or renders a tag held in a binding
+(`_$carryFields()` at module scope, on both targets of the DOM compiler), and
+a vnode producer (the vnode renderer's install). A field built by hand
+(`document.createElement('input')`) in a program with neither takes the
+server's place as it was built.
 No node the server rendered is replaced without a report. An array of compiled members (a component's children,
 a fragment, a `<Show>`'s content, an array literal, the rows of an unkeyed
 `.map()` of components, a row of several nodes) claims in document
@@ -685,7 +692,12 @@ a client build what-compiler/vite compiles for hydration, from the vnode
 renderer's install instead (the plugin serves a stand-in for that file, and
 every vnode producer installs the renderer). An app whose JSX is all compiled
 makes no such vnode, so it carries none of that adoption; an app that makes
-one carries it with the renderer.
+one carries it with the renderer. The carrying of form state into built
+fields (render.js `_carryFields`) goes the same way: reached from
+`hydrate()` in any build, applied once what can build a field is in the
+program, and in such a client build installed by that code
+(`_$carryFields()`, the vnode renderer's install), so an app whose compiled
+JSX builds no field and makes no vnode carries none of it.
 
 **Mismatches** are reported, never silently rewritten: one record per region
 (a marked region, else the element the walk is in),
@@ -813,7 +825,7 @@ packages/
 |       +-- selector.js     createSelector (O(1) keyed selection)
 |       +-- dom.js          mount, the vnode renderer (createDOM), the portal renderer, SSR frames
 |       +-- vnode-renderer.js  Slot through which render.js reaches createDOM
-|       +-- vnode-adoption.js  How hydrate() reaches the adoption of h() elements, boundaries and portals
+|       +-- vnode-adoption.js  How hydrate() reaches the adoption of h() elements, boundaries and portals, and the carrying of form state into built fields
 |       +-- h.js            JSX factory (h, Fragment, html tagged template); installs the vnode renderer
 |       +-- hooks.js        React-compatible hooks backed by signals
 |       +-- components.js   memo, lazy, Suspense, ErrorBoundary (and their client renderers), Show, For

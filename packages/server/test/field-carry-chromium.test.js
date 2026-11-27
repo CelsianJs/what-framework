@@ -1,10 +1,14 @@
 // What the visitor changed in a form before the page's code ran reaches the
 // form the client builds in its place while hydrating (render.js placeBuilt
-// and carryFields), on every path What builds a form field by: compiled JSX
+// and _carryFields), on every path What builds a form field by: compiled JSX
 // built before it is placed (with the hydratable option or without it), the
 // inner HTML an element is given (innerHTML, dangerouslySetInnerHTML, a
 // spread), a tag held in a binding, h() and the JSX runtime, and what-react's
-// renderer in a mixed app.
+// renderer in a mixed app. The carrying is installed by what can build a
+// field (a compiled module whose JSX can, a vnode producer), so a client that
+// builds none does not carry its code; a field built by hand
+// (document.createElement) in such a client is the one that does not get
+// what the visitor did.
 //
 // Each client is built two ways, as an app is: bundled by esbuild from
 // compiled modules, and by a production `vite build` with what-compiler/vite
@@ -109,6 +113,26 @@ const MIXED = {
   server: `export function Page() { return <main>${FORM_JSX}</main>; }`,
   page: `import { Fields } from './fields.jsx'; export function Page() { const form = <form id="f"><Fields /></form>; return <main>{form}</main>; }`,
   react: `import { useState } from 'react'; export function Fields() { const [name] = useState('t'); return <>${FORM_FIELDS.replace('name="t"', 'name={name}')}</>; }`,
+};
+
+// A form built by hand, in a client none of whose code builds a field.
+const HAND_MADE = {
+  server: `export function Page() { return <main>${FORM_JSX}</main>; }`,
+  page: `
+    function handMade() {
+      const form = document.createElement('form');
+      form.id = 'f';
+      for (const [type, name, value] of [['text', 't'], ['checkbox', 'c'], ['radio', 'r', 'a'], ['radio', 'r', 'b'], ['select', 's'], ['file', 'd']]) {
+        const field = document.createElement(type === 'select' ? 'select' : 'input');
+        if (type === 'select') field.innerHTML = '<option value="a">A</option><option value="b">B</option>';
+        else if (type !== 'text') field.type = type;
+        field.name = name;
+        if (value) field.value = value;
+        form.append(field);
+      }
+      return form;
+    }
+    export function Page() { const form = handMade(); return <main>{form}</main>; }`,
 };
 
 const ENTRY = `
@@ -270,4 +294,10 @@ describe('a form built before the walk reached it, in Chromium', { skip: !browse
     assert.deepEqual(await run(markup, await mixedClient(MIXED)), CHANGED);
   });
 
+  for (const [bundler, bundle] of BUILDERS) {
+    it(`a form built by hand, in a client that builds no field (${bundler}): shows what it was built with`, async () => {
+      const markup = await serverMarkup(HAND_MADE.server);
+      assert.deepEqual(await run(markup, await bundle(HAND_MADE)), { t: '', c: false, r: null, s: 'a', d: null, fields: 6 });
+    });
+  }
 });

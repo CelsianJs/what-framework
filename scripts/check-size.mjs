@@ -700,6 +700,29 @@ for (const [name, expected] of [
   if (has !== expected) failed = true;
 }
 
+// --- Form state carried into built fields only where one can be built ----
+// `closest('noscript')` (in whichever quotes the minifier writes it) is
+// render.js controlsIn, which only the carrying of
+// what the user changed before hydration into the fields built before the
+// walk reached them reaches (_carryFields). A hydrating app whose compiled
+// JSX builds no field and that makes no vnode must not carry it; the mixed
+// app, whose what-react/mixed.js installs a vnode renderer, must.
+const FIELD_CARRY = /closest\(["'`]noscript["'`]\)/;
+console.log('\n[check-size] form state carried into built fields only where one can be built:\n');
+for (const [name, expected] of [
+  ['compiled-hydrate', false],
+  ['mixed-hydrate', true],
+]) {
+  if (productionBundles[name] === undefined) {
+    console.error(`  ✗ ${name}: not built (above)`);
+    failed = true;
+    continue;
+  }
+  const has = FIELD_CARRY.test(Buffer.from(productionBundles[name]).toString());
+  console.log(`  ${has === expected ? '✓' : '✗'} ${name}: ${has ? 'carries' : 'does not carry'} the carrying of form state`);
+  if (has !== expected) failed = true;
+}
+
 // --- The pull phase only where a computed is made -------------------------
 // The text of DEFER (reactive.js, the marker of a deferred deep evaluation)
 // stands for the pull phase, which the first computed or selector installs: an

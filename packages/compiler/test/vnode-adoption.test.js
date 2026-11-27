@@ -38,7 +38,8 @@ describe('the vnode adoption stand-in', () => {
 
   it('stands in for what-core\'s file in a client build compiled for hydration, from its source or a dist tier', () => {
     assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /from '\.\/render\.js'/);
-    assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /export var adoptVNodeKinds, adoptVNodeRows;/);
+    assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /export var adoptVNodeKinds, adoptVNodeRows, fieldCarry;/);
+    assert.match(loadFor({ hydratable: true }, SOURCE_FILE), /export function installFieldCarry\(\)/);
     const minified = loadFor({ hydratable: true }, path.join(REPO, 'packages/core/dist/vnode-adoption.min.js'));
     assert.match(minified, /from '\.\/render\.min\.js'/);
     assert.match(minified, /from '\.\/vnode-renderer\.min\.js'/);
