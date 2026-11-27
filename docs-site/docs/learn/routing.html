@@ -395,7 +395,7 @@ route.isNavigating  <span class="comment">// true from navigate() until the new 
 <span class="comment">// Disable prefetch on a specific Link</span>
 &lt;<span class="function">Link</span> href="/heavy-page" prefetch={<span class="keyword">false</span>}&gt;Heavy Page&lt;/<span class="function">Link</span>&gt;</code></pre>
 
-          <p>This is a hint to the browser to fetch that URL's document early. It does not pull in a <code>lazy()</code> route's JavaScript chunk, and each URL is prefetched at most once per page load.</p>
+          <p>Prefetching starts downloading the <code>lazy()</code> chunk of the route the URL goes to, so the click need not wait for it, unless that route has middleware (a navigation downloads it once the middleware admits it). It also hints the browser to fetch the URL. Each URL is prefetched at most once per page load.</p>
 
           <h2 id="base-path">Serving Below a Base Path</h2>
           <p>An app deployed below a path (<code>/app/</code> on GitHub Pages or behind a reverse proxy) routes below it. With Vite, its <code>base</code> is the router's: set <code>base: '/app/'</code> in <code>vite.config.js</code> and nothing else. Without Vite's base (another bundler, or a server build that keeps what-router external), call <code>setBase</code> once, before the app renders, in code the client and the server both run:</p>
