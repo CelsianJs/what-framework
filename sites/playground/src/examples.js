@@ -301,17 +301,16 @@ function EffectDemo() {
     document.title = \`Count: \${count()}\`;
   });
 
-  // Effect with interval (cleanup when ticking turns off)
-  let interval = null;
+  // Effect with interval: the function it returns is its cleanup, which runs
+  // before the next run (ticking turned off) and when the component goes away
   effect(() => {
-    if (ticking()) {
-      interval = setInterval(() => count(c => c + 1), 1000);
-      addLog('Timer started');
-    } else if (interval) {
+    if (!ticking()) return;
+    const interval = setInterval(() => count(c => c + 1), 1000);
+    addLog('Timer started');
+    return () => {
       clearInterval(interval);
-      interval = null;
       addLog('Timer stopped');
-    }
+    };
   });
 
   return (
