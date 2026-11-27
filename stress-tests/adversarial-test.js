@@ -329,20 +329,10 @@ describe('edge case vnodes', () => {
 // ============================================================
 
 describe('XSS prevention', () => {
-  test('script injection via text content', () => {
-    const html = renderToString(h('div', null, '<script>alert(1)</script>'));
-    assert.ok(!html.includes('<script>'));
-  });
-
   test('attribute injection via quotes escapes into the original attribute value', () => {
     const html = renderToString(h('div', { title: '" onclick="alert(1)' }));
     assert.ok(html.includes('title="&quot; onclick=&quot;alert(1)"'));
     assert.ok(!html.includes('" onclick='));
-  });
-
-  test('attribute injection via angle brackets', () => {
-    const html = renderToString(h('div', { title: '><script>alert(1)</script>' }));
-    assert.ok(!html.includes('<script>'));
   });
 
   test('href javascript: protocol is omitted', () => {

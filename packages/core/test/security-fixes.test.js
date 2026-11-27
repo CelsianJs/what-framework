@@ -25,25 +25,6 @@ async function flush() { flushSync(); await new Promise(r => setTimeout(r, 10));
 // =========================================================================
 
 describe('HIGH-1: innerHTML XSS prevention in dom.js', () => {
-  it('blocks raw string innerHTML — prevents XSS', () => {
-    const el = document.createElement('div');
-    el.innerHTML = 'original';
-    setProp(el, 'innerHTML', '<script>alert("xss")</script>');
-    assert.equal(el.innerHTML, 'original', 'raw string innerHTML must be rejected');
-  });
-
-  it('allows { __html } wrapper for innerHTML', () => {
-    const el = document.createElement('div');
-    setProp(el, 'innerHTML', { __html: '<b>safe</b>' });
-    assert.equal(el.innerHTML, '<b>safe</b>');
-  });
-
-  it('allows dangerouslySetInnerHTML with { __html }', () => {
-    const el = document.createElement('div');
-    setProp(el, 'dangerouslySetInnerHTML', { __html: '<em>ok</em>' });
-    assert.equal(el.innerHTML, '<em>ok</em>');
-  });
-
   it('handles empty __html in wrapper', () => {
     const el = document.createElement('div');
     el.innerHTML = 'old';

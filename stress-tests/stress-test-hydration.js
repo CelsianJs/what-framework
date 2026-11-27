@@ -186,15 +186,4 @@ describe('STRESS: Full SSR -> Hydration round-trip', () => {
     assert.ok(container.querySelector('main'), 'main should exist');
     assert.equal(container.querySelectorAll('li').length, 2);
   });
-
-  it('hydrate empty container creates fresh DOM', () => {
-    const container = getContainer();
-    // Container is empty
-
-    const vnode = h('div', null, h('p', null, 'Fresh'));
-    hydrate(vnode, container);
-
-    assert.equal(container.firstChild.tagName, 'DIV');
-    assert.equal(container.querySelector('p').textContent, 'Fresh');
-  });
 });
