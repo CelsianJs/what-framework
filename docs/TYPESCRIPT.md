@@ -47,6 +47,18 @@ function App() {
 }
 ```
 
+### Source lines in the dev server
+
+In `vite` dev, a stack trace and a development diagnostic (`ERR_MISSING_SIGNAL_READ`,
+an effect's location) name the line you wrote in a `.jsx` file. In a `.tsx` file
+they do too when `@babel/plugin-transform-typescript` is installed
+(`npm i -D @babel/plugin-transform-typescript`, or `@babel/preset-typescript`,
+which brings it): what-compiler then strips the types in its own Babel pass.
+Without it, Vite's transformer strips them first and drops comment and type-only
+lines, so a line it reports can be several lines above the one written (the
+browser's source map still shows the right one). Decorators in a `.tsx` file
+need Vite's transformer, so leave the plugin out of a project that uses them.
+
 ## Type Definitions
 
 All packages publish `.d.ts` files:

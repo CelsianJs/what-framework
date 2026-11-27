@@ -92,3 +92,72 @@ test('the dev server serves a .jsx file with each statement on its source line',
     await vite.close();
   }
 });
+
+// With @babel/plugin-transform-typescript installed in the app, a .tsx file
+// skips the bundler's transformer too: its types are stripped in the plugin's
+// own Babel pass, and the dev server serves it with each statement on its
+// source line. The stand-in below strips the type syntax the source uses.
+const TS_STAND_IN = `module.exports = function stripTypes(api, options) {
+  globalThis.__whatTsOptions = options;
+  const drop = (p) => p.remove();
+  return {
+    visitor: {
+      TSTypeAliasDeclaration: drop,
+      TSInterfaceDeclaration: drop,
+      TSTypeAnnotation: drop,
+      TSTypeParameterInstantiation: drop,
+      TSAsExpression(p) { p.replaceWith(p.node.expression); },
+    },
+  };
+};`;
+
+test('with the TypeScript Babel plugin installed, the dev server serves a .tsx file with each statement on its source line', async () => {
+  const tsRoot = fs.mkdtempSync(path.join(here, '.vite-tsx-lines-'));
+  try {
+    const pluginDir = path.join(tsRoot, 'node_modules', '@babel', 'plugin-transform-typescript');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({ name: '@babel/plugin-transform-typescript', main: 'index.js' }));
+    fs.writeFileSync(path.join(pluginDir, 'index.js'), TS_STAND_IN);
+    fs.writeFileSync(path.join(tsRoot, 'package.json'), '{}');
+    fs.writeFileSync(path.join(tsRoot, 'App.tsx'), [
+      "import { signal } from 'what-framework';",
+      '',
+      '// Types the bundler would strip, and the lines with them.',
+      'interface Props {',
+      '  title: string;',
+      '}',
+      '',
+      'type Count = number;',
+      '',
+      "const count = signal<Count>(1, 'count');",
+      '',
+      'export function thrower(): void {',
+      "  throw new Error('boom');",
+      '}',
+      '',
+      'export function App({ title }: Props) {',
+      '  const text: string = `count: ${count}`;',
+      '  return <div><p>{text}</p>{(title as string)}</div>;',
+      '}',
+      '',
+    ].join('\n'));
+    const vite = await createServer({
+      root: tsRoot, configFile: false, logLevel: 'error', server: { middlewareMode: true, hmr: false },
+      plugins: [whatVitePlugin({ prodBundles: false })],
+    });
+    try {
+      const { code } = await vite.transformRequest('/App.tsx');
+      const served = code.split('\n');
+      for (const [line, statement] of [[10, 'const count = signal('], [13, "throw new Error('boom');"], [17, 'const text = `count: ${count}`;']]) {
+        assert.ok(served[line - 1].trimStart().startsWith(statement), `line ${line} holds \`${statement}\`, not \`${served[line - 1]}\``);
+      }
+      assert.doesNotMatch(code, /interface Props|type Count/);
+      assert.equal(globalThis.__whatTsOptions?.isTSX, true, 'the plugin strips the file as TSX');
+    } finally {
+      await vite.close();
+    }
+  } finally {
+    delete globalThis.__whatTsOptions;
+    fs.rmSync(tsRoot, { recursive: true, force: true });
+  }
+});

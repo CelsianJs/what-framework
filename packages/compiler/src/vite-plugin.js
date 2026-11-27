@@ -169,6 +169,29 @@ function sourceLocFor(ctx) {
   };
 }
 
+// In development a .tsx file is served as this plugin prints it too, its
+// lines where the source has them, when @babel/plugin-transform-typescript
+// (or @babel/preset-typescript, which depends on it) is installed: the types
+// are stripped in the same Babel pass as the JSX, so the bundler's
+// transformer, which would reprint the file first, skips .tsx as it skips
+// .jsx. Without it, .tsx goes through the bundler's transformer.
+function loadTypeScriptPlugin(root) {
+  const attempts = [
+    () => createRequire(path.resolve(root, 'package.json'))('@babel/plugin-transform-typescript'),
+    () => {
+      const fromApp = createRequire(path.resolve(root, 'package.json'));
+      return createRequire(fromApp.resolve('@babel/preset-typescript'))('@babel/plugin-transform-typescript');
+    },
+  ];
+  for (const attempt of attempts) {
+    try {
+      const mod = attempt();
+      return mod.default ?? mod;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
 function rendersOnServer(config) {
   return config.appType === 'custom' || Boolean(config.build && (config.build.ssr || config.build.ssrManifest));
 }
@@ -278,6 +301,8 @@ export default function whatVitePlugin(options = {}) {
   let rootDir = '';
   let pagesDir = '';
   let isDevMode = false;
+  // @babel/plugin-transform-typescript, in development (loadTypeScriptPlugin).
+  let typeScriptPlugin = null;
   let hydratableOutput = hydratable === true;
   const actionIdRegistry = new Map();
 
@@ -450,6 +475,7 @@ export default function whatVitePlugin(options = {}) {
           configFile: false,
           babelrc: false,
           plugins: [
+            ...(typeScriptPlugin !== null && cleanId.endsWith('.tsx') ? [[typeScriptPlugin, { isTSX: true, allowDeclareFields: true }]] : []),
             [whatBabelPlugin, {
               generate,
               hydratable: generate === 'dom' && hydratableOutput,
@@ -570,10 +596,15 @@ export default function whatVitePlugin(options = {}) {
       // transformer would reprint the file first, without its blank lines,
       // and it has nothing else to do for one (no types, JSX preserved), so
       // it skips .jsx here, unless the app sets what it skips. A .tsx file
-      // still goes through it for its types.
+      // skips it too when this plugin strips its types (loadTypeScriptPlugin).
       const transformer = jsxPreserve.oxc ? 'oxc' : 'esbuild';
-      if (command === 'serve' && !production && !(config[transformer] && 'exclude' in config[transformer])) {
-        /** @type {any} */ (jsxPreserve)[transformer].exclude = /\.jsx?$/;
+      if (command === 'serve' && !production) {
+        typeScriptPlugin = loadTypeScriptPlugin(config.root || process.cwd());
+        if (!(config[transformer] && 'exclude' in config[transformer])) {
+          /** @type {any} */ (jsxPreserve)[transformer].exclude = typeScriptPlugin !== null ? /\.(?:jsx?|tsx)$/ : /\.jsx?$/;
+        } else {
+          typeScriptPlugin = null;
+        }
       }
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
