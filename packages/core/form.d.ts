@@ -17,10 +17,12 @@ export interface FieldError {
  * type-checked and threw at the first keystroke. `onchange` is React's change
  * event, as every onChange is: a text field fires it as the user types.
  *
- * `value` and `checked` are reactive rather than snapshots: `value` and the
- * checkbox `checked` are getters, and the radio `checked` is a thunk, so that a
- * spread (`{...register('email')}`) binds instead of freezing the value at
- * mount.
+ * `value` and the checkbox `checked` are getters, and the radio `checked` is a
+ * thunk. Compiled JSX's spread (`<input {...register('email')} />`) reads them
+ * in its binding, so the input follows setValue and reset. An h() call reads
+ * them once: a JavaScript spread (`h('input', { ...register('email') })`)
+ * copies the value, so a later setValue does not show; give `value` as an
+ * accessor after the spread, or use `Input` (docs/API.md, Forms).
  *
  * A closed type alias rather than an interface: the key set really is closed
  * (this is the whole object register() builds), and closing it is what makes

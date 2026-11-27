@@ -712,6 +712,25 @@ Imported from `what-framework/form`.
 | `Input` / `Textarea` / `Select` / `Checkbox` / `Radio` | Bound field components |
 | `ErrorMessage` | Form error component |
 
+### `register(name)` in compiled JSX and in `h()`
+
+`register(name)` returns the props that bind an input to its field: `name`,
+`onchange`, `onBlur`, `onFocus`, `ref`, and `value` (`checked` for a checkbox
+or radio). In compiled JSX, `<input {...register('email')} />` follows the
+field: the spread's binding reads `value` and `checked` again, so `setValue`
+and `reset` show in the input.
+
+An `h()` call reads them once. `h('input', { ...register('email') })` (a
+JavaScript spread copies the value) and `h('input', register('email'))` both
+render the field's value at that moment and take the user's edits, but a later
+`setValue` or `reset` does not show. Use the bound component, or give `value`
+as an accessor after the spread:
+
+```js
+h(Input, { register, name: 'email' });
+h('input', { ...register('email'), value: () => getValue('email') });
+```
+
 ### Correct error access
 
 ```jsx
