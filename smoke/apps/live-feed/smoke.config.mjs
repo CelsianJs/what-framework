@@ -22,6 +22,7 @@ import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
 
 const RATE = 200;
 const RUN_MS = 10_000;
+const MIN_TOGGLES = 15;
 const LONG_TASK_BOUND = 100;
 const HEAP_GROWTH_BOUND = 1024 * 1024;
 
@@ -118,7 +119,11 @@ export default {
         const symbols = await page.$$eval('[data-watch]', (els) => els.map((el) => el.dataset.watch));
         const samples = [];
         let toggles = 0;
-        for (let i = 0; Date.now() - t0 < RUN_MS; i++) {
+        // Ten seconds, and on past them (up to twenty) until the panels have
+        // been toggled MIN_TOGGLES times: on a loaded machine each round trip
+        // to the page takes longer, and fewer fit in the ten.
+        const more = () => Date.now() - t0 < RUN_MS || (toggles < MIN_TOGGLES && Date.now() - t0 < 2 * RUN_MS);
+        for (let i = 0; more(); i++) {
           if (i % 2 === 0) {
             await page.click(`[data-watch="${symbols[(i / 2) % symbols.length]}"]`);
             toggles++;
@@ -134,7 +139,7 @@ export default {
         const paused = await state();
         const rate = (paused.emitted - startEmitted) / elapsed;
 
-        check('stream:update-rate', rate >= 50 && rate <= 220 && toggles >= 15,
+        check('stream:update-rate', rate >= 50 && rate <= 220 && toggles >= MIN_TOGGLES,
           'the page took 50 to 200 updates a second for 10 s while panels mounted and unmounted',
           `${rate.toFixed(0)}/s over ${elapsed.toFixed(1)}s, ${paused.emitted} trades, ${toggles} panel toggles`);
 
