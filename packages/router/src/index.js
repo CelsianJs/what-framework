@@ -1499,7 +1499,9 @@ export function nestedRoutes(basePath, children, options = {}) {
 }
 
 // --- Route Groups ---
-// Group routes without affecting URL structure
+// Group routes without affecting URL structure. A route's middleware runs
+// before the group's; a route given none has none, so a hover downloads its
+// lazy() chunk as for any route without middleware.
 
 export function routeGroup(name, routes, options = {}) {
   const { layout, middleware } = options;
@@ -1508,7 +1510,7 @@ export function routeGroup(name, routes, options = {}) {
     ...route,
     _group: name,
     layout: route.layout || layout,
-    middleware: [...(route.middleware || []), ...(middleware || [])],
+    middleware: route.middleware || middleware ? [...(route.middleware || []), ...(middleware || [])] : undefined,
   }));
 }
 
