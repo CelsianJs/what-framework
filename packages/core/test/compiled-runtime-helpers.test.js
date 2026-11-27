@@ -155,12 +155,17 @@ describe('classList', () => {
 });
 
 describe('className', () => {
-  it('writes className, with a falsy value as empty', () => {
+  it('writes className; null, undefined and false write no attribute, and 0 is its text, as on the server', () => {
     const el = document.createElement('div');
     className(el, 'a');
     assert.equal(el.className, 'a');
     className(el, 0);
-    assert.equal(el.className, '');
+    assert.equal(el.className, '0');
+    for (const none of [null, undefined, false]) {
+      className(el, 'a');
+      className(el, none);
+      assert.equal(el.getAttribute('class'), null, String(none));
+    }
     const cls = signal('x');
     className(el, () => cls());
     cls('y');
