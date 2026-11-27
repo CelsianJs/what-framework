@@ -1283,14 +1283,15 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
   return globalLayout ? h(globalLayout, {}, routed) : routed;
 }
 
-// Whether two params or query objects hold the same keys and values.
+// Whether two params or query objects hold the same keys and values: a
+// repeated query key's values (an array of strings) in the same order.
 /** @param {any} a @param {any} b */
 function sameRecord(a, b) {
   if (a === b) return true;
   if (a == null || b == null) return false;
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
-  for (const k of keys) if (!Object.hasOwn(b, k) || a[k] !== b[k]) return false;
+  for (const k of keys) if (!Object.hasOwn(b, k) || JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
   return true;
 }
 

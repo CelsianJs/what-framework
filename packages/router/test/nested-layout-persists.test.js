@@ -102,6 +102,33 @@ describe('a nested layout persists across its child routes', () => {
     assert.equal(document.getElementById('page').textContent, 'page 2', 'the page is given the new query');
   });
 
+  it('keeps the query for a URL whose query did not change, a repeated key included', async () => {
+    const seen = [];
+    function FilterLayout(props) {
+      useEffect(() => { seen.push(props.query.tag); });
+      return h('div', null, props.children);
+    }
+    const routes = nestedRoutes('/filters', [
+      { path: '/', component: () => h('p', null, 'list') },
+      { path: '/grid', component: () => h('p', null, 'grid') },
+    ], { layout: FilterLayout });
+
+    await navigate('/filters?tag=a&tag=b');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    await navigate('/filters/grid?tag=a&tag=b');
+    await flush();
+    assert.deepEqual(seen, [['a', 'b']], 'the same values in the same order: the effect does not run again');
+    await navigate('/filters/grid?tag=b&tag=a');
+    await flush();
+    assert.deepEqual(seen, [['a', 'b'], ['b', 'a']], 'another order is another query');
+    await navigate('/filters?tag=a,b&tag=c');
+    await flush();
+    await navigate('/filters?tag=a&tag=b,c');
+    await flush();
+    assert.deepEqual(seen.slice(2), [['a,b', 'c'], ['a', 'b,c']], 'values are compared one by one');
+  });
+
   it('builds the layout again when the chain of layouts changes', async () => {
     const built = [];
     const A = (props) => { built.push('A'); return h('div', { id: 'a' }, props.children); };
