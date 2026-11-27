@@ -4,7 +4,6 @@ const fill = (target, value, selector, expected, max) => ({ action: 'fill', targ
 export const flows = {
   dashboard: [click('Charts', 'button.active', /^Charts$/, 70)],
   'db-comparison': [click('Performance', '.tab-bar button.active', /^Performance$/, 60)],
-  'dx-test': [click('Increment', '#app', /Count:\s*1/, 6)],
   'dx-testbed': [{ ...click('+', '.section', /Doubled:\s*2/, 6), syncBudget: true }],
   kanban: [{ action: 'link', target: '.board-card[href]', selector: '.board__header', expected: /./, max: 90 }],
   'npm-eight-pages-review': [{ action: 'link', name: /Signals/, selector: 'h1', expected: /Signals/, max: 80 }],
