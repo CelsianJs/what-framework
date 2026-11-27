@@ -90,11 +90,15 @@ function clone(value) {
   return out;
 }
 
-function getIn(obj, path) {
-  let cur = obj;
-  for (const segment of path.split('.')) cur = cur == null ? undefined : cur[segment];
-  return cur;
-}
+// A map with no prototype, so a key named `constructor` or `__proto__` is
+// a key like any other.
+const map = () => Object.create(null);
+
+// obj[key], except a member obj inherits from Object.prototype, which is no
+// entry of its own: a field named `toString` with no default has none.
+const own = (obj, key) => (obj == null || (!Object.hasOwn(obj, key) && key in Object.prototype) ? undefined : obj[key]);
+
+const getIn = (obj, path) => path.split('.').reduce(own, obj);
 
 // Writes into an object getAllValues built, making an array where the next
 // segment is an index and an object anywhere else. A path through
@@ -162,7 +166,7 @@ function createFormController(options = {}) {
   // useFieldArray and replaces keyOf, nameOf and defaultAt with its own;
   // until then a key is its name.
   /** @type {Record<string, any>} */
-  const arrays = {};
+  const arrays = map();
   /** @type {any} */
   let ext;
   let keyOf = (name) => name;
@@ -173,16 +177,16 @@ function createFormController(options = {}) {
   let defaultAt = getIn;
 
   // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
-  const fieldSignals = {};
+  const fieldSignals = map();
   // The signals of fields read but not written: a reader of a field nothing
   // wrote yet (or that was unregistered) follows it, and the field joins the
   // values when something writes it.
-  const pending = {};
+  const pending = map();
   // Fields forgotten with their defaults kept: left out of the values until
   // something writes them again.
-  const hidden = {};
-  const errorSignals = {};
-  const touchedSignals = {};
+  const hidden = map();
+  const errorSignals = map();
+  const touchedSignals = map();
   const errorsState = signal({});
   // Counts the field and touched signals made and forgotten so far. A reader
   // of the whole form (values, watch(), dirtyFields, touched) reads it, so
@@ -320,7 +324,7 @@ function createFormController(options = {}) {
   // the last run in flight lands; the runs are forgotten then.
   let runCount = 0;
   let formRun = 0;
-  const fieldRuns = Object.create(null);
+  const fieldRuns = map();
   let inFlight = 0;
 
   async function validate(fieldName) {
@@ -339,7 +343,7 @@ function createFormController(options = {}) {
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
-        const nextError = nextErrors[fieldName] ?? null;
+        const nextError = own(nextErrors, fieldName) ?? null;
         if (fieldRuns[key] === run && formRun < run) setFieldError(key, nextError);
         return !nextError;
       }
@@ -842,9 +846,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     d(defaults, k) {
       const segments = k.split('.');
       const at = lastItem(segments);
-      let cur = at < 0 ? defaults : bases[segments[at]];
-      for (const segment of segments.slice(at + 1)) cur = cur == null ? undefined : cur[segment];
-      return cur;
+      return segments.slice(at + 1).reduce(own, at < 0 ? defaults : bases[segments[at]]);
     },
     // Forget the default of a key under an item, in the item's values.
     u(k) {
@@ -866,7 +868,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     // Errors by name to errors by key, with the items in their places now;
     // an error of an item removed by the time it lands goes.
     s() {
-      const items = {};
+      const items = map();
       for (const k in arrays) items[k] = arrays[k].peek();
       return (errors) => {
         const out = {};
@@ -1014,7 +1016,7 @@ export function zodResolver(schema) {
       const errors = {};
       for (const issue of issues) {
         const path = _issuePath(issue);
-        if (!errors[path]) {
+        if (!own(errors, path)) {
           errors[path] = { type: issue.code ?? 'validation', message: issue.message };
         }
       }
@@ -1052,7 +1054,7 @@ export function yupResolver(schema) {
       const inner = Array.isArray(e.inner) && e.inner.length > 0 ? e.inner : [e];
       for (const err of inner) {
         const path = err.path ?? '';
-        if (!errors[path]) {
+        if (!own(errors, path)) {
           errors[path] = { type: err.type ?? 'validation', message: err.message };
         }
       }
@@ -1310,11 +1312,12 @@ export function ErrorMessage({ name, formState, errors, render }) {
     const fieldError = formState && typeof formState.error === 'function'
       ? formState.error(name)
       : (
-        (
+        own(
           formState?.errors != null
             ? formState.errors
-            : (typeof errors === 'function' ? errors() : errors)
-        )?.[name] || null
+            : (typeof errors === 'function' ? errors() : errors),
+          name,
+        ) || null
       );
     if (!fieldError) return null;
 
