@@ -21,7 +21,10 @@ const examples = join(root, 'examples');
 const budgets = process.argv.includes('--budgets');
 if (budgets) process.env.NODE_ENV = 'development';
 const selected = process.argv.slice(2).filter(arg => arg !== '--budgets');
-const origin = 'http://workspace.test';
+// HTTPS, as a production site is served: a production server marks its CSRF
+// cookie Secure, which every browser refuses from a plain-http page (Firefox
+// says so in the console).
+const origin = 'https://workspace.test';
 const ignore = new Set(['node_modules', 'dist', 'build', 'comparison-test', 'test-results', 'test', '.git']);
 const types = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
