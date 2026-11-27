@@ -106,6 +106,23 @@ export default [
     },
   },
 
+  // The example apps and sites are code that people and agents copy, so the
+  // rules for the React habits that do not hold in What are errors there:
+  // state used without the call that reads it, and a prop, state or cleanup
+  // read once in a component that runs once. compat-tests is React code run
+  // on what-react, where useState returns a value.
+  {
+    files: ['examples/**/*.{js,jsx}', 'sites/**/*.{js,jsx}'],
+    ignores: ['examples/compat-tests/**'],
+    plugins: { what },
+    rules: {
+      'what/no-uncalled-signals': 'error',
+      'what/no-prop-read-once': 'error',
+      'what/no-state-read-once': 'error',
+      'what/no-cleanup-reads-live': 'error',
+    },
+  },
+
   // Everything under examples/, sites/ and the JSX benchmarks is built by
   // what-compiler/vite, which lowers <For>, <Show>, <Switch> and <Match>
   // itself. Those tags are therefore never imported, so the compiler preset's
