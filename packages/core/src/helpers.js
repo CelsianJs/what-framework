@@ -11,16 +11,19 @@ import { report } from './diagnostics.js';
 // cls('base', condition && 'active', { hidden: isHidden, bold: isBold })
 export function cls(...args) {
   const classes = [];
-  for (const arg of args) {
-    if (!arg) continue;
+  const add = (arg) => {
+    if (!arg) return;
     if (typeof arg === 'string') {
       classes.push(arg);
+    } else if (Array.isArray(arg)) {
+      for (const item of arg) add(item);
     } else if (typeof arg === 'object') {
       for (const [key, val] of Object.entries(arg)) {
         if (val) classes.push(key);
       }
     }
-  }
+  };
+  for (const arg of args) add(arg);
   return classes.join(' ');
 }
 
@@ -34,8 +37,9 @@ export function style(obj) {
     .join(';');
 }
 
+// A custom property (`--mainColor`) is case-sensitive and kept as written.
 function camelToKebab(str) {
-  return str.replace(/([A-Z])/g, '-$1').toLowerCase();
+  return str.startsWith('--') ? str : str.replace(/([A-Z])/g, '-$1').toLowerCase();
 }
 
 // --- debounce ---
@@ -142,8 +146,9 @@ export const Portal = /* @__PURE__ */ Object.assign(function Portal({ target, ch
 export function useClickOutside(ref, handler) {
   if (typeof document === 'undefined') return;
 
+  // A ref object is read at each press: null until it is attached.
   const listener = (e) => {
-    const el = ref.current || ref;
+    const el = ref && typeof ref === 'object' && 'current' in ref ? ref.current : ref;
     if (!el || el.contains(e.target)) return;
     handler(e);
   };
