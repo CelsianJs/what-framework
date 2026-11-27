@@ -18,6 +18,11 @@ Three waves, in this order.
   server-rendered load apps, `newsroom` and `workspace-ssr`. One (24) exists
   only in Safari, and one (26) only showed because a hydrated page compared
   the two compile targets.
+- **30 to 34** came from three apps with loads the suite lacked: `explorer`
+  (a 10,000-entry recursive tree beside a 300-field form), `chat` (a capped
+  keyed log fed by a server stream that drops) and `board` (cards dragged
+  between keyed lists). Four are in `useForm`, which no app had used at more
+  than a handful of fields; one is the cost of every update to a capped log.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -634,6 +639,65 @@ records as before, in every build). Run over the five server-rendered apps
 in development, 18 pages: none.
 - Test: `packages/core/test/hydration-attribute-mismatch.test.js`.
 
+### 30. A summary above a form's fields never followed them
+`packages/core/src/form.js` (`fieldCount`)
+
+`formState.values`, `watch()`, `dirtyFields` and `formState.touched` read the
+field signals that existed when they ran. A summary rendered above its fields
+runs before any field is registered, so it subscribed to none of them and
+showed the defaults: explorer's total budget stayed at 5,285 KB through every
+edit, until the scope field (registered above it) changed. `touched` read
+before the first blur never updated at all. A field or touched signal that
+register, setValue or a blur makes now bumps a count those readers read.
+- Test: `packages/core/test/form-whole-form-readers.test.js` (5 of 6 fail
+  before).
+
+### 31. `rules.min` and `rules.max` never fired on a number field
+`packages/core/src/form.js` (`rules`)
+
+A registered `<input type="number">` hands the form a string, and both rules
+checked `typeof value === 'number'`. A budget of `"0"` against `rules.min(1)`
+passed. A numeric string is now compared as the number it spells; a blank or
+non-numeric one is still left to `required` and `pattern`.
+- Test: `packages/core/test/form-number-rules.test.js`.
+
+### 32. An async check's slow answer replaced the answer for what the field held
+`packages/core/src/form.js` (`validate`)
+
+`useForm` applied each resolver answer as it landed. Typing `core-ui` past
+`core` (taken, and slower to look up) showed "@core is taken" on `core-ui`,
+and the first answer to land cleared `isValidating` while three lookups were
+still out. Runs are numbered now: an answer lands only when no later run of
+its field, or of the whole form, started before it, and `isValidating` holds
+until the last one lands.
+- Test: `packages/core/test/form-async-validation-order.test.js` (4 of 5 fail
+  before).
+
+### 33. A keystroke ran every field's rules
+`packages/core/src/form.js` (`validate`, `simpleResolver`)
+
+In `mode: 'onChange'` each keystroke handed the resolver every value and kept
+one field's answer: explorer counted the rules of all 301 fields per
+keystroke, and the slow registry check on the scope delayed every field's
+error (54 ms for a version typo, against 1 ms after). A field's own
+validation now passes `{ names: [field] }`, React Hook Form's resolver
+option, and `simpleResolver` runs only those fields' rules.
+- Test: `packages/core/test/form-field-validation-scope.test.js`.
+
+### 34. Every update to a capped log rebuilt the reconciler's map of keys
+`packages/core/src/render.js` (`slideRows`)
+
+A log capped at N rows drops a row at the start as each message arrives at
+the end; a newest-first feed does the mirror. Both took the general path on
+every update: a single-move probe that scanned every key, a map of the old
+keys and a walk of every row. chat's bursts of 400 messages into 1,000 rows
+made a 73 ms task each (Chromium, profiled; reconcile 115 µs a message). A
+list that slid now removes the dropped rows and builds the added ones, by
+item identity, and declines whenever the general path would claim rows
+differently. After: about 45 µs a message, no task over 50 ms.
+- Test: `packages/core/test/reconcile-slide.test.js` (the key-read count fails
+  before: 3,020 reads for a slide of one row of 1,000).
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -699,6 +763,37 @@ cannot tag one entry (`article:<slug>`): a comment on one article revalidates
 every article. A per-entry tag needs a custom `render`, which turns off
 streaming for the handler's server routes (27).
 
+### G. A keyed component row whose body reads its item is rebuilt on every replacement
+
+A row component is handed its item as a getter over the row's item cell with
+no field named (`get item() { return _$item(cell); }`), so a read in the
+component's body (`const id = item.id`, kept in the body when a hook or a
+cleanup sits beside it) records the whole item, and any replacement of the
+item under its key rebuilds the row with its state, though API.md and
+GOTCHAS say a body read records the field. chat found it: a pending message
+replaced by the server's echo lost its element. In board, a column written
+`const id = column.id; onCleanup(...)` rebuilt both columns and all 400 of
+their cards on one move between them (the shipped columns read their column
+only in JSX). Repro: `function Row({ item }) { const [on, setOn] =
+useState(false); const id = item.id; return <li data-id={id} onClick={() =>
+setOn(true)}>{on() ? 'on' : item.title}</li>; }` in a keyed `.map()`; click,
+then replace the item with a copy: `on` is back to false. Fixing it means
+telling a body read's field across the component boundary (a compiler
+rewrite of member reads of props, or a recording view handed during the
+build), which changes what a component receives, so it is left for a
+decision.
+
+### H. Recursion depth: a recursive component overflows the stack near 230 levels in Chromium
+
+Each level of a recursive component costs 21 stack frames while it is built
+(counted with `new Error().stack` in the production build). explorer's
+chain overflows between 200 and 250 levels in Chromium and between 1,200 and
+2,000 in WebKit; the branch then renders nothing and logs `RangeError:
+Maximum call stack size exceeded`, and the rest of the page keeps working.
+File trees and comment threads stay far below; a JSON viewer of a deeply
+nested document does not. explorer pins 101 levels, so a rise in frames per
+level shows.
+
 ## The load apps: what they measured
 
 `data-grid`, `live-feed` and `workspace` were added to find what only shows
@@ -743,6 +838,23 @@ Two things that looked like defects and were not:
 | 50 cold ISR articles + 50 streamed front pages at once | each only its own content | 100 / 100 |
 | 40 workspace visitors at once, own cookies | each only their own user, draft, step | 40 / 40 |
 | server heap after GC over 2,000 requests | under 4 MiB growth, not rising every sample | +320 KB (18.02 → 18.33 MB) |
+
+### Depth, size, streams and drags
+
+`explorer`, `chat` and `board` (Chromium / WebKit, M-series Mac):
+
+| measure | bound | measured |
+|---|---|---|
+| expand all: 10,000 components, 101 levels deep | 4,000 ms | 150 / 160 ms |
+| collapse all: dispose them | 2,000 ms | 22 / 33 ms |
+| filter keystroke over 10,000 entries | 1,500 ms | 3 / 3 ms (first: 27–75 ms) |
+| heap after GC over three expand/collapse cycles | +2 MiB | +63 to +108 KB |
+| an edit in a 300-field form (error and summary shown) | 50 ms | 0–1 ms |
+| messages received exactly once across ~12 dropped streams | exact | 11,000–20,000 / all |
+| 99th-percentile frame at 600 messages/s plus bursts of 400 | 400 ms | 33 / 98 ms |
+| heap after GC while 5,000 more messages pass the 1,000-row log | +1 MiB | +12 to +18 KB |
+| a drop (pointer release to the card in place) | 100 ms | 16 / 1 ms |
+| an undo or redo (key to the card in place) | 100 ms | 13 / 12 ms |
 
 ## Browsers
 
