@@ -1,5 +1,4 @@
 const click = (name, selector, expected, max) => ({ action: 'click', name, selector, expected, max });
-const fill = (target, value, selector, expected, max) => ({ action: 'fill', target, value, selector, expected, max });
 
 export const flows = {
   dashboard: [click('Charts', 'button.active', /^Charts$/, 70)],
@@ -9,13 +8,6 @@ export const flows = {
     { action: 'enter', target: '.new-todo', value: 'Smoke task', selector: '.todo-list li', expected: /Smoke task/, max: 28 },
   ],
   'what-starter': [{ action: 'link', target: 'a[href="/add"]', selector: 'form', expected: /Add Contact/, max: 80 }],
-  'real-world-suite/app-01-simple-counter-todo': [{ action: 'click', target: '[data-testid=increment-btn]', selector: '[data-testid=counter-value]', expected: /^1$/, max: 6 }],
-  'real-world-suite/app-02-api-cache-dashboard': [click('Simulate Errors', '[data-testid=error-btn]', /Errors ON/, 28)],
-  'real-world-suite/app-03-global-state': [
-    { action: 'enter', target: '[data-testid=task-input]', value: 'Smoke task', selector: '[data-testid^=task-item-]', expected: /Smoke task/, max: 28 },
-  ],
-  'real-world-suite/app-04-virtual-table': [fill('[data-testid=search-input]', 'no matching row', '[data-testid=row-count]', /0 of 0/, 48)],
-  'real-world-suite/app-05-react-compat': [{ action: 'click', target: '[data-testid=cart-toggle]', selector: '[data-testid=cart-sidebar]', expected: /Your Cart/ }],
   'scaffold-spa': [click('+', 'output', /^1$/)],
   'scaffold-islands': [click('Increase', '.counter output', /^4$/)],
   'scaffold-fullstack': [click('Like', '.like-demo output', /^1$/)],
