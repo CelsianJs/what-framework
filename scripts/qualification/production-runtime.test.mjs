@@ -38,6 +38,15 @@ const views = await loadCompiled(`
   }
 `, { production: true });
 
+// Every module loads before the first test is registered: node:test before
+// Node 23 runs the file's after() hooks once the tests registered so far end,
+// so a test registered after a top-level await ran with the DOM removed.
+const hydrating = await loadCompiled(`
+  export function Card({ title, count }) {
+    return <article><h2>{title}</h2><button onClick={() => count(n => n + 1)}>{count()}</button></article>;
+  }
+`, { production: true, pluginOptions: { hydratable: true } });
+
 function render(t, View, props) {
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -106,12 +115,6 @@ test('production keyed fragment rows retain both elements when moved', t => {
   const moved = [...list.querySelectorAll('b,i')];
   [b1, b2, a1, a2].forEach((node, index) => assert.strictEqual(moved[index], node));
 });
-
-const hydrating = await loadCompiled(`
-  export function Card({ title, count }) {
-    return <article><h2>{title}</h2><button onClick={() => count(n => n + 1)}>{count()}</button></article>;
-  }
-`, { production: true, pluginOptions: { hydratable: true } });
 
 function serverMarkup(t, html) {
   const host = document.createElement('div');
