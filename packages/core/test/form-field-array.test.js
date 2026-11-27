@@ -188,6 +188,34 @@ describe('useFieldArray', () => {
     for (const count of [301, 300]) assert.ok(comparisons(count) < 30 * count, `${comparisons(count)} comparisons for ${count} items`);
   });
 
+  // Their errors leave the form's errors in one write, not one copy of the
+  // errors per field: timed against removing the same items with no errors,
+  // in the same run, so a slow machine slows both.
+  it('removing many items with errors takes about as long as removing them without', () => {
+    const removal = (withErrors) => {
+      const form = useForm({ defaultValues: { rows: Array.from({ length: 600 }, (_, i) => ({ a: 'a' + i, b: 'b' + i })) } });
+      const rows = useFieldArray({ control: form.control, name: 'rows' });
+      for (let i = 0; i < 600; i++) {
+        form.register(`rows.${i}.a`);
+        if (withErrors) {
+          form.setError(`rows.${i}.a`, { type: 'x', message: 'x' });
+          form.setError(`rows.${i}.b`, { type: 'x', message: 'x' });
+        }
+      }
+      form.setError('kept', { type: 'x', message: 'kept' });
+      const start = performance.now();
+      rows.remove();
+      const ms = performance.now() - start;
+      assert.deepEqual(form.formState.errors, { kept: { type: 'x', message: 'kept' } });
+      assert.equal(form.formState.isValid(), false);
+      return ms;
+    };
+    removal(true);
+    const without = removal(false);
+    const withErrors = removal(true);
+    assert.ok(withErrors < 20 * without + 50, `${withErrors.toFixed(1)} ms with errors, ${without.toFixed(1)} ms without`);
+  });
+
   it('setValue on the array\'s name replaces its items; watch(name) keeps the item it was given', () => {
     const { form, array } = setup();
     const b = form.watch('vehicles.1.vin');

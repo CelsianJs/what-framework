@@ -737,7 +737,7 @@ function createFormController(options = {}) {
     // What useFieldArray works with: `x(make)` installs the field array
     // support make() builds over this form's state, once.
     control: {
-      x: (make) => ext ||= ({ k: keyOf, p: nameOf, d: defaultAt } = make(arrays, forget, getAllValues, isDirty)),
+      x: (make) => ext ||= ({ k: keyOf, p: nameOf, d: defaultAt } = make(arrays, forget, getAllValues, isDirty, errorSignals, errorsState)),
     },
     // Form state
     formState: {
@@ -778,7 +778,7 @@ let itemCount = 0;
 
 // Field array support for one form, installed by its first useFieldArray.
 // An item's segment is '\0' and its id: no name a person writes has it.
-function fieldArrays(arrays, forget, getAllValues, isDirty) {
+function fieldArrays(arrays, forget, getAllValues, isDirty, errorSignals, errorsState) {
   // Each item's values as it was added, by its segment.
   /** @type {Record<string, any>} */
   const bases = {};
@@ -839,12 +839,22 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     return (hit[0] = out);
   };
   // Forget the items of array `k` with these segments, and the field arrays
-  // inside them, in one pass over the form's fields.
+  // inside them, in one pass over the form's fields; their errors leave the
+  // form's errors in one write.
   const drop = (k, segments) => {
     if (!segments.length) return;
     const removed = new Set(segments);
     const gone = (key) => key.startsWith(k + '.') && removed.has(key.slice(k.length + 1).split('.', 1)[0]);
-    forget(k + '.' + segments[0], {}, gone);
+    const errors = { ...errorsState.peek() };
+    let cleared = false;
+    for (const key in errorSignals) {
+      if (!gone(key)) continue;
+      errorSignals[key].set(null);
+      delete errorSignals[key];
+      if (Object.hasOwn(errors, key)) cleared = delete errors[key];
+    }
+    if (cleared) errorsState.set(errors);
+    forget(k + '.' + segments[0], { keepError: true }, gone);
     for (const segment of segments) delete bases[segment];
     for (const inner in arrays) {
       if (!gone(inner)) continue;
