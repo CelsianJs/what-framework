@@ -630,8 +630,10 @@ function createFormController(options = {}) {
     if (name != null) validate(name);
   }
 
+  // A field array's name takes new items, as its replace() gives them.
   function setKey(key, value, shouldDirty = true) {
-    getFieldSignal(key).set(value);
+    if (ext && arrays[key]) ext.a(key, value);
+    else getFieldSignal(key).set(value);
     if (shouldDirty) isDirty.set(true);
   }
 
@@ -859,6 +861,14 @@ function fieldArrays(arrays, bases, keyOf, forget, getAllValues, isDirty) {
         if (name != null) out[name] = errors[k];
       }
       return out;
+    },
+    // An array's items replaced by new ones with these values.
+    a(k, values) {
+      const old = arrays[k].peek();
+      batch(() => {
+        seed(k, values || []);
+        for (const segment of old) drop(k + '.' + segment);
+      });
     },
     // A reset gives each array its items from the defaults, as new items;
     // an array inside an item goes with the item.

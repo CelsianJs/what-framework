@@ -128,6 +128,22 @@ describe('useFieldArray', () => {
     assert.deepEqual(form.formState.values.drivers, [{ name: 'Bo', incidents: [] }]);
   });
 
+  it('setValue on the array\'s name replaces its items; watch(name) keeps the item it was given', () => {
+    const { form, array } = setup();
+    const b = form.watch('vehicles.1.vin');
+    array.swap(1, 2);
+    assert.equal(b(), 'B', 'watch() took the name once and follows its item');
+    assert.equal(form.watch('vehicles.1.vin')(), 'C');
+    form.setError('vehicles.0.vin', { message: 'old' });
+    const before = ids(array);
+    form.setValue('vehicles', [{ vin: 'X' }, { vin: 'Y' }]);
+    assert.deepEqual(form.formState.values.vehicles, [{ vin: 'X' }, { vin: 'Y' }]);
+    assert.deepEqual(array.fields().map((f) => f.vin), ['X', 'Y']);
+    assert.ok(ids(array).every((id) => !before.includes(id)), 'new items');
+    assert.deepEqual(form.formState.errors, {}, 'the old items went with their errors');
+    assert.equal(form.getValue('vehicles.1.vin'), 'Y');
+  });
+
   it('reset gives the array its items from the defaults again', () => {
     const { form, array } = setup();
     array.remove(0);

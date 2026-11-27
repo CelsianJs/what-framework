@@ -799,7 +799,7 @@ its row by. `append`, `prepend` and `insert` take an item or an array of
 items; `remove(index | indexes)` removes those items, or every item with no
 argument; `move(from, to)` and `swap(a, b)` reorder; `update(index, item)`
 makes the item at `index` a new one (its row is built again) and
-`replace(items)` replaces them all. An item's values, errors and touched
+`replace(items)` replaces them all, as `setValue(name, items)` does. An item's values, errors and touched
 state belong to the item, not its index: they move with it, and a removed
 item's go with it. `reset()` takes the items from the defaults again.
 
