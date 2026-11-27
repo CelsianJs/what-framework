@@ -239,7 +239,7 @@
               <tr><td><code>setError(name, error)</code></td><td>Manually set a field error</td></tr>
               <tr><td><code>clearError(name)</code></td><td>Clear a single field's error</td></tr>
               <tr><td><code>clearErrors()</code></td><td>Clear all errors at once</td></tr>
-              <tr><td><code>reset(newValues?)</code></td><td>Reset form state to defaults or new values</td></tr>
+              <tr><td><code>reset(newValues?)</code></td><td>Reset form state to the defaults, or to new values, which become the defaults (<code>dirtyFields</code> is measured from them and a later <code>reset()</code> returns to them), as in React Hook Form</td></tr>
               <tr><td><code>watch(name?)</code></td><td>Returns a computed signal for one field or all values</td></tr>
               <tr><td><code>validate(name?)</code></td><td>Trigger validation for one field or the entire form</td></tr>
               <tr><td><code>formState</code></td><td>Reactive state object (see below)</td></tr>

@@ -70,9 +70,10 @@ describe('a spread of register() in compiled JSX', () => {
     form.reset({ limit: '250', title: 'loaded', glass: true, notes: 'from the server' });
     flushSync();
     assert.deepEqual(read(), { limit: '250', title: 'loaded', glass: true, notes: 'from the server' });
+    form.setValue('title', 'edited');
     form.reset();
     flushSync();
-    assert.equal(read().title, 'start');
+    assert.equal(read().title, 'loaded', 'reset() goes back to the values the last reset was given');
     stop();
   });
 

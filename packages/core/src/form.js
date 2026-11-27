@@ -97,11 +97,14 @@ export function useForm(options = {}) {
 
 function createFormController(options = {}) {
   const {
-    defaultValues = {},
     mode = 'onSubmit', // 'onSubmit' | 'onChange' | 'onBlur'
     reValidateMode = 'onChange',
     resolver,
   } = options;
+  // The values a field starts from and dirtyFields measures from: useForm's
+  // defaultValues, then the values a reset() was last given (React Hook
+  // Form's reset makes them the defaults).
+  let defaultValues = options.defaultValues || {};
 
   // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
   const fieldSignals = {};
@@ -473,12 +476,16 @@ function createFormController(options = {}) {
     replaceAllErrors({});
   }
 
-  // Reset form
-  function reset(newValues = defaultValues) {
+  // Reset form: to the values given, which become the defaults, or to the
+  // defaults. The count moves so a whole-form reader (dirtyFields) measures
+  // again, a field that held its new default already included.
+  function reset(newValues) {
+    if (newValues !== undefined) defaultValues = newValues;
     batch(() => {
       for (const [name, sig] of Object.entries(fieldSignals)) {
-        sig.set(newValues[name] ?? '');
+        sig.set(defaultValues[name] ?? '');
       }
+      fieldCount.set((n) => n + 1);
       for (const sig of Object.values(errorSignals)) {
         sig.set(null);
       }

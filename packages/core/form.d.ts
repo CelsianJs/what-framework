@@ -76,6 +76,7 @@ export interface UseFormReturn {
   setError: (name: string, error: FieldError | null) => void;
   clearError: (name: string) => void;
   clearErrors: () => void;
+  /** Back to the defaults, or to `newValues`, which become the defaults that dirtyFields measures from (React Hook Form's reset). */
   reset: (newValues?: Record<string, any>) => void;
   watch: (name?: string) => Computed<any>;
   validate: (fieldName?: string) => Promise<boolean>;
