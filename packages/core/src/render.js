@@ -898,7 +898,7 @@ export function _$rowFields() {
 function bindRowField(value, source, read, parent, marker, owner) {
   const text = fieldText(value);
   if (text === null || !_livesWithRow(source, owner)) return false;
-  bindField(source, textAt(parent, text, marker), read, writePlain, _ownerRecord(owner));
+  bindField(source, textAt(parent, text, marker), read, writePlain, _ownerRecord(owner), text);
   textWritten(parent, text);
   return true;
 }
@@ -909,7 +909,7 @@ function bindRowField(value, source, read, parent, marker, owner) {
 function dropFailedFields(cell) {
   const fields = cell.fields;
   if (failures === 0 || fields === null) return;
-  for (let i = 0; i < fields.length; i += 4) {
+  for (let i = 0; i < fields.length; i += 5) {
     const owner = fields[i + 3];
     if (owner !== null && _isDisposed(owner)) dropField(fields, i);
   }
@@ -945,7 +945,7 @@ function writePlain(fields, i, item, cell) {
   try {
     const text = fieldText(_readAlone(read, cell));
     if (text !== null) {
-      writeText(fieldNode(fields, i), text);
+      writeText(fields, i, text);
       return true;
     }
   } catch { /* thrown again below, where an effect's first run fails or is held */ }
@@ -966,14 +966,14 @@ function writePlain(fields, i, item, cell) {
 function rebindPlain(value, source, read, fields, i, owner) {
   // Gone since the read began (a held read that landed after an upgrade).
   if (fields[i] === null) return null;
-  const node = fieldNode(fields, i);
   if (source === null || source.fields === fields) {
     const text = fieldText(value);
     if (text !== null) {
-      writeText(node, text);
+      writeText(fields, i, text);
       return null;
     }
   }
+  const node = fieldNode(fields, i);
   dropField(fields, i);
   const parent = node.parentNode;
   // Not in the document any more: nothing to show it in.
@@ -985,7 +985,7 @@ function rebindPlain(value, source, read, fields, i, owner) {
 
 // The field at `i` is no longer its row's: it holds nothing and writes nothing.
 function dropField(fields, i) {
-  fields[i] = fields[i + 1] = fields[i + 3] = null;
+  fields[i] = fields[i + 1] = fields[i + 3] = fields[i + 4] = null;
   fields[i + 2] = fieldGone;
 }
 
@@ -5461,23 +5461,28 @@ function symbolChild(value) {
 function writeField(fields, i, item) {
   const text = fieldText(fields[i + 1](item));
   if (text === null) return false;
-  writeText(fieldNode(fields, i), text);
+  writeText(fields, i, text);
   return true;
 }
 
-// `text` in a field's text node.
-function writeText(node, text) {
-  if (node.data !== text) node.data = text;
+// `text` in the field at `i`, written when it differs from the text the
+// field wrote last (`fields[i + 4]`), not from its node's, as a region's text
+// is: text something else wrote into the node stays until the value changes.
+function writeText(fields, i, text) {
+  if (fields[i + 4] === text) return;
+  fields[i + 4] = text;
+  const node = fieldNode(fields, i);
+  node.data = text;
   if (node.parentNode !== null) textWritten(node.parentNode, text);
 }
 
-// `node` shows a field of the row whose item `cell` holds: `write(fields, i,
-// item)` shows it for the row's next item (reactive.js _setRowItem). `owner`
-// is what a plain child belongs to (writePlain).
-function bindField(cell, node, read, write, owner) {
+// `node` shows a field of the row whose item `cell` holds, `text` at first:
+// `write(fields, i, item)` shows it for the row's next item (reactive.js
+// _setRowItem). `owner` is what a plain child belongs to (writePlain).
+function bindField(cell, node, read, write, owner, text) {
   const fields = cell.fields;
-  if (fields === null) cell.fields = [node, read, write, owner];
-  else fields.push(node, read, write, owner);
+  if (fields === null) cell.fields = [node, read, write, owner, text];
+  else fields.push(node, read, write, owner, text);
 }
 
 /**
@@ -5494,7 +5499,7 @@ export function _$field(parent, cell, value, marker, read, elsewhere) {
     insert(parent, () => read(_readRowItem(cell)), marker);
     return;
   }
-  bindField(cell, textAt(parent, text, marker), read, writeField, null);
+  bindField(cell, textAt(parent, text, marker), read, writeField, null, text);
   textWritten(parent, text);
 }
 
@@ -5516,7 +5521,7 @@ export function _$hfield(parent, cell, value, flag, read, elsewhere) {
     _$field(parent, cell, value, marker, read, elsewhere);
     return;
   }
-  bindField(cell, claimField(c, text), read, writeField, null);
+  bindField(cell, claimField(c, text), read, writeField, null, text);
   if (flag === 1) c.t = c.t.nextSibling;
 }
 

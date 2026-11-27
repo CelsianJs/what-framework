@@ -805,7 +805,8 @@ function sameKeys(keys, prev, next) {
  * @internal Hand a list row its new item (see _rowItem). With `rebuildTaken`,
  * returns true instead when the row took its item as a value, or a field of it
  * the new item holds another value in, and has to be built again. `fields` holds the row's plain-field bindings (render.js
- * _$field, _$plain), four entries each (node, read, write, owner):
+ * _$field, _$plain), five entries each (node, read, write, owner, the text
+ * it wrote last):
  * `write(fields, i, item, node)` shows the new item's value in the field at
  * `i` here, directly; a write that cannot show it (it returns false) also has
  * the row built again.
@@ -817,7 +818,7 @@ export function _setRowItem(node, item, rebuildTaken) {
   node.value = item;
   const fields = node.fields;
   if (fields !== null) {
-    for (let i = 0; i < fields.length; i += 4) {
+    for (let i = 0; i < fields.length; i += 5) {
       if (!fields[i + 2](fields, i, item, node) && rebuildTaken) return true;
     }
   }
