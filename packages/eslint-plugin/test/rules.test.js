@@ -124,6 +124,26 @@ describe('eslint-plugin-what', () => {
       // Should return empty object
       assert.deepStrictEqual(visitors, {});
     });
+
+    it('leaves a React file alone (one that imports from react, react-dom, preact or what-react)', async () => {
+      const { Linter } = await import('eslint');
+      const { default: plugin } = await import('../src/index.js');
+      const body = 'export function A() { return <button onClick={() => {}} onChange={() => {}}>x</button>; }\n';
+      const lint = (head) => new Linter()
+        .verify(head + body, [plugin.configs.recommended], { filename: 'a.jsx' })
+        .filter((m) => m.ruleId === 'what/no-camelcase-events' || m.fatal);
+      for (const head of [
+        "import { useState } from 'react';\n",
+        "import { createRoot } from 'react-dom/client';\n",
+        "import { useState } from 'preact/hooks';\n",
+        "import { useState } from 'what-react';\n",
+        "export { useState } from 'react';\n",
+      ]) {
+        assert.deepStrictEqual(lint(head), [], head);
+      }
+      assert.strictEqual(lint("import { signal } from 'what-framework';\n").length, 2, 'a What file still is reported');
+      assert.strictEqual(lint("import { thing } from 'react-thing';\n").length, 2, 'a package named like React is not React');
+    });
   });
 
   describe('prefer-set', async () => {

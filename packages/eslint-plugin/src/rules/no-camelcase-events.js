@@ -7,11 +7,16 @@
  *
  * The compiler normalizes these automatically, so this rule only applies to
  * projects using esbuild's built-in JSX transform instead of what-compiler.
+ * A file that imports from react, react-dom, preact or what-react is a React
+ * component (run on what-react, say), whose JSX takes React's names, so the
+ * rule leaves it alone.
  *
  * Bad (without compiler):  <button onClick={fn} />
  * Good (without compiler): <button onclick={fn} />
  * Good (with compiler):    <button onClick={fn} />  — compiler handles it
  */
+
+import { importsReact } from '../utils/what-state.js';
 
 // Common DOM events that have camelCase variants
 const CAMEL_EVENTS = new Map([
@@ -81,9 +86,13 @@ export default {
     const options = context.options[0] || {};
     if (options.hasCompiler === true) return {};
 
+    let reactFile = false;
     return {
+      Program(node) {
+        reactFile = importsReact(node);
+      },
       JSXAttribute(node) {
-        if (node.name.type !== 'JSXIdentifier') return;
+        if (reactFile || node.name.type !== 'JSXIdentifier') return;
 
         const name = node.name.name;
         const fix = CAMEL_EVENTS.get(name);

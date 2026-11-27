@@ -30,6 +30,15 @@ export function whatImport(sourceCode, callee) {
 
 const REACT_SOURCES = /^(react|react-dom|preact|what-react)(\/|$)/;
 
+/** Whether the program imports from React, Preact or what-react: a React file, whose JSX is React's. */
+export function importsReact(program) {
+  for (const statement of program.body) {
+    if ((statement.type === 'ImportDeclaration' || statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportAllDeclaration')
+      && REACT_SOURCES.test(String(statement.source?.value))) return true;
+  }
+  return false;
+}
+
 /** Whether `callee` is imported from React, Preact or what-react, whose hooks return values. */
 function reactImport(sourceCode, callee) {
   const def = resolve(sourceCode, callee)?.defs[0];
