@@ -57,7 +57,8 @@ const CAMEL_EVENTS = new Map([
 
 export default {
   meta: {
-    type: 'problem',
+    // A style preference: code with React's names works, so it is not a problem.
+    type: 'suggestion',
     docs: {
       description: "Prefer the DOM's lowercase event names in JSX (a style choice: the runtime takes React's too)",
       recommended: false,

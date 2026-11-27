@@ -34,4 +34,8 @@ describe('no-camelcase-events and the presets', () => {
     assert.match(found[0].message, /onclick/);
     assert.equal(plugin.rules['no-camelcase-events'].meta.docs.recommended, false);
   });
+
+  it('is a style rule: ESLint files it as a suggestion, not a problem', () => {
+    assert.equal(plugin.rules['no-camelcase-events'].meta.type, 'suggestion');
+  });
 });
