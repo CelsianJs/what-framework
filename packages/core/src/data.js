@@ -203,11 +203,16 @@ function run(e) {
     const op = e.next;
     e.next = 0;
     if (op === ADOPT && e.flight !== null) return e.flight.promise;
-    if (op === 0 && !wanted(e)) {
+    if (op === 0) {
       // A run nothing asked for (what the fetcher read changed, an error
       // boundary's reset) while nothing would show the result: no request.
-      if (e.error !== undefined) throw e.error;
-      return untrack(() => e.node.peek());
+      if (!wanted(e)) {
+        if (e.error !== undefined) throw e.error;
+        return untrack(() => e.node.peek());
+      }
+      // Otherwise it fetches as the active reader that attached last, whose
+      // callbacks hear it, as an invalidation's fetch does.
+      e.by = lastActive(e);
     }
     return startFlight(e).promise;
   };
