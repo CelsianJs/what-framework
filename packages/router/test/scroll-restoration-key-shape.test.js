@@ -58,7 +58,7 @@ function mountAnchor(id) {
   return el;
 }
 
-const { navigate, enableScrollRestoration } = await import('../src/index.js');
+const { navigate, enableScrollRestoration, beforeNavigate } = await import('../src/index.js');
 
 // Effects flush on a microtask and the restore itself lands in a
 // requestAnimationFrame (stubbed to setTimeout 0), so a few macrotask ticks
@@ -324,6 +324,60 @@ describe('enableScrollRestoration hash precedence', () => {
     await flush();
 
     assert.deepEqual(lastScroll(), [0, 640]);
+    el.remove();
+  });
+
+  it('back/forward onto a saved hash url goes to the saved offset without first jumping to the anchor', async () => {
+    // As the browser restores a same-document entry: its position, never its
+    // fragment. A scroll to the anchor a frame before the offset is a visible
+    // jump, and an animated one under `scroll-behavior: smooth`.
+    const el = mountAnchor('api3');
+    await navigate('/guide3#api3');
+    await flush();
+    setScroll(0, 480);
+    await navigate('/blog4');
+    await flush();
+    setScroll(0, 0);
+
+    events = [];
+    history.back();
+    await flush();
+    await flush();
+    assert.deepEqual(events, ['scrollTo(0, 480)']);
+
+    // Back from another place on the same page restores the same way.
+    setScroll(0, 900);
+    await navigate('/guide3#other-place');
+    await flush();
+    setScroll(0, 0);
+    events = [];
+    history.back();
+    await flush();
+    await flush();
+    assert.deepEqual(events, ['scrollTo(0, 900)']);
+    el.remove();
+  });
+
+  it('a back/forward a guard cancelled leaves its hash url to scroll to its anchor when visited later', async () => {
+    const el = mountAnchor('api4');
+    await navigate('/guide4#api4');
+    await flush();
+    setScroll(0, 300);
+    await navigate('/blog5');
+    await flush();
+    setScroll(0, 0);
+    const stop = beforeNavigate(() => false);
+    try {
+      history.back();
+      await flush();
+      await flush();
+    } finally {
+      stop();
+    }
+    events = [];
+    await navigate('/guide4#api4');
+    await flush();
+    assert.deepEqual(events, ['anchor#api4']);
     el.remove();
   });
 

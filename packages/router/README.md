@@ -433,6 +433,12 @@ import { enableScrollRestoration } from 'what-router';
 enableScrollRestoration(); // call once at app entry
 ```
 
+Back and forward restore the position saved for the entry they land on,
+with or without `enableScrollRestoration()`, as the browser restores one: a
+URL with a hash lands at its saved position, not at its element first. With
+it, a forward navigation goes to the hash's element, else to the position
+saved for that URL, else to the top.
+
 ## API
 
 | Export | Description |

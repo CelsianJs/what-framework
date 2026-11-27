@@ -740,8 +740,10 @@ function fragmentNavigation(href, replace, state, fromPopstate) {
   }
 }
 
-// The URL whose fragment navigate() has just scrolled to, which the scroll
-// restoration effect does not scroll to again (enableScrollRestoration).
+// The URL whose scroll is in hand already, which the scroll restoration
+// effect does not scroll to its fragment (enableScrollRestoration): one whose
+// fragment navigate() has just scrolled to, or one back/forward restores the
+// saved position of.
 /** @type {string | null} */
 let scrolledTo = null;
 
@@ -839,11 +841,13 @@ function listenToHistory() {
   window.addEventListener('popstate', () => {
     // Save scroll position for the URL we're leaving
     scrollPositions.set(_url(), { x: window.scrollX, y: window.scrollY });
-    // Back/forward scrolls as the restoration decides, whatever navigate()
-    // scrolled to before.
-    scrolledTo = null;
-
     const newUrl = browserUrl();
+    // Back/forward lands where its entry was left, as the browser restores
+    // one: at the position saved for it, never at its fragment first, so the
+    // scroll restoration effect leaves a URL with a saved position to this
+    // handler. Without one, the effect decides.
+    scrolledTo = scrollPositions.has(newUrl) ? newUrl : null;
+
     // Use _fromPopstate flag so navigate() skips pushState (browser already
     // updated URL). An entry outside the base is the browser's to load.
     navigate(location.href, { replace: true, _fromPopstate: true, transition: false }).then(() => {
@@ -851,7 +855,9 @@ function listenToHistory() {
       // on screen: a back/forward a guard cancelled, or a newer navigation
       // superseded, leaves the scroll to the page shown.
       const saved = scrollPositions.get(newUrl);
-      if (saved && _url.peek() === newUrl) {
+      if (_url.peek() !== newUrl) {
+        if (scrolledTo === newUrl) scrolledTo = null;
+      } else if (saved) {
         requestAnimationFrame(() => scrollToPoint(saved.x, saved.y));
       }
     });
@@ -1620,7 +1626,7 @@ export function enableScrollRestoration() {
       // clobbered it one frame later.
       if (hash) {
         // A fragment navigation navigate() made has its element scrolling
-        // into view smoothly already.
+        // into view smoothly already; back/forward restores its offset.
         if (scrolledTo === url) {
           scrolledTo = null;
           return;
