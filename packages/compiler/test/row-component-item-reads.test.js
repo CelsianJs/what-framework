@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 import { loadCompiled } from '../../../test-utils/load-compiled.js';
+import { compileJSX } from '../../../test-utils/compile.js';
 
 installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
@@ -126,5 +127,48 @@ describe('a keyed row component and what its reads of the item record', () => {
       'function Row({ item }) { const [on, setOn] = useState(false); const has = item.hasOwnProperty("id"); return <li data-has={has} onClick={() => setOn(true)}>{on() ? "on" : item.title}</li>; }',
       '<Row key={item.id} item={item} />');
     assert.deepEqual(r, { kept: false, text: 'a', gone: [] });
+  });
+});
+
+describe('the member reads of props the compiler writes as _$propField', () => {
+  const SOURCE = `
+    function Row({ item, onPick }) {
+      const a = item.id;
+      const b = item.meta?.x;
+      const n = item['n'];
+      const c = item.format();
+      item.count = 1;
+      const { title } = item;
+      const k = item[a];
+      const later = () => item.label;
+      return <li data-id={item.id} onClick={() => onPick(item.id)}>{item.label}<Child v={item.done} f={() => item.f} /></li>;
+    }
+    function Child(p) { return <b>{p.v}</b>; }
+    function helper(obj) { return obj.a.b; }
+    export { Row, helper };`;
+  const code = compileJSX(SOURCE);
+
+  it('rewrites a read of one static key of a prop in the body, in functions of it, and in a prop handed to a component', () => {
+    assert.match(code, /const a = _\$propField\(_props, "item", "id"\);/);
+    assert.match(code, /const b = _\$propField\(_props, "item", "meta"\)\?\.x;/);
+    assert.match(code, /const n = _\$propField\(_props, "item", "n"\);/);
+    assert.match(code, /const later = \(\) => _\$propField\(_props, "item", "label"\);/);
+    assert.match(code, /get v\(\) \{\s*return _\$propField\(_props, "item", "done"\);/);
+  });
+
+  it('keeps a method call, a write, destructuring, a computed key and the JSX that builds elements as written', () => {
+    assert.match(code, /const c = _props\.item\.format\(\);/);
+    assert.match(code, /_props\.item\.count = 1;/);
+    assert.match(code, /\} = _props\.item;/);
+    assert.match(code, /const k = _props\.item\[a\];/);
+    assert.match(code, /_\$setAttr\(_el\$0, "data-id", _props\.item\.id\)/);
+    assert.match(code, /_\$plain\(_el\$0, \(\) => _props\.item\.label/);
+    assert.match(code, /\$\$click = \(\) => _props\.onPick\(_props\.item\.id\)/);
+    assert.match(code, /f: \(\) => _props\.item\.f/);
+  });
+
+  it('leaves a function that renders no JSX, and the server back end, alone', () => {
+    assert.match(code, /return obj\.a\.b;/);
+    assert.doesNotMatch(compileJSX(SOURCE, { pluginOptions: { generate: 'ssr' } }), /_\$propField/);
   });
 });
