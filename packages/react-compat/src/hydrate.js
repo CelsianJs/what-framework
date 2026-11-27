@@ -776,7 +776,10 @@ function claimField(c, el, tag, props, suppress, owner) {
   const value = props.value;
   if ('value' in props) el._compatValue = value;
   if (value != null) controlField(el);
-  if (tag === 'select') return;
+  if (tag === 'select') {
+    el._compatField = true;
+    return;
+  }
   let def = value ?? props.defaultValue;
   if (tag === 'textarea') {
     if (def == null) def = onlyText(props.children);

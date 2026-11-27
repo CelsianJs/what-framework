@@ -121,7 +121,10 @@ next to What's run-once renderer. what-core is not modified.
   (the browser lays the page out to answer), so an event forces no layout by
   itself; a copy of the event (`{ ...event }`) leaves those four out, as it
   leaves out React's methods. `onChange` fires when the
-  field's value changed, on the field and on the elements above it. An event
+  field's value changed, on the field and on the elements above it, for a
+  field what-react rendered: one that native What code rendered inside a
+  React `<form>` fires none there, as React fires none for a field it did
+  not render. An event
   inside a portal goes on to the portal's React parents.
 - **Controlled fields** show their props: when no handler takes an edit, the
   field (a text field, a checkbox, a radio group, a select, single or

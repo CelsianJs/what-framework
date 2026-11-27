@@ -1547,7 +1547,10 @@ function mountElement(v, parentDom, before, svg, owner) {
     else if (tag === 'textarea') {
       mountTextarea(rn, el, value);
       trackField(el);
-    } else if (tag === 'select' && value == null) resetSelect(el, props.defaultValue);
+    } else if (tag === 'select') {
+      el._compatField = true;
+      if (value == null) resetSelect(el, props.defaultValue);
+    }
   }
 
   // Refs attach at commit exit — AFTER the element is inserted into the live
@@ -2831,7 +2834,9 @@ function accessorFor(el, field) {
 let resetsListened = false;
 
 // Called once for an input or a textarea, when it has mounted with its props.
+// It marks the field as one what-react rendered (isReactChange).
 export function trackField(el) {
+  el._compatField = true;
   const field = isCheckable(el) ? 'checked' : 'value';
   // Shadowed already (by a library, or by React in a page that has both).
   if (Object.prototype.hasOwnProperty.call(el, field)) return;
@@ -2899,7 +2904,9 @@ function radioGroup(el) {
 // once per event: `input` (or `change`) on a text field whose value is new,
 // `change` on a checkbox or radio whose state is new, and every `change` on
 // a select, a file input or an element that is no form field (a custom
-// element's). An `input` event from a contenteditable is not one.
+// element's). An `input` event from a contenteditable is not one, nor any
+// event from a field what-react did not render (native What code's, inside
+// a React <form>): React makes change events only for its own fields.
 function isReactChange(native) {
   let is = native._compatChange;
   if (is !== undefined) return is;
@@ -2907,7 +2914,9 @@ function isReactChange(native) {
   const target = native.target;
   if (target != null && target.nodeType === 1) {
     const tag = target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') {
+    if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') && target._compatField !== true) {
+      is = false;
+    } else if (tag === 'INPUT' || tag === 'TEXTAREA') {
       const kind = target.type;
       if (kind === 'file') is = native.type === 'change';
       else if (kind === 'checkbox' || kind === 'radio') is = native.type === 'change' && fieldChanged(target, true);
