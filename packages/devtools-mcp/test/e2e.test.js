@@ -54,9 +54,11 @@ e2eDescribe('E2E: Chromium → Vite plugin pairing → bridge → MCP', () => {
   }
 
   // Under a loaded test run the first discovery can miss; the client then
-  // backs off for 10 s, so nudge it with its manual reconnect hook.
+  // backs off for 10 s, so nudge it with its manual reconnect hook. The wait
+  // is a deadline, not a count of polls, since each poll is a tool call whose
+  // time grows with the machine's load.
   async function connected(page, title) {
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0, end = Date.now() + 60_000; Date.now() < end; i++) {
       const status = (await tools.call('what_connection_status')).parsed;
       if (status.connected && (status.app?.title === `«${title}»` || status.sessions)) return status;
       if (i % 40 === 39) await page.evaluate(() => window.__WHAT_MCP_RECONNECT__?.());
