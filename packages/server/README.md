@@ -704,8 +704,9 @@ const { pages } = await exportStatic({ routes, outDir: 'dist' });
 Renders every `static`/`hybrid` route to `dist/<path>/index.html` plus a
 `__what_data.json` per page (loader data for client-side navigation). Dynamic
 routes need `getStaticPaths`. Each page's loader and components get a
-`response` as on a server: a page that redirects is written as a redirect stub
-(a meta refresh to the target and a canonical link) and listed in
+`request` (a GET of the page's URL, so a `<Router>` in the page shows its
+route) and a `response` as on a server: a page that redirects is written as a
+redirect stub (a meta refresh to the target and a canonical link) and listed in
 `redirects`; a page that sets another status than 200 is not written (a static
 host cannot send it) and is listed in `skipped`, with a warning. The result is
 `{ pages, redirects, skipped }`. Upload `dist/` to any static host — no special

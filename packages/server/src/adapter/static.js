@@ -49,8 +49,8 @@ function resolveInsideOutDir(outDir, urlPath) {
 }
 
 /**
- * Each page's loader and components get a `response` (createResponse()), as on
- * a server. A page that redirects is written as a redirect stub (a meta
+ * Each page's loader and components get a `request` (a GET of the page's URL)
+ * and a `response` (createResponse()), as on a server. A page that redirects is written as a redirect stub (a meta
  * refresh to the target, with a canonical link) and listed in `redirects`. A
  * page that sets any other status but 200 cannot be served with that status by
  * a static host, so it is not written at all: it is listed in `skipped`, with
@@ -85,7 +85,10 @@ export async function exportStatic({ routes = [], outDir, render, documentOption
       const matched = matchRoute(urlPath, [route]);
       const params = matched ? matched.params : {};
       const response = createResponse();
-      const reqCtx = { params, query: {}, response };
+      // A GET of the page's own URL: a <Router> in the page shows the route
+      // this file is served for, as it does for a request on a server.
+      const request = new Request(new URL(urlPath, 'http://localhost'));
+      const reqCtx = { params, query: {}, request, response };
       const pageModule = { default: route.component, loader: route.loader };
       const hasLoader = typeof pageModule.loader === 'function';
       // One snapshot per concrete page, shared with default/custom renderers

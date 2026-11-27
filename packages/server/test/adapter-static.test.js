@@ -148,6 +148,27 @@ describe('exportStatic', () => {
     await assert.rejects(() => readFile(join(escaped, 'index.html'), 'utf8'), { code: 'ENOENT' });
   });
 
+  it('renders each page at its own URL: a Router in it shows that page, and the loader gets the request', async () => {
+    const { Router } = await import('what-router');
+    const appRoutes = [
+      { path: '/', component: () => h('p', {}, 'home') },
+      { path: '/guide/:topic', component: ({ params }) => h('h1', {}, `guide ${params.topic}`) },
+    ];
+    const urls = [];
+    const routes = [{
+      path: '/guide/:topic',
+      page: { mode: 'static' },
+      getStaticPaths: async () => ({ paths: [{ params: { topic: 'intro' } }] }),
+      loader: ({ request }) => { urls.push(request.url); return {}; },
+      component: () => h(Router, { routes: appRoutes }),
+    }];
+    await exportStatic({ routes, outDir });
+    const html = await readFile(join(outDir, 'guide/intro/index.html'), 'utf8');
+    assert.match(html, /<h1[^>]*>guide intro<\/h1>/);
+    assert.doesNotMatch(html, />home</);
+    assert.deepEqual([...new Set(urls)], ['http://localhost/guide/intro']);
+  });
+
   it('skips server-mode and dynamic-without-getStaticPaths routes', async () => {
     const routes = [
       { path: '/srv', component: () => h('main', {}, 'x'), page: { mode: 'server' } },

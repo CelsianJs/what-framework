@@ -130,7 +130,8 @@ export interface ExportStaticResult {
 
 /**
  * Pre-render every `static` and `hybrid` route to files under `outDir`. Each
- * page gets a `response` as on a server: a redirect is written as a redirect
+ * page gets a `request` (a GET of its URL, so a `<Router>` in it shows its
+ * route) and a `response` as on a server: a redirect is written as a redirect
  * stub, any other status but 200 skips the page.
  */
 export function exportStatic(options?: ExportStaticOptions): Promise<ExportStaticResult>;
