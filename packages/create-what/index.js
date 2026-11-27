@@ -2743,8 +2743,9 @@ Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`w
     'editor.formatOnSave': true,
   }, null, 2) + '\n');
 
+  // ESLint's extension shows eslint-plugin-what's warnings as you type.
   writeFileSync(resolve(root, '.vscode', 'extensions.json'), JSON.stringify({
-    recommendations: [],
+    recommendations: ['dbaeumer.vscode-eslint'],
   }, null, 2) + '\n');
 
   // Full-stack scaffold: file-routed SSR pages + server + client entry + ISR

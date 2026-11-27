@@ -165,3 +165,15 @@ test('CLAUDE.md and AGENTS.md point at the skills and catalogue what-framework s
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('every template recommends the editor extension that shows its lint warnings', async () => {
+  for (const args of [[], ['--template=fullstack'], ['--template=islands']]) {
+    const { cwd, root } = await scaffold('editor-app', args);
+    try {
+      const extensions = JSON.parse(await readFile(join(root, '.vscode', 'extensions.json'), 'utf8'));
+      assert.deepEqual(extensions.recommendations, ['dbaeumer.vscode-eslint'], args.join(' ') || 'spa');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+});

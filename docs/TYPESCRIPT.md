@@ -323,8 +323,8 @@ There is no What-specific editor extension; none is needed. The editor's own
 TypeScript service reads What's JSX types through `jsxImportSource`, so
 completions, hover types and errors work in `.tsx` files. A scaffolded app's
 `.vscode/settings.json` points VS Code at the project's TypeScript
-(`typescript.tsdk`). VS Code's ESLint extension shows eslint-plugin-what's
-warnings as you type.
+(`typescript.tsdk`), and its `.vscode/extensions.json` recommends VS Code's
+ESLint extension, which shows eslint-plugin-what's warnings as you type.
 
 ## ESLint
 
