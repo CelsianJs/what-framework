@@ -111,6 +111,15 @@ function renderElementChildren(tag, props, children, render, field) {
   }
 }
 
+// What a component that threw renders: nothing, when the throw was a
+// navigation signal (a redirect() in its body), which redirects the render's
+// response as it does in the browser and in the streamed render; anything
+// else goes on to the catcher above it.
+function navigatedFrom(e) {
+  if (_claimThrow(e)) return '';
+  throw e;
+}
+
 // --- Render to Hydratable String ---
 // Renders with the hydration protocol (compiled.js): data-hk owner-path keys
 // and the region, array and boundary markers, so hydrate() adopts the
@@ -247,6 +256,8 @@ function _renderHydratable(vnode, notHtml) {
     if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site)) {
       try {
         return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
+      } catch (e) {
+        return navigatedFrom(e);
       } finally {
         _endComponentSSR(ctx);
       }
@@ -256,6 +267,8 @@ function _renderHydratable(vnode, notHtml) {
     HK.key = key;
     try {
       return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
+    } catch (e) {
+      return navigatedFrom(e);
     } finally {
       _endComponentSSR(ctx);
       if (HK.key === key) HK.key = outer;
@@ -463,6 +476,8 @@ function _renderString(vnode, notHtml) {
     _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site);
     try {
       return renderStringOutput(_runComponentSync(ctx, callComponent, vnode), site);
+    } catch (e) {
+      return navigatedFrom(e);
     } finally {
       _endComponentSSR(ctx);
     }

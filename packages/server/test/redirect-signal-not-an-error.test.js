@@ -70,3 +70,27 @@ describe('a redirect() from a component in a server render', () => {
     }
   });
 });
+
+// A component outside every <Router> that calls redirect() in its body: a
+// synchronous renderer acts on it as the async ones and the browser do. The
+// response redirects (below its base), the component renders nothing, and
+// the rest of the page renders. Before, renderToString and
+// renderToHydratableString let the signal escape to their caller, with the
+// response untouched, while renderToStringAsync redirected it.
+describe('a redirect() from a component outside a Router, rendered synchronously', () => {
+  const Private = () => redirect('/login');
+  const page = () => h('main', null, h('p', null, 'before'), h(Private), h('p', null, 'after'));
+
+  it('redirects the response renderToString was given, and renders the rest', () => {
+    const response = createResponse('/app');
+    const html = renderToString(page(), { response });
+    assert.equal(response.status, 302);
+    assert.equal(response.location, '/app/login');
+    assert.match(html, /before.*after/);
+  });
+
+  it('renderToHydratableString acts on it too', () => {
+    const html = renderToHydratableString(page());
+    assert.match(html, /before.*after/);
+  });
+});

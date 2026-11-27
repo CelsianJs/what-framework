@@ -1433,7 +1433,7 @@ const routes = [
 
 > [what-router] redirect to {{target}}
 
-redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().
+redirect() is caught in route middleware and in a component body, in the browser and in every server renderer. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.
 
 ```jsx
 // Bad - a reactive thunk re-runs outside the render the Router caught:
@@ -1443,9 +1443,10 @@ redirect() is caught in route middleware and in a component body. From an event 
 <div>{() => (loggedOut() ? (navigate('/login'), null) : <Dashboard />)}</div>;
 <button onclick={() => navigate('/login')}>Sign in</button>;
 
-// On the server, catch it and answer with the redirect instead of navigating:
-try { html = renderToString(<App />); }
-catch (e) { if (e.name !== 'RouterRedirect') throw e; res.writeHead(302, { location: e.to }).end(); }
+// On the server, the render redirects the response it was given:
+const response = createResponse();
+const html = renderToString(<App />, { response });
+if (response.location) res.writeHead(response.status, { location: response.location }).end();
 ```
 
 ## ERR_RUNTIME
