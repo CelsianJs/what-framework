@@ -146,7 +146,7 @@ isLoggedIn.set(<span class="keyword">true</span>);  <span class="comment">// Now
 
           <h3>How For Works</h3>
           <ul>
-            <li><code>each</code>: the array to iterate. Pass the signal itself, or a thunk. Compiled output calls <code>each()</code>, so a literal array (or <code>each={items()}</code>) throws <code>source is not a function</code>.</li>
+            <li><code>each</code>: the array to iterate. Pass the signal itself, a thunk, or an array: compiled JSX makes <code>each={items()}</code> and <code>each={items().filter(f)}</code> follow the signal too.</li>
             <li>Children is a function receiving <code>(item, index)</code>. <code>index</code> is captured when the row is created and is not refreshed when rows move, so do not use it as a live position counter.</li>
             <li>A <code>key</code> on the row element does nothing. The key belongs on <code>&lt;For&gt;</code> itself (<code>&lt;For each={items} key={item =&gt; item.id}&gt;</code>), and keyed reconciliation only exists when the compiler runs. Note that a keyed compiled <code>&lt;For&gt;</code> hands the render function a signal <em>accessor</em>, so the body becomes <code>{item =&gt; &lt;li&gt;{() =&gt; item().name}&lt;/li&gt;}</code>.</li>
             <li>Without the compiler (plain <code>h()</code> or the automatic JSX runtime) there is no keyed reconciliation at all: every row is rebuilt on every list change, which loses focus, closes an open <code>&lt;details&gt;</code> and restarts CSS transitions.</li>
