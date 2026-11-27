@@ -317,8 +317,11 @@ path and gives it the options it does not set itself. A layout receives
 what the visitor typed into it, while the visitor moves between routes that
 share it: only the page in `children` changes. A change of params
 (`/projects/1` to `/projects/2`) or of the query string (`?tab=2`, a search box
-that writes `?q=`) keeps it too. The layout is built again only when the chain
-of layouts changes.
+that writes `?q=`) keeps it too. Where layouts nest, moving between two routes
+keeps every layout their chains share, from the outermost down to the first
+that differs, as React Router's nested outlets and Next.js's nested layouts
+do: from `/app/x` (layouts App, then X) to `/app/y` (App, then Y), App stays
+and only Y is built, in place of X.
 
 `params` and `query` are live props: JSX in the layout that reads
 `params.id` or `query.tab` shows the current URL's. A read in the layout's

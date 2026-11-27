@@ -1334,17 +1334,17 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
     return handleRedirect(sig.to, sig.options, matched ? matched.route.path : undefined);
   };
 
-  // The route layouts around the page. They are built again only when the
-  // chain of layouts changes, so moving between routes that share a layout
-  // keeps it, with its state and its DOM, and the page changes inside it:
-  // `content` is the innermost layout's reactive child. A layout's `params`
-  // and `query` are live props (getters over the route state, in a props
-  // object with no prototype: what-core dom.js _isLiveProp), so JSX in it
-  // that reads `props.params.id` or `props.query.tab` follows the URL. A page
-  // whose middleware declines it, a 404 and a route with no layout render
-  // `content` as they are.
-  /** @type {any} */
-  let shownChain = null;
+  // The route layouts around the page, outermost first. Each level is a
+  // reactive region of its own, run again only when the layout at that level
+  // changes, so moving between routes keeps every layout the two chains share
+  // from the outermost down to the first that differs, with its state and its
+  // DOM, and builds the rest again: the page changes inside the innermost
+  // layout, whose child is the region that calls `content`. A layout's
+  // `params` and `query` are live props (getters over the route state, in a
+  // props object with no prototype: what-core dom.js _isLiveProp), so JSX in
+  // it that reads `props.params.id` or `props.query.tab` follows the URL. A
+  // page whose middleware declines it, a 404 and a route with no layout
+  // render `content` as they are.
   const layoutsFor = () => {
     page();
     const currentUrl = untrack(state.url);
@@ -1359,21 +1359,22 @@ export function Router({ routes, fallback, globalLayout, url = null }) {
       enter(matched.route, matched.params, query);
       return prepFor(currentUrl, matched.route);
     }).verdict();
-    if (verdict === false || typeof verdict === 'string' || (verdict !== null && typeof verdict === 'object')) return null;
-    if (shownChain !== null && sameChain(shownChain, layouts)) return shownChain;
-    shownChain = layouts;
-    return layouts;
+    return verdict === false || typeof verdict === 'string' || (verdict !== null && typeof verdict === 'object') ? null : layouts;
   };
   const layoutProps = { __proto__: null, get params() { return state.params(); }, get query() { return state.query(); } };
   const chain = server ? layoutsFor : computed(layoutsFor);
-  const routed = () => {
-    const around = chain();
-    if (around === null) return content();
-    /** @type {any} */
-    let element = content;
-    for (let i = around.length - 1; i >= 0; i--) element = h(around[i], layoutProps, element);
-    return element;
+  const level = (/** @type {number} */ i) => {
+    const layoutAt = () => {
+      const around = chain();
+      return around === null ? undefined : around[i];
+    };
+    const at = server ? layoutAt : computed(layoutAt);
+    return () => {
+      const layout = at();
+      return layout === undefined ? content() : h(layout, layoutProps, level(i + 1));
+    };
   };
+  const routed = level(0);
 
   // Render the global layout ONCE so it — and everything it mounts (sidebars,
   // toasters, command palettes, global key listeners) — PERSISTS across
@@ -1395,15 +1396,6 @@ function sameRecord(a, b) {
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
   for (const k of keys) if (!Object.hasOwn(b, k) || JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
-  return true;
-}
-
-// Whether two layout chains show the same layouts: then the layouts already
-// on screen stay.
-/** @param {any[]} a @param {any[]} b */
-function sameChain(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 

@@ -10,7 +10,8 @@ import { installDOM } from '../../../test-utils/dom.js';
 
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/dashboard' });
 
-const { h, mount, signal, useEffect } = await import('what-core');
+const { h, mount, signal, useEffect, ErrorBoundary, Suspense } = await import('what-core');
+const { query } = await import('what-core/data');
 const { nestedRoutes, navigate, Router } = await import('../src/index.js');
 
 const flush = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -148,11 +149,10 @@ describe('a nested layout persists across its child routes', () => {
     assert.equal(document.querySelector('#a p').textContent, 'a');
   });
 
-  // React Router keeps a parent layout route mounted while its child routes
-  // change, whatever their own layouts. Here /app's layout is rebuilt when
-  // /app/x (chain [App, X]) moves to /app/y (chain [App, Y]), and its state
-  // is gone (development reports ERR_REBUILT_COMPONENT for <App>).
-  it('keeps the layout two chains share while the layouts inside it change', { todo: 'routed builds the whole chain again when any layout in it changes' }, async () => {
+  // As React Router keeps a parent layout route mounted while its child
+  // routes change, whatever their own layouts: /app/x (chain [App, X]) to
+  // /app/y (chain [App, Y]) keeps App and builds Y in place of X.
+  it('keeps the layout two chains share while the layouts inside it change', async () => {
     const built = [];
     function App({ children }) {
       built.push('App');
@@ -175,5 +175,229 @@ describe('a nested layout persists across its child routes', () => {
     await flush();
     assert.deepEqual(built, ['App', 'X', 'Y']);
     assert.equal(document.getElementById('app-bump').textContent, 'clicks 1');
+  });
+
+  // A layout that counts its builds and keeps a count of clicks, as state that
+  // a rebuild would lose.
+  function counted(name, built, tag = 'div') {
+    const Layout = (props) => {
+      built.push(name);
+      const clicks = signal(0);
+      return h(tag, { 'data-layout': name },
+        h('button', { 'data-bump': name, onClick: () => clicks((c) => c + 1) }, () => `${name} ${clicks()}`),
+        props.children);
+    };
+    Object.defineProperty(Layout, 'name', { value: name });
+    return Layout;
+  }
+  const layoutEl = (name) => document.querySelector(`[data-layout="${name}"]`);
+  const bump = (name) => document.querySelector(`[data-bump="${name}"]`).click();
+  const clicksOf = (name) => document.querySelector(`[data-bump="${name}"]`).textContent;
+
+  it('keeps each shared level of a three-level chain while moving between siblings at every level', async () => {
+    const built = [];
+    const [Org, Team, Billing, Alpha, Beta, Invoices, Home] = ['Org', 'Team', 'Billing', 'Alpha', 'Beta', 'Invoices', 'Home'].map((n) => counted(n, built));
+    const page = (text) => () => h('p', { id: 'page' }, text);
+    const routes = [
+      { path: '/org/_layout', layout: Org, component: () => null },
+      { path: '/org/team/_layout', layout: Team, component: () => null },
+      { path: '/org/billing/_layout', layout: Billing, component: () => null },
+      { path: '/org/team/alpha', component: page('alpha'), layout: Alpha },
+      { path: '/org/team/beta', component: page('beta'), layout: Beta },
+      { path: '/org/team/list', component: page('list') },
+      { path: '/org/team/grid', component: page('grid') },
+      { path: '/org/billing/invoices', component: page('invoices'), layout: Invoices },
+      { path: '/home', component: page('home'), layout: Home },
+    ];
+    await navigate('/org/team/alpha');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    assert.deepEqual(built, ['Org', 'Team', 'Alpha']);
+    const org = layoutEl('Org');
+    const team = layoutEl('Team');
+    bump('Org');
+    bump('Team');
+    await flush();
+
+    // The innermost level: Alpha to Beta under the same Org and Team.
+    await navigate('/org/team/beta');
+    await flush();
+    assert.deepEqual(built, ['Org', 'Team', 'Alpha', 'Beta']);
+    assert.equal(layoutEl('Org'), org);
+    assert.equal(layoutEl('Team'), team);
+    assert.equal(layoutEl('Alpha'), null);
+    assert.equal(document.querySelector('[data-layout="Beta"] #page').textContent, 'beta');
+    assert.equal(clicksOf('Team'), 'Team 1', 'the middle layout keeps its state');
+
+    // The page only: two routes with the chain [Org, Team] and no layout of their own.
+    await navigate('/org/team/list');
+    await flush();
+    await navigate('/org/team/grid');
+    await flush();
+    assert.deepEqual(built, ['Org', 'Team', 'Alpha', 'Beta']);
+    assert.equal(document.querySelector('[data-layout="Team"] > #page').textContent, 'grid');
+
+    // The middle level: Team to Billing under the same Org, and back.
+    await navigate('/org/billing/invoices');
+    await flush();
+    assert.deepEqual(built.slice(4), ['Billing', 'Invoices']);
+    assert.equal(layoutEl('Org'), org);
+    assert.equal(layoutEl('Team'), null);
+    assert.equal(clicksOf('Org'), 'Org 1', 'the outer layout keeps its state');
+    await navigate('/org/team/alpha');
+    await flush();
+    assert.deepEqual(built.slice(6), ['Team', 'Alpha']);
+    assert.equal(clicksOf('Team'), 'Team 0', 'a layout built again starts afresh');
+    assert.equal(layoutEl('Org'), org);
+
+    // The outermost level: another chain altogether.
+    await navigate('/home');
+    await flush();
+    assert.deepEqual(built.slice(8), ['Home']);
+    assert.equal(layoutEl('Org'), null);
+    await navigate('/org/team/beta');
+    await flush();
+    assert.deepEqual(built.slice(9), ['Org', 'Team', 'Beta']);
+    assert.equal(clicksOf('Org'), 'Org 0');
+  });
+
+  it('keeps an outer layout whose own params change, with live params, and the inner layout under it', async () => {
+    const built = [];
+    const seen = [];
+    function OrgLayout(props) {
+      built.push('Org');
+      return h('section', { 'data-layout': 'Org' }, h('h2', null, () => `org ${props.params.id}`), props.children);
+    }
+    const Settings = counted('Settings', built);
+    const People = counted('People', built);
+    const routes = [
+      { path: '/orgs/:id/_layout', layout: OrgLayout, component: () => null },
+      { path: '/orgs/:id/settings', layout: Settings, component: (p) => { seen.push(p.params.id); return h('p', { id: 'page' }, `settings of ${p.params.id}`); } },
+      { path: '/orgs/:id/people', layout: People, component: () => h('p', { id: 'page' }, 'people') },
+    ];
+    await navigate('/orgs/1/settings');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const org = layoutEl('Org');
+    const settings = layoutEl('Settings');
+    bump('Settings');
+    await navigate('/orgs/2/settings');
+    await flush();
+    assert.deepEqual(built, ['Org', 'Settings'], 'a change of params keeps both layouts, as React Router keeps their elements');
+    assert.equal(layoutEl('Org'), org);
+    assert.equal(layoutEl('Settings'), settings);
+    assert.equal(clicksOf('Settings'), 'Settings 1');
+    assert.equal(document.querySelector('[data-layout="Org"] h2').textContent, 'org 2', 'the outer layout reads the new params');
+    assert.equal(document.getElementById('page').textContent, 'settings of 2');
+    assert.deepEqual(seen, ['1', '2'], 'the page is built for each id');
+    await navigate('/orgs/2/people');
+    await flush();
+    assert.deepEqual(built, ['Org', 'Settings', 'People']);
+    assert.equal(layoutEl('Org'), org);
+  });
+
+  it('keeps the shared layouts on back and forward', async () => {
+    const built = [];
+    const [Shop, Cart, Wish] = ['Shop', 'Cart', 'Wish'].map((n) => counted(n, built));
+    const routes = [
+      { path: '/shop/_layout', layout: Shop, component: () => null },
+      { path: '/shop/cart', layout: Cart, component: () => h('p', { id: 'page' }, 'cart') },
+      { path: '/shop/wish', layout: Wish, component: () => h('p', { id: 'page' }, 'wish') },
+    ];
+    await navigate('/shop/cart');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const shop = layoutEl('Shop');
+    bump('Shop');
+    await navigate('/shop/wish');
+    await flush();
+    history.back();
+    await flush(50);
+    assert.equal(location.pathname, '/shop/cart');
+    assert.equal(document.getElementById('page').textContent, 'cart');
+    history.forward();
+    await flush(50);
+    assert.equal(document.getElementById('page').textContent, 'wish');
+    assert.deepEqual(built, ['Shop', 'Cart', 'Wish', 'Cart', 'Wish']);
+    assert.equal(layoutEl('Shop'), shop);
+    assert.equal(clicksOf('Shop'), 'Shop 1');
+  });
+
+  it('keeps a shared layout whose error boundary caught a page, and shows the next page once it resets', async () => {
+    const built = [];
+    let resetIt = null;
+    function Guarded(props) {
+      built.push('Guarded');
+      const clicks = signal(0);
+      return h('div', { 'data-layout': 'Guarded' },
+        h('button', { 'data-bump': 'Guarded', onClick: () => clicks((c) => c + 1) }, () => `Guarded ${clicks()}`),
+        h(ErrorBoundary, { fallback: ({ error, reset }) => { resetIt = reset; return h('p', { id: 'caught' }, error.message); } }, props.children));
+    }
+    const One = counted('One', built);
+    const Two = counted('Two', built);
+    const routes = [
+      { path: '/eb/_layout', layout: Guarded, component: () => null },
+      { path: '/eb/ok', layout: One, component: () => h('p', { id: 'page' }, 'ok') },
+      { path: '/eb/boom', layout: Two, component: () => { throw new Error('page failed'); } },
+      { path: '/eb/fine', component: () => h('p', { id: 'page' }, 'fine') },
+    ];
+    await navigate('/eb/ok');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const guarded = layoutEl('Guarded');
+    bump('Guarded');
+    await navigate('/eb/boom');
+    await flush();
+    assert.equal(document.getElementById('caught').textContent, 'page failed', 'the layout\'s boundary caught the page');
+    assert.equal(layoutEl('Guarded'), guarded);
+    await navigate('/eb/fine');
+    await flush();
+    resetIt();
+    await flush();
+    assert.equal(document.querySelector('[data-layout="Guarded"] #page').textContent, 'fine');
+    assert.equal(document.getElementById('caught'), null);
+    assert.equal(layoutEl('Guarded'), guarded);
+    assert.equal(clicksOf('Guarded'), 'Guarded 1');
+    assert.deepEqual(built, ['Guarded', 'One', 'Two']);
+    await navigate('/eb/ok');
+    await flush();
+    assert.equal(document.querySelector('[data-layout="One"] #page').textContent, 'ok');
+    assert.equal(layoutEl('Guarded'), guarded);
+  });
+
+  it('keeps a shared layout with a <Suspense> around its children while the next page waits for its data', async () => {
+    const built = [];
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    function Framed(props) {
+      built.push('Framed');
+      return h('div', { 'data-layout': 'Framed' }, h(Suspense, { fallback: h('em', { id: 'wait' }, 'loading') }, props.children));
+    }
+    const Slow = () => {
+      const q = query(['slow-page'], async () => { await gate; return { title: 'slow' }; });
+      return h('p', { id: 'page' }, () => q().title);
+    };
+    const Quick = counted('Quick', built);
+    const Patient = counted('Patient', built);
+    const routes = [
+      { path: '/sus/_layout', layout: Framed, component: () => null },
+      { path: '/sus/fast', layout: Quick, component: () => h('p', { id: 'page' }, 'fast') },
+      { path: '/sus/slow', layout: Patient, component: Slow },
+    ];
+    await navigate('/sus/fast');
+    mount(h(Router, { routes }), '#app');
+    await flush();
+    const framed = layoutEl('Framed');
+    const going = navigate('/sus/slow');
+    await flush();
+    assert.equal(layoutEl('Framed'), framed);
+    release();
+    await going;
+    await flush();
+    assert.equal(document.querySelector('[data-layout="Patient"] #page').textContent, 'slow');
+    assert.equal(document.getElementById('wait'), null);
+    assert.equal(layoutEl('Framed'), framed);
+    assert.equal(layoutEl('Quick'), null);
+    assert.deepEqual(built, ['Framed', 'Quick', 'Patient']);
   });
 });

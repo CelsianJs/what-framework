@@ -660,8 +660,10 @@ and navigations that are transitions. Each change below has its migration.
   built every `layout` (from `nestedRoutes(..., { layout })` or a route's
   own) again on each navigation, so its state, its DOM and what was typed
   into it were lost going from `/dashboard` to `/dashboard/settings`. 0.15
-  builds it again only when the chain of layouts changes, so a change of
-  params or query (`/projects/1` to `/projects/2`, `?tab=2`) keeps it too.
+  keeps every layout the chains of the two routes share, from the outermost
+  down to the first that differs, and builds only the rest (`/app/x` to
+  `/app/y` keeps App and builds Y in place of X), so a change of params or
+  query (`/projects/1` to `/projects/2`, `?tab=2`) keeps it too.
   Its `params` and `query` props are live: JSX that reads `params.id` or
   `query.tab` updates in place, and a read in the body
   (`const id = params.id`) keeps the first value. Its body, its `onMount`
