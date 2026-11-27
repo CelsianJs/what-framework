@@ -50,7 +50,7 @@ export function autoIslands(registry: Record<string, {
   stores?: string[];
 } | (() => Promise<any>)>, options?: HydrateIslandsOptions): void;
 
-/** Boost hydration priority for an island */
+/** Raise every waiting instance of an island to `newPriority` (default 100); a higher priority it has already is kept. */
 export function boostIslandPriority(name: string, newPriority?: number): void;
 
 // --- Shared Island State ---

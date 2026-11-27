@@ -349,16 +349,18 @@ function processQueue() {
     });
 }
 
-// Boost priority for an island (e.g., on user interaction)
+// Boost priority for an island (e.g., on user interaction): every waiting
+// instance of it, and never below the priority it already has (a load
+// island waits at its priority + 1000).
 export function boostIslandPriority(name, newPriority = 100) {
+  let changed = false;
   for (const task of hydrationQueue) {
-    if (task.name === name) {
+    if (task.name === name && task.priority < newPriority) {
       task.priority = newPriority;
-      // Re-sort queue
-      hydrationQueue.sort((a, b) => b.priority - a.priority);
-      break;
+      changed = true;
     }
   }
+  if (changed) hydrationQueue.sort((a, b) => b.priority - a.priority);
 }
 
 // --- Client-side hydration ---
