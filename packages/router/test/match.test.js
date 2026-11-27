@@ -41,6 +41,32 @@ describe('isomorphic matcher', () => {
   });
 });
 
+// The path a route matches is the URL's, which the URL parser percent-encodes
+// ('/café' is '/caf%C3%A9', '/a b' is '/a%20b'): a route written with those
+// characters matches it, and one written encoded still does.
+describe('a static segment the URL percent-encodes', () => {
+  it('matches the encoded path, written plain or encoded', () => {
+    const routes = [{ path: '/café' }, { path: '/hello world' }, { path: '/über-uns/:section' }, { path: '/caf%C3%A9-encoded' }, { path: '/naïve/[...rest]' }];
+    for (const [path, route, params] of [
+      [new URL('http://x/café').pathname, '/café', {}],
+      [new URL('http://x/hello world').pathname, '/hello world', {}],
+      [new URL('http://x/über-uns/team').pathname, '/über-uns/:section', { section: 'team' }],
+      ['/caf%C3%A9-encoded', '/caf%C3%A9-encoded', {}],
+      [new URL('http://x/naïve/a/b').pathname, '/naïve/[...rest]', { rest: 'a/b' }],
+    ]) {
+      const m = matchRoute(path, routes);
+      assert.equal(m && m.route.path, route, path);
+      assert.deepEqual(m.params, params, path);
+    }
+  });
+
+  it('keeps an astral character and the URL parser\'s other encoded characters', () => {
+    for (const written of ['/emoji-😀', '/q"uote', '/a<b>', '/x{y}', '/tick`']) {
+      assert.ok(matchRoute(new URL('http://x' + written).pathname, [{ path: written }]), written);
+    }
+  });
+});
+
 describe('matcher path traversal', () => {
   it('rejects percent-encoded traversal in a :param', () => {
     assert.equal(matchRoute('/u/%2e%2e%2f%2e%2e%2fetc%2fpasswd', [{ path: '/u/:id' }]), null);

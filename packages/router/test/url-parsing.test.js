@@ -19,6 +19,7 @@ const Page = () => h('main', null, h('p', { id: 'at' }, () => `${route.path}|${r
 const routes = [
   { path: '/', component: Page },
   { path: '/docs/:name', component: () => h('nav', null, h(Link, { href: 'setup', id: 'rel' }, 'Setup'), h(Link, { href: '/docs/setup', id: 'abs' }, 'Abs')) },
+  { path: '/café', component: () => h('nav', null, h(Link, { href: '/café', id: 'cafe' }, 'Café')) },
   { path: '*', component: () => h('p', { id: 'at' }, () => `missing ${route.path}`) },
 ];
 const render = (url) => renderToString(h(Router, { routes, url }));
@@ -27,6 +28,12 @@ describe('a server <Router> reads any URL without throwing', () => {
   it('a URL the parser rejects renders the root', async () => {
     for (const url of ['http://[', 'http://', 'https://%zz.example']) {
       assert.match(await render(url), /<p id="at"[^>]*>(?:<!--[^>]*-->)*\/\|/, url);
+    }
+  });
+
+  it('a route written with characters the URL percent-encodes shows at its URL, and its link is active', async () => {
+    for (const url of ['/café', '/caf%C3%A9']) {
+      assert.match(await render(url), /<a [^>]*href="\/café" class="active exact-active"[^>]*>Café/, url);
     }
   });
 

@@ -35,7 +35,10 @@ export function compilePath(path) {
         paramNames.push(segment.slice(1));
         return '([^/]+)';
       }
-      return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // As the URL holds it: the URL parser percent-encodes a path's spaces,
+      // controls, non-ASCII characters and "<>`{}, and keeps an escape
+      // already written ('%C3%A9').
+      return segment.replace(/[^\x21-\x7e]|["<>`{}]/gu, encodeURIComponent).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     })
     .join('/');
 
