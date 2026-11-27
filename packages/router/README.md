@@ -298,6 +298,8 @@ function Nav() {
 
 Links automatically get `active` and `exact-active` CSS classes based on the current route. Hover prefetching is enabled by default: hovering a link starts downloading its route's `lazy()` chunk, so the click need not wait for it. An unsafe `href` (`javascript:`, `data:`, a protocol-relative URL) renders as `about:blank`.
 
+A link follows its props as an `<a>` follows its attributes: in a layout that stays mounted while the URL moves, `<Link href={`/org/${params.orgId}/members`}>` points at the current org, and its active class and a click follow it.
+
 ## Nested Layouts
 
 ```jsx

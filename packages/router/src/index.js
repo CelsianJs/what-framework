@@ -1473,24 +1473,37 @@ function sameRecord(a, b) {
 // _installLazyChildren) and are built where the link places them: while
 // hydrating, children built while the component runs would claim the
 // server's nodes before its <a> does.
-export const Link = /* @__PURE__ */ Object.assign(function Link({
-  href,
-  class: cls,
-  className,
-  children,
-  replace: rep,
-  prefetch: shouldPrefetch = true,
-  activeClass = 'active',
-  exactActiveClass = 'exact-active',
-  transition = true,
-  ...rest
-}) {
-  // Sanitize href — reject dangerous protocols
-  const blocked = !isSafeUrl(href);
-  const safeHref = blocked ? 'about:blank' : href;
-  if (blocked && typeof console !== 'undefined') {
-    console.warn('[what-router] Link blocked unsafe href:', href);
-  }
+export const Link = /* @__PURE__ */ Object.assign(function Link(props) {
+  const {
+    href: written,
+    class: cls,
+    className,
+    children,
+    replace: rep,
+    prefetch: shouldPrefetch = true,
+    activeClass = 'active',
+    exactActiveClass = 'exact-active',
+    transition = true,
+    ...rest
+  } = props;
+  // A live prop (`href={`/org/${params.orgId}`}` compiles to a getter) is
+  // read where it is used, so the link follows it as an <a> follows a live
+  // attribute: its href, its active class and where a click goes.
+  const live = (/** @type {string} */ key) => {
+    const get = Object.getOwnPropertyDescriptor(props, key)?.get;
+    return typeof get === 'function' && /** @type {any} */ (get)._lazy !== true;
+  };
+  for (const key of Object.keys(rest)) if (live(key) && !/^on/i.test(key)) rest[key] = () => props[key];
+  // Sanitize href — reject dangerous protocols. A blocked href is null.
+  const checked = (/** @type {any} */ href) => {
+    if (isSafeUrl(href)) return href;
+    if (typeof console !== 'undefined') console.warn('[what-router] Link blocked unsafe href:', href);
+    return null;
+  };
+  const first = checked(written);
+  const liveHref = live('href');
+  const target = liveHref ? computed(() => checked(props.href)) : () => first;
+  const safeHref = () => target() ?? 'about:blank';
   // The caller's own handlers (onClick or onclick, onMouseEnter): each runs
   // before the link's, and a click it prevents is not navigated, as in React
   // Router. Spread after the link's own, they replaced them.
@@ -1502,13 +1515,13 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   // escapes in one case: '/café' is active at '/caf%c3%a9'); none for another
   // origin's URL, which is never active. A relative href ('#top', 'setup')
   // resolves against the URL on screen, as the browser resolves it, so it is
-  // resolved again on each navigation.
-  const relative = RELATIVE.test(safeHref);
+  // resolved again on each navigation, as a live href is.
   const pathTo = () => {
-    const target = resolveHref(safeHref);
-    return target === null ? null : routePath(target);
+    const to = resolveHref(safeHref());
+    return to === null ? null : routePath(to);
   };
-  const fixedPath = relative ? null : pathTo();
+  const fixed = !liveHref && !RELATIVE.test(safeHref());
+  const fixedPath = fixed ? pathTo() : null;
 
   // Use a reactive function for class so active states update on navigation.
   // In the run-once model, reading route.path directly would snapshot it. A
@@ -1516,7 +1529,7 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   const baseClass = cls || className;
   const reactiveClass = () => {
     const currentPath = _comparable(route.path);
-    const hrefPath = relative ? pathTo() : fixedPath;
+    const hrefPath = fixed ? fixedPath : pathTo();
     const isActive = hrefPath === null ? false : hrefPath === '/'
       ? currentPath === '/'
       : currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
@@ -1530,15 +1543,16 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   };
 
   return h('a', {
-    href: outward(safeHref),
+    href: liveHref ? () => outward(safeHref()) : outward(safeHref()),
     class: reactiveClass,
     ...rest,
     onclick: (e) => {
       if (ownClick) ownClick(e);
       // Only intercept left-clicks without modifiers
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      const href = target();
       // A blocked href goes nowhere.
-      if (blocked) {
+      if (href === null) {
         e.preventDefault();
         return;
       }
@@ -1546,15 +1560,16 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
       // tab (target), download it, or leave for another origin (another
       // site, mailto:, tel:).
       const a = e.currentTarget;
-      if ((a.target && a.target !== '_self') || a.hasAttribute('download') || resolveHref(safeHref) === null) return;
+      if ((a.target && a.target !== '_self') || a.hasAttribute('download') || resolveHref(href) === null) return;
       e.preventDefault();
-      navigate(safeHref, { replace: rep, transition });
+      navigate(href, { replace: rep, transition });
     },
     // A page of this origin is prefetched; another site is not asked for
     // anything before the visitor goes there.
     onmouseenter: shouldPrefetch || ownEnter ? (e) => {
       if (ownEnter) ownEnter(e);
-      if (shouldPrefetch && !blocked && resolveHref(safeHref) !== null) prefetch(safeHref);
+      const href = target();
+      if (shouldPrefetch && href !== null && resolveHref(href) !== null) prefetch(href);
     } : undefined,
   }, ...(Array.isArray(children) ? children : [children]));
 }, { _deferChildren: true });
