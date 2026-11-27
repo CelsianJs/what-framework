@@ -52,10 +52,11 @@ export function lazy(loader) {
   const listeners = new Set();
 
   // A download, which settles once the module has loaded or the download has
-  // failed: never with the failure, which a render shows.
+  // failed (a loader that throws included): never with the failure, which a
+  // render shows.
   function load() {
     failed = null;
-    return loading = loader().then((mod) => {
+    return loading = new Promise((resolve) => resolve(loader())).then((mod) => {
       Component = mod.default || mod;
       // Notify all waiting instances
       listeners.forEach(fn => fn());

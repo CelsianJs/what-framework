@@ -48,8 +48,10 @@ const ErrorPage = ({ error, reset }) => {
   retry = reset;
   return h('p', { role: 'alert' }, `error: ${error.message}`);
 };
+let broken = 0;
 const routes = [
   { path: '/', component: () => h('h1', {}, 'home') },
+  { path: '/broken', component: lazy(() => { broken++; throw new Error(`no loader (${broken})`); }), error: ErrorPage },
   { path: '/guide', component: guide.component, error: ErrorPage },
   { path: '/intro', component: intro.component, error: ErrorPage },
   { path: '/hovered', component: hovered.component, error: ErrorPage },
@@ -136,5 +138,20 @@ describe('a lazy() route whose chunk failed', () => {
     await going;
     await flush();
     assert.equal(shown(), 'hovered page');
+  });
+
+  it('shows a loader that throws on its error page, and calls it again on the next navigation', async () => {
+    await navigate('/', { transition: false });
+    await quiet(async () => {
+      await navigate('/broken', { transition: false });
+      await flush();
+    });
+    assert.equal(shown(), 'error: no loader (1)');
+    await navigate('/', { transition: false });
+    await quiet(async () => {
+      await navigate('/broken', { transition: false });
+      await flush();
+    });
+    assert.equal(shown(), 'error: no loader (2)');
   });
 });
