@@ -115,6 +115,12 @@ export const CAPABILITIES = {
   'server:memory': { area: 'server-load', desc: "the server's heap after a full GC stays level across 2,000 requests" },
 
   'a11y:aria-enumerated': { area: 'a11y', desc: 'aria-* booleans serialize as "true"/"false", never empty or absent' },
+
+  // --- Load: depth and size ---------------------------------------------
+  'cmp:recursive': { area: 'load', desc: 'one recursive component renders a 10,000-entry tree nested 60+ levels deep; expand all, collapse all and a filter show exactly the entries they should, within a budget' },
+  'lifecycle:dispose-at-scale': { area: 'load', desc: 'collapsing a 10,000-component subtree disposes every component, effect and binding it built, and the heap returns to its level' },
+  'form:large': { area: 'forms', desc: 'a 300-field form validated as the user types runs only the edited field\'s rules and re-renders only that field, and a summary over every field follows' },
+  'form:async-validation': { area: 'forms', desc: 'answers of an async field check that arrive out of order never leave a stale error, and the form reports validating until the last one lands' },
 };
 
 /** Every app's declared coverage, checked against CAPABILITIES at run time. */
