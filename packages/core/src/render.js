@@ -1146,15 +1146,6 @@ function vnodeCheckedKey(vnode) {
 
 const VNODE_LIST = {};
 
-function eachRowNode(row, fn) {
-  for (let n = row.first; ;) {
-    const next = n.nextSibling;
-    fn(n);
-    if (n === row.last) return;
-    n = next;
-  }
-}
-
 // Whether a row built from vnode `x` renders what one built from `y` would: the
 // same tag, and props and children that are equal, plain objects and arrays
 // compared by their contents. A function (a handler, a binding, a reactive
@@ -1189,7 +1180,12 @@ function createVNodeRows(isSvg, scope, end = document.createComment('/list'), ro
   }));
   const drop = (row) => {
     row.dispose();
-    eachRowNode(row, (n) => { n.remove(); });
+    for (let n = row.first; ;) {
+      const next = n.nextSibling;
+      n.remove();
+      if (n === row.last) return;
+      n = next;
+    }
   };
   return {
     live: () => rows.length > 0,
