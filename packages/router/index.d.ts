@@ -367,7 +367,7 @@ export interface CompiledPath {
   catchAll: string | null;
 }
 
-/** Compile a path pattern (`/users/:id`, `/posts/*`, `/[slug]`) to a matcher. */
+/** Compile a path pattern (`/users/:id`, `/posts/*`, `/docs/*slug`, `/[slug]`, `/[...slug]`) to a matcher. */
 export function compilePath(path: string): CompiledPath;
 
 /** Match a pathname against routes, most specific first. */

@@ -4,7 +4,8 @@
 
 export function compilePath(path) {
   // /users/:id -> regex + param names
-  // /posts/* -> catch-all
+  // /posts/* -> catch-all (params.rest); /docs/*slug, the compiler's file
+  //   router's [...slug], names it (params.slug)
   // /[slug] -> dynamic (file-based syntax)
   // (group) -> route group (ignored in URL)
 
@@ -21,14 +22,10 @@ export function compilePath(path) {
   const regexStr = normalized
     .split('/')
     .map(segment => {
-      if (segment.startsWith('*:')) {
-        catchAll = segment.slice(2);
+      // '*', '*name' (the compiler's file router) or '*:name' ([...name]).
+      if (segment[0] === '*') {
+        catchAll = segment.replace(/^\*:?/, '') || 'rest';
         paramNames.push(catchAll);
-        return '(.+)';
-      }
-      if (segment === '*') {
-        catchAll = 'rest';
-        paramNames.push('rest');
         return '(.+)';
       }
       if (segment.startsWith(':')) {
