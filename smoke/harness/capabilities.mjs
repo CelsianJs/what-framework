@@ -148,7 +148,7 @@ export const CAPABILITIES = {
   'react:portal-focus': { area: 'react', desc: 'a React library dialog over a What page portals out, takes and traps the focus, hosts native components, and gives the focus back on Escape; toasts raised from native code show in their hosts and leave' },
   'react:events': { area: 'react', desc: 'a React onChange beside a native onInput each fires once per keystroke with the field\'s value' },
   'react:large-list': { area: 'react', desc: 'a React virtual list and table over 10,000 rows of one What signal show a one-row write and an all-rows write within a stated budget' },
-  'react:island-hydration': { area: 'react', desc: 'a React library island in a server-rendered What page hydrates onto the server\'s elements, creating none, keeps text typed and the focus from before hydration, and then works with the native page' },
+  'react:island-hydration': { area: 'react', desc: 'a React library island in a server-rendered What page, and a client:load island hosting a React component, hydrate onto the server\'s elements, creating none, keep text typed and the focus from before hydration, and then work with the native page' },
   'react:unlisted-libraries': { area: 'react', desc: 'React packages outside the compatibility matrix (react-toastify, react-dropzone) work as tags in a native app' },
 };
 

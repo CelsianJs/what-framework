@@ -11,7 +11,7 @@ export function Upload() {
     <section data-route="upload">
       <h1>Upload trades</h1>
       <Dropzone onFiles={(files, refused) => { uploads([...uploads(), ...files]); rejected(rejected() + refused); }} />
-      <ul data-uploads>{uploads().map((f) => <li data-upload={f.name}>{f.name} ({f.size} B)</li>)}</ul>
+      <ul data-uploads>{uploads().map((f, i) => <li key={`${i}:${f.name}`} data-upload={f.name}>{f.name} ({f.size} B)</li>)}</ul>
       <p>Refused: <b data-refused>{rejected()}</b></p>
     </section>
   );

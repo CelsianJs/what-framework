@@ -622,6 +622,8 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           input: root.querySelector('[data-qr-size]'),
           form: root.querySelector('[data-qr]'),
           side: root.querySelector('[data-qr-side]'),
+          note: root.querySelector('[data-ticket-note]'),
+          size: root.querySelector('[data-step-size]'),
           elements: root.getElementsByTagName('*').length,
         };
         window.__created = 0;
@@ -632,12 +634,18 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           form: !!window.__server.form,
           label: root.querySelector('[data-qr-label]')?.getAttribute('for'),
           id: window.__server.input?.id,
+          island: root.querySelector('[data-ticket]')?.parentElement.getAttribute('data-island-mode'),
+          islandSize: window.__server.size?.textContent,
         };
       });
+      await page.click('[data-ticket-note]');
+      await page.keyboard.type('urgent');
       await page.click('[data-qr-size]');
       await page.keyboard.type('250');
       await page.evaluate(() => window.__hydrate());
-      await page.waitForFunction(() => window.__hydrated === true);
+      // The island element is the ticket's parent (its data-island names the
+      // component, which a minified client build renames).
+      await page.waitForFunction(() => window.__hydrated === true && document.querySelector('[data-ticket]').parentElement.hasAttribute('data-island-hydrated'));
       await sleep(100);
       const after = await page.evaluate(() => {
         const root = document.getElementById('quote');
@@ -652,8 +660,18 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           serverElements: window.__server.elements,
           label: root.querySelector('[data-qr-label]').getAttribute('for'),
           id: input.id,
+          sameNote: root.querySelector('[data-ticket-note]') === window.__server.note,
+          sameSize: root.querySelector('[data-step-size]') === window.__server.size,
+          note: root.querySelector('[data-ticket-note]').value,
         };
       });
+      await page.click('[data-step-up]');
+      await page.click('[data-step-up]');
+      await page.click('[data-fill]');
+      const ticket = await page.evaluate(() => ({
+        size: document.querySelector('[data-step-size]').textContent,
+        fills: document.querySelector('[data-ticket-fills]').textContent,
+      }));
       await page.click('[data-qr-side]');
       await page.click('[data-qp-ping]');
       await page.click('[data-qr-submit]');
@@ -671,6 +689,11 @@ async function hydrationChecks(browser, base, { check, reporter }) {
           && live.side === 'sell' && live.sameSide && live.ping === 'native ping 1' && live.request === 'sell 250 NVDA' && noise.length === 0,
         'a react-hook-form island in a server-rendered What page hydrates onto the server\'s elements (none created), keeps text typed and the focus from before hydration, and then works with the native page around it',
         `same-input=${after.sameInput} created=${after.created} elements ${after.serverElements}->${after.elements} value="${after.value}" focused=${after.focused} id ${server.id}/${after.id} label=${after.label} side=${live.side} ping="${live.ping}" request="${live.request}" console=${noise.slice(0, 2).join(' | ') || 'clean'}`);
+      check('react:island-hydration',
+        server.island === 'load' && server.islandSize === '500' && after.sameNote && after.sameSize && after.note === 'urgent'
+          && ticket.size === '700' && ticket.fills === '700',
+        'a client:load island (a native ticket hosting a React stepper) is rendered on the server, hydrates onto its nodes keeping a note typed before, and its React state and callback work',
+        `mode=${server.island} server-size=${server.islandSize} same-note=${after.sameNote} same-size=${after.sameSize} note="${after.note}" size=${ticket.size} fills=${ticket.fills}`);
     }, { context });
   } finally {
     await context.close();

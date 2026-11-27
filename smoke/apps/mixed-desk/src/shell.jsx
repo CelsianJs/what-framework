@@ -28,7 +28,7 @@ export function Shell({ children }) {
       <div class="layout">
         <nav class="nav" data-nav-bar>
           <strong class="brand">Mixed Desk</strong>
-          {NAV.map(([href, label, id]) => <NavLink href={href} data-nav={id}>{label}</NavLink>)}
+          {NAV.map(([href, label, id]) => <NavLink key={id} href={href} data-nav={id}>{label}</NavLink>)}
           <label class="trader">Trader <input data-trader value={trader()} onInput={(e) => trader(e.target.value)} /></label>
         </nav>
         <main class="page" data-page>{children}</main>

@@ -23,7 +23,7 @@ export function Dashboard() {
       </div>
       <Board rows={SYMBOLS.map((s) => ({ symbol: s, price: prices[s]() }))} />
       <p class="sigquotes">{SYMBOLS.map((s) => <SignalQuote key={s} symbol={s} />)}</p>
-      <p class="native-prices">{SYMBOLS.map((s) => <span data-native-price={s}>{prices[s]()}</span>)}</p>
+      <p class="native-prices">{SYMBOLS.map((s) => <span key={s} data-native-price={s}>{prices[s]()}</span>)}</p>
       <div class="chart" data-chart>
         <LineChart width={480} height={160} data={history()}>
           <XAxis dataKey="n" />
