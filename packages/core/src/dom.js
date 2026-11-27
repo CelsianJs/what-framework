@@ -1341,9 +1341,10 @@ function setProp(el, key, value, isSvg) {
     // its owner: a node the next hydrate() of the same container claims, one
     // the app keeps and inserts again).
     const owner = getOwner();
+    const opts = value._eventOpts || useCapture || undefined;
     const wrappedHandler = (e) => {
       if (owner !== null && _isDisposed(owner)) {
-        for (const type of types) el.removeEventListener(type, wrappedHandler, eventOpts || useCapture || undefined);
+        for (const type of types) el.removeEventListener(type, wrappedHandler, opts);
         if (el._events[storageKey] === wrappedHandler) delete el._events[storageKey];
         return;
       }
@@ -1353,8 +1354,7 @@ function setProp(el, key, value, isSvg) {
     wrappedHandler._handler = value;
     wrappedHandler._original = value;
     el._events[storageKey] = wrappedHandler;
-    const eventOpts = value._eventOpts;
-    for (const type of types) el.addEventListener(type, wrappedHandler, eventOpts || useCapture || undefined);
+    for (const type of types) el.addEventListener(type, wrappedHandler, opts);
     return;
   }
 
