@@ -155,6 +155,39 @@ describe('useFieldArray', () => {
     assert.deepEqual(form.formState.values.drivers, [{ name: 'Bo', incidents: [] }]);
   });
 
+  // Removing items forgets them in one pass over the form's fields, not one
+  // pass per item: counted as the key comparisons made, which a pass per
+  // item multiplies by the number of items removed.
+  it('removing many items compares each of the form\'s keys a fixed number of times', () => {
+    const comparisons = (count) => {
+      const form = useForm({ defaultValues: { rows: Array.from({ length: count }, (_, i) => ({ a: 'a' + i, b: 'b' + i, sub: [{ c: i }] })) } });
+      const rows = useFieldArray({ control: form.control, name: 'rows' });
+      for (let i = 0; i < count; i++) {
+        typed(form.register(`rows.${i}.a`), 'x');
+        form.register(`rows.${i}.b`).onBlur();
+        form.setError(`rows.${i}.a`, { type: 'x', message: 'x' });
+        useFieldArray({ control: form.control, name: `rows.${i}.sub` });
+      }
+      const startsWith = String.prototype.startsWith;
+      let calls = 0;
+      String.prototype.startsWith = function (...args) {
+        calls++;
+        return startsWith.apply(this, args);
+      };
+      try {
+        if (count % 2) rows.remove();
+        else rows.replace([{ a: 'new' }]);
+      } finally {
+        String.prototype.startsWith = startsWith;
+      }
+      assert.deepEqual(form.formState.values.rows, count % 2 ? [] : [{ a: 'new' }]);
+      assert.deepEqual(form.formState.errors, {});
+      assert.deepEqual(form.formState.touched, {});
+      return calls;
+    };
+    for (const count of [301, 300]) assert.ok(comparisons(count) < 30 * count, `${comparisons(count)} comparisons for ${count} items`);
+  });
+
   it('setValue on the array\'s name replaces its items; watch(name) keeps the item it was given', () => {
     const { form, array } = setup();
     const b = form.watch('vehicles.1.vin');

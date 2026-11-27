@@ -375,14 +375,15 @@ function createFormController(options = {}) {
   // touched state, each unless options keeps it (React Hook Form's
   // unregister options). A reader of the field (a mounted input, watch())
   // keeps its signal, which shows the field's default now, and an edit in
-  // the input brings the field back. `gone` is for the keys of a removed
-  // item, which nothing can name again: their signals are dropped.
+  // the input brings the field back. `gone` tells the keys of removed items
+  // (one of them `key`), which nothing can name again: their signals are
+  // dropped.
   function forget(key, options = {}, gone) {
-    // Gives `fn` each key at or under `key` in `map`, and its entry; the
-    // entry goes from the map when the key is gone.
+    // Gives `fn` each key at or under `key` in `map`, or each key `gone`
+    // tells, and its entry; the entry goes from the map when the key is gone.
     const each = (map, fn) => {
       for (const k in map) {
-        if (k !== key && !k.startsWith(key + '.')) continue;
+        if (gone ? !gone(k) : k !== key && !k.startsWith(key + '.')) continue;
         fn(k, map[k]);
         if (gone) delete map[k];
       }
@@ -837,11 +838,16 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
     }
     return (hit[0] = out);
   };
-  // Forget an item and the field arrays inside it.
-  const drop = (k) => {
-    forget(k, {}, true);
+  // Forget the items of array `k` with these segments, and the field arrays
+  // inside them, in one pass over the form's fields.
+  const drop = (k, segments) => {
+    if (!segments.length) return;
+    const removed = new Set(segments);
+    const gone = (key) => key.startsWith(k + '.') && removed.has(key.slice(k.length + 1).split('.', 1)[0]);
+    forget(k + '.' + segments[0], {}, gone);
+    for (const segment of segments) delete bases[segment];
     for (const inner in arrays) {
-      if (!inner.startsWith(k + '.')) continue;
+      if (!gone(inner)) continue;
       for (const segment of arrays[inner].peek()) delete bases[segment];
       delete arrays[inner];
     }
@@ -910,7 +916,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
       const old = arrays[k].peek();
       batch(() => {
         seed(k, values || []);
-        for (const segment of old) drop(k + '.' + segment);
+        drop(k, old);
       });
     },
     // A reset gives each array its items from the defaults, as new items;
@@ -933,7 +939,7 @@ function fieldArrays(arrays, forget, getAllValues, isDirty) {
       const change = (next, removed = []) => batch(() => {
         names = new Map();
         items.set(next);
-        for (const segment of removed) drop(k + '.' + segment);
+        drop(k, removed);
         isDirty.set(true);
       });
       const many = (value) => (Array.isArray(value) ? value : [value]).map(add);
