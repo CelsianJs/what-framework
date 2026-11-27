@@ -421,7 +421,9 @@ requires, and the action gets the file as a Web `File` in its fields, with and
 without JavaScript: the endpoint and a page post read a multipart body with the
 platform's own parser into the same fields an urlencoded one gives (a repeated
 name an array), and the action client sends a call whose fields hold a file as
-that form, multipart, the state as `_state`. A file input with nothing chosen
+that form, multipart, the state as `_state`. As in any form, a name sent once
+is one value: a call's `{ tags: ['a'] }` arrives as `tags: 'a'`, so read a
+field that can repeat as `[].concat(fields.tags)`. A file input with nothing chosen
 is an empty `File` (`size` 0, name `''`), as the platform's parser gives it:
 test `size === 0`, not the empty string. The whole body, every field and file in it, is within
 `bodyLimit`: raise it for uploads. A form without the multipart `enctype`
