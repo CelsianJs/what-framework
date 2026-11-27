@@ -323,7 +323,7 @@
 
           <p>Each registered field gets its own internal signal. This means typing into the email field only updates components that read the email value, not every field in the form.</p>
 
-          <p>A spread text, select, or checkbox input is <em>uncontrolled</em>. Its <code>value</code> (or <code>checked</code>) is a getter, and spreading reads it exactly once, when the element is created. Typing flows into form state, but <code>setValue</code> and <code>reset</code> move form state without moving the DOM. When you need the input to follow the state (a reset button, prefilling from a fetch), bind the value as a thunk instead of spreading it:</p>
+          <p>In compiled JSX a spread follows the field: its <code>value</code> (or <code>checked</code>) is a getter that the spread's binding reads again, so <code>setValue</code> and <code>reset</code> show in the input. An <code>h()</code> call reads it once (a JavaScript spread copies the value): the input takes the user's edits, but a later <code>setValue</code> or <code>reset</code> does not show. There, bind the value as a thunk:</p>
 
 <pre><code>&lt;<span class="tag">input</span>
   <span class="attr">name</span>=<span class="string">"email"</span>
@@ -331,7 +331,7 @@
   <span class="attr">onChange</span>={<span class="function">register</span>(<span class="string">'email'</span>).onchange}
 /&gt;</code></pre>
 
-          <p>A registered radio is the exception: its <code>checked</code> comes back as a thunk rather than a getter, so the renderer keeps it live and a spread radio does follow <code>setValue</code> and <code>reset</code>.</p>
+          <p>A registered radio's <code>checked</code> is a thunk, so a radio follows <code>setValue</code> and <code>reset</code> on every path. A registered file input's field holds its <code>FileList</code> (<code>values.photo[0]</code> is the <code>File</code>), as in React Hook Form, and nothing is written to the input.</p>
 
           <div class="callout callout-note">
             <p class="callout-title">Checkbox and radio handling</p>
@@ -354,8 +354,8 @@
               <tr><td><code>required</code></td><td><code>required(message?)</code></td><td>Fails on empty, null, or undefined</td></tr>
               <tr><td><code>minLength</code></td><td><code>minLength(n, message?)</code></td><td>String must be at least <em>n</em> characters</td></tr>
               <tr><td><code>maxLength</code></td><td><code>maxLength(n, message?)</code></td><td>String must be at most <em>n</em> characters</td></tr>
-              <tr><td><code>min</code></td><td><code>min(n, message?)</code></td><td>Number must be at least <em>n</em>. Skipped unless the value is a <code>number</code></td></tr>
-              <tr><td><code>max</code></td><td><code>max(n, message?)</code></td><td>Number must be at most <em>n</em>. Skipped unless the value is a <code>number</code></td></tr>
+              <tr><td><code>min</code></td><td><code>min(n, message?)</code></td><td>Number must be at least <em>n</em>. A numeric string is compared as the number it spells; a blank one is skipped</td></tr>
+              <tr><td><code>max</code></td><td><code>max(n, message?)</code></td><td>Number must be at most <em>n</em>. A numeric string is compared as the number it spells; a blank one is skipped</td></tr>
               <tr><td><code>pattern</code></td><td><code>pattern(regex, message?)</code></td><td>String must match the regex</td></tr>
               <tr><td><code>email</code></td><td><code>email(message?)</code></td><td>Must be a valid email address. Also fails on <code>''</code></td></tr>
               <tr><td><code>url</code></td><td><code>url(message?)</code></td><td>Must be a valid URL. Skips an empty value</td></tr>
@@ -364,7 +364,7 @@
             </tbody>
           </table>
 
-          <p>Every rule is a plain function of the value, and every rule except <code>required</code> and <code>match</code> skips a value of the wrong type. Two consequences are worth spelling out. <code>register</code> stores <code>e.target.value</code>, which is a string even for <code>&lt;input type="number"&gt;</code>, so <code>min</code> and <code>max</code> never fire on typed input; use them only for values you write yourself with <code>setValue</code>, and reach for <code>custom</code> otherwise. And <code>email</code> tests any string including the empty one, so an untouched optional email field stays invalid and blocks submission (<code>url</code> skips empty, <code>email</code> does not).</p>
+          <p>Every rule is a plain function of the value, and every rule except <code>required</code> and <code>match</code> skips a value of the wrong type. Two consequences are worth spelling out. <code>register</code> stores <code>e.target.value</code>, which is a string even for <code>&lt;input type="number"&gt;</code>; <code>min</code> and <code>max</code> compare a numeric string as the number it spells and leave a blank or non-numeric one to <code>required</code> and <code>pattern</code>. And <code>email</code> tests any string including the empty one, so an untouched optional email field stays invalid and blocks submission (<code>url</code> skips empty, <code>email</code> does not).</p>
 
           <h3 id="validation-example">Example with Multiple Rules</h3>
 
@@ -523,7 +523,7 @@
 
           <p>None of the <em>input</em> components consults <code>formState</code>. <code>ErrorMessage</code> is the exception: it reads <code>formState.error(name)</code>, so it needs <code>formState</code> passed to it or it renders nothing. <code>aria-invalid</code> comes from an <code>error</code> prop you pass yourself, read once when the element is created. Pass the error value rather than a thunk: a function is always truthy, so it marks the field invalid from first paint.</p>
 
-          <p>Because <code>Input</code>, <code>Textarea</code>, <code>Select</code>, and <code>Checkbox</code> spread <code>register()</code> over your props, the inputs they produce are uncontrolled in the same way as a hand-spread <code>register()</code>, and the registration wins every prop it defines, so an <code>onBlur</code>, <code>onFocus</code>, or <code>ref</code> handed to them is dropped. <code>Radio</code> is the exception on both counts: its <code>checked</code> is a live binding, and it composes your <code>onChange</code>, <code>onBlur</code>, <code>onFocus</code>, and <code>ref</code> with the registration's rather than replacing them.</p>
+          <p><code>Input</code>, <code>Textarea</code>, <code>Select</code>, and <code>Checkbox</code> merge <code>register()</code> into your props: the field follows <code>setValue</code> and <code>reset</code>, and your <code>onChange</code>, <code>onBlur</code>, and <code>onFocus</code> run after the registration's. A <code>ref</code> handed to them is replaced by the registration's; <code>Radio</code> composes your <code>ref</code> with it too.</p>
 
           <p>Reach for <code>Radio</code> when you need a radio group. Every radio in the group shares one field, and that field holds the selected option's value, so each one declares the value it contributes:</p>
 
