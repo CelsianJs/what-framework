@@ -31,17 +31,6 @@ export function memo(Component, _areEqual) {
   return MemoWrapper;
 }
 
-export function shallowEqual(a, b) {
-  if (a === b) return true;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (!Object.is(a[key], b[key])) return false;
-  }
-  return true;
-}
-
 // --- lazy ---
 // Code-split a component. Returns a wrapper that loads on first render.
 
