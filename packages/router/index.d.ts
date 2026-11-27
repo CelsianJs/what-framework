@@ -273,6 +273,10 @@ export function asyncGuard(
 
 // --- Prefetch ---
 
+/**
+ * Prefetch a route's assets: starts downloading the lazy() chunk of the route
+ * `href` matches (not one behind middleware), and adds `<link rel="prefetch">`.
+ */
 export function prefetch(href: string): void;
 
 // --- Scroll Restoration ---

@@ -239,7 +239,7 @@ function Nav() {
 }
 ```
 
-Links automatically get `active` and `exact-active` CSS classes based on the current route. Hover prefetching is enabled by default. An unsafe `href` (`javascript:`, `data:`, a protocol-relative URL) renders as `about:blank`.
+Links automatically get `active` and `exact-active` CSS classes based on the current route. Hover prefetching is enabled by default: hovering a link starts downloading its route's `lazy()` chunk, so the click need not wait for it. An unsafe `href` (`javascript:`, `data:`, a protocol-relative URL) renders as `about:blank`.
 
 ## Nested Layouts
 
@@ -469,7 +469,7 @@ saved for that URL, else to the top.
 | `Redirect` | `<Redirect to="/path" />` navigates there (replacing the entry) when it renders |
 | `Outlet` | Renders its `children` |
 | `FileRouter` | Router for the routes what-compiler's file router generates (`import { routes } from 'virtual:what-routes'`); takes `routes`, `layout`, `fallback` and `error` |
-| `prefetch(href)` | Prefetch a route's assets (adds `<link rel="prefetch">`) |
+| `prefetch(href)` | Prefetch a route's assets: starts downloading the `lazy()` chunk of the route `href` matches (not one behind middleware, which the navigation downloads once admitted), and adds `<link rel="prefetch">` |
 | `matchRoute`, `compilePath`, `parseQuery` | The route matcher, without DOM access; also at `what-router/match` for servers |
 | `isSafeUrl(url)` | The check `navigate`, `Link` and `redirect` apply to a target |
 | `enableScrollRestoration()` | Enable scroll position restoration |
