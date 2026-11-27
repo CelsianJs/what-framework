@@ -692,9 +692,11 @@ the end; a newest-first feed does the mirror. Both took the general path on
 every update: a single-move probe that scanned every key, a map of the old
 keys and a walk of every row. chat's bursts of 400 messages into 1,000 rows
 made a 73 ms task each (Chromium, profiled; reconcile 115 µs a message). A
-list that slid now removes the dropped rows and builds the added ones, by
-item identity, and declines whenever the general path would claim rows
-differently. After: about 45 µs a message, no task over 50 ms.
+capped log that slid now has its dropped rows removed and its added items
+built, by item identity, inside the only-removals path, which declines
+whenever the general path would claim rows differently; the mirror keeps
+the general path, which costs it no rows. After: about 45 µs a message, no
+task over 50 ms, for 144 B gzip.
 - Test: `packages/core/test/reconcile-slide.test.js` (the key-read count fails
   before: 3,020 reads for a slide of one row of 1,000).
 
@@ -781,7 +783,11 @@ then replace the item with a copy: `on` is back to false. Fixing it means
 telling a body read's field across the component boundary (a compiler
 rewrite of member reads of props, or a recording view handed during the
 build), which changes what a component receives, so it is left for a
-decision.
+decision. API.md and GOTCHAS now say what happens and how to write a row
+that keeps its nodes (read the item in JSX, pass the fields the body needs
+as props, or pass a `live()` view);
+`packages/compiler/test/row-component-item-reads.test.js` pins the four
+cases.
 
 ### H. Recursion depth: a recursive component overflows the stack near 230 levels in Chromium
 
