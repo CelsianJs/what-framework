@@ -72,7 +72,7 @@ describe('the stack frames each level of a recursive component holds while it is
     assert.equal(perLevel('nested'), 8);
   });
 
-  it("a keyed list of the next level's components behind a condition (a file tree): 20", () => {
-    assert.equal(perLevel('tree'), 20);
+  it("a keyed list of the next level's components behind a condition (a file tree): 17", () => {
+    assert.equal(perLevel('tree'), 17);
   });
 });

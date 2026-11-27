@@ -3494,14 +3494,54 @@ export function createRoot(fn) {
 // list reconciler disposes it explicitly, and a row outlives the run of the
 // list's effect that built it) and it does not untrack. It still points at its
 // parent, so errors from a row's effects reach the parent's handlers. `cell`
-// is the row's item (_rowItem), when it has one.
+// is the row's item (_rowItem), when it has one. `fn(dispose)` runs under it.
 export function _createItemScope(fn, cell) {
+  const scope = _itemScope(cell, [], 0);
+  return runOwned(scope, scope.owner, fn);
+}
+
+/**
+ * @internal A list row's item scope (render.js), made under the current owner
+ * as _createItemScope makes one, its dispose function in `disposeArr[slot]`.
+ * Run the row in it with _runScope.
+ */
+export function _itemScope(cell, disposeArr, slot) {
   const parent = ownerNow();
   const scope = __DEV__ ? devRow(createOwner(parent, 0)) : createOwner(parent, 0);
   // What the row builds can tell that it lives as long as the row does
   // (_livesWithRow).
   if (cell !== undefined) cell.building = scope;
-  return runOwned(scope, parent, fn);
+  disposeArr[slot] = () => disposeOwner(scope);
+  return scope;
+}
+
+/**
+ * @internal `finish(build(a, b, c))` with the list row's scope `scope`
+ * current, returning what `finish` returns. A throw disposes the scope
+ * before it propagates, and a scope whose owner was disposed meanwhile is
+ * disposed. `build` is called from here, with no frame between: a row that
+ * renders a list of its own (a recursive tree) costs the stack that much
+ * less at each level.
+ */
+export function _runScope(scope, build, a, b, c, finish) {
+  const parent = scope.owner;
+  const prev = currentOwner;
+  const prevRun = ownerRun;
+  currentOwner = scope;
+  ownerRun = runNow();
+  let result;
+  try {
+    result = finish(build(a, b, c));
+  } catch (err) {
+    currentOwner = prev;
+    ownerRun = prevRun;
+    try { disposeOwner(scope); } catch { /* the setup error is the one to report */ }
+    throw err;
+  }
+  currentOwner = prev;
+  ownerRun = prevRun;
+  if (parent !== null && (parent.flags & DISPOSED)) disposeOwner(scope);
+  return result;
 }
 
 function devRow(row) {
@@ -3509,6 +3549,8 @@ function devRow(row) {
   return row;
 }
 
+// `fn(dispose)` with `scope` current, for a root or an item scope: as
+// _runScope, with the scope's dispose function as the argument.
 function runOwned(scope, parent, fn) {
   const prev = currentOwner;
   const prevRun = ownerRun;

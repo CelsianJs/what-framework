@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _createItemScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { isServerRender } from './server-context.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor } from './dom.js';
@@ -1574,7 +1574,7 @@ export function _mapArrayToArray(inserter) {
 
 // --- Rows ---
 //
-// A row is built by buildRow inside its own item scope, and `disposeFns[i]` is
+// A row is built by buildKeyedRow inside its own item scope, and `disposeFns[i]` is
 // that scope's dispose function. In keyed-signal mode it also carries `_item`,
 // the signal behind the row's item accessor. Disposing the scope disposes
 // everything the row built (bindings, components, nested lists, regions and
@@ -1585,13 +1585,6 @@ export function _mapArrayToArray(inserter) {
 // nodes. Every row start carries `_$row` set to its list's end marker, which is
 // how a scan finds where one row ends and the next begins without mistaking a
 // nested list's rows, or a user comment, for a boundary.
-
-function buildRow(mapFn, value, idx, disposeArr, item, cell) {
-  return _createItemScope((dispose) => {
-    disposeArr[idx] = dispose;
-    return rowNode(mapFn(value, idx, item));
-  }, cell);
-}
 
 // The row whose item `cell` holds is built.
 function rowBuilt(cell) {
@@ -1613,9 +1606,9 @@ function rowNode(value) {
 // Build a row and return what to insert: the row's own node, or a fragment
 // holding its <!--i--> start comment and its nodes.
 function buildKeyedRow(endMarker, item, idx, keyedSignals, mapFn, mappedArr, disposeArr) {
-  if (keyedSignals === RAW) return markRow(buildRow(mapFn, item, idx, disposeArr, item), endMarker, idx, mappedArr);
+  if (keyedSignals === RAW) return markRow(_runScope(_itemScope(undefined, disposeArr, idx), mapFn, item, idx, item, rowNode), endMarker, idx, mappedArr);
   const cell = _rowItem(item);
-  const node = buildRow(mapFn, keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), idx, disposeArr, item, cell);
+  const node = _runScope(_itemScope(cell, disposeArr, idx), mapFn, keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), idx, item, rowNode);
   rowBuilt(cell);
   disposeArr[idx]._item = cell;
   return markRow(node, endMarker, idx, mappedArr);
@@ -1734,10 +1727,7 @@ function renewItem(parent, endMarker, slot, index, item, mapFn, mappedNodes, dis
   const old = mappedNodes[slot];
   const oldDispose = disposeFns[slot];
   const cell = _rowItem(item);
-  const node = _createItemScope((dispose) => {
-    disposeFns[slot] = dispose;
-    return rowNode(mapFn(cell, index, item));
-  }, cell);
+  const node = _runScope(_itemScope(cell, disposeFns, slot), mapFn, cell, index, item, rowNode);
   rowBuilt(cell);
   disposeFns[slot]._item = cell;
   parent.insertBefore(markRow(node, endMarker, slot, mappedNodes), old);
@@ -4683,12 +4673,9 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
       next(rc);
       splitHere(rc);
       const anchor = anchorOf(rc);
-      const build = (dispose) => {
-        disposeFns[i] = dispose;
-        adopt(mapFn(cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item));
-      };
-      if (list === null) _createItemScope(build);
-      else adoptRow(list, keyFn(item, i), _createItemScope, build);
+      const build = () => _runScope(_itemScope(undefined, disposeFns, i), mapFn, cell === null ? item : keyedSignals === FOLLOW ? cell : () => _readRowItem(cell), order === null ? i : order[i], item, adopt);
+      if (list === null) build();
+      else adoptRow(list, keyFn(item, i), build);
       if (cell !== null) {
         cell.building = false;
         disposeFns[i]._item = cell;
