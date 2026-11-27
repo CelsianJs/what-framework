@@ -8,11 +8,18 @@
 // id of a member of its form (only a browser lets it stand in for the
 // member), plus every tenth other shape, on every client path, each
 // hydration also after a user edit made before it runs.
+//
+// The shapes are compiled a hundred to a module (the compiler's time grows
+// faster than a module's size) and dealt round-robin to up to four pages of
+// one browser, each its own renderer process; the findings are merged back
+// into the order one page would have found them in. Each case renders and
+// hydrates its own form in a host of its own, so which other cases ran
+// before it in the same document does not enter the result.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -40,6 +47,11 @@ const SOURCES = {
   wrapped: ['wrapped:hydratable', 'wrapped:stream'],
 };
 const LETTER = { compiled: 'C', spread: 'S', wrapped: 'W' };
+const PAGES = Math.max(1, Math.min(4, availableParallelism() - 1));
+
+// The shapes' components, compiled a hundred shapes to a module.
+const CHUNKS = [];
+for (let i = 0; i < SHAPES.length; i += 100) CHUNKS.push(jsxModule(SHAPES.slice(i, i + 100)));
 
 // Every server render the page parses: `${id}|${authoring}|${renderer}`.
 async function serverMarkup() {
@@ -52,7 +64,7 @@ async function serverMarkup() {
     return html;
   };
   const renderers = { string: renderToString, hydratable: renderToHydratableString, stream };
-  const server = await loadCompiled(jsxModule(SHAPES), { pluginOptions: { generate: 'ssr' } });
+  const server = Object.assign({}, ...await Promise.all(CHUNKS.map((source) => loadCompiled(source, { pluginOptions: { generate: 'ssr' } }))));
   const markup = {};
   for (const shape of SHAPES) {
     for (const authoring of AUTHORINGS) {
@@ -69,15 +81,20 @@ async function serverMarkup() {
 async function pageBundle(dir) {
   const rewrite = (code) => code.replace(/(['"])what-framework(\/render)?\1/g, (_, q, sub) =>
     JSON.stringify(path.join(root, 'packages/core/src', sub ? 'render.js' : 'index.js')));
-  const source = jsxModule(SHAPES);
-  writeFileSync(path.join(dir, 'client.mjs'), rewrite(compileJSX(source)));
-  writeFileSync(path.join(dir, 'hydratable.mjs'), rewrite(compileJSX(source, { pluginOptions: { hydratable: true } })));
+  const imports = [];
+  CHUNKS.forEach((source, i) => {
+    writeFileSync(path.join(dir, `client-${i}.mjs`), rewrite(compileJSX(source)));
+    writeFileSync(path.join(dir, `hydratable-${i}.mjs`), rewrite(compileJSX(source, { pluginOptions: { hydratable: true } })));
+    imports.push(`import * as client${i} from './client-${i}.mjs';`, `import * as hydratable${i} from './hydratable-${i}.mjs';`);
+  });
+  const all = (build) => `Object.assign({}, ${CHUNKS.map((_, i) => `${build}${i}`).join(', ')})`;
   writeFileSync(path.join(dir, 'entry.mjs'), `
     import * as core from ${JSON.stringify(path.join(root, 'packages/core/src/index.js'))};
     import { _resetForm, _changedFields } from ${JSON.stringify(path.join(root, 'packages/core/src/dom.js'))};
     import * as oracle from ${JSON.stringify(path.join(here, 'fixtures/form-oracle.js'))};
-    import * as client from './client.mjs';
-    import * as hydratable from './hydratable.mjs';
+    ${imports.join('\n    ')}
+    const client = ${all('client')};
+    const hydratable = ${all('hydratable')};
     const changedFields = (el) => {
       const out = [];
       _changedFields(el, out, new WeakSet());
@@ -130,13 +147,24 @@ describe('form-control oracle in Chromium', { skip: !browserAvailable }, () => {
     const browser = await chromium.launch();
     try {
       const script = await pageBundle(dir);
-      const page = await browser.newPage();
       const errors = [];
-      page.on('pageerror', (error) => errors.push(error.message));
-      await page.setContent('<!doctype html><html><body></body></html>');
-      await page.addScriptTag({ content: script });
-      const result = await page.evaluate(([ids, m, a, s]) => globalThis.Oracle.run(ids, m, a, s),
-        [SHAPES.map((s) => s.id), markup, AUTHORINGS, SOURCES]);
+      const ids = SHAPES.map((shape) => shape.id);
+      const parts = await Promise.all(Array.from({ length: PAGES }, async (_, k) => {
+        const page = await browser.newPage();
+        page.on('pageerror', (error) => errors.push(error.message));
+        await page.setContent('<!doctype html><html><body></body></html>');
+        await page.addScriptTag({ content: script });
+        const mine = ids.filter((_, i) => i % PAGES === k);
+        return page.evaluate(([shard, m, a, s]) => globalThis.Oracle.run(shard, m, a, s), [mine, markup, AUTHORINGS, SOURCES]);
+      }));
+      // Every page's findings in the order of SHAPES (a shape's own keep the
+      // order its cases ran in).
+      const position = new Map(ids.map((id, i) => [id, i]));
+      const result = {
+        findings: parts.flatMap((part) => part.findings).sort((a, b) => position.get(a.shape.id) - position.get(b.shape.id)),
+        server: parts.reduce((n, part) => n + part.server, 0),
+        clients: parts.reduce((n, part) => n + part.clients, 0),
+      };
       console.log(`form oracle (Chromium): ${SHAPES.length} shapes, ${result.server} server cases, ${result.clients} client cases, ${result.findings.length} findings`);
       assert.deepEqual(errors, []);
       assert.equal(result.findings.length, 0, result.findings.slice(0, 12).map((f) => JSON.stringify(f)).join('\n'));
