@@ -770,10 +770,14 @@ let readingKey;
 let propField;
 /** @type {any} */
 let propCell = null;
+// What _propField tracks a prop's getter with in development (as probe is
+// for _readAlone).
+/** @type {any} */
+const propProbe = __DEV__ ? { flags: DISPOSED, depHead: null, depTail: null } : null;
 
 /** @internal Read a list row's item (see _rowItem), for its field `key` when given. */
 export function _readRowItem(node, key) {
-  if (node.building && (activeSub === null || activeSub === node.builder)) {
+  if (node.building && (activeSub === null || activeSub === node.builder || (__DEV__ && activeSub === propProbe))) {
     const field = key !== undefined ? key : readingKey;
     // Read whole, once, by the getter of a prop that a component reads one
     // field of: which it records waits for what the getter returns
@@ -813,19 +817,38 @@ function recordRead(node, field) {
 export function _propField(props, name, key, record) {
   const outerField = propField;
   const outerCell = propCell;
+  const outerSub = activeSub;
+  const outerRun = ownerRun;
+  // Development, with a report pending and nothing tracking: the getter's
+  // reads are tracked with propProbe, so a value read from nothing reactive
+  // (`node={nodes[0]}` of a plain array), which cannot change, is not
+  // reported. propProbe is ownerRun too, so what the getter creates is owned
+  // as without it.
+  const probing = __DEV__ && record !== undefined && !record.seen && outerSub === null;
+  if (probing) {
+    activeSub = ownerRun = propProbe;
+    ++cycle;
+  }
   propField = key;
   propCell = null;
   let value;
   let cell;
+  let reactive = true;
   try {
     value = props[name];
   } finally {
     cell = propCell;
     propField = outerField;
     propCell = outerCell;
+    if (probing) {
+      activeSub = outerSub;
+      ownerRun = outerRun;
+      reactive = propProbe.depHead !== null;
+      unlinkAllDeps(propProbe);
+    }
   }
   if (cell !== null) recordRead(cell, value === cell.value ? key : undefined);
-  else if (__DEV__ && record !== undefined && !record.seen) {
+  else if (__DEV__ && record !== undefined && !record.seen && reactive) {
     record.seen = true;
     report(record.code, { data: record.data, loc: record.loc, subject: { kind: 'component', name: record.data.component, id: record.loc } });
   }

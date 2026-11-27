@@ -207,6 +207,29 @@ function Card(props) {
     }
   });
 
+  it('is not reported where the prop reads nothing reactive, as its value cannot change', async () => {
+    const r = await render(`const ROOTS = [{ id: 3, title: 'hopper' }];
+const pinned = { item: { id: 4, title: 'liskov' } };
+export function App() { return <div><Row item={ROOTS[0]} /><Card item={pinned.item} /></div>; }`, 'constant');
+    try {
+      assert.deepEqual(r.warned, []);
+      assert.deepEqual(r.reported(), []);
+      assert.equal(r.host.textContent, 'HOPPERcard liskov');
+    } finally {
+      r.stop();
+    }
+  });
+
+  it('is reported once a prop that reads a signal reaches the component that a constant reached first', async () => {
+    const r = await render(`const ROOTS = [{ id: 3, title: 'hopper' }];
+export function App() { return <div><Row item={ROOTS[0]} /><Row item={picked()} /></div>; }`, 'mixed');
+    try {
+      assert.deepEqual(r.reported().map((e) => [e.data.component, e.loc]), [['Row', 'src/mixed.jsx:5:9']]);
+    } finally {
+      r.stop();
+    }
+  });
+
   it('is reported at build time without devMetadata, as no page can tell', () => {
     const found = warnings(`${ROW}export function App() { return <ul>{items().map((item) => <Row key={item.id} item={item} />)}</ul>; }`);
     assert.equal(found.length, 2, found.join('\n'));
