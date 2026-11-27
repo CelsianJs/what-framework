@@ -440,6 +440,8 @@ export default function whatVitePlugin(options = {}) {
         const result = transformSync(code, {
           filename: id,
           sourceMaps,
+          // Each statement on its source line in development (see config()).
+          retainLines: isDevMode && !production,
           // Hermetic transform: never load the project's
           // babel.config.js/.babelrc. A user's React preset or unrelated
           // plugins corrupting What's JSX output is a debugging nightmare —
@@ -561,6 +563,18 @@ export default function whatVitePlugin(options = {}) {
         rolldownVersion: this?.meta?.rolldownVersion,
         viteVersion: await detectViteVersion(config.root),
       });
+      // The dev server serves a .jsx file as this plugin prints it, lines
+      // kept where the source has them (retainLines in transform): a stack
+      // trace, and a location the runtime reads from one (ERR_MISSING_SIGNAL_READ,
+      // an effect's call site), then names the line written. The bundler's
+      // transformer would reprint the file first, without its blank lines,
+      // and it has nothing else to do for one (no types, JSX preserved), so
+      // it skips .jsx here, unless the app sets what it skips. A .tsx file
+      // still goes through it for its types.
+      const transformer = jsxPreserve.oxc ? 'oxc' : 'esbuild';
+      if (command === 'serve' && !production && !(config[transformer] && 'exclude' in config[transformer])) {
+        /** @type {any} */ (jsxPreserve)[transformer].exclude = /\.jsx?$/;
+      }
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
         ...(productionBuild ? { define: { __WHAT_DEV__: 'false' } } : {}),
