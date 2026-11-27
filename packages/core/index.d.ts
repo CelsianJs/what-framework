@@ -327,6 +327,9 @@ export function useEffect(fn: () => void | (() => void), deps?: unknown[]): void
 export function useMemo<T>(fn: () => T, deps?: unknown[]): Computed<T>;
 export function useCallback<T extends (...args: any[]) => any>(fn: T, deps?: unknown[]): T;
 export function useRef<T>(initial: T): { current: T };
+/** A ref to an element, null until it is attached: `useRef<HTMLInputElement>(null)`. */
+export function useRef<T>(initial: T | null): { current: T | null };
+export function useRef<T = undefined>(): { current: T | undefined };
 
 /**
  * A context is its own provider, as in React 19: `<Ctx value={v}>` and
