@@ -27,6 +27,11 @@ Three waves, in this order.
   (code-split routes whose chunks the check delays, fails and overtakes) and
   `pulse` (something moving every frame, with the frame loops counted), and
   from running every app in Firefox.
+- **38 to 40** came from `wizard`, an eight-step insurance quote: one route
+  per step under a shared layout, a step an earlier answer adds, nested
+  field arrays, four kinds of validation, a draft saved as the visitor types
+  and a submit the server validates again. Two are a file input in a form;
+  one is a keyed row moved while a field in it is being typed.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -751,6 +756,52 @@ reported 3 refreshes for one fill. `start()` now stops the run in flight
 away stops it.
 - Test: `packages/core/test/tween-restart.test.js` (3 of 3 fail before).
 
+### 38. A registered file input held the browser's fake path, not the file
+`packages/core/src/form.js` (`register`)
+
+`register()` stored `target.value` for every input that is not a checkbox
+or radio, and a file input's value is a fake path
+(`C:\fakepath\license.png`) that carries no file. So `handleSubmit` and the
+resolver got a string: wizard's rule "the license is a File under 2 MB"
+refused every file chosen ("That is not a file"), and an app that sent
+`values.license[0]` sent the letter `C`. The field holds the input's
+`FileList` now, as React Hook Form registers one, and each choice is news
+(the duplicate-`change` check compared lists of files as `{}` and would have
+dropped a second choice of one file).
+- Test: `packages/core/test/form-file-input.test.js` (4 of 4 fail before).
+
+### 39. A file input whose value prop was not empty threw as it mounted
+`packages/core/src/dom.js` (`_setFieldProp`)
+
+A file input accepts only `''` as a value; anything else throws an
+`InvalidStateError`. `showControlled` already left a file field alone, but
+the first write of a `value` prop did not, so a registered file input whose
+field already held something failed to render: in wizard, going back to
+the Documents step after choosing the photo (the field held the files, or
+before 38 the fake path) logged "Uncaught error in component" and left the
+step blank, and the back/forward walk stopped there. A file input's `value`
+prop now only ever clears it (`''`, when it holds a file) and is otherwise
+not written.
+- Test: `packages/core/test/file-input-value.test.js` (3 of 3 fail before).
+
+### 40. A keyed row moved while a field in it was being typed lost the focus
+`packages/core/src/render.js` (`moveRow`)
+
+The reconciler moved rows with `insertBefore`, which takes a node out and
+puts it back: a focused field in the row loses the focus and its caret in
+every browser, and Chromium fires `blur` and `focusout` as it goes. wizard
+moves a vehicle or a driver with Alt+ArrowUp from inside its fields: the
+next keystroke went nowhere, and in a step validated on blur the half-typed
+licence number was judged as if the visitor had left it ("6 to 12 letters
+and digits" after typing `BK`). Rows now move with `moveBefore` where the
+browser has it (Chromium, Firefox), which keeps the focus, the caret and the
+selection and fires nothing; WebKit has no `moveBefore` yet and still blurs,
+so wizard puts the focus back after a move (it counts how often: only in
+WebKit). The vnode (`h()`) list path still moves with `insertBefore`.
+- Test: `packages/core/test/reconcile-move-keeps-focus.test.js` (5 of 5 fail
+  before): a swap, a far swap, a single move up and to the end, and a shuffle
+  each move their rows with `moveBefore` and take none out.
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -873,6 +924,28 @@ failed download. handbook's error page reloads the page to try again.
   that meets a failed chunk should retry (keep the old page while it
   downloads again, as a first visit does), is a design decision.
 
+### J. `useForm` cannot forget a field: no `unregister`, no field arrays
+
+A field array item the visitor removes stays in the form for its lifetime:
+its value in `formState.values`, `watch()` and what `handleSubmit` hands
+over, its error in `formState.errors` (so `isValid` stays false and a step's
+"3 things to fix" counts it until a whole-form validation), its touched
+state, and a validation of it still in flight lands after it is gone. Every
+add and remove leaves its fields behind, so a long session grows the form.
+React Hook Form forgets a field with `unregister(name | names)`, and
+`useFieldArray().remove()` does it for an item. wizard works around it:
+removing an item clears its errors by hand (`forgetFields`), and the draft
+reads only the live items' values.
+- Failing test, not in the tree: `form-unregister.test.js` in the round 6
+  wizard lane's `keep/` (2 of 2 fail: `form.unregister is not a function`).
+- Why not fixed: deleting a field's signal is not safe while something still
+  reads it. An input still mounted would keep its binding on the old signal,
+  and the controlled-field restore would then put back every keystroke; a
+  `watch(name)` would stay on the old signal after the name came back. It
+  needs a decision on what `unregister` keeps (RHF's `keepValue`,
+  `keepError`, ...) and whether `register` re-creates, so it is left for a
+  design.
+
 ## The load apps: what they measured
 
 `data-grid`, `live-feed` and `workspace` were added to find what only shows
@@ -963,6 +1036,23 @@ from the click event to the mutation that shows the page:
 | ring restarted twice mid-fill | one fill from 0, one refresh | 1 / 1 (went back, 3 refreshes before 37) |
 | panel closed mid-spring 40 times; 150 alerts in and out | nothing left | 0 nodes, components, timers, extra loops |
 
+### Forms across steps
+
+`wizard` (Chromium / WebKit / Firefox, M-series Mac), timed in the page from
+the event to the DOM showing its result:
+
+| measure | bound | measured |
+|---|---|---|
+| a keystroke in a vehicle's VIN, its error shown or cleared | 50 ms | median 6 / 7–8 / 6 ms |
+| Next (a whole-step validation) or Back, to the other step shown | 250 ms | median 17–18 / 25–27 / 16–17 ms |
+| 200 characters at Playwright's fastest into an email checked on a server, a nested textarea, notes with a live count | exact, caret kept | exact in all three |
+| a slow "taken" answer landing after a free address was typed | never shown | never shown |
+| a reload right after a keystroke, mid-step (the save is debounced 300 ms) | every field, nested arrays in order | exact (`pagehide` saves) |
+| back through seven steps and forward again | each step exactly as left | exact |
+| an item removed from its own open menu | its component, effects and document listener gone | gone; its bindings never run again |
+| the server's error on a VIN, after submit | on that field, that step, focused | yes |
+| a double click on submit | one request | one |
+
 ## Browsers
 
 `WHAT_SMOKE_BROWSER=webkit npm run smoke:apps` runs every app in WebKit. The
@@ -999,6 +1089,15 @@ and none is a framework defect:
   revalidation), and Playwright waits for the second load to commit until it
   times out, in about half the runs. newsroom's refused post starts from a
   fresh context.
+
+Firefox can drop a key pressed within a frame of a focused field's row
+moving with `moveBefore`: wizard's check typed into a vehicle's model right
+after Alt+ArrowUp and lost the next one or two keys in 4 of 12 runs under
+load (never with two frames between, and never in a plain page). A person is
+slower than that; the check waits two frames after a move.
+
+Moving a node with `insertBefore` blurs a focused field in every browser,
+and Chromium alone fires `blur` and `focusout` for it (40).
 
 And one in WebKit, seen under Playwright's request routing only: a chunk
 whose download failed is not requested again after a reload, so the
