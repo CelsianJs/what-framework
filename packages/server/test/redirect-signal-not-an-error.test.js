@@ -10,7 +10,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { h, Suspense, ErrorBoundary, createResource } from 'what-core';
 import { Router, redirect } from 'what-router';
-import { createRequestHandler, createResponse, renderToString, renderToHydratableString } from '../src/index.js';
+import { createCacheEngine, createMemoryStore } from 'what-isr';
+import { createRequestHandler, createResponse, createRouteRenderer, renderToString, renderToHydratableString } from '../src/index.js';
 
 const LateRedirect = () => {
   const [data] = createResource(() => new Promise((resolve) => setTimeout(() => resolve(1), 5)));
@@ -39,11 +40,13 @@ async function consoleOf(fn) {
 }
 
 describe('a redirect() from a component in a server render', () => {
-  for (const [name, page] of Object.entries({ streamed: { mode: 'server' }, buffered: { mode: 'server', stream: false }, cached: { mode: 'static' } })) {
+  for (const [name, page] of Object.entries({ streamed: { mode: 'server' }, buffered: { mode: 'server', stream: false }, cached: { mode: 'static', revalidate: 60 } })) {
     it(`redirects the response and reports no error (${name})`, async () => {
       for (const url of ['/guarded', '/thunk', '/boundary', '/late']) {
         const errors = [];
-        const handler = createRequestHandler({ routes: [{ path: '*', page, component: App }], basePath: '/app', csrf: false, onError: (error) => errors.push(error.code ?? error.message) });
+        const onError = (error) => errors.push(error.code ?? error.message);
+        const cache = name === 'cached' ? createCacheEngine({ store: createMemoryStore(), render: createRouteRenderer({ onError }) }) : undefined;
+        const handler = createRequestHandler({ routes: [{ path: '*', page, component: App }], cache, basePath: '/app', csrf: false, onError });
         const { value: res, printed } = await consoleOf(async () => {
           const response = await handler(new Request('http://site.test/app' + url));
           await response.text();
