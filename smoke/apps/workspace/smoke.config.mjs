@@ -65,10 +65,22 @@ export default {
 
         // === Optimistic rename: shows at once, settles to the server's answer ==
         await page.fill('[data-rename-input]', 'Cinder Prime');
-        const t0 = Date.now();
-        await page.click('[data-rename-submit]');
-        await page.waitForFunction(() => document.querySelector('[data-project-name]').textContent === 'Cinder Prime', null, { timeout: 2000 });
-        const shownAfter = Date.now() - t0;
+        // Timed in the page, from the click to the DOM showing the name: the
+        // harness's own round trips are not the app's.
+        const shownAfter = await page.evaluate(() => new Promise((resolve, reject) => {
+          const shown = () => document.querySelector('[data-project-name]').textContent === 'Cinder Prime';
+          const t0 = performance.now();
+          const seen = new MutationObserver(() => { if (shown()) finish(); });
+          const giveUp = setTimeout(() => { seen.disconnect(); reject(new Error('the new name never showed')); }, 2000);
+          function finish() {
+            seen.disconnect();
+            clearTimeout(giveUp);
+            resolve(Math.round(performance.now() - t0));
+          }
+          seen.observe(document.body, { childList: true, characterData: true, subtree: true });
+          document.querySelector('[data-rename-submit]').click();
+          if (shown()) finish();
+        }));
         const apiAtShow = await page.evaluate(() => window.__api.rename);
         await page.waitForSelector('[data-toast="success"]', { timeout: 3000 });
         await sleep(100);
