@@ -15,7 +15,7 @@ const { h, mount, signal, Show, createContext: nativeContext, useContext: useNat
 const React = await import('../src/index.js');
 const { createRoot } = await import('../src/dom.js');
 const { ReactIsland, native } = await import('../src/mixed.js');
-const { createElement: rce, useState, useEffect, useContext, createContext, act } = React;
+const { createElement: rce, useState, useEffect, useContext, createContext, act, use } = React;
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async () => { flushSync(); await tick(); await tick(); };
@@ -194,6 +194,21 @@ test("a React component reads What context with React's useContext, from the Wha
   mount(h(ReactIsland, { view: () => rce(Reader) }), lone);
   await settle();
   assert.equal(lone.querySelector('b').textContent, 'none:-');
+});
+
+test("React 19's use(context) reads a What context as useContext does", async () => {
+  const Desk = nativeContext('none');
+  function Reader() {
+    return rce('b', null, use(Desk));
+  }
+  const el = container();
+  mount(h(Desk.Provider, { value: 'Rates' }, () => h(ReactIsland, { view: () => rce(Reader) })), el);
+  await settle();
+  assert.equal(el.querySelector('b').textContent, 'Rates');
+  const lone = container();
+  mount(h(ReactIsland, { view: () => rce(Reader) }), lone);
+  await settle();
+  assert.equal(lone.querySelector('b').textContent, 'none');
 });
 
 test('a React hook called in a native component fails with the hook error, never using a React instance', async () => {

@@ -651,6 +651,9 @@ export function use(usable) {
       return useContext(usable);
     }
   }
+  // A What context (what-core's createContext: a function that is its own
+  // provider), read as useContext reads it.
+  if (typeof usable === 'function' && usable.Provider === usable) return useContext(usable);
   // ERROR_CODES.USE_INVALID_ARG
   throw Object.assign(
     new Error('[what-react] use() expects a promise or a context.'),
