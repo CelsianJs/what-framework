@@ -858,7 +858,7 @@ export function mockComponent(name = 'MockComponent') {
 
 export const expect = {
   toBeInTheDocument(element) {
-    if (!element || !element.parentNode) {
+    if (!element || !element.isConnected) {
       throw new Error('Expected element to be in the document');
     }
   },
@@ -900,9 +900,12 @@ export const expect = {
     if (!element) {
       throw new Error('Element not found');
     }
-    const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-      throw new Error('Expected element to be visible');
+    // Hidden by itself or by an ancestor: display none or opacity 0 anywhere
+    // up the tree, visibility as the element inherits it.
+    if (window.getComputedStyle(element).visibility === 'hidden') throw new Error('Expected element to be visible');
+    for (let el = element; el && el.nodeType === 1; el = el.parentElement) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.opacity === '0') throw new Error('Expected element to be visible');
     }
   },
 
@@ -910,7 +913,8 @@ export const expect = {
     if (!element) {
       throw new Error('Element not found');
     }
-    if (!element.disabled) {
+    // :disabled also matches a control inside a disabled <fieldset>.
+    if (!element.disabled && !element.matches(':disabled')) {
       throw new Error('Expected element to be disabled');
     }
   },
