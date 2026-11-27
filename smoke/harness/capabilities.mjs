@@ -139,6 +139,17 @@ export const CAPABILITIES = {
   'form:server-errors': { area: 'forms', desc: 'a validation error the server returns on submit is shown on its field, on the step that holds it, which the user is taken to with the field focused' },
   'form:fast-typing': { area: 'forms', desc: '200 characters typed at full speed into fields validated on every keystroke (one checked on a server) arrive exactly, and text typed mid-field lands at the caret' },
   'form:async-validation': { area: 'forms', desc: 'answers of an async field check that arrive out of order never leave a stale error, and the form reports validating until the last one lands' },
+
+  // --- React libraries in a native What app (what-react, mixed mode) -------
+  'react:signal-props': { area: 'react', desc: 'What signals written 100 times a second reach React components as props and as signals read while rendering, none stale, and each component renders only for its own data (once per write at most, memo rows only for their own row)' },
+  'react:lift-state': { area: 'react', desc: 'React state lifted into a What store 100 times a second arrives once each, in order, and comes back to React as a prop' },
+  'react:route-churn': { area: 'react', desc: 'React library components mounted and unmounted across dozens of route changes while updates stream release every component, listener, timer, observer and subscription, with no React warning or error in the console' },
+  'react:context-bridge': { area: 'react', desc: 'React context reaches a React component through a native layer, What context reaches a native component a React component renders, live, and a ref native code passes reaches a React component\'s element' },
+  'react:portal-focus': { area: 'react', desc: 'a React library dialog over a What page portals out, takes and traps the focus, hosts native components, and gives the focus back on Escape; toasts raised from native code show in their hosts and leave' },
+  'react:events': { area: 'react', desc: 'a React onChange beside a native onInput each fires once per keystroke with the field\'s value' },
+  'react:large-list': { area: 'react', desc: 'a React virtual list and table over 10,000 rows of one What signal show a one-row write and an all-rows write within a stated budget' },
+  'react:island-hydration': { area: 'react', desc: 'a React library island in a server-rendered What page hydrates onto the server\'s elements, creating none, keeps text typed and the focus from before hydration, and then works with the native page' },
+  'react:unlisted-libraries': { area: 'react', desc: 'React packages outside the compatibility matrix (react-toastify, react-dropzone) work as tags in a native app' },
 };
 
 /** Every app's declared coverage, checked against CAPABILITIES at run time. */

@@ -1,0 +1,32 @@
+:root { font-family: system-ui, sans-serif; color: #1d232b; background: #f6f7f9; }
+body { margin: 0; }
+.layout { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; }
+.nav { display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: #14202e; color: #fff; flex-wrap: wrap; }
+.nav a { color: #b9d3ee; text-decoration: none; }
+.nav a.active { color: #fff; font-weight: 600; }
+.brand { margin-right: 12px; }
+.trader { margin-left: auto; font-size: 13px; }
+.page { padding: 16px; }
+.quotes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.quote { background: #fff; border: 1px solid #dde3ea; border-radius: 6px; padding: 8px; display: flex; justify-content: space-between; }
+.board { columns: 2; padding-left: 18px; }
+.sigquotes span, .native-prices span { margin-right: 10px; font-variant-numeric: tabular-nums; }
+.tape { height: 160px; overflow: hidden; font-size: 12px; }
+.deal-list { border: 1px solid #dde3ea; background: #fff; width: 520px; }
+.deal-row { display: flex; gap: 12px; align-items: center; padding: 0 8px; font-size: 13px; border-bottom: 1px solid #f0f2f5; box-sizing: border-box; }
+.deals-table { border-collapse: collapse; margin-top: 12px; background: #fff; }
+.deals-table th, .deals-table td { border: 1px solid #dde3ea; padding: 4px 8px; font-size: 13px; }
+.deal-form, .fields, .quote-request { display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+[role="alert"] { color: #b42318; font-size: 13px; }
+.overlay { position: fixed; inset: 0; background: rgb(0 0 0 / 0.35); }
+.dialog { position: fixed; top: 20%; left: 50%; transform: translateX(-50%); background: #fff; padding: 16px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; min-width: 320px; }
+.motion-list { list-style: none; padding: 0; }
+.motion-list li { padding: 4px 8px; margin: 2px 0; background: #fff; border: 1px solid #dde3ea; width: 200px; }
+.dropzone { border: 2px dashed #9aa9ba; padding: 24px; background: #fff; max-width: 420px; }
+.flow { width: 400px; height: 240px; border: 1px solid #dde3ea; background: #fff; }
+.spring-knob { width: 40px; height: 20px; background: #1f7a8c; border-radius: 10px; }
+.priorities { list-style: none; padding: 0; width: 220px; }
+.priorities li { padding: 6px 8px; margin: 4px 0; background: #fff; border: 1px solid #dde3ea; }
+.embla { overflow: hidden; width: 240px; }
+.embla-track { display: flex; }
+.embla-slide { flex: 0 0 100%; padding: 8px; }

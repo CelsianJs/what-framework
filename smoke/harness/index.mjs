@@ -24,6 +24,7 @@ export const WORKSPACE_PACKAGES = {
   'packages/devtools': 'what-devtools',
   'packages/devtools-mcp': 'what-devtools-mcp',
   'packages/eslint-plugin': 'eslint-plugin-what',
+  'packages/react-compat': 'what-react',
 };
 
 const children = new Set();
