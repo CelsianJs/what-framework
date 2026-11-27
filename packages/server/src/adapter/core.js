@@ -372,8 +372,10 @@ export function createRequestHandler(options = {}) {
       getCsrfToken: (reqLike) => readCookie(reqLike.headers && reqLike.headers.cookie, CSRF_COOKIE),
       trustedOrigins: (typeof csrf === 'object' && csrf !== null && csrf.trustedOrigins) || [],
     };
-  const actionHandler = options.actionHandler || createActionHandler(autoCsrf ? csrfOptions : { skipCsrf: true });
-  const formPostHandler = createFormPostHandler(csrfOptions);
+  // The action endpoint is below the base, and so is a redirect an action
+  // makes, as the router's are (action-handler.js csrfPolicy).
+  const actionHandler = options.actionHandler || createActionHandler({ ...(autoCsrf ? csrfOptions : { skipCsrf: true }), _base: base });
+  const formPostHandler = createFormPostHandler({ ...csrfOptions, _base: base });
 
   // `onError` hears the errors every built-in render contains or fails on,
   // streamed or buffered.

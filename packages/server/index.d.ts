@@ -386,7 +386,7 @@ export interface FormProps {
 
 export function Form(props: FormProps): VNode;
 
-/** The endpoint server actions post to. */
+/** The endpoint server actions post to, below the app's base path (what-router `setBase`, or Vite's `base`) when it has one. */
 export const ACTION_ENDPOINT: string;
 
 // --- CSRF ---
@@ -579,9 +579,11 @@ export interface RequestHandlerOptions {
    * The path the app is served below (`'/app'`, or `'/app/'` as Vite writes
    * it), stripped from a request's path on a segment boundary before
    * matching: `/app/x` matches `/x`, `/app` matches `/`, and a path outside
-   * it (`/application`) is matched as it is. The router's base is the
-   * client's (what-router `setBase`, or Vite's `base`): give both the same
-   * path.
+   * it (`/application`) is matched as it is. The action endpoint is
+   * `/app/__what_action`, and a no-JS post whose action redirects to a path
+   * (`getResponse().redirect('/x')`) is answered with `/app/x`. The router's
+   * base is the client's (what-router `setBase`, or Vite's `base`): give both
+   * the same path.
    */
   basePath?: string;
   /**

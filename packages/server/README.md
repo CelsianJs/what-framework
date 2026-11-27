@@ -507,6 +507,13 @@ JavaScript, sends `X-What-Redirect`, which the client follows once the
 action's revalidation has landed (through the mounted `<Router>`, else by
 loading the page). `setHeader()` (a cookie) reaches the response either way.
 
+**Below a base path** (what-router's `setBase('/app')`, or Vite's
+`base: '/app/'`), an action posts to `/app/__what_action`, and a `<Form>`'s
+action, `redirect` and permalink are written below the base. A path an action
+redirects to is a URL of the app, as for the router: with JavaScript the
+`<Router>` goes to `/app/x`, and a request handler with `basePath: '/app'`
+answers a no-JS post with `/app/x`.
+
 **A custom server.** `nodeActionMiddleware` serves only the action endpoint.
 For page-posted forms, run the post with `createFormPostHandler(options)` (the
 action endpoint's options, `bodyLimit` among them) before rendering the page,

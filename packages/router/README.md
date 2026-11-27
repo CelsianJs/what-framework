@@ -165,7 +165,9 @@ catch-all included: the Router shows its `fallback`, and `route.url` and
 A server render of a request below the base renders the same page, and its
 redirects go below the base. A base that is not a path from the root (Vite's
 `./`, a CDN's URL) is no base. what-server's `createRequestHandler({ basePath })`
-is the server's own: set it to the same path.
+is the server's own: set it to the same path. Server actions use the same
+base: an action posts to `/app/__what_action`, a `<Form>`'s `redirect` is a
+URL of the app, and so is a path an action redirects to.
 
 ## Route data: `preload`
 

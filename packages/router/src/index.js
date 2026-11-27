@@ -79,12 +79,17 @@ function baseOf(base) {
   return /^\/(?!\/)/.test(base) ? base.replace(/\/+$/, '') : '';
 }
 
+// What setBase() set, shared with what-server's actions under this key: the
+// action endpoint and the redirects they make are below the same base.
+const SHARED_BASE = Symbol.for('what.base.v1');
+
 /**
  * Serve the app below `base` ('/app', or '/app/' as Vite writes it), in place of
  * Vite's: see the Base section above.
  */
 export function setBase(base) {
   BASE = baseOf(base);
+  /** @type {any} */ (globalThis)[SHARED_BASE] = BASE;
   if (typeof location !== 'undefined') _url.set(browserUrl());
 }
 

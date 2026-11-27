@@ -11,7 +11,9 @@
 // `action` is a server action (what action() returns, or its id) or a client
 // function such as the dispatch of useActionState. Without JavaScript a
 // server action's form posts to the action endpoint, which answers 303 to
-// `redirect` (else the page the form is on). The dispatch of
+// `redirect` (else the page the form is on). Below a base path (what-router's
+// setBase(), or Vite's `base`) the endpoint is below it, and `redirect` and a
+// permalink are URLs of the app, written below it. The dispatch of
 // useActionState(serverAction, initial) posts to its permalink, by default
 // the page itself (the form has no `action` attribute, so the browser posts
 // to the address it shows), with the state the hook holds and the hook's key:
@@ -33,7 +35,7 @@
 
 import { h } from 'what-core';
 import { _formMember, _formStatusContext, _formStatus, _resetForm, getServerContext, isHydrating } from 'what-core/internal';
-import { _callAction } from './actions.js';
+import { _base, _belowBase, _callAction } from './actions.js';
 import { addField, RESERVED_FIELDS } from './fields.js';
 
 export const ACTION_ENDPOINT = '/__what_action';
@@ -128,7 +130,7 @@ export const Form = /* @__PURE__ */ Object.assign(function Form({
       // Back to this page when there is no `redirect`, without relying on a
       // Referer the browser may not send. Always written, so a render that
       // does not know its address (no request) hydrates the same fields.
-      hidden.push(h('input', { type: 'hidden', name: '_redirect', value: redirect || pageUrl() || '' }));
+      hidden.push(h('input', { type: 'hidden', name: '_redirect', value: _belowBase(redirect) || pageUrl() || '' }));
     }
   }
 
@@ -136,7 +138,7 @@ export const Form = /* @__PURE__ */ Object.assign(function Form({
   const props = {
     ...rest,
     method,
-    action: rest.action || (actionId !== null && !dispatch ? ACTION_ENDPOINT : action.permalink),
+    action: rest.action || (actionId !== null && !dispatch ? _base() + ACTION_ENDPOINT : _belowBase(action.permalink)),
   };
   if (actionId !== null) props['data-action'] = actionId;
   if (enhance) {

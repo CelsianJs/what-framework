@@ -37,6 +37,27 @@ function actionRegistry() {
   return registry ??= /** @type {any} */ (globalThis)[REGISTRY] ??= new Map();
 }
 
+// --- Base ---
+// The path the app is served below ('/app'), or '' at the root of its origin,
+// as what-router has it: what its setBase() set (shared under this key), else
+// Vite's `base` (import.meta.env.BASE_URL) when Vite builds this module. One
+// that is not a path from the root ('./') is no base. The action endpoint is
+// below it, and a path from the root that an action redirects to, or a <Form>
+// names, is a URL of the app, below it too.
+const SHARED_BASE = Symbol.for('what.base.v1');
+
+/** @internal */
+export function _base() {
+  const set = /** @type {any} */ (globalThis)[SHARED_BASE];
+  const base = typeof set === 'string' ? set : import.meta.env && import.meta.env.BASE_URL;
+  return /^\/(?!\/)/.test(base) ? base.replace(/\/+$/, '') : '';
+}
+
+/** @internal A URL of the app as the browser sees it: a path from the root goes below the base. */
+export function _belowBase(url, base = _base()) {
+  return typeof url === 'string' && /^\/(?![/\\])/.test(url) ? base + url : url;
+}
+
 // --- CSRF Protection ---
 // The action endpoint checks that a request comes from this site: the
 // browser's Fetch Metadata (Sec-Fetch-Site) or Origin header, or, when a
@@ -228,12 +249,13 @@ export function _callAction(id, args, options = {}) {
 // Where an action's redirect (getResponse().redirect() in the action) takes
 // the browser, once what it revalidates has landed: a path through the
 // mounted <Router> (what-router registers its navigate()), anything else, or
-// a page with no Router, by loading it.
+// a page with no Router, by loading it. A path is a URL of the app, below the
+// base.
 const NAVIGATOR = Symbol.for('what.router.navigate.v1');
 function follow(to) {
   const navigate = /** @type {any} */ (globalThis)[NAVIGATOR];
   if (typeof navigate === 'function' && to.startsWith('/')) navigate(to);
-  else location.assign(to);
+  else location.assign(_belowBase(to));
 }
 
 // The action's result, and the redirect it made (or null).
@@ -250,7 +272,7 @@ async function post(id, args, options) {
     if (form === null) headers['Content-Type'] = 'application/json';
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
 
-    const response = await fetch('/__what_action', {
+    const response = await fetch(_base() + '/__what_action', {
       method: 'POST',
       headers,
       credentials: 'same-origin',

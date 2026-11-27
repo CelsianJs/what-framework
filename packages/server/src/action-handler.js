@@ -6,7 +6,7 @@
 // and Web-Fetch adapters. CSRF + dispatch + error masking are reused from
 // actions.js (handleActionRequest) — no security logic is duplicated here.
 
-import { handleActionRequest } from './actions.js';
+import { _belowBase, handleActionRequest } from './actions.js';
 import { addField, RESERVED_FIELDS, urlEncodedFields, urlEncodedPairs } from './fields.js';
 import { runInActionContext } from './context.js';
 import { isHost, nodeRequestHost, requestOrigin, requestScheme, requestUrl } from './request-url.js';
@@ -136,7 +136,7 @@ export function safeLocalPath(value) {
   }
 }
 
-function safeRedirectTarget(form, headers) {
+function safeRedirectTarget(form, headers, base) {
   // The fragment of `_redirect` is kept (`/posts/7#comments`), as
   // response.redirect() keeps it: it never reaches a server, so it cannot
   // move the target off this origin.
@@ -150,7 +150,7 @@ function safeRedirectTarget(form, headers) {
       if (path) return path;
     } catch { /* fall through */ }
   }
-  return '/';
+  return base + '/';
 }
 
 // --- Where a request comes from ---
@@ -206,12 +206,17 @@ function postedState(form) {
 const plainValue = (key, value) => (key === 'toString' || key === 'valueOf' ? undefined : value);
 const INVALID = Symbol('invalid');
 
-// The CSRF policy of a handler's options.
+// The CSRF policy of a handler's options, and the base path the app is
+// served below (`_base`, the request handler's `basePath`): a path an action
+// redirects to is a URL of the app, which a no-JS post's 303 sends below it,
+// as the router navigates below it with JavaScript. `_redirect` and the
+// Referer are where the browser was, below the base already.
 function csrfPolicy(options) {
   return {
     getCsrfToken: options.getCsrfToken,
     skipCsrf: options.skipCsrf === true,
     trustedOrigins: new Set(options.trustedOrigins || []),
+    base: options._base || '',
   };
 }
 
@@ -390,7 +395,8 @@ export function createActionHandler(options = {}) {
       const outcome = await runFormPost(policy, reqLike, form, form._action || form['data-action'] || (reqLike.query && reqLike.query.action));
       if (!outcome.call || outcome.call.status !== 200) return failedForm(outcome);
       const { response } = outcome.call;
-      return { status: 303, headers: withActionHeaders(response, { location: response.location ?? safeRedirectTarget(form, headers) }), body: '' };
+      const location = response.location != null ? _belowBase(response.location, policy.base) : safeRedirectTarget(form, headers, policy.base);
+      return { status: 303, headers: withActionHeaders(response, { location }), body: '' };
     }
 
     // --- JSON + X-What-Action header (fetch clients) ---
@@ -462,7 +468,7 @@ export function createFormPostHandler(options = {}) {
     if (!outcome.call || outcome.call.status !== 200) return { response: failedForm(outcome) };
     const { response, body } = outcome.call;
     if (response.location) {
-      return { response: { status: 303, headers: withActionHeaders(response, { location: response.location }), body: '' } };
+      return { response: { status: 303, headers: withActionHeaders(response, { location: _belowBase(response.location, policy.base) }), body: '' } };
     }
     const key = typeof form._actionKey === 'string' ? form._actionKey : null;
     return { actionState: { action: outcome.actionId, key, state: body }, headers: withActionHeaders(response, {}) };

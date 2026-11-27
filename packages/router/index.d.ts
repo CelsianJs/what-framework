@@ -94,6 +94,7 @@ export function navigate(to: string, options?: NavigateOptions): Promise<void>;
  * that is not a path from the root (`'./'`, a CDN's URL) is no base. Call it
  * before the app renders, in code that the client and a server both run: a
  * server build that keeps what-router external does not see Vite's `base`.
+ * what-server's actions and `<Form>` use the base it sets too.
  */
 export function setBase(base: string): void;
 
