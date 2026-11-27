@@ -448,6 +448,13 @@ const shownSource = `import { For, Show, signal } from 'what-framework';
     const rows = signal(initial.map(([label, on]) => ({ label, on: signal(on) })));
     function Page() { return <ul><For each={rows()}>{(row) => <Show when={row.on()}>{row.label}</Show>}</For></ul>; }
     return { Page, rows };
+  }
+  export function makeLabels(initial) {
+    const rows = signal(initial.map(([label, on]) => ({ label, on: signal(on) })));
+    function Label(props) { return props.text; }
+    function Page() { return <ul><For each={rows()}>{(row) => <Label text={row.on() ? row.label : null} />}</For></ul>; }
+    function Keyed() { return <ul>{rows().map((row) => <Label key={row.label} text={row.on() ? row.label : null} />)}</ul>; }
+    return { Page, Keyed, rows };
   }`;
 const shownClient = await loadCompiled(shownSource, { pluginOptions: { hydratable: true } });
 const shownServer = await loadCompiled(shownSource, { pluginOptions: { generate: 'ssr' } });
@@ -467,6 +474,7 @@ function hydrateShown(html, app) {
   const texts = nodesOf(ul).filter((n) => n.nodeType === 3);
   const reports = [];
   const stop = hydrate(h(app.Page), host, { onHydrationError: (r) => reports.push([r.kind, r.expected, r.found]) });
+  const kept = nodesOf(ul).filter((n) => n.nodeType === 3);
   const shown = [ul.textContent];
   const rows = app.rows();
   for (const step of [
@@ -479,7 +487,7 @@ function hydrateShown(html, app) {
     shown.push(ul.textContent);
   }
   stop();
-  return { reports, texts, kept: nodesOf(ul).filter((n) => n.nodeType === 3), shown };
+  return { reports, texts, kept, shown };
 }
 const SHOWN = [['a', false], ['b', true], ['c', false], ['d', true]];
 
@@ -489,6 +497,27 @@ describe('a keyed row whose output is a reactive child', () => {
       const { reports, texts, shown } = hydrateShown(server.renderToHydratableString(h(serverMake(SHOWN).Page)), clientMake(SHOWN));
       assert.deepEqual(reports, []);
       assert.equal(texts.length, 2);
+      assert.deepEqual(shown, ['bd', 'db', 'da', 'ad']);
+    });
+  }
+});
+
+// The server writes a live prop's value with no markers, as renderToString
+// writes every value: a row whose text a region without markers holds starts
+// at a node of the row's own, so the row moves whole once that text is gone.
+describe('a keyed row whose text a region without markers holds', () => {
+  for (const [label, render, serverMake, clientMake] of [
+    ['compiled <For> of a component placing a live prop', server.renderToHydratableString, shownServer.makeLabels, shownClient.makeLabels],
+    ['a compiled keyed .map() of the same', server.renderToHydratableString, (i) => ({ ...shownServer.makeLabels(i), Page: shownServer.makeLabels(i).Keyed }), (i) => { const app = shownClient.makeLabels(i); return { ...app, Page: app.Keyed }; }],
+    ['compiled <For> of <Show>, from renderToString', server.renderToString, shownServer.make, shownClient.make],
+    ['h() rows of a component returning a function, from renderToString', server.renderToString, hShown, hShown],
+  ]) {
+    it(`${label}: no report, the server's text kept, and a hidden row's text stays gone`, () => {
+      const { reports, texts, kept, shown } = hydrateShown(render(h(serverMake(SHOWN).Page)), clientMake(SHOWN));
+      assert.deepEqual(reports, []);
+      // The parser merged the rows' text ("bd"): split where a row ends.
+      assert.equal(texts.length, 1);
+      assert.equal(kept[0], texts[0]);
       assert.deepEqual(shown, ['bd', 'db', 'da', 'ad']);
     });
   }

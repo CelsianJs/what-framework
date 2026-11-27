@@ -4632,7 +4632,13 @@ export function _adoptVNodeRows(value, scope) {
         splitHere(rc);
         let first = afterAnchor(rc, anchor);
         let last = anchorOf(rc);
+        // A row's ends are no text node: one a region without markers holds
+        // is replaced once it shows anything else (adoptRegion).
         if (first === rc.n) first = last = rc.p.insertBefore(document.createComment(''), rc.n);
+        else {
+          if (first.nodeType === 3) first = rc.p.insertBefore(document.createComment(''), first);
+          if (last.nodeType === 3) last = rc.p.insertBefore(document.createComment(''), rc.n);
+        }
         return { key: vnode.key, vnode, dispose, first, last };
       })));
     }
@@ -4783,7 +4789,10 @@ function adoptListRows([source, mapFn, keyFn, keyedSignals, parent, slot]) {
       }
       splitHere(rc);
       const first = afterAnchor(rc, anchor);
-      const single = first !== rc.n && first.nextSibling === rc.n && (first.nodeType === 1 || first.nodeType === 3);
+      // A row of one element is that element; a text node is not a row's
+      // start, as one a region without markers holds is replaced once it
+      // shows anything else (adoptRegion).
+      const single = first !== rc.n && first.nextSibling === rc.n && first.nodeType === 1;
       mappedNodes[i] = single ? first
         : anchor !== start && isMarker(anchor, ARRAY_OPEN) ? anchor
           : rc.p.insertBefore(document.createComment('i'), first);
