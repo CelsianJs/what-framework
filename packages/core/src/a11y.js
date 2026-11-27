@@ -17,7 +17,10 @@ function trackFocus() {
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     focusedElement = signal(active && active !== document.body ? active : null);
     if (typeof document !== 'undefined') {
+      // focusout clears it and the next focusin, if focus moves on, sets it:
+      // focus that leaves for nothing (the body) is no element.
       document.addEventListener('focusin', (e) => focusedElement.set(e.target));
+      document.addEventListener('focusout', () => focusedElement.set(null));
     }
   }
   return focusedElement;
