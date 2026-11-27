@@ -21,6 +21,10 @@ const DRAFT = { name: 'Orchard', owner: 'Bo Lindqvist', kind: 'research', member
 export default {
   description: 'Workspace, server-rendered and hydrated: server-side guard redirects, a nested layout that hydrates onto the server DOM, a wizard reload rendered from cookies, concurrent visitors.',
 
+  // server.js renders from the --ssr build and serves dist/client; the app
+  // has no `dev` script and no dev server.
+  dev: 'no dev path: server.js renders from the --ssr build, and there is no `dev` script',
+
   covers: [
     'render:server',
     'render:hydration',

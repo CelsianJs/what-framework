@@ -96,6 +96,10 @@ const INIT = `
 export default {
   description: 'Compiled SPA on its own SSE server that drops and reconnects mid-run: a capped keyed chat log anchored to the bottom, optimistic sends, a composer typed into during bursts; loss, repeats, caret, frames and memory.',
 
+  // server.js serves the build and the room's stream, and `npm run dev` is
+  // `vite build && node server.js`: there is no dev server to run.
+  dev: 'no dev path: `npm run dev` builds, then server.js serves dist/ and the stream',
+
   covers: [
     'stream:reconnect',
     'list:capped-log',

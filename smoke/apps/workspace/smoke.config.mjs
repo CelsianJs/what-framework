@@ -9,12 +9,20 @@
 // before it left behind, which is what a page reached by clicking around has
 // and a page loaded fresh for one test does not.
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
+
+// Development only: what-router renders a page again for a URL that changes
+// only its query, and <TeamStep> holds its form's state.
+const ROUTER_REBUILD = 'ERR_REBUILT_COMPONENT A reactive region rebuilt <TeamStep>';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export default {
   description: 'Compiled SPA chaining sign-in, a guarded route, nested layouts, a queried list, an optimistic edit with rollback, a wizard across back/forward and a reload, a modal and toasts.',
+
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+  devDiagnostics: { [ROUTER_REBUILD]: 'what-router renders the page again when only the query changes (`?help=keys`), so the Team step\'s form state is gone' },
 
   covers: [
     'route:guard',
@@ -31,18 +39,10 @@ export default {
     'a11y:live-region',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     const context = await browser.newContext();
     try {
@@ -280,7 +280,7 @@ export default {
         reporter.assert(toastsLeft === 0, 'toasts dismiss themselves', `left=${toastsLeft}`);
 
         reporter.assert(diag.errors.length === 0, 'the workspace ran with zero page errors', diag.errors.slice(0, 3).join(' | '));
-        const warnings = diag.warnings.filter((w) => w.includes('[what]'));
+        const warnings = diag.warnings.filter((w) => w.includes('[what]') && !w.includes(ROUTER_REBUILD));
         reporter.assert(warnings.length === 0, 'the workspace ran with no framework warnings', warnings.slice(0, 3).join(' | '));
       }, { context });
     } finally {

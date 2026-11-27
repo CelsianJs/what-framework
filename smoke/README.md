@@ -9,6 +9,7 @@ npm run smoke:apps:npm                          # published `latest`
 node smoke/run.mjs --source=npm --version=0.12.2 # a specific release
 node smoke/run.mjs --apps=storefront --keep      # one app, keep the workdir
 WHAT_SMOKE_BROWSER=webkit npm run smoke:apps     # every app in WebKit (or firefox)
+WHAT_SMOKE_MODE=dev npm run smoke:apps          # the Vite apps on their dev servers
 
 npm run smoke:ports                             # what is still holding a smoke port
 npm run smoke:clean                             # stop the ones that are ours
@@ -124,6 +125,33 @@ the limit). A check still waiting then, on an event the browser never sent or a
 promise that never settles, fails its app with `app harness: no result after
 300s`; the runner starts a fresh browser and goes on to the next app, so one
 hang costs five minutes, not the CI job's whole time limit.
+
+## Dev mode
+
+`WHAT_SMOKE_MODE=dev` runs the apps on Vite's dev server instead of `vite build`
+and `vite preview`, which is where people and agents spend their day:
+
+```bash
+WHAT_SMOKE_MODE=dev npm run smoke:apps
+WHAT_SMOKE_MODE=dev node smoke/run.mjs --apps=handbook
+```
+
+- An app whose checks serve it with `serveViteApp` from the harness declares
+  `dev: true`, and in dev mode that call starts the app's own dev server (its
+  `vite.config.js`, its installed Vite, `harness/vite-dev-server.mjs`) on the
+  app's port, with the HMR socket on that same port.
+- An app with no dev server says why in `dev`, a string printed as the skip:
+  the buildless apps already run their development tier in either mode,
+  `chat` and `workspace-ssr` serve only their build.
+- A check that means nothing on a dev server reads `mode` from the check's
+  arguments and calls `skip(capability, name, reason)` there, as a WebKit or
+  Firefox skip does (mixed-desk's quote page, rendered from the `--ssr` build).
+- Every page is watched for What's development diagnostics: a console warning
+  or error starting with `[what]` or `[vite]` fails the app. One the app expects
+  is listed in its `devDiagnostics` (a piece of the message, and why), which then
+  prints with its reason instead.
+- Only the apps that ran in dev mode owe their declared capabilities, and the
+  run writes `artifacts/smoke-apps-dev.json`.
 
 ## Browsers
 

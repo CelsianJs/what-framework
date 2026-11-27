@@ -47,6 +47,10 @@ function attr(html, marker, name) {
 export default {
   description: 'Ops console: infinite feed, optimistic acknowledge, lazy detail pane, validated forms, focus-trapped dialog.',
 
+  // Buildless: `npm run dev` is `node --watch server.js`, the server and the
+  // development tier the suite runs in either mode (smoke/README.md).
+  dev: 'buildless: `npm run dev` runs the same server and development tier as the build mode',
+
   covers: [
     'cmp:suspense-lazy',
     'data:resource-suspense',

@@ -16,7 +16,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const BUDGET = { sort: 100, keystroke: 50, selectAll: 100, bulk: 100, scroll: 50 };
 const ROW_HEIGHT = 32;
@@ -53,6 +53,9 @@ const TIMED = `
 export default {
   description: 'Compiled SPA over 10,000 rows: virtual scroll, sort, filter, selection, inline edit, derived summary, 1,000-row bulk update, with time budgets.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'list:large',
     'list:virtual-scroll',
@@ -62,20 +65,12 @@ export default {
     'cmp:inline-edit',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const { makeRows } = await import(pathToFileURL(join(workDir, 'src/data.js')).href);
     const ROWS = makeRows();
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     await withPage(browser, `${base}/`, async (page, diag) => {
       await page.waitForSelector('[data-row]');

@@ -81,6 +81,10 @@ function islandSlice(html, name) {
 export default {
   description: 'Scrollytelling essay: five island hydration modes, scroll progress, intersect reveals, spring/tween and an enter/leave transition.',
 
+  // Buildless: `npm run dev` is `node --watch server.js`, the server and the
+  // development tier the suite runs in either mode (smoke/README.md).
+  dev: 'buildless: `npm run dev` runs the same server and development tier as the build mode',
+
   covers: [
     'island:load',
     'island:idle',

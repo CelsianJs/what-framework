@@ -18,7 +18,7 @@
 // and does not rise at every sample. The heap is read in Chromium only (the
 // devtools protocol); in WebKit and Firefox that check is skipped.
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const RATE = 200;
 const RUN_MS = 10_000;
@@ -32,7 +32,12 @@ const INIT = `
     const clear = window.clearInterval.bind(window);
     const live = new Set();
     window.__intervals = live;
-    window.setInterval = (fn, ms, ...args) => { const id = set(fn, ms, ...args); live.add(id); return id; };
+    // The app's intervals: not the dev server client's keep-alive ping.
+    window.setInterval = (fn, ms, ...args) => {
+      const id = set(fn, ms, ...args);
+      if (!String(new Error().stack).includes('/@vite/client')) live.add(id);
+      return id;
+    };
     window.clearInterval = (id) => { live.delete(id); return clear(id); };
     window.__longTasks = [];
     // Long tasks come from the Long Tasks API where the browser has it
@@ -67,6 +72,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export default {
   description: 'Compiled SPA fed 200 updates a second: keyed tape, SVG sparklines, store counters, pause/resume, panels mounting under load; loss, cleanup, memory and long-task bounds.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'stream:update-rate',
     'stream:no-loss',
@@ -76,18 +84,10 @@ export default {
     'cmp:svg',
   ],
 
-  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     const context = await browser.newContext();
     await context.addInitScript(INIT);

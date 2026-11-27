@@ -14,6 +14,7 @@
 //   node smoke/run.mjs --apps=storefront        # one app, while iterating
 //   node smoke/run.mjs --keep                   # keep the workdir to inspect
 //   WHAT_SMOKE_BROWSER=webkit node smoke/run.mjs  # webkit or firefox; chromium by default
+//   WHAT_SMOKE_MODE=dev node smoke/run.mjs      # the Vite apps on their dev servers
 //
 // Exits non-zero if any check fails, any capability is uncovered, or any
 // declared capability never reported a passing check.
@@ -32,7 +33,9 @@ import {
   resolvePackageSource,
   run,
   smokeBrowserName,
+  smokeMode,
   verifyInstalledSource,
+  watchDiagnostics,
 } from './harness/index.mjs';
 import { CAPABILITIES, auditResults, coverageReport, validateCoverage } from './harness/capabilities.mjs';
 import { WORKDIR_PREFIX, markWorkdir } from '../scripts/lib/smoke-workdir.mjs';
@@ -57,6 +60,7 @@ const SOURCE = flag('source', 'workspace');
 const KEEP = !!flag('keep', false);
 const ONLY = flag('apps', null);
 const BROWSER = smokeBrowserName();
+const MODE = smokeMode();
 
 if (!['workspace', 'npm'].includes(SOURCE)) {
   console.error(`--source must be "workspace" or "npm" (got "${SOURCE}")`);
@@ -95,7 +99,7 @@ if (isFullRun && coverageProblems.length) {
   process.exit(1);
 }
 
-log(`source=${SOURCE}${SOURCE === 'npm' ? ` version=${VERSION}` : ''} browser=${BROWSER} apps=${apps.map((a) => a.name).join(',')}`);
+log(`source=${SOURCE}${SOURCE === 'npm' ? ` version=${VERSION}` : ''} browser=${BROWSER} mode=${MODE} apps=${apps.map((a) => a.name).join(',')}`);
 
 // --- Run -------------------------------------------------------------------
 
@@ -103,6 +107,7 @@ const workRoot = mkdtempSync(join(tmpdir(), WORKDIR_PREFIX));
 // smoke:clean reaps only the servers of runs this checkout started.
 markWorkdir(workRoot, REPO);
 const allResults = [];
+const devRan = [];
 let browser = null;
 
 try {
@@ -120,6 +125,16 @@ try {
   for (const app of apps) {
     console.log(`\n── ${app.name} ──────────────────────────────────────────`);
     const appPort = port++;
+    // Dev mode runs the apps whose checks serve them on a dev server
+    // (`dev: true`); an app without a dev path of its own says why instead.
+    if (MODE === 'dev' && app.dev !== true) {
+      const reporter = createReporter(app.name);
+      if (typeof app.dev === 'string') reporter.skip('dev mode', app.dev);
+      else reporter.fail('dev mode', 'smoke.config.mjs sets no `dev`: true when its checks serve the app on a dev server in dev mode, or a string saying why the app has no dev path');
+      allResults.push(...reporter.results.map((r) => ({ ...r, capability: null })));
+      continue;
+    }
+    devRan.push(app);
     await assertPortFree(appPort);
 
     // Copy to a workdir so the checked-in app stays pristine and demoable:
@@ -145,6 +160,8 @@ try {
     // For a check this browser cannot run (a Chromium-only API), with the reason.
     const skip = (capability, name, reason) => reporter.skip(`[${capability}] ${name}`, reason);
 
+    // On a dev server every page is watched for development diagnostics.
+    const watched = MODE === 'dev' ? watchDiagnostics(browser) : null;
     let timer;
     let timedOut = false;
     try {
@@ -152,8 +169,9 @@ try {
         workDir,
         port,
         appPort,
-        browser,
+        browser: watched ? watched.browser : browser,
         browserName: BROWSER,
+        mode: MODE,
         check,
         skip,
         reporter,
@@ -172,6 +190,18 @@ try {
       reporter.fail('app harness', err.message.split('\n').slice(0, 4).join(' | '));
     } finally {
       clearTimeout(timer);
+    }
+    if (watched) {
+      // An app lists a diagnostic it expects (`devDiagnostics`: a piece of
+      // its text, and why), which then prints with its reason instead.
+      const expected = Object.entries(app.devDiagnostics ?? {});
+      for (const [text, why] of expected) {
+        if (watched.seen.some((d) => d.text.includes(text))) reporter.ok(`expected development diagnostic: ${text}`, why);
+      }
+      const unexpected = watched.seen.filter((d) => !expected.some(([text]) => d.text.includes(text)));
+      const lines = [...new Set(unexpected.map((d) => `${d.text.split('\n').slice(0, 3).join(' / ')} (${new URL(d.url).pathname})`))];
+      reporter.assert(lines.length === 0, 'no development diagnostic reached the console on the dev server',
+        lines.length ? `${lines.length} distinct: ${lines.slice(0, 6).join(' | ')}` : 'none');
     }
     // A fresh browser for the next app: closing this one ends the abandoned
     // checks' pages, so they stop where they waited.
@@ -197,7 +227,8 @@ try {
 
 const failures = allResults.filter((r) => !r.passed);
 const skipped = allResults.filter((r) => r.skipped);
-const unproven = isFullRun ? auditResults(apps, allResults) : [];
+// In dev mode only the apps that ran there owe their capabilities.
+const unproven = isFullRun ? auditResults(MODE === 'dev' ? devRan : apps, allResults) : [];
 
 console.log('\n──────────── coverage ────────────');
 const report = coverageReport(covered);
@@ -206,13 +237,14 @@ for (const [area, { total, covered: c }] of Object.entries(report)) {
   console.log(`  ${mark} ${area.padEnd(12)} ${c}/${total}`);
 }
 const ran = allResults.length - skipped.length;
-console.log(`\nchecks (${BROWSER}): ${ran - failures.length}/${ran} passed across ${apps.length} app(s)${skipped.length ? `, ${skipped.length} skipped` : ''}`);
+console.log(`\nchecks (${BROWSER}${MODE === 'dev' ? ', dev' : ''}): ${ran - failures.length}/${ran} passed across ${apps.length} app(s)${skipped.length ? `, ${skipped.length} skipped` : ''}`);
 for (const s of skipped) console.log(`  skipped ${s.app}: ${s.name}: ${s.detail}`);
 
 const artifact = {
   source: SOURCE,
   version: VERSION,
   browser: BROWSER,
+  mode: MODE,
   apps: apps.map((a) => a.name),
   capabilities: Object.keys(CAPABILITIES).length,
   results: allResults,
@@ -221,7 +253,8 @@ const artifact = {
   unproven,
 };
 mkdirSync(join(REPO, 'artifacts'), { recursive: true });
-writeFileSync(join(REPO, 'artifacts', 'smoke-apps.json'), `${JSON.stringify(artifact, null, 2)}\n`);
+// A dev-mode run writes its own file, so it never replaces a build run's.
+writeFileSync(join(REPO, 'artifacts', MODE === 'dev' ? 'smoke-apps-dev.json' : 'smoke-apps.json'), `${JSON.stringify(artifact, null, 2)}\n`);
 
 if (failures.length) {
   console.error('\nFailed checks:');

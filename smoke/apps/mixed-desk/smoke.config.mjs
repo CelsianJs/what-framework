@@ -28,7 +28,7 @@
 // react-toastify, react-dropzone, React Flow, @hello-pangea/dnd, react-intl,
 // react-spring, valtio and embla (not in it).
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
 
 const RATE = 100;
 const RUN_MS = 10_000;
@@ -106,6 +106,9 @@ const INIT = `
 export default {
   description: 'Compiled SPA with a native What shell (router, layout, signals store) hosting components from fifteen React packages, data flowing both ways under load, and a server-rendered page whose React island hydrates.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'stream:update-rate',
     'stream:no-loss',
@@ -120,14 +123,19 @@ export default {
     'react:unlisted-libraries',
   ],
 
-  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced the desk, the quote page and its server bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess('node', ['server.js'], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
-    await waitForHttp(`${base}/`, { child: server });
+    // The dev server is `npm run dev`'s: the desk only. The quote page is
+    // rendered by server.js from the --ssr build, which has no dev path.
+    if (mode === 'dev') {
+      await serveViteApp({ mode, workDir, appPort, run, reporter });
+    } else {
+      const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
+      reporter.assert(/built in/.test(buildLog), 'vite build produced the desk, the quote page and its server bundle', buildLog.trim().split('\n').pop());
+      const server = startProcess('node', ['server.js'], { cwd: workDir, env: { ...process.env, PORT: String(appPort) } });
+      await waitForHttp(`${base}/`, { child: server });
+    }
 
     const context = await browser.newContext();
     await context.addInitScript(INIT);
@@ -153,7 +161,13 @@ export default {
           noise.length ? noise.slice(0, 3).join(' | ') : 'console clean');
       }, { context });
 
-      await hydrationChecks(browser, base, { check, reporter });
+      if (mode === 'dev') {
+        for (const name of ['a react-hook-form island in a server-rendered What page hydrates onto the server\'s elements', 'a client:load island hosting a React stepper hydrates onto the server\'s nodes']) {
+          skip('react:island-hydration', name, 'dev mode: the quote page is rendered by server.js from the --ssr build, and has no dev server');
+        }
+      } else {
+        await hydrationChecks(browser, base, { check, reporter });
+      }
     } finally {
       await context.close();
     }

@@ -17,7 +17,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const BUDGET = { keystroke: 50, stepChange: 250 };
 const LONG = 'Garage kept in a locked building; parked on the street only when visiting family. Fitted with winter tyres from November to March and a dash camera that records every trip, front and rear, kept 30 days.';
@@ -58,6 +58,9 @@ const INIT = `
 export default {
   description: 'Compiled SPA: an eight-step quote on nested routes with a conditional step, dependent fields, nested field arrays, sync, schema, async and cross-field validation, a draft saved as you type, and a server-validated submit.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'form:wizard',
     'form:validation',
@@ -74,19 +77,11 @@ export default {
     'state:persisted',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const data = await import(pathToFileURL(join(workDir, 'src/data.js')).href);
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     const context = await browser.newContext();
     await context.addInitScript(INIT);

@@ -19,7 +19,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const prefixes = (word) => Array.from(word, (_, i) => word.slice(0, i + 1));
 
@@ -76,6 +76,9 @@ const TIMED = `
 export default {
   description: 'Compiled SPA: a 10,000-entry tree from one recursive component (expand all, collapse all, filter, disposal counted) and a 300-field form validated per keystroke with a computed summary.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'cmp:recursive',
     'lifecycle:dispose-at-scale',
@@ -83,7 +86,7 @@ export default {
     'form:async-validation',
   ],
 
-  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const tree = await import(pathToFileURL(join(workDir, 'src/tree.js')).href);
     const NODES = tree.makeTree();
@@ -94,15 +97,7 @@ export default {
     const settings = await import(pathToFileURL(join(workDir, 'src/settings-data.js')).href);
     const DEFAULTS = settings.defaultSettings();
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     await withPage(browser, `${base}/`, async (page, diag) => {
       await page.waitForSelector('[data-tree] [data-node]');

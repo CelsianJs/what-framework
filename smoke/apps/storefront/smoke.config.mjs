@@ -14,6 +14,10 @@ import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
 export default {
   description: 'Ecommerce: static/hybrid/server pages, a global cart store, cookie auth, server actions, query cache.',
 
+  // Buildless: `npm run dev` is `node --watch server.js`, the server and the
+  // development tier the suite runs in either mode (smoke/README.md).
+  dev: 'buildless: `npm run dev` runs the same server and development tier as the build mode',
+
   covers: [
     'render:static',
     'render:server',

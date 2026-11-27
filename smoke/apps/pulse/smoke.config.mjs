@@ -24,7 +24,7 @@
 //   times, leaves nothing; each with no extra loop left;
 // - 150 alerts entering and leaving leave no node, component, timer or loop.
 
-import { startProcess, waitForHttp } from '../../harness/index.mjs';
+import { serveViteApp } from '../../harness/index.mjs';
 
 const FRAME_BOUND = 100;
 const ALERTS = 150;
@@ -72,6 +72,9 @@ const INIT = `
 export default {
   description: 'Compiled SPA that moves every frame: an SVG chart redrawn from requestAnimationFrame, a spring-dragged threshold, a gauge and a refresh ring re-aimed mid-flight, a panel closed mid-spring, 150 alerts entering and leaving; frame loops, nodes and timers counted.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'anim:raf-frame',
     'anim:drag-spring',
@@ -79,18 +82,10 @@ export default {
     'anim:enter-leave-churn',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.addInitScript(INIT);

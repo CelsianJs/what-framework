@@ -59,6 +59,10 @@ const slugsIn = (html, attr) => [...html.matchAll(new RegExp(`${attr}="(story-\\
 export default {
   description: 'Newsroom: a streamed front page with out-of-order Suspense, long ISR articles that hydrate, five islands on one page, comments as server actions; concurrency and memory under load.',
 
+  // Buildless: `npm run dev` is `node --watch server.js`, the server and the
+  // development tier the suite runs in either mode (smoke/README.md).
+  dev: 'buildless: `npm run dev` runs the same server and development tier as the build mode',
+
   covers: [
     'render:server',
     'render:hybrid-isr',

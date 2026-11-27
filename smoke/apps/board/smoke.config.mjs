@@ -18,7 +18,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const MOVES = 24;
 const BUDGET = { commit: 100, undo: 100 };
@@ -105,11 +105,14 @@ const INIT = `
 export default {
   description: 'Compiled SPA: 1,000 cards in five keyed columns, dragged with pointer events within and between lists, with undo and redo; order, identity, accounting and commit time checked after every step.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'list:cross-parent-move',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const data = await import(pathToFileURL(join(workDir, 'src/data.js')).href);
     const COLS = data.COLUMNS.map((c) => c.id);
@@ -142,15 +145,7 @@ export default {
     for (const m of moves) states.push(data.move(states.at(-1), m.from, m.to));
     const final = states.at(-1);
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.addInitScript(INIT);

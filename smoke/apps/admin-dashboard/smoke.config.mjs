@@ -5,16 +5,23 @@
 // reconciliation exists on the compiled path alone (smoke/FINDINGS.md A).
 //
 // Everything below is observed in a real browser against a production `vite
-// build`, never asserted from source. The order matters in one place: the
-// signed-out deep link has to run before anything signs in, because the guard
-// is only observable while there is no session.
+// build` (the Vite dev server in dev mode), never asserted from source. The
+// order matters in one place: the signed-out deep link has to run before
+// anything signs in, because the guard is only observable while there is no
+// session.
 
-import { startProcess, waitForHttp, withPage } from '../../harness/index.mjs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { serveViteApp, withPage } from '../../harness/index.mjs';
 
 const SIGNIN_NAME = 'Ines Okafor';
 
 export default {
   description: 'Compiled JSX SPA: persistent shell, nested routes, sign-in gate, loading/error routes, context, Portal, keyed table.',
+
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
 
   covers: [
     'render:client-spa',
@@ -31,22 +38,13 @@ export default {
     'cmp:error-boundary',
   ],
 
-  async check({ workDir, appPort, browser, check, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, check, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
 
-    // === Production build ==================================================
+    // === Production build, or the dev server ==============================
     // `vite build` with the What plugin, so every assertion below is about
-    // compiled output and not about a dev-server transform.
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle',
-      buildLog.trim().split('\n').pop());
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    // compiled output; in dev mode, the same assertions on the dev server.
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
     // === The document is empty ============================================
     // A deep link is served by the SPA fallback with no app markup in it: the
@@ -320,6 +318,20 @@ export default {
       reporter.assert(unexpected.length === 0,
         'no page errors beyond the deliberate throws and the two reported router defects',
         unexpected.slice(0, 3).join(' | '));
+
+      // --- On the dev server, a saved edit reaches the page ---------------
+      if (mode === 'dev') {
+        const file = join(workDir, 'src/pages/SignIn.jsx');
+        const source = readFileSync(file, 'utf8');
+        let loads = 0;
+        page.on('load', () => { loads++; });
+        const saved = Date.now();
+        writeFileSync(file, source.replace('<div class="brand-name">Northwind Ops</div>', '<div class="brand-name">Northwind Ops, edited</div>'));
+        const shown = await page.waitForFunction(() => document.querySelector('[data-signin] .brand-name')?.textContent === 'Northwind Ops, edited', null, { timeout: 15000 })
+          .then(() => true, () => false);
+        reporter.assert(shown, 'an edit saved to a component file shows on the page',
+          `${shown ? `after ${Date.now() - saved}ms` : 'not within 15s'}, ${loads} page load(s)`);
+      }
     });
 
     log('admin-dashboard checks complete');

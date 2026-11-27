@@ -30,7 +30,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startProcess, waitForHttp } from '../../harness/index.mjs';
+import { serveViteApp } from '../../harness/index.mjs';
 
 const CHUNK_DELAY = 700;
 const PREFETCH_DELAY = 800;
@@ -81,6 +81,9 @@ const INIT = `
 export default {
   description: 'Compiled SPA: an engineering handbook of twelve code-split chapters and a guarded editor desk; chunks delayed, failed and overtaken, prefetched on hover, walked back and forward.',
 
+  // WHAT_SMOKE_MODE=dev serves the app on its Vite dev server (smoke/README.md).
+  dev: true,
+
   covers: [
     'route:lazy-chunk',
     'route:prefetch',
@@ -91,28 +94,26 @@ export default {
     'lifecycle:unmount-cleanup',
   ],
 
-  async check({ workDir, appPort, browser, browserName, check, skip, reporter, log, run }) {
+  async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const base = `http://127.0.0.1:${appPort}`;
     const { CHAPTERS, chapterPath } = await import(pathToFileURL(join(workDir, 'src/chapters.js')).href);
 
-    const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
-    reporter.assert(/built in/.test(buildLog), 'vite build produced a bundle', buildLog.trim().split('\n').pop());
+    await serveViteApp({ mode, workDir, appPort, run, reporter });
 
-    // Which chunk is which page, from the build's manifest.
-    const manifest = JSON.parse(readFileSync(join(workDir, 'dist/.vite/manifest.json'), 'utf8'));
+    // Which request is which page: the build's chunk for it from the
+    // manifest, or on the dev server the page's own source file.
     const pageOfChunk = new Map();
-    for (const c of CHAPTERS) pageOfChunk.set(manifest[`src/chapters/${c.slug}.jsx`]?.file, c.slug);
-    pageOfChunk.set(manifest['src/desk/Desk.jsx']?.file, 'desk');
-    pageOfChunk.delete(undefined);
-    reporter.assert(pageOfChunk.size === CHAPTERS.length + 1, 'every chapter and the desk were built into a chunk of their own',
-      `${pageOfChunk.size} page chunks`);
-
-    const server = startProcess(
-      'npx',
-      ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
-      { cwd: workDir, env: { ...process.env } },
-    );
-    await waitForHttp(`${base}/`, { child: server });
+    if (mode === 'dev') {
+      for (const c of CHAPTERS) pageOfChunk.set(`src/chapters/${c.slug}.jsx`, c.slug);
+      pageOfChunk.set('src/desk/Desk.jsx', 'desk');
+    } else {
+      const manifest = JSON.parse(readFileSync(join(workDir, 'dist/.vite/manifest.json'), 'utf8'));
+      for (const c of CHAPTERS) pageOfChunk.set(manifest[`src/chapters/${c.slug}.jsx`]?.file, c.slug);
+      pageOfChunk.set(manifest['src/desk/Desk.jsx']?.file, 'desk');
+      pageOfChunk.delete(undefined);
+      reporter.assert(pageOfChunk.size === CHAPTERS.length + 1, 'every chapter and the desk were built into a chunk of their own',
+        `${pageOfChunk.size} page chunks`);
+    }
 
     // The network for page chunks: a delay or a failure per page.
     const rules = new Map();
@@ -120,7 +121,7 @@ export default {
     const requested = (page) => requests.filter((r) => r === page).length;
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.addInitScript(INIT);
-    await context.route(/\/assets\/[^/]+\.js$/, async (route) => {
+    await context.route(/\/(?:assets\/[^/]+\.js|src\/.+\.jsx)(?:\?.*)?$/, async (route) => {
       const page = pageOfChunk.get(new URL(route.request().url()).pathname.slice(1));
       if (page) requests.push(page);
       const rule = page ? rules.get(page) : undefined;
