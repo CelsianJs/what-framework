@@ -282,8 +282,9 @@ export function createRouteRenderer(documentOptions = {}) {
   // the direct path.
   return async function renderRoute(match0, cacheCtx) {
     // A match with no request (a regeneration a caller started itself) renders
-    // as a GET of its path; the ISR engine hands every regeneration one.
-    const routeMatch = match0.request ? match0 : { ...match0, request: new Request(new URL(match0.path || '/', 'http://localhost')) };
+    // as a GET of its path, below its base; the ISR engine hands every
+    // regeneration one.
+    const routeMatch = match0.request ? match0 : { ...match0, request: new Request(new URL((match0.base || '') + (match0.path || '/'), 'http://localhost')) };
     const shared = cacheCtx && routeMatch.request
       ? sharedRenderRequest(routeMatch.request, cacheCtx.signal, variedHeaderNames(routeMatch.config))
       : null;
@@ -463,7 +464,11 @@ export function createRequestHandler(options = {}) {
 
     const { route, params } = matched;
     const config = route.page || { mode: route.mode || 'client' };
+    /** @type {any} */
     const routeMatch = { path: pathname, query: parseQuery(url.search), config, route, params, request };
+    // The base the path is below, which a regeneration with no request
+    // renders the page below (what-isr requestAt).
+    if (base && !outside) routeMatch.base = base;
 
     // A form posted to this page without JavaScript (urlencoded, or
     // multipart/form-data for a form with a file): its action runs, and the

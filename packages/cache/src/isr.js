@@ -89,9 +89,10 @@ const MAX_KNOWN_TARGETS = 1024;
 const MAX_KNOWN_ORIGINS = 4 * MAX_ORIGINS;
 
 // `routeMatch` with the GET request a regeneration with no request renders
-// it from: its path and query at `origin`.
+// it from: its path and query at `origin`, the path below the base path the
+// adapter serves the app below (`routeMatch.base`, as a request for it was).
 function requestAt(routeMatch, origin) {
-  const url = new URL(normalizePath(routeMatch.path), origin);
+  const url = new URL((routeMatch.base || '') + normalizePath(routeMatch.path), origin);
   const query = normalizeQuery(routeMatch.query);
   if (query) url.search = query;
   return { ...routeMatch, request: new Request(url) };

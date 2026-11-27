@@ -493,7 +493,10 @@ export interface RouteDefinition {
 
 /** What the adapter passes to (and expects back from) a render function. */
 export interface RouteMatchContext {
+  /** The path without the base path (`basePath`) the request was below. */
   path: string;
+  /** The request handler's `basePath` the request was below, without its trailing slash; a match with no request renders as a GET of the path below it. */
+  base?: string;
   query: Record<string, string | string[]>;
   params: Record<string, string>;
   config: Record<string, any>;

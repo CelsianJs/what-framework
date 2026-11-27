@@ -164,6 +164,8 @@ export function isKnownParams(staticPaths: StaticPathEntry[], params: Record<str
 // --- Route match (shape passed into the engine) ---
 export interface RouteMatch {
   path: string;
+  /** The base path the app is served below (`'/app'`): a regeneration with no request renders the path below it. */
+  base?: string;
   query?: Record<string, string | string[]>;
   config?: PageCacheConfig;
   params?: Record<string, string>;

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { h } from 'what-core';
 import { Router, setBase } from 'what-router';
 import { createCacheEngine, createMemoryStore } from 'what-isr';
-import { createRequestHandler } from '../src/index.js';
+import { createRequestHandler, createRouteRenderer } from '../src/index.js';
 
 const routes = [
   { path: '/', component: () => h('p', null, 'home'), mode: 'server' },
@@ -60,6 +60,35 @@ describe('createRequestHandler basePath and the cache', () => {
       const again = await handler(new Request('http://app.test/app/about'));
       assert.equal(again.headers.get('x-what-cache'), 'HIT');
       assert.match(await again.text(), /<h1[^>]*>about<\/h1>/);
+    } finally {
+      setBase('');
+    }
+  });
+});
+
+// A regeneration no request started (revalidatePath with `regenerate`, a
+// scheduler's tick, a stale default entry's refresh) renders the page from a
+// GET the engine makes: below the base, as a visitor's request is. Before,
+// it was a GET of the path without the base, where a Router below the base
+// routes nothing, and its render (the Router's fallback) was stored and
+// served to every visitor.
+describe('createRequestHandler basePath and a regeneration with no request', () => {
+  it('renders the page below the base', async () => {
+    setBase('/app');
+    try {
+      const pages = [{ path: '/about', component: () => h('h1', null, 'about') }];
+      const App = () => h(Router, { routes: pages, fallback: () => h('p', null, 'not found') });
+      const cached = [{ path: '/about', component: App, mode: 'static', page: { mode: 'static', revalidate: 60 } }];
+      const cache = createCacheEngine({ store: createMemoryStore(), render: createRouteRenderer() });
+      const handler = createRequestHandler({ routes: cached, cache, basePath: '/app', csrf: false });
+      assert.match(await (await handler(new Request('http://app.test/app/about'))).text(), /<h1[^>]*>about<\/h1>/);
+      await cache.revalidatePath('/about', { regenerate: true });
+      const again = await handler(new Request('http://app.test/app/about'));
+      assert.equal(again.headers.get('x-what-cache'), 'HIT', 'served the regenerated entry');
+      assert.match(await again.text(), /<h1[^>]*>about<\/h1>/);
+      // A match a caller hands the renderer with no request renders as a GET below its base.
+      const out = await createRouteRenderer()({ path: '/about', base: '/app', query: {}, params: {}, config: {}, route: cached[0] });
+      assert.match(out.html, /<h1[^>]*>about<\/h1>/);
     } finally {
       setBase('');
     }
