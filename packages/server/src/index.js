@@ -309,7 +309,9 @@ function optionContent(props, children, render) {
 // (a keyed list's, or a vnode's) as a keyed row (what-core hydration-data.js
 // _enterRow), and any other that can hold a component or a list (stream.js
 // takesSlot) in its slot (a null list), in the frame rendering them. A keyed
-// list with no rows still takes its place.
+// list with no rows still takes its place. Rows and slots are entered once
+// keyed rows are tracked (_tracksRows: an app's first server action); until
+// then nothing reads them.
 function renderChildren(children, render) {
   if (!children) return '';
   const keys = children._keys;
@@ -320,9 +322,13 @@ function renderChildren(children, render) {
   if (slots && keys !== undefined && keys.length === 0) _enterRow(undefined, /** @type {object} */ (getServerContext()), { slot: children._slot }, undefined);
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
+    if (!slots) {
+      out += render(child);
+      continue;
+    }
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
     const keyed = key != null || keys !== undefined;
-    if (!keyed && !(slots && takesSlot(child))) {
+    if (!keyed && !takesSlot(child)) {
       out += render(child);
       continue;
     }

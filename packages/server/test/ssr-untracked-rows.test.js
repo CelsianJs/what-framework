@@ -1,8 +1,9 @@
-// A compiled keyed list enters its rows (ssr-runtime.js RowEdge, what-core
-// hydration-data.js _enterRow) only once keyed rows are tracked, which an
-// app's first server action turns on for the whole process: a row's place is
-// read by nothing but a useActionState key. Before that, a list makes no edge
-// and renders the same HTML in every renderer.
+// A keyed list enters its rows (ssr-runtime.js RowEdge for compiled markup,
+// what-core hydration-data.js _enterRow) only once keyed rows are tracked,
+// which an app's first server action turns on for the whole process: a row's
+// place is read by nothing but a useActionState key. Before that, a compiled
+// list makes no edge, and compiled and h() lists render the same HTML in every
+// renderer.
 //
 // This file defines a server action halfway through, so it runs apart from
 // the files that render without one.
@@ -21,6 +22,9 @@ const list = () => ssrList(ITEMS, (item) => ssrRow(['<li>', '', '</li>'], ssrTex
 const page = () => ssr(['<ul>', '</ul>'], () => list());
 // <For each={[]} key={…} fallback={<p>none</p>}>, which takes its place with no rows.
 const empty = () => ssrFor([], (item) => ssrText(item), (item) => item, ssr(['<p>none</p>']), 4)();
+// The same list as h() writes it, whose vnodes carry their keys.
+const Item = (props) => h('li', null, props.name, h(() => h('b', null, props.name), {}));
+const hPage = () => h('ul', null, ITEMS.map((item) => h(Item, { key: item.id, name: item.name })));
 
 const edges = (markup) => (markup.p || []).filter((part) => part !== null && typeof part === 'object' && typeof part.edge === 'function').length;
 
@@ -30,10 +34,13 @@ async function renders() {
     hydratable: keyShape(renderToHydratableString(h(() => page()))),
     stream: keyShape(await collect(renderToStream(h(() => page()), { onError: () => {} }))),
     empty: renderToString(h(() => empty())),
+    hString: renderToString(hPage()),
+    hHydratable: renderToHydratableString(hPage()),
+    hStream: await collect(renderToStream(hPage(), { onError: () => {} })),
   };
 }
 
-describe('keyed rows in compiled markup', () => {
+describe('keyed rows on the server', () => {
   it('are entered only once a server action is defined, with the same HTML before and after', async () => {
     assert.equal(edges(list()), 0);
     assert.equal(edges(empty()), 0);

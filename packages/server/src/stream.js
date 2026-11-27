@@ -301,7 +301,9 @@ function push(seg, node, owner) {
 // keyed list's, or a vnode's) between the markers of a keyed row, and any
 // other that can hold a component or a list (takesSlot) between those of its
 // slot (a null list, what-core hydration-data.js _enterRow), entered as the
-// stream reaches it. A keyed list with no rows still takes its place.
+// stream reaches it. A keyed list with no rows still takes its place. Rows
+// and slots are entered once keyed rows are tracked (_tracksRows: an app's
+// first server action); until then nothing reads them.
 function pushChildren(seg, children, owner) {
   const keys = children._keys;
   const slots = _tracksRows();
@@ -314,9 +316,13 @@ function pushChildren(seg, children, owner) {
   }
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
+    if (!slots) {
+      push(seg, child, owner);
+      continue;
+    }
     const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
     const keyed = key != null || keys !== undefined;
-    if (!keyed && !(slots && takesSlot(child))) {
+    if (!keyed && !takesSlot(child)) {
       push(seg, child, owner);
       continue;
     }
