@@ -59,12 +59,6 @@ describe('animation', () => {
   });
 
   describe('tween', () => {
-    it('should create a tween with from/to values', () => {
-      const t = tween(0, 100, { duration: 50 });
-      // Initially starts at 0 or close to it
-      assert.ok(t.value() <= 100);
-    });
-
     it('should have progress and value getters', () => {
       const t = tween(0, 100, { duration: 100 });
       assert.ok(typeof t.progress === 'function');

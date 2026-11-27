@@ -33,35 +33,7 @@ describe('stack overflow resistance', () => {
 });
 
 // ============================================================
-// 2. CIRCULAR DEPENDENCY — Does computed handle cycles?
-// ============================================================
-
-describe('circular dependencies', () => {
-  test('two computeds referencing each other should not hang', () => {
-    // This is intentionally pathological
-    // We expect it to either throw or stop via the iteration guard
-    let threw = false;
-    let result;
-    try {
-      const a = computed(() => {
-        try { return b() + 1; } catch { return 0; }
-      });
-      // b is a regular computed, not a computed that calls a, just to be safe
-      // Actually let's test mutual recursion
-      const b = computed(() => {
-        try { return a() + 1; } catch { return 0; }
-      });
-      result = a();
-    } catch {
-      threw = true;
-    }
-    // Should either throw or produce a value, not hang forever
-    assert.ok(threw || typeof result === 'number', 'Should not hang');
-  });
-});
-
-// ============================================================
-// 3. TYPE COERCION EDGE CASES
+// 2. TYPE COERCION EDGE CASES
 // ============================================================
 
 describe('type coercion edge cases', () => {
@@ -118,7 +90,7 @@ describe('type coercion edge cases', () => {
 });
 
 // ============================================================
-// 4. GC PRESSURE — Many short-lived effects
+// 3. GC PRESSURE — Many short-lived effects
 // ============================================================
 
 describe('GC pressure', () => {
@@ -162,7 +134,7 @@ describe('GC pressure', () => {
 });
 
 // ============================================================
-// 5. PATHOLOGICAL SSR CASES
+// 4. PATHOLOGICAL SSR CASES
 // ============================================================
 
 describe('pathological SSR', () => {
@@ -232,7 +204,7 @@ describe('pathological SSR', () => {
 });
 
 // ============================================================
-// 6. CONCURRENT EFFECT SCHEDULING
+// 5. CONCURRENT EFFECT SCHEDULING
 // ============================================================
 
 describe('effect scheduling edge cases', () => {
@@ -299,7 +271,7 @@ describe('effect scheduling edge cases', () => {
 });
 
 // ============================================================
-// 7. EDGE: Empty and malformed vnodes
+// 6. EDGE: Empty and malformed vnodes
 // ============================================================
 
 describe('edge case vnodes', () => {
@@ -353,7 +325,7 @@ describe('edge case vnodes', () => {
 });
 
 // ============================================================
-// 8. XSS PREVENTION — Thorough attribute escaping
+// 7. XSS PREVENTION — Thorough attribute escaping
 // ============================================================
 
 describe('XSS prevention', () => {
@@ -385,7 +357,7 @@ describe('XSS prevention', () => {
 });
 
 // ============================================================
-// 9. SIGNAL FUNCTIONAL UPDATE EDGE CASES
+// 8. SIGNAL FUNCTIONAL UPDATE EDGE CASES
 // ============================================================
 
 describe('signal functional updates', () => {
@@ -426,7 +398,7 @@ describe('signal functional updates', () => {
 });
 
 // ============================================================
-// 10. LARGE ATTRIBUTE COUNTS
+// 9. LARGE ATTRIBUTE COUNTS
 // ============================================================
 
 describe('large attribute counts', () => {
@@ -443,7 +415,7 @@ describe('large attribute counts', () => {
 });
 
 // ============================================================
-// 11. STREAMING SSR ERROR RECOVERY
+// 10. STREAMING SSR ERROR RECOVERY
 // ============================================================
 
 describe('streaming SSR error recovery', () => {

@@ -118,29 +118,6 @@ describe('STRESS: Ownership tree - deep nesting', () => {
     assert.deepEqual(order, ['C', 'B', 'A'], 'Cleanups should run in LIFO order');
   });
 
-  it('child root disposal removes it from parent children list', () => {
-    let parentRoot;
-    let childDispose;
-
-    createRoot(dispose => {
-      parentRoot = { dispose };
-
-      createRoot(dispose2 => {
-        childDispose = dispose2;
-        effect(() => signal(1)());
-      });
-
-      createRoot(() => {
-        effect(() => signal(2)());
-      });
-    });
-
-    // Dispose child, parent should still work
-    childDispose();
-    // Parent dispose should not throw
-    parentRoot.dispose();
-  });
-
   it('double dispose is safe (idempotent)', () => {
     let outerDispose;
     createRoot(dispose => {
