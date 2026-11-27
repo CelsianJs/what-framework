@@ -26,6 +26,12 @@ const FRAME_BOUND = 250;
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const ms = (n) => (n < 0 ? 'never' : `${n.toFixed(1)}ms`);
+// The waits that ran out (__awaitPlaced): the event never came, or the card never landed.
+const missed = (times) => {
+  const silent = times.filter((t) => t === -2).length;
+  const unplaced = times.filter((t) => t === -1).length;
+  return silent + unplaced === 0 ? '' : `; no event ${silent}, not placed ${unplaced}`;
+};
 
 function mulberry32(seed) {
   let a = seed;
@@ -74,15 +80,19 @@ const INIT = `
 
     // Started before the release or the key: resolves with the milliseconds
     // from that event until the DOM shows card \`id\` at \`index\` of \`col\`.
+    // A timer, not the frames, keeps the five-second deadline, so it answers
+    // even when the page stops painting or the event never comes: -1 when the
+    // event came and the card did not land, -2 when the event never came.
     window.__awaitPlaced = (type, id, col, index) => new Promise((resolve) => {
-      let t0 = 0;
+      let t0 = -1;
       const placed = () => list(col).children[index]?.dataset.card === id;
-      const poll = (n) => {
-        if (placed()) return resolve(performance.now() - t0);
-        if (n > 300) return resolve(-1);
-        requestAnimationFrame(() => poll(n + 1));
+      const deadline = setTimeout(() => resolve(t0 < 0 ? -2 : -1), 5000);
+      const poll = () => {
+        if (!placed()) return requestAnimationFrame(poll);
+        clearTimeout(deadline);
+        resolve(performance.now() - t0);
       };
-      window.addEventListener(type, () => { t0 = performance.now(); setTimeout(() => poll(0), 0); }, { capture: true, once: true });
+      window.addEventListener(type, () => { t0 = performance.now(); setTimeout(poll, 0); }, { capture: true, once: true });
     });
   })();
 `;
@@ -158,6 +168,7 @@ export default {
         }, { col: COLS[opened.from.col], index: opened.from.index });
 
         // === The moves, by drag ==============================================
+        log(`dragging ${moves.length} cards`);
         await page.evaluate(() => { window.__frames.on = true; });
         const commitTimes = [];
         const problems = [];
@@ -203,11 +214,12 @@ export default {
           `${problems.slice(0, 3).join('; ') || `${MOVES} moves exact`}; within-column kept ${withinKept}/${withinTotal}; opened card still open=${stillOpen}`);
         check('list:cross-parent-move', commitTimes.every((t) => t >= 0) && median(commitTimes) <= BUDGET.commit,
           `a drop settles within ${BUDGET.commit}ms of the release`,
-          `median=${ms(median(commitTimes))} max=${ms(Math.max(...commitTimes))}`);
+          `median=${ms(median(commitTimes))} max=${ms(Math.max(...commitTimes))}${missed(commitTimes)}`);
         reporter.assert(frames.p99 <= FRAME_BOUND, `the 99th-percentile frame while dragging stays within ${FRAME_BOUND}ms`,
           `frames=${frames.n} p99=${frames.p99.toFixed(0)}ms worst=${frames.max.toFixed(0)}ms`);
 
         // === Undo every move, then redo every move ===========================
+        log('undoing and redoing every move');
         const undoTimes = [];
         const undoProblems = [];
         for (let k = moves.length - 1; k >= 0; k--) {
@@ -247,7 +259,7 @@ export default {
           `${undoProblems.slice(0, 3).join(', ') || `${moves.length} undos and ${moves.length} redos exact`}; cards that stayed in their column kept ${keptElements.kept}, rebuilt ${keptElements.rebuilt}; live cards ${end.created - end.disposed}`);
         check('list:cross-parent-move', undoTimes.every((t) => t >= 0) && median(undoTimes) <= BUDGET.undo,
           `an undo or redo settles within ${BUDGET.undo}ms of the key`,
-          `median=${ms(median(undoTimes))} max=${ms(Math.max(...undoTimes))}`);
+          `median=${ms(median(undoTimes))} max=${ms(Math.max(...undoTimes))}${missed(undoTimes)}`);
 
         reporter.assert(diag.errors.length === 0, 'the board ran with zero page errors', diag.errors.slice(0, 3).join(' | '));
         log(`commit=${ms(median(commitTimes))} undo/redo=${ms(median(undoTimes))} p99-frame=${frames.p99.toFixed(0)}ms`);
