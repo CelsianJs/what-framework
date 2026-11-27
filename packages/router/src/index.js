@@ -1250,9 +1250,15 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   }
 
   // The path the link goes to, as the address bar will show it; none for
-  // another origin's URL, which is never active.
-  const target = resolveHref(safeHref);
-  const hrefPath = target === null ? null : pathOf(target);
+  // another origin's URL, which is never active. A relative href ('#top',
+  // 'setup') resolves against the URL on screen, as the browser resolves it,
+  // so it is resolved again on each navigation.
+  const relative = RELATIVE.test(safeHref);
+  const pathTo = () => {
+    const target = resolveHref(safeHref);
+    return target === null ? null : pathOf(target);
+  };
+  const fixedPath = relative ? null : pathTo();
 
   // Use a reactive function for class so active states update on navigation.
   // In the run-once model, reading route.path directly would snapshot it. A
@@ -1260,6 +1266,7 @@ export const Link = /* @__PURE__ */ Object.assign(function Link({
   const baseClass = cls || className;
   const reactiveClass = () => {
     const currentPath = route.path;
+    const hrefPath = relative ? pathTo() : fixedPath;
     const isActive = hrefPath === null ? false : hrefPath === '/'
       ? currentPath === '/'
       : currentPath === hrefPath || currentPath.startsWith(hrefPath + '/');
