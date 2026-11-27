@@ -213,6 +213,39 @@ describe('useFieldArray rows', () => {
     host.remove();
   });
 
+  it('fields() keeps each item\'s object, so a component row keyed by field.id is built once', async () => {
+    const mod = await loadCompiled(`
+      import { useForm, useFieldArray } from 'what-framework/form';
+      export const built = [];
+      function Row({ field, index, form }) {
+        built.push(field.id);
+        return <li><input {...form.register(\`items.\${index}.title\`)} /></li>;
+      }
+      export function List({ expose }) {
+        const form = useForm({ defaultValues: { items: [{ title: 'a' }, { title: 'b' }] } });
+        const array = useFieldArray({ form, name: 'items' });
+        expose(array);
+        return <ul>{array.fields().map((field, index) => <Row key={field.id} field={field} index={index} form={form} />)}</ul>;
+      }
+    `);
+    let array;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = mount(mod.List({ expose: (x) => { array = x; } }), host);
+    flushSync();
+    const first = array.fields();
+    array.append({ title: 'c' });
+    array.swap(0, 2);
+    array.move(1, 0);
+    array.remove(1);
+    flushSync();
+    assert.equal(mod.built.length, 3, 'one build per item');
+    assert.ok(array.fields().includes(first[1]), 'the same object for the same item');
+    assert.deepEqual([...host.querySelectorAll('input')].map((i) => i.value), ['b', 'a']);
+    dispose();
+    host.remove();
+  });
+
   it('the radios of moved rows keep their choice as their groups are renamed', async () => {
     const mod = await loadCompiled(`
       import { useForm, useFieldArray } from 'what-framework/form';

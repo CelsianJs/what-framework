@@ -863,6 +863,9 @@ function fieldArrays({ arrays, bases, keyOf, forget, getAllValues, isDirty }) {
       const k = keyOf(name);
       if (!arrays[k]) seed(k, getIn(getAllValues(), name) || []);
       const items = arrays[k];
+      // One object per item for as long as it is in the list: a keyed row
+      // that took its item as a value is built again for a new one.
+      let shown = {};
       const change = (next, removed = []) => batch(() => {
         items.set(next);
         for (const segment of removed) drop(k + '.' + segment);
@@ -875,7 +878,12 @@ function fieldArrays({ arrays, bases, keyOf, forget, getAllValues, isDirty }) {
         change(next);
       };
       return {
-        fields: computed(() => items().map((segment) => ({ ...bases[segment], id: segment.slice(1) }))),
+        fields: computed(() => {
+          const now = {};
+          const list = items().map((segment) => (now[segment] = shown[segment] || { ...bases[segment], id: segment.slice(1) }));
+          shown = now;
+          return list;
+        }),
         append: (value) => insert(items.peek().length, value),
         prepend: (value) => insert(0, value),
         insert,
