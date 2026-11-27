@@ -386,47 +386,34 @@ function createFormController(options = {}) {
   // the input brings the field back. `gone` is for the keys of a removed
   // item, which nothing can name again: their signals are dropped.
   function forget(key, options = {}, gone) {
-    const under = (k) => k === key || k.startsWith(key + '.');
-    if (inFlight) {
-      for (const k in fieldRuns) if (under(k)) fieldRuns[k] = ++runCount;
-      fieldRuns[key] = ++runCount;
-    }
-    const reset = [];
-    if (!options.keepValue) {
-      // A field array's name: its items go, each with its state.
-      if (ext && arrays[key]) ext.a(key, []);
-      for (const k in pending) {
-        if (!under(k)) continue;
-        reset.push([k, pending[k]]);
-        if (gone) delete pending[k];
+    // Gives `fn` each key at or under `key` in `map`, and its entry; the
+    // entry goes from the map when the key is gone.
+    const each = (map, fn) => {
+      for (const k in map) {
+        if (k !== key && !k.startsWith(key + '.')) continue;
+        fn(k, map[k]);
+        if (gone) delete map[k];
       }
-      for (const k in fieldSignals) {
-        if (!under(k)) continue;
-        reset.push([k, fieldSignals[k]]);
-        if (!gone) pending[k] = fieldSignals[k];
-        delete fieldSignals[k];
-      }
-      for (const k in hidden) if (gone && under(k)) delete hidden[k];
-      if (!gone && (options.keepDefaultValue || shouldUnregister)) {
-        if (!arrays[key]) hidden[key] = true;
-      } else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
-    }
+    };
+    // Each field counts as validated now, so no answer in flight lands on it.
+    fieldRuns[key] = 0;
+    each(fieldRuns, (k) => (fieldRuns[k] = ++runCount));
     batch(() => {
-      for (const [k, sig] of reset) sig.set(defaultOf(k));
-      if (!options.keepError) {
-        for (const k in errorSignals) {
-          if (!under(k)) continue;
-          setFieldError(k, null);
-          if (gone) delete errorSignals[k];
-        }
+      if (!options.keepValue) {
+        // A field array's name: its items go, each with its state.
+        if (ext && arrays[key]) ext.a(key, []);
+        if (!gone && (options.keepDefaultValue || shouldUnregister)) {
+          if (!arrays[key]) hidden[key] = true;
+        } else if (!(ext && ext.u(key))) defaultValues = unsetIn(defaultValues, key.split('.'));
+        each(hidden, () => {});
+        each(fieldSignals, (k, sig) => {
+          pending[k] = sig;
+          delete fieldSignals[k];
+        });
+        each(pending, (k, sig) => sig.set(defaultOf(k)));
       }
-      if (!options.keepTouched) {
-        for (const k in touchedSignals) {
-          if (!under(k)) continue;
-          touchedSignals[k].set(false);
-          if (gone) delete touchedSignals[k];
-        }
-      }
+      if (!options.keepError) each(errorSignals, (k) => setFieldError(k, null));
+      if (!options.keepTouched) each(touchedSignals, (k, sig) => sig.set(false));
       counted();
     });
   }
