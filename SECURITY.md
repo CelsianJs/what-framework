@@ -147,9 +147,10 @@ the same tree with the same data holds: no element, attribute, URL, event handle
 script, style or raw HTML that the client render would not produce. Markup that matches the
 client's is kept as it is; anything else is replaced by the client's rendering or removed, and
 reported (`ERR_HYDRATION_MISMATCH` in development, `onHydrationError` in every build), apart from
-attributes: a claimed element's attributes are corrected to the client's without a report, so
-monitoring through `onHydrationError` does not see an injected handler or URL attribute (it is
-removed all the same). In detail, on both clients (h() vnodes and compiled JSX built with
+attributes: a claimed element's attributes are corrected to the client's, and one the client
+writes otherwise is reported in development only (`ERR_HYDRATION_MISMATCH` of kind `attribute`),
+never to `onHydrationError`, so monitoring through `onHydrationError` does not see an injected
+handler or URL attribute (it is removed all the same). In detail, on both clients (h() vnodes and compiled JSX built with
 `hydratable`):
 
 - **Attributes.** A claimed element ends with exactly the attributes a client render gives it.

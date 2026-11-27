@@ -152,7 +152,7 @@ export function _$buildDiagnostics(records: Array<{ code: string; data: Record<s
 // option). Returns the unmount function, as mount() does; hydrating or
 // mounting into the same container disposes the root it held.
 export interface HydrationMismatch {
-  /** tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a shadow root the client would not make), prebuilt (JSX built before the walk reached its place took the server's nodes' place), or not-hydratable (DOM built before hydrate() could claim the server's, reported once) */
+  /** tag, text, missing, extra-nodes, marker, key, shadow-root (an element hosting a shadow root the client would not make), prebuilt (JSX built before the walk reached its place took the server's nodes' place), not-hydratable (DOM built before hydrate() could claim the server's, reported once), or attribute (an attribute the server wrote otherwise than the client's first write: development only, as the ERR_HYDRATION_MISMATCH diagnostic's data; onHydrationError does not hear it) */
   kind: string;
   /** The component whose output mismatched, or 'root'. */
   component: string;
@@ -162,8 +162,10 @@ export interface HydrationMismatch {
   path: string;
   expected: string;
   found: string;
-  /** 'client-render', or 'none' for a key mismatch. */
+  /** 'client-render', 'move' for a keyed list's rows, 'none' for a component's key mismatch, or 'client-value' for an attribute. */
   recovery: string;
+  /** The attribute's name, for kind attribute. */
+  attribute?: string;
 }
 export interface HydrateOptions {
   /** Called for every mismatch, in production too (where nothing is logged). */

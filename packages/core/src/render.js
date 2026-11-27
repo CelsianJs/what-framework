@@ -3688,6 +3688,107 @@ function owns(owned, name) {
   return owned === name || (owned.length > name.length && (' ' + owned + ' ').includes(' ' + name + ' '));
 }
 
+// Development: a claimed element's attributes as the server wrote them, held
+// against the client's once the walk `session` is done, when every binding
+// has written its first value and nothing a write queued has run yet. `want`
+// names the attributes the client writes for certain (a template's static
+// ones and those its bindings own, or the attributes a vnode's props write):
+// each differs when its value does, the server's or the client's left out
+// included. Any other the server wrote is compared only when the client
+// writes it again; one it leaves out (data-hk, a stale one) was removed as
+// before, and a custom element's own are its business. Reported as the
+// diagnostic only: onHydrationError hears the same records in every build.
+function watchAttrs(el, want) {
+  const s = session;
+  if (frozen()) return;
+  let list = s.attrs;
+  if (list === undefined) {
+    list = s.attrs = [];
+    s.after.push(() => checkAttrs(list, s));
+  }
+  const server = new Map();
+  for (const name of el.getAttributeNames()) server.set(name, el.getAttribute(name));
+  // An HTML element's attribute names are lower case (tabIndex is tabindex).
+  if (el.namespaceURI === NAMESPACES[0]) want = new Set([...want].map((name) => name.toLowerCase()));
+  list.push({ el, server, want, owner: _currentComponent(), at: getOwner() });
+}
+
+// The template's static attributes and the `owned` ones (keepTemplateAttrs).
+function templateWants(t, owned) {
+  const want = new Set();
+  const attrs = templateAttrs(t);
+  for (let i = 0; i < attrs.length; i += 3) want.add(attrs[i]);
+  if (owned !== undefined) for (const name of owned.split(' ')) want.add(name);
+  return want;
+}
+
+function checkAttrs(list, s) {
+  // domPath reads the walk's container from `session`, which the walk has
+  // already handed back.
+  const saved = session;
+  session = s;
+  try {
+    checkEach(list, s);
+  } finally {
+    session = saved;
+  }
+}
+
+function checkEach(list, s) {
+  for (const { el, server, want, owner, at } of list) {
+    const custom = el.localName.includes('-');
+    for (const name of new Set([...want, ...server.keys()])) {
+      const now = el.getAttribute(name);
+      const was = server.has(name) ? server.get(name) : null;
+      if (!want.has(name) && (now === null || custom)) continue;
+      if (sameAttr(el, name, was, now)) continue;
+      const component = owner ? owner.Component.displayName || owner.Component.name || 'Anonymous' : 'root';
+      const info = {
+        kind: 'attribute',
+        component,
+        ownerPath: owner && owner._ownerPath !== undefined ? owner._ownerPath : null,
+        path: domPath(el),
+        attribute: name,
+        expected: now === null ? `no ${name}` : `${name}="${short(now)}"`,
+        found: was === null ? `no ${name}` : `${name}="${short(was)}"`,
+        recovery: 'client-value',
+      };
+      const where = __ownerPath(owner || at);
+      report('ERR_HYDRATION_MISMATCH', {
+        data: info, owner: where, loc: where.loc,
+        subject: { kind: 'hydration', id: `${info.ownerPath ?? 'root'}|${info.path}|attribute|${name}`, name: component },
+      });
+    }
+  }
+}
+
+// HTML's boolean attributes: present is true whatever the value (made on
+// the first comparison, in development).
+/** @type {Set<string> | null} */
+let booleanAttrs = null;
+const booleanAttributes = () => booleanAttrs ??= new Set(['allowfullscreen', 'async', 'autofocus', 'autoplay', 'checked', 'controls', 'default', 'defer', 'disabled', 'formnovalidate', 'inert', 'ismap', 'itemscope', 'loop', 'multiple', 'muted', 'nomodule', 'novalidate', 'open', 'playsinline', 'readonly', 'required', 'reversed', 'selected']);
+
+// Whether the server's value `was` of attribute `name` is the client's `now`
+// as the DOM reads it: a boolean attribute by its presence, `style` by the
+// declarations it holds, a text field's value and a class left out as the
+// empty ones (the client's class setter leaves an empty attribute where the
+// server writes none). Anything else, class token order and a URL as written
+// included, by its text.
+function sameAttr(el, name, was, now) {
+  if (was === now) return true;
+  if (name === 'class' && (was ?? '') === (now ?? '')) return true;
+  if (el.namespaceURI !== NAMESPACES[0]) return false;
+  if (name === 'value' && el.localName === 'input' && !ATTRIBUTE_VALUE_TYPES.has(/** @type {HTMLInputElement} */ (el).type)) return (was ?? '') === (now ?? '');
+  if (was === null || now === null) return false;
+  if (booleanAttributes().has(name)) return true;
+  if (name !== 'style') return false;
+  const probe = el.ownerDocument.createElement('div');
+  probe.setAttribute('style', was);
+  const before = probe.style.cssText;
+  probe.setAttribute('style', now);
+  return probe.style.cssText === before;
+}
+
 // A template node's attributes as [name, value, namespace, ...], read from
 // the node once.
 function templateAttrs(t) {
@@ -4090,6 +4191,14 @@ function adoptVNode(vnode) {
 // only when it differs.
 function hydrateElementProps(el, props) {
   const fold = props.classList != null;
+  if (__DEV__) {
+    const want = new Set(fold ? ['class'] : []);
+    for (const key in props) {
+      const name = attrOf(el, key);
+      if (name !== null) want.add(name);
+    }
+    watchAttrs(el, want);
+  }
   if (fold) el.removeAttribute('class');
   // Whether it is an SVG element, read when a setter first needs it.
   /** @type {boolean | null} */
@@ -5235,6 +5344,7 @@ function claimStatic(c, t) {
 // there as text. `owned`: the attributes its bindings write
 // (keepTemplateAttrs).
 function claimNode(el, t, flags, owned) {
+  if (__DEV__) watchAttrs(el, templateWants(t, owned));
   if (flags & 1) {
     keepTemplateAttrs(el, t, owned);
     enterNode(el, t.firstChild);

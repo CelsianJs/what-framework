@@ -312,6 +312,14 @@ effect(() => { count(count() + 1); });
       assert.equal(parsed.code, 'ERR_MISSING_KEY');
     });
 
+    it('gives the fix for a hydration mismatch of kind attribute', async () => {
+      ({ client, server } = await setupMcp());
+      const { parsed } = await callTool(client, 'what_fix', { error: 'ERR_HYDRATION_MISMATCH', kind: 'attribute' });
+      assert.equal(parsed.found, true);
+      assert.equal(parsed.kind, 'attribute');
+      assert.match(parsed.fix, /same value on both sides/);
+    });
+
     it('resolves a pasted message by its catalogue template', async () => {
       ({ client, server } = await setupMcp());
       const { parsed } = await callTool(client, 'what_fix', {

@@ -623,6 +623,17 @@ another page is in flight, and decides again when that navigation ends, so a
 navigation that never commits still gets the guard's redirect.
 - Test: `packages/router/test/guard-recheck-supersedes-navigate.test.js`.
 
+### 29. Hydration took the client's attribute without a report
+`packages/core/src/render.js` (`watchAttrs`, `checkAttrs`)
+
+Where the server's attribute differed from the client's, hydration kept the
+client's, as SECURITY.md says, and nothing said so: 26 went unseen because
+of it. Development now reports each one as an `ERR_HYDRATION_MISMATCH` of
+kind `attribute` once the walk is done (onHydrationError hears the same
+records as before, in every build). Run over the five server-rendered apps
+in development, 18 pages: none.
+- Test: `packages/core/test/hydration-attribute-mismatch.test.js`.
+
 ## Reported, not fixed
 
 ### A. The runtime path has no keyed reconciliation at all
@@ -687,13 +698,6 @@ a cached render and say so.
 cannot tag one entry (`article:<slug>`): a comment on one article revalidates
 every article. A per-entry tag needs a custom `render`, which turns off
 streaming for the handler's server routes (27).
-
-### G. Hydration takes the client's attribute without a report
-
-Where the server's attribute differs from the client's, hydration keeps the
-client's, as SECURITY.md says, and `onHydrationError` hears nothing. 26 went
-unseen because of it. A development-only report would have shown it the first
-time a compiled app with `<x aria-hidden>` hydrated.
 
 ## The load apps: what they measured
 

@@ -675,7 +675,13 @@ the same app mounted); a build without the option carries none of it.
 is `tag`, `text`, `missing`, `extra-nodes`, `marker`, `key`, `shadow-root`,
 `prebuilt` or `not-hydratable` and `path` is the DOM path under the container. Development
 prints it as `ERR_HYDRATION_MISMATCH`; every build, production included,
-passes it to `options.onHydrationError`. Recovery client-renders the smallest
+passes it to `options.onHydrationError`. Development also reports, as the
+diagnostic only, each attribute of a claimed element that the server wrote
+otherwise than the client's first write gives it (kind `attribute`, with the
+attribute's name): compared once the walk is done, as written (a URL is not
+resolved, class tokens keep their order), with a boolean attribute equal by
+its presence and `style` by its declarations. An attribute the client does
+not write is not compared, and the client's value is the one kept. Recovery client-renders the smallest
 part it can: the one element (with its subtree) or text node that differs is
 replaced by the client's, nodes the client does not render are removed, and a
 missing node is inserted. Leftovers at the end of an element or region are

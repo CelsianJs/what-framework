@@ -7,5 +7,6 @@ export const HYDRATION_FIXES = {
   marker: 'Serve the compiled markup with its What comments intact. Build both sides from the same hydratable component tree.',
   key: 'Use stable data-derived keys, strings or finite numbers, and the same initial list order on both sides. This report does not replace matching DOM.',
   'not-hydratable': 'Build the client with the compiler hydratable option. Defer manually constructed DOM until onMount().',
+  attribute: 'Write the attribute from the same value on both sides, as both compile targets write it (a valueless aria-* or data-* attribute is "true"). A value only the browser knows (the viewport, localStorage, Date.now()) goes in onMount() after hydration. The client\'s value is the one kept.',
   prebuilt: 'JSX was built before the hydration walk reached the place it renders in, so it replaced the server\'s nodes (what the user typed in a form control there is kept). Write the JSX where it renders, or pass it as a prop (a .map() of JSX too) and read props.name (or a destructured name) only where it is placed: not in a variable (a .map() into one included), not tested or aliased first, and not given to an h() component, which reads its props while it runs.',
 };
