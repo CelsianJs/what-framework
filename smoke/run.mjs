@@ -41,6 +41,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
 const APPS_DIR = join(HERE, 'apps');
 const PORT_BASE = Number(process.env.WHAT_SMOKE_APP_PORT_BASE) || 4700;
+// How long one app's checks may run. A check waiting on something that never
+// comes (an event a browser does not send, a promise that never settles) fails
+// its app at this point, and the run goes on to the next app.
+const APP_TIMEOUT_MS = Number(process.env.WHAT_SMOKE_APP_TIMEOUT_MS) || 5 * 60_000;
 
 function flag(name, fallback = null) {
   const hit = process.argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
@@ -141,8 +145,10 @@ try {
     // For a check this browser cannot run (a Chromium-only API), with the reason.
     const skip = (capability, name, reason) => reporter.skip(`[${capability}] ${name}`, reason);
 
+    let timer;
+    let timedOut = false;
     try {
-      await app.check({
+      const checks = app.check({
         workDir,
         port,
         appPort,
@@ -154,8 +160,24 @@ try {
         log: (m) => console.log(`    .. ${m}`),
         run,
       });
+      // After a timeout the checks are abandoned; their later rejection is not a result.
+      checks.catch(() => {});
+      await Promise.race([checks, new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(new Error(`no result after ${APP_TIMEOUT_MS / 1000}s: a check is waiting on something that never came (WHAT_SMOKE_APP_TIMEOUT_MS sets the limit)`));
+        }, APP_TIMEOUT_MS);
+      })]);
     } catch (err) {
       reporter.fail('app harness', err.message.split('\n').slice(0, 4).join(' | '));
+    } finally {
+      clearTimeout(timer);
+    }
+    // A fresh browser for the next app: closing this one ends the abandoned
+    // checks' pages, so they stop where they waited.
+    if (timedOut) {
+      await browser.close().catch(() => {});
+      browser = await launchBrowser({ required: true, browserName: BROWSER });
     }
 
     for (const r of reporter.results) {

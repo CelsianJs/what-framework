@@ -117,6 +117,12 @@ Ports start at 4700 (`WHAT_SMOKE_APP_PORT_BASE` moves them) and increment per ap
 port is already answering, because a stale process serving a DIFFERENT app makes
 every downstream assertion lie.
 
+One app's checks may run for five minutes (`WHAT_SMOKE_APP_TIMEOUT_MS` changes
+the limit). A check still waiting then, on an event the browser never sent or a
+promise that never settles, fails its app with `app harness: no result after
+300s`; the runner starts a fresh browser and goes on to the next app, so one
+hang costs five minutes, not the CI job's whole time limit.
+
 ## Browsers
 
 `WHAT_SMOKE_BROWSER` picks Playwright's `chromium` (the default), `webkit` or

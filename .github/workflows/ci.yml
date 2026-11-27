@@ -307,6 +307,9 @@ jobs:
   # after a release, since there is nothing to install before one exists.
   app-smoke:
     runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -617,6 +620,9 @@ jobs:
         run: npm run -s test:templates:ui --prefix docs-site
   webkit-native:
     runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -644,6 +650,9 @@ jobs:
   # as in WebKit (no devtools protocol to force a GC).
   firefox-native:
     runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
