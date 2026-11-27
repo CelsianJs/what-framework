@@ -19,7 +19,8 @@ function frame(time) {
 }
 
 const { spring, tween, useGesture } = await import('../src/animation.js');
-const { createRoot } = await import('../src/index.js');
+const { createRoot, h, mount, useRef, signal: makeSignal } = await import('../src/index.js');
+const { loadCompiled } = await import('../../../test-utils/load-compiled.js');
 
 beforeEach(() => { queued = []; });
 
@@ -157,5 +158,52 @@ describe('useGesture', () => {
       performance.now = realNow;
       mock.timers.reset();
     }
+  });
+
+  // The component body runs before its element exists: a ref is read once the
+  // output is in place, as useEffect runs.
+  it('attaches to a ref object, a ref function and a signal once the element exists', async () => {
+    const log = [];
+    const compiled = await loadCompiled(`
+      import { useRef } from 'what-framework';
+      import { useGesture } from 'what-framework/motion';
+      export function Compiled(p) {
+        const ref = useRef(null);
+        useGesture(ref, { onTap: () => p.log.push('compiled') });
+        return <div id="compiled" ref={ref}>x</div>;
+      }
+      export function Getter(p) {
+        let el;
+        useGesture(() => el, { onTap: () => p.log.push('getter') });
+        return <div id="getter" ref={el}>x</div>;
+      }
+    `);
+    function WithH() {
+      const ref = useRef(null);
+      useGesture(ref, { onTap: () => log.push('h') });
+      return h('div', { id: 'with-h', ref }, 'x');
+    }
+    const target = makeSignal(null);
+    function WithSignal() {
+      useGesture(target, { onTap: () => log.push('signal') });
+      return h('div', { id: 'with-signal', ref: (el) => target(el) }, 'x');
+    }
+    const host = document.createElement('div');
+    document.body.append(host);
+    const unmount = mount(h('div', {}, h(WithH, {}), h(compiled.Compiled, { log }), h(compiled.Getter, { log }), h(WithSignal, {})), host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const id of ['with-h', 'compiled', 'getter', 'with-signal']) {
+      at('mousedown', 1, 1, document.getElementById(id));
+      at('mouseup', 1, 1);
+    }
+    assert.deepEqual(log, ['h', 'compiled', 'getter', 'signal']);
+    const elements = ['with-h', 'compiled', 'getter', 'with-signal'].map((id) => document.getElementById(id));
+    unmount();
+    for (const el of elements) {
+      at('mousedown', 1, 1, el);
+      at('mouseup', 1, 1);
+    }
+    assert.equal(log.length, 4, 'no listener after unmount');
+    host.remove();
   });
 });

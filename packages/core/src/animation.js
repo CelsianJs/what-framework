@@ -1,7 +1,7 @@
 // What Framework - Animation Primitives
 // Springs, tweens, gestures, and transition helpers
 
-import { signal, effect, untrack, batch, onCleanup } from './reactive.js';
+import { signal, effect, batch, onCleanup, _userEffect } from './reactive.js';
 import { scheduleRead, scheduleWrite } from './scheduler.js';
 
 // --- Spring Animation ---
@@ -419,18 +419,13 @@ export function useGesture(element, handlers = {}) {
     initialPinchDistance = null;
   }
 
-  // Attach listeners
-  if (typeof element === 'function') {
-    // Ref function
-    effect(() => {
-      const el = untrack(element);
-      if (!el) return;
-      return attachListeners(el);
-    });
-  } else if (element?.current !== undefined) {
-    // Ref object
-    effect(() => {
-      const el = element.current;
+  // Attach listeners. A ref (an object's `current`, or a function that
+  // returns the element) is read once the component's output is in place, as
+  // useEffect runs: the component body runs before its element exists. A
+  // function that reads a signal attaches again when the signal changes.
+  if (typeof element === 'function' || element?.current !== undefined) {
+    _userEffect(() => {
+      const el = typeof element === 'function' ? element() : element.current;
       if (!el) return;
       return attachListeners(el);
     });
