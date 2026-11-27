@@ -192,6 +192,18 @@ import { mount } from 'what-framework';
 mount(<FileRouter routes={routes} />, '#app');
 ```
 
+A server entry imports `virtual:what-routes/server`: the same routes, each with
+its page's `loader`, `getStaticPaths` and `page` config as live bindings, which
+the browser's module leaves out so no loader reaches the client bundle.
+
+```jsx
+// src/entry-server.jsx (vite build --ssr src/entry-server.jsx)
+import { routes as pages } from 'virtual:what-routes/server';
+import App from './App.jsx'; // renders <FileRouter routes={routes} />
+
+export const routes = pages.map((r) => ({ path: r.path, component: App, loader: r.loader, page: r.page, mode: r.mode }));
+```
+
 ## Sub-path Exports
 
 | Path | Contents |

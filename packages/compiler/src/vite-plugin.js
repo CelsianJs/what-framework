@@ -2,7 +2,9 @@
  * What Framework Vite Plugin
  *
  * 1. Transforms JSX via the What babel plugin (the server target for SSR transforms)
- * 2. Provides file-based routing via virtual:what-routes
+ * 2. Provides file-based routing via virtual:what-routes (the browser's routes)
+ *    and virtual:what-routes/server (the same routes with each page's loader,
+ *    getStaticPaths and page config, for the server entry)
  * 3. Watches pages directory for route changes
  * 4. Component hot updates use an installed replacement hook or reload the
  *    page; signal/utility files trigger full reload
@@ -13,13 +15,15 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
-import { generateRoutesModule } from './file-router.js';
+import { generateRoutesModule, generateServerRoutesModule } from './file-router.js';
 import { IMPORT_CHANGES, SUBPATH_ONLY } from './tables/import-changes.js';
 import { runtimeMismatch } from './release.js';
 import { isFrameworkFile } from './framework-files.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
+const VIRTUAL_SERVER_ROUTES_ID = 'virtual:what-routes/server';
+const RESOLVED_VIRTUAL_SERVER_ID = '\0' + VIRTUAL_SERVER_ROUTES_ID;
 const SERVER_ACTION_MODULE_RE = /(?:from\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"]|import\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"])/;
 const SCRIPT_MODULE_RE = /\.[cm]?[jt]sx?$/;
 const JSX_MODULE_RE = /\.[jt]sx$/;
@@ -359,44 +363,49 @@ export default function whatVitePlugin(options = {}) {
     },
 
     configureServer(devServer) {
-      // Watch the pages directory for file additions/removals
-      devServer.watcher.on('add', (file) => {
-        if (file.startsWith(pagesDir)) {
-          // Invalidate the virtual routes module
-          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
+      // A page added or removed changes both routes modules.
+      const pagesChanged = () => {
+        let loaded = false;
+        for (const id of [RESOLVED_VIRTUAL_ID, RESOLVED_VIRTUAL_SERVER_ID]) {
+          const mod = devServer.moduleGraph.getModuleById(id);
           if (mod) {
             devServer.moduleGraph.invalidateModule(mod);
-            devServer.ws.send({ type: 'full-reload' });
+            loaded = true;
           }
         }
+        if (loaded) devServer.ws.send({ type: 'full-reload' });
+      };
+      // Watch the pages directory for file additions/removals
+      devServer.watcher.on('add', (file) => {
+        if (file.startsWith(pagesDir)) pagesChanged();
       });
 
       devServer.watcher.on('unlink', (file) => {
         // Vite will never transform an unlinked module again, so explicitly
         // release its IDs before handling the narrower pages refresh path.
         clearActionIdsForFile(actionFilenameForFile(file));
-        if (file.startsWith(pagesDir)) {
-          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
-          if (mod) {
-            devServer.moduleGraph.invalidateModule(mod);
-            devServer.ws.send({ type: 'full-reload' });
-          }
-        }
+        if (file.startsWith(pagesDir)) pagesChanged();
       });
     },
 
-    // Resolve virtual module
+    // Resolve the virtual routes modules
     resolveId(id) {
       if (id === VIRTUAL_ROUTES_ID) {
         return RESOLVED_VIRTUAL_ID;
       }
+      if (id === VIRTUAL_SERVER_ROUTES_ID) {
+        return RESOLVED_VIRTUAL_SERVER_ID;
+      }
     },
 
-    // Generate the routes module; in a client build compiled for hydration,
+    // Generate the routes modules; in a client build compiled for hydration,
     // what-core's vnode adoption stands in (see "Vnode adoption").
     load(id, loadOptions) {
       if (id === RESOLVED_VIRTUAL_ID) {
         return generateRoutesModule(pagesDir, rootDir);
+      }
+      if (id === RESOLVED_VIRTUAL_SERVER_ID) {
+        return generateServerRoutesModule(pagesDir, rootDir);
       }
       if (hydratableOutput && !isSsrTransform(loadOptions, this)) return vnodeAdoptionStandIn(id);
     },
