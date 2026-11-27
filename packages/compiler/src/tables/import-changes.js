@@ -127,6 +127,23 @@ export const IMPORT_CHANGES = /* @__PURE__ */ table([
   { name: '_mountPortal', to: 'what-core/internal', neverOnRoot: true, note: 'The client renderer a portal\'s vnode carries: what-react\'s createPortal attaches it, so its portal also renders where it reaches a native What tree. Apps use <Portal>.' },
 ]);
 
+// Names a subpath exports that the root entry never did, imported from the
+// root entry by someone who guessed (`import { Router, Link } from
+// 'what-framework'`, the way react-router's names are swapped for React's).
+// They are not changes, so the upgrade guide does not list them; what-compiler's
+// Vite plugin answers such an import with where the name lives, as it answers a
+// moved one. Records have the shape of IMPORT_CHANGES' ({ name, to, note,
+// answer }).
+export const SUBPATH_ONLY = /* @__PURE__ */ table([
+  { to: 'what-framework/router', names: [
+    'Router', 'FileRouter', 'Link', 'NavLink', 'Outlet', 'Redirect', 'navigate', 'redirect', 'route',
+    'useRoute', 'useParams', 'useSearch', 'useNavigate', 'defineRoutes', 'nestedRoutes', 'routeGroup',
+    'matchRoute', 'compilePath', 'parseQuery', 'isSafeUrl', 'setBase', 'guard', 'asyncGuard',
+    'beforeNavigate', 'afterNavigate', 'prefetch', 'prefetchRoute', 'enableScrollRestoration',
+    'setViewTransition', 'viewTransitionName',
+  ], note: 'The router lives in what-framework/router.' },
+]);
+
 function table(rows) {
   const records = rows.flatMap(({ names, ...row }) => (names ? names.map((name) => ({ name, ...row })) : [row]));
   return Object.freeze(records.map((change) => Object.freeze({ ...change, answer: answerFor(change) })));

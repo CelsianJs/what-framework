@@ -43,6 +43,23 @@ describe('vite plugin: imports the root entry no longer exports', () => {
     assert.throws(transform("import { useTween } from 'what-framework';", '/proj/src/a.js'), /"useTween" is not exported by what-framework\./);
   });
 
+  it('tells an import of a router name from the root entry where the router lives', () => {
+    // A React migrator who swaps 'react-router-dom' for 'what-framework' gets
+    // this answer at the import, not the browser's bare "does not provide an
+    // export named 'Router'" and a blank page.
+    assert.throws(transform("import { mount, Router, Link, useParams } from 'what-framework';\nmount(<Router routes={[]} />, '#app');\nconsole.log(Link, useParams);\n"), (err) => {
+      assert.equal(err.code, 'ERR_MOVED_IMPORT');
+      assert.deepEqual(err.loc, { file: '/proj/src/main.jsx', line: 1, column: 16 });
+      for (const name of ['Router', 'Link', 'useParams']) {
+        assert.ok(err.message.includes(`"${name}" is not exported by what-framework. The router lives in what-framework/router. Import it with: import { ${name} } from 'what-framework/router'.`), name);
+      }
+      assert.doesNotMatch(err.message, /UPGRADING\.md|no-moved-imports/, 'a name that never moved is not sent to the upgrade guide');
+      return true;
+    });
+    assert.throws(transform("import { navigate } from 'what-core';", '/proj/src/nav.js'), /"navigate" is not exported by what-core\. The router lives in what-framework\/router\./);
+    assert.doesNotThrow(transform("import { Router, navigate } from 'what-framework/router';\nexport { Router, navigate };", '/proj/src/routes.js'));
+  });
+
   it('leaves alone root names, subpaths, type-only imports, quoted code and excluded files', () => {
     const fine = [
       ["import { signal, effect } from 'what-framework';\nexport const n = signal(0);", '/proj/src/state.js'],

@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
 import { generateRoutesModule } from './file-router.js';
-import { IMPORT_CHANGES } from './tables/import-changes.js';
+import { IMPORT_CHANGES, SUBPATH_ONLY } from './tables/import-changes.js';
 import { runtimeMismatch } from './release.js';
 import { isFrameworkFile } from './framework-files.js';
 
@@ -347,10 +347,12 @@ export default function whatVitePlugin(options = {}) {
 
       // A name the root entry (what-framework, what-core) no longer exports
       // fails here with the answer IMPORT_CHANGES records for it
-      // (ERR_MOVED_IMPORT), not later with the bundler's "is not exported". The
+      // (ERR_MOVED_IMPORT), not later with the bundler's "is not exported", and
+      // so does a name only a subpath exports (SUBPATH_ONLY: the router's). The
       // regex only picks candidates and Babel's parse decides, so an import
       // statement quoted in a string never fails a build.
-      const changeFor = (name) => IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name);
+      const changeFor = (name) => IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name)
+        || SUBPATH_ONLY.find((c) => c.name === name);
       const rootClauses = isScriptModule ? [...code.matchAll(/\b(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]what-(?:framework|core)['"]/g)] : [];
       if (rootClauses.some(([, names]) => names.split(',').some((n) => changeFor(n.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0])))) {
         let body = [];
@@ -367,15 +369,15 @@ export default function whatVitePlugin(options = {}) {
             const remote = spec.type === 'ImportSpecifier' ? spec.imported : spec.type === 'ExportSpecifier' ? spec.local : null;
             const name = remote && spec.importKind !== 'type' && spec.exportKind !== 'type' ? remote.name ?? remote.value : null;
             const change = name && changeFor(name);
-            if (change) moved.push({ start: spec.loc.start, text: `"${name}" is not exported by ${source}. ${change.answer}` });
+            if (change) moved.push({ start: spec.loc.start, text: `"${name}" is not exported by ${source}. ${change.answer}`, changed: IMPORT_CHANGES.includes(change) });
           }
         }
         if (moved.length) {
           throw Object.assign(
             new Error(
               `[what-compiler] ERR_MOVED_IMPORT in ${path.relative(rootDir || process.cwd(), cleanId)}:\n` +
-              moved.map((m) => `  ${m.text}\n`).join('') +
-              "eslint --fix with eslint-plugin-what's no-moved-imports rule rewrites the moved names; UPGRADING.md lists every change."
+              moved.map((m) => `  ${m.text}`).join('\n') +
+              (moved.some((m) => m.changed) ? "\neslint --fix with eslint-plugin-what's no-moved-imports rule rewrites the moved names; UPGRADING.md lists every change." : '')
             ),
             { code: 'ERR_MOVED_IMPORT', id, plugin: 'vite-plugin-what', loc: { file: cleanId, line: moved[0].start.line, column: moved[0].start.column } },
           );

@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { IMPORT_CHANGES } from '../src/import-changes.js';
+import { IMPORT_CHANGES, SUBPATH_ONLY } from '../src/import-changes.js';
 import { validateImports, configureGuardrails } from '../src/guardrails.js';
 
 // `git show v0.14.0:packages/core/src/index.js`, every name it exported, by module.
@@ -153,5 +153,18 @@ describe('validateImports answers from the table', () => {
     assert.equal(validateImports(['startTransitionNow'])[0].suggestion, 'Check the API reference. Did you mean startTransition?');
     assert.doesNotMatch(JSON.stringify(validateImports(['qqqqqqqq', 'zzzzzzzzzz'])), /no close match|Did you mean/);
     assert.equal(validateImports(['singal'])[0].suggestion, 'Check the API reference. Did you mean signal?');
+  });
+});
+
+describe('SUBPATH_ONLY: the router names an import from the root entry is told about', () => {
+  it('lists exactly the router\'s exports that the root entry does not have, each with its answer', async () => {
+    const router = Object.keys(await import('what-framework/router'));
+    const listed = SUBPATH_ONLY.filter((c) => c.to === 'what-framework/router').map((c) => c.name);
+    assert.deepEqual([...listed].sort(), router.filter((name) => !root.includes(name)).sort(),
+      'a router export the root entry lacks needs a SUBPATH_ONLY row, and a row a name the router exports');
+    for (const c of SUBPATH_ONLY) {
+      assert.ok(!recordFor(c.name), `${c.name} is in IMPORT_CHANGES too`);
+      assert.equal(c.answer, `${c.note} Import it with: import { ${c.name} } from '${c.to}'.`, c.name);
+    }
   });
 });
