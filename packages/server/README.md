@@ -240,7 +240,7 @@ response.redirectExternal('https://billing.example.com/portal', 303);
 ```
 
 `redirectExternal` takes an absolute `http:` or `https:` URL with no
-credentials. A target either method refuses (`https://evil.example` through
+credentials, or a `mailto:` or `tel:` URL. A target either method refuses (`https://evil.example` through
 `redirect`, `//host`, `/\host`, `javascript:`) is not an error: the response
 redirects to the app's root (`/`, or `/app/` below a base) instead, and
 development logs `ERR_SSR_UNSAFE_REDIRECT`.

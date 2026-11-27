@@ -557,7 +557,9 @@ export interface ServerResponse {
   redirect(location: string, status?: 301 | 302 | 303 | 307 | 308): void;
   /**
    * Redirect off the site, to an absolute http: or https: URL with no
-   * credentials. A target that is not one is refused like redirect()'s.
+   * credentials, or a mailto: or tel: URL: what what-router's redirect()
+   * leaves the site for in the browser. A target that is not one is refused
+   * like redirect()'s.
    */
   redirectExternal(url: string, status?: 301 | 302 | 303 | 307 | 308): void;
 }

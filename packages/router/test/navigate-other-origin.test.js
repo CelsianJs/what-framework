@@ -25,7 +25,7 @@ Object.defineProperty(globalThis, 'location', { configurable: true, value: recor
 
 const { h } = await import('../../core/src/h.js');
 const { mount } = await import('../../core/src/dom.js');
-const { Router, route, navigate, beforeNavigate } = await import('../src/index.js');
+const { Router, route, navigate, beforeNavigate, redirect, isSafeUrl } = await import('../src/index.js');
 
 async function flush() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
@@ -67,15 +67,24 @@ describe('navigate() to another origin', () => {
     assert.deepEqual(calls, [['assign', 'https://other.example/']]);
   });
 
-  it('still refuses an unsafe URL', async () => {
+  // One rule with a server render's: a URL with credentials reads as the
+  // host before the '@', and a server's redirectExternal() refuses it too.
+  it('still refuses an unsafe URL, one with credentials included, with its code', async () => {
     const warn = console.warn;
-    console.warn = () => {};
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args.join(' '));
     try {
       await navigate('javascript:alert(1)');
+      await navigate('https://trusted.example@evil.example/');
+      await navigate('https://user:secret@other.example/');
     } finally {
       console.warn = warn;
     }
     assert.deepEqual(calls, []);
+    assert.equal(warnings.length, 3);
+    for (const warning of warnings) assert.match(warning, /ERR_UNSAFE_REDIRECT/);
+    assert.throws(() => redirect('https://trusted.example@evil.example/'), { code: 'ERR_UNSAFE_REDIRECT' });
+    assert.equal(isSafeUrl('mailto:team@example.com'), true, 'an address is no credentials');
   });
 
   it('routes a URL of this origin in the page', async () => {

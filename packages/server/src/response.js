@@ -13,7 +13,9 @@
 // same rule as the action handler's `_redirect` (safeLocalPath): it is what a
 // loader hands request data to (`redirect(query.next)`), so an absolute URL
 // there is an open redirect. Leaving the site is a separate, explicit call,
-// redirectExternal(), which takes an absolute http(s) URL. A refused target is
+// redirectExternal(), which takes an absolute http(s) URL with no credentials,
+// or a mailto: or tel: URL, as what-router's redirect() leaves the site for
+// in the browser. A refused target is
 // not an exception: the response redirects to the app's root instead, the
 // same fallback the action handler uses, and development logs
 // ERR_SSR_UNSAFE_REDIRECT. A request-supplied target therefore never turns
@@ -41,7 +43,13 @@ export function localRedirectTarget(value) {
   return url.pathname + url.search + url.hash;
 }
 
-/** The canonical absolute http(s) target for `value`, or null when it is not one. */
+const EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:', 'tel:']);
+
+/**
+ * The canonical target off the site for `value`: an absolute http(s) URL with
+ * no credentials, or a mailto: or tel: URL, what what-router's redirect()
+ * leaves the site for in the browser; null when it is not one.
+ */
 export function externalRedirectTarget(value) {
   if (typeof value !== 'string') return null;
   let url;
@@ -50,7 +58,7 @@ export function externalRedirectTarget(value) {
   } catch {
     return null;
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (!EXTERNAL_PROTOCOLS.has(url.protocol)) return null;
   // "https://trusted.example@evil.example" reads as the trusted host.
   if (url.username || url.password) return null;
   return url.href;
@@ -122,7 +130,7 @@ class RenderResponse {
     this.redirect = (location, status = 302) => {
       redirectTo(base + (localRedirectTarget(location) ?? refused('redirect', location)), status);
     };
-    /** Redirect off the site, to an absolute http(s) URL. */
+    /** Redirect off the site, to an absolute http(s), mailto: or tel: URL. */
     this.redirectExternal = (url, status = 302) => {
       redirectTo(externalRedirectTarget(url) ?? base + refused('redirectExternal', url), status);
     };

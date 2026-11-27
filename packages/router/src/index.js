@@ -16,9 +16,11 @@ import { matchRoute, parseQuery } from './match.js';
 
 // --- URL Sanitization ---
 // Rejects javascript:, data:, vbscript: protocols (case-insensitive, trimmed),
-// any scheme outside the allowlist (blob:, about:, filesystem: ...), and
-// protocol-relative / backslash-smuggled paths that resolve to a foreign
-// origin. Browsers treat "\" like "/", so "/\evil.com" is an open redirect.
+// any scheme outside the allowlist (blob:, about:, filesystem: ...), a URL
+// with credentials, and protocol-relative / backslash-smuggled paths that
+// resolve to a foreign origin. Browsers treat "\" like "/", so "/\evil.com"
+// is an open redirect. A server render's redirect follows the same rule: what
+// this accepts off the site, its response sends through redirectExternal().
 //
 // Sibling predicate: safeLocalPath / safeRedirectTarget in
 // packages/server/src/action-handler.js. That one gates a server-issued
@@ -30,10 +32,12 @@ import { matchRoute, parseQuery } from './match.js';
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
+// Whether `url` parses, with no credentials ("https://trusted.example@evil.example"
+// reads as the trusted host).
 function parses(url) {
   try {
-    new URL(url);
-    return true;
+    const parsed = new URL(url);
+    return !parsed.username && !parsed.password;
   } catch {
     return false;
   }
@@ -567,14 +571,23 @@ let _navigation = 0;
 export async function navigate(to, opts = {}) {
   const { replace = false, state = null, transition = true, flushSync: sync = false, _fromPopstate = false, _redirectChain = false } = opts;
 
-  // The response refuses a target that is not a same-origin path, and
-  // redirects to '/' instead. A relative one ('next', '../up', '?page=2')
-  // resolves against the URL the render shows, as the browser resolves it
-  // against the address bar. The response is handed the URL of the app, as
-  // a loader hands it one, and puts it below the base.
+  // On a server, the response of the render redirects, by the browser's
+  // rule: a target isSafeUrl() refuses is refused there too (development
+  // logs ERR_SSR_UNSAFE_REDIRECT, and it goes to the app's root). A URL of
+  // the app (a path, or a relative one, resolved against the URL the render
+  // shows as the browser resolves it against the address bar) is handed to
+  // redirect() without the base, as a loader hands it one, and the response
+  // puts it below the base. Another origin's URL (https:, mailto:, tel:)
+  // leaves the site through redirectExternal(), as navigate() leaves it in
+  // the browser; a relative one that resolves outside the base is no such
+  // URL, and redirectExternal() refuses it.
   if (onServer()) {
-    if (typeof to !== 'string') getResponse().redirect(to);
-    else if (!to.startsWith('#')) getResponse().redirect(RELATIVE.test(to) ? resolveHref(to) ?? to : to);
+    const response = getResponse();
+    if (!isSafeUrl(to)) response.redirect(to);
+    else if (!to.startsWith('#')) {
+      const href = resolveHref(to);
+      href === null ? response.redirectExternal(to) : response.redirect(href);
+    }
     return;
   }
 
@@ -585,7 +598,7 @@ export async function navigate(to, opts = {}) {
       // isSafeUrl() rejects non-strings, so the value reaching this warning is
       // exactly the kind that can throw on template-literal coercion (Symbol,
       // null-prototype object). Log it as a separate argument.
-      console.warn('[what-router] Blocked navigation to unsafe URL:', to);
+      console.warn(__DEV__ ? '[what-router] Blocked navigation to unsafe URL (ERR_UNSAFE_REDIRECT):' : '[what-router] Blocked navigation to unsafe URL:', to);
     }
     return;
   }
@@ -861,7 +874,7 @@ export function redirect(to, options = {}) {
     // The fix and the example are for the developer reading the console: a
     // production build carries the code alone.
     if (__DEV__) {
-      err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
+      err.suggestion = 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only, in the browser and in a server render alike. Protocol-relative ("//host"), backslash-smuggled, javascript:/data: and credential-carrying ("https://trusted.example@evil.example") targets are open-redirect vectors. Check a user-supplied target against an allowlist first.';
     err.codeExample = `// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
 

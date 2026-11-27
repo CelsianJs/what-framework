@@ -1580,7 +1580,7 @@ const [posts] = createResource(() =>
 
 > [what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to "/" instead. (ERR_SSR_UNSAFE_REDIRECT)
 
-A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler's _redirect field. An absolute URL, "//host", "/\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.
+A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only ("/account?tab=2"), by the same rule as the action handler's _redirect field. An absolute URL, "//host", "/\host" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to "/" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.
 
 ```jsx
 // Bad — an absolute URL through redirect() is refused:
@@ -1809,7 +1809,7 @@ html`<div>${sanitizedContent}</div>`
 
 > redirect() refused an unsafe target: {{target}}
 
-redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative ("//host"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.
+redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only, in the browser and in a server render alike. Protocol-relative ("//host"), backslash-smuggled, javascript:/data: and credential-carrying ("https://trusted.example@evil.example") targets are open-redirect vectors. Check a user-supplied target against an allowlist first.
 
 ```jsx
 // Bad - a user-controlled target can leave your origin:

@@ -892,7 +892,7 @@
         "what-server"
       ],
       "trigger": "[what-server] {{method}}: refusing unsafe redirect target {{target}}; redirecting to \"/\" instead. (ERR_SSR_UNSAFE_REDIRECT)",
-      "fix": "A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (\"/account?tab=2\"), by the same rule as the action handler's _redirect field. An absolute URL, \"//host\", \"/\\host\" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to \"/\" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.",
+      "fix": "A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (\"/account?tab=2\"), by the same rule as the action handler's _redirect field. An absolute URL, \"//host\", \"/\\host\" or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to \"/\" instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.",
       "example": "// Bad — an absolute URL through redirect() is refused:\nexport function loader({ query, response }) {\n  response.redirect(query.next);          // ?next=https://evil.example -> \"/\"\n}\n\n// Good — a local path from request data, checked by redirect() itself,\n// and leaving the site explicitly:\nexport function loader({ query, response }) {\n  if (query.billing) response.redirectExternal('https://billing.example.com/portal');\n  else response.redirect(query.next ?? '/');   // \"/account\" is kept\n}"
     },
     {
@@ -1026,7 +1026,7 @@
         "what-router"
       ],
       "trigger": "redirect() refused an unsafe target: {{target}}",
-      "fix": "redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (\"//host\"), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.",
+      "fix": "redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only, in the browser and in a server render alike. Protocol-relative (\"//host\"), backslash-smuggled, javascript:/data: and credential-carrying (\"https://trusted.example@evil.example\") targets are open-redirect vectors. Check a user-supplied target against an allowlist first.",
       "example": "// Bad - a user-controlled target can leave your origin:\nredirect(query.next);\n\n// Good - allowlist the target first:\nredirect(ALLOWED.has(query.next) ? query.next : '/');"
     },
     {

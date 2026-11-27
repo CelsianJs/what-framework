@@ -140,7 +140,16 @@ A URL of another origin (another site, `mailto:`, `tel:`) is the browser's to
 load, as a click on a `<Link>` to it is: `navigate()` calls
 `location.assign()`, or `location.replace()` with `replace: true`, and runs no
 guard. A middleware or `redirect()` that sends a navigation to another origin
-replaces the entry the same way.
+replaces the entry the same way, and in a server render the response
+redirects there (`getResponse().redirectExternal(to)`). One rule decides
+what may go where, in the browser and on a server alike: a path or an
+`http:`, `https:`, `mailto:` or `tel:` URL is followed; a protocol-relative
+(`//host`), backslash-smuggled, `javascript:`/`data:` or credential-carrying
+(`https://trusted.example@evil.example`) target is refused, by `redirect()`
+with `ERR_UNSAFE_REDIRECT`, by `navigate()` and a middleware with a warning
+that names `ERR_UNSAFE_REDIRECT` in the browser (in development) and
+`ERR_SSR_UNSAFE_REDIRECT` on a server, where the response goes to the app's
+root.
 
 ## Base path
 
@@ -230,8 +239,9 @@ requests never see each other's. Without an async context provider
 after an `await` in a component sees no route state at all (the root URL,
 empty params and query), never another request's. A middleware redirect (a
 path, or `redirect()`), `<Redirect>` and a `guard()` path fallback redirect
-the render's response (`getResponse().redirect(to)`, a same-origin path) on
-the server, and so do `redirect()` thrown from a component body and
+the render's response (`getResponse().redirect(to)` for a path,
+`redirectExternal(to)` for another origin's URL) on the server, and so do
+`redirect()` thrown from a component body and
 `navigate()`: a server never navigates, and nothing a render does reaches the
 route state of another one. A `beforeNavigate` or `afterNavigate` subscribed
 on a server (while it renders, or after an `await` with no async context) is

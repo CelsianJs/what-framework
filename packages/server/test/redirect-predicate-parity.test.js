@@ -3,8 +3,9 @@
 //   safeLocalPath  (packages/server/src/action-handler.js)  server Location: header
 // The server response API (response.js) uses the second: redirect() takes
 // exactly what safeLocalPath takes, and leaving the site is redirectExternal(),
-// a separate call that takes an absolute http(s) URL and nothing else
-// (security review #2: redirect() was gated by isSafeUrl, an open redirect).
+// a separate call that takes the absolute URLs isSafeUrl takes (http(s) with
+// no credentials, mailto:, tel:) and nothing else (security review #2:
+// redirect() was gated by isSafeUrl, an open redirect).
 // They answer different questions, so they must not be unified. What must never
 // break is their ordering: the server predicate is strictly narrower, so a
 // target the client router refuses can never be emitted as a Location: header.
@@ -117,10 +118,10 @@ describe('the response API follows safeLocalPath', () => {
     assert.doesNotThrow(() => new Headers({ location: response.location }));
   });
 
-  it('redirectExternal() takes an absolute http(s) URL with no credentials, and nothing else', () => {
-    const accepted = ['https://example.com/checkout', 'http://example.com', 'HTTPS://EXAMPLE.com/a?b#c'];
-    const refused = ['/local', '//evil.example', 'javascript:alert(1)', 'data:text/html,x', 'mailto:a@b.c',
-      'https://trusted.example@evil.example/', 'ftp://example.com', '', 'not a url'];
+  it('redirectExternal() takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL, and nothing else', () => {
+    const accepted = ['https://example.com/checkout', 'http://example.com', 'HTTPS://EXAMPLE.com/a?b#c', 'mailto:a@b.c', 'tel:+1'];
+    const refused = ['/local', '//evil.example', 'javascript:alert(1)', 'data:text/html,x',
+      'https://trusted.example@evil.example/', 'https://user:secret@example.com/', 'ftp://example.com', '', 'not a url'];
     for (const t of accepted) {
       const response = createResponse();
       response.redirectExternal(t, 303);
@@ -132,6 +133,16 @@ describe('the response API follows safeLocalPath', () => {
       const response = createResponse();
       quietly(() => response.redirectExternal(t));
       assert.equal(response.location, '/', JSON.stringify(t));
+    }
+  });
+
+  // One rule off the site: an absolute URL the client router follows out of
+  // the page is one a server render's response sends, and one it refuses is
+  // refused there too (what-router's server branch calls redirectExternal).
+  it('redirectExternal() accepts exactly the absolute URLs isSafeUrl accepts', () => {
+    for (const t of [...TARGETS, 'https://trusted.example@evil.example/', 'https://user:secret@example.com/', 'HTTPS://EXAMPLE.com/a?b#c', 'ftp://example.com', 'http://[']) {
+      if (!/^\s*[a-z][a-z0-9+.-]*:/i.test(t)) continue;
+      assert.equal(externalRedirectTarget(t) !== null, isSafeUrl(t), JSON.stringify(t));
     }
   });
 

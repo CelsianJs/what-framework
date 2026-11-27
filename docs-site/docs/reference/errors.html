@@ -1082,7 +1082,7 @@ const [posts] = createResource(() =&gt;
           <h2 id="ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</h2>
           <p class="subtitle">[what-server] method: refusing unsafe redirect target target; redirecting to &quot;/&quot; instead. (ERR_SSR_UNSAFE_REDIRECT)</p>
           <p><span class="badge badge-warning">warning</span> Raised by <code>what-server</code>.</p>
-          <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to &quot;/&quot; instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL.</p>
+          <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to &quot;/&quot; instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.</p>
 <pre><code>// Bad — an absolute URL through redirect() is refused:
 export function loader({ query, response }) {
   response.redirect(query.next);          // ?next=https://evil.example -&gt; &quot;/&quot;
@@ -1231,7 +1231,7 @@ html`&lt;div&gt;${sanitizedContent}&lt;/div&gt;`</code></pre>
           <h2 id="ERR_UNSAFE_REDIRECT">ERR_UNSAFE_REDIRECT</h2>
           <p class="subtitle">redirect() refused an unsafe target: target</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
-          <p>redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (&quot;//host&quot;), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.</p>
+          <p>redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only, in the browser and in a server render alike. Protocol-relative (&quot;//host&quot;), backslash-smuggled, javascript:/data: and credential-carrying (&quot;https://trusted.example@evil.example&quot;) targets are open-redirect vectors. Check a user-supplied target against an allowlist first.</p>
 <pre><code>// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
 
