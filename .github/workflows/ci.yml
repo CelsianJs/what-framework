@@ -357,6 +357,49 @@ jobs:
           name: smoke-apps-${{ github.run_id }}
           path: artifacts/smoke-apps.json
           if-no-files-found: ignore
+  app-smoke-dev:
+    runs-on: ubuntu-latest
+    # The Vite apps on their dev servers (WHAT_SMOKE_MODE=dev, smoke/README.md):
+    # the pipeline developers run, which the build-mode suite never serves.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build packages
+        run: npm run -s build
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: App smoke suite on the dev servers
+        run: npm run -s smoke:apps
+        env:
+          WHAT_SMOKE_MODE: dev
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-apps-dev-${{ github.run_id }}
+          path: artifacts/smoke-apps-dev.json
+          if-no-files-found: ignore
   manual-setup-smoke:
     runs-on: ubuntu-latest
     steps:
