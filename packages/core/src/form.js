@@ -2,7 +2,7 @@
 // Controlled inputs, validation, and form state management
 
 import { signal, computed, batch, effect, __DEV__ } from './reactive.js';
-import { getCurrentComponent, _isEventProp } from './dom.js';
+import { getCurrentComponent, _isEventProp, _markProps } from './dom.js';
 import { h } from './h.js';
 import { report } from './diagnostics.js';
 
@@ -440,7 +440,10 @@ function createFormController(options = {}) {
       };
     }
 
-    return result;
+    // Marked as a props object of What's (dom.js PROPS): a spread binds its
+    // `value` and `checked` getters live, so `<input {...register('x')} />`
+    // shows setValue and reset however the call is written.
+    return _markProps(result);
   }
 
   // Set single field value — only triggers re-render for components reading this field
