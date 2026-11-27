@@ -272,7 +272,10 @@ async function walk(page, { base, data, check, reporter, log }) {
 
   // === Vehicles: a field array ==============================================
   const v0 = (await rowIds(page, 'vehicle'))[0];
-  const vn = (id, f) => `[name="vehicles.${id}.${f}"]`;
+  // A field of a field array item is named by the item's place
+  // (`vehicles.0.vin`); the check finds it in the item's row.
+  const vn = (id, f) => `[data-vehicle="${id}"] [name$=".${f}"]`;
+  const placeIn = async (kind, id) => (await rowIds(page, kind)).indexOf(id);
   const fillVehicle = async (id, v) => {
     await page.fill(vn(id, 'year'), v.year);
     await page.selectOption(vn(id, 'make'), v.make);
@@ -297,7 +300,7 @@ async function walk(page, { base, data, check, reporter, log }) {
   const baseListeners = await listeners(page, 'pointerdown');
   await page.click('[data-add-vehicle]');
   const [, v1] = await rowIds(page, 'vehicle');
-  const focusOnNew = (await focusedName(page)) === `vehicles.${v1}.year`;
+  const focusOnNew = (await focusedName(page)) === `vehicles.${await placeIn('vehicle', v1)}.year`;
   const otherErrors = await page.$$eval(`[data-vehicle="${v0}"] [data-error]`, (els) => els.map((e) => e.textContent).filter(Boolean));
   check('form:field-array', vinError && vinFixed && focusOnNew && otherErrors.length === 0,
     'an item\'s rules judge only it, and a new item\'s first field takes the focus', `vin=${vinError}/${vinFixed} focus=${await focusedName(page)} others=${otherErrors.length}`);
@@ -365,6 +368,14 @@ async function walk(page, { base, data, check, reporter, log }) {
     'ten items added, typed in and removed from their open menus: ten built, ten disposed, no document listener left',
     `built +${c1.created.vehicle - c0.created.vehicle}, disposed +${c1.disposed.vehicle - c0.disposed.vehicle}, live ${c1.created.vehicle - c1.disposed.vehicle}/${live} rows, pointerdown listeners ${await listeners(page, 'pointerdown')}/${baseListeners}`);
 
+  // The draft is the form's values (values.vehicles), so a removed item's
+  // values must have left the form: the saved draft lists the rows shown.
+  await sleep(400);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('harbor:quote')).vehicles.map((v) => v.id));
+  const shownRows = await rowIds(page, 'vehicle');
+  check('form:field-array', saved.join(',') === shownRows.join(','),
+    'the saved draft, built from the form\'s values, holds exactly the vehicles shown: a removed item\'s values left the form', `saved ${saved.join(',')} shown ${shownRows.join(',')}`);
+
   // An empty item with errors, then removed: its errors go with it, and its
   // bindings never run again.
   await page.click('[data-add-vehicle]');
@@ -384,15 +395,15 @@ async function walk(page, { base, data, check, reporter, log }) {
     'removing an item with errors takes its errors off the step, and its bindings never run again', `"${problemsBefore}" -> "${problemsAfter}", runs ${runsAfterRemove} -> ${runsLater}`);
 
   // === Drivers: an array of items, each with an array =========================
-  const dn = (id, f) => `[name="drivers.${id}.${f}"]`;
-  const inc = (d, i, f) => `[name="drivers.${d}.incidents.${i}.${f}"]`;
+  const dn = (id, f) => `[data-driver="${id}"] > .grid [name$=".${f}"]`;
+  const inc = (_d, i, f) => `[data-incident="${i}"] [name$=".${f}"]`;
   const d0 = (await rowIds(page, 'driver'))[0];
   await page.fill(dn(d0, 'name'), 'Ada Byron');
   await page.fill(dn(d0, 'license'), 'AB123456');
   await page.fill(dn(d0, 'since'), '2010-06-01');
   await page.click(`[data-driver="${d0}"] [data-add-incident]`);
   const i0 = (await rowIds(page, 'incident'))[0];
-  const incidentFocused = (await focusedName(page)) === `drivers.${d0}.incidents.${i0}.date`;
+  const incidentFocused = (await focusedName(page)) === `drivers.${await placeIn('driver', d0)}.incidents.0.date`;
   await page.fill(inc(d0, i0, 'date'), '2009-01-15');
   await page.click('[data-step-form] h2'); // leave the field (Tab moves between a date's parts)
   const tooEarly = await waitError(page, `drivers.${d0}.incidents.${i0}.date`, 'Before this driver was licensed');
@@ -417,7 +428,8 @@ async function walk(page, { base, data, check, reporter, log }) {
   await page.keyboard.type('BK');
   await page.keyboard.press('Alt+ArrowUp');
   const movedDriver = (await rowIds(page, 'driver')).join(',') === [d1, d0].join(',');
-  const stillFocused = (await focusedName(page)) === `drivers.${d1}.license`;
+  // The field's name follows the driver to its new place.
+  const stillFocused = (await focusedName(page)) === `drivers.${await placeIn('driver', d1)}.license`;
   await sleep(50);
   const noBlurError = (await errorOf(page, `drivers.${d1}.license`)) === '';
   await frames(page);
@@ -561,7 +573,7 @@ async function walk(page, { base, data, check, reporter, log }) {
   await page.click('[data-submit]');
   const backToVehicles = await stepShown(page, 'vehicles');
   const stolenShown = await waitError(page, `vehicles.${v1}.vin`, 'This VIN is reported stolen');
-  const stolenFocused = (await focusedName(page)) === `vehicles.${v1}.vin`;
+  const stolenFocused = (await focusedName(page)) === `vehicles.${await placeIn('vehicle', v1)}.vin`;
   check('form:server-errors', backToVehicles && stolenShown && stolenFocused,
     'the server\'s "reported stolen" is shown on that vehicle\'s VIN, on the vehicles step, which the visitor is taken to with the field focused',
     `path=${pathOf(page)} shown=${stolenShown} focus=${await focusedName(page)}`);
@@ -601,7 +613,7 @@ async function timings(page, { base, data, check, log }) {
   await stepShown(page, 'vehicles');
 
   const perKey = await page.evaluate(async () => {
-    const el = document.querySelector('[name="vehicles.v1.vin"]');
+    const el = document.querySelector('[data-vehicle="v1"] [name="vehicles.1.vin"]');
     const err = document.querySelector('[data-error="vehicles.v1.vin"]');
     const times = [];
     for (let i = 0; i < 40; i++) {

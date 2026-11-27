@@ -1,10 +1,13 @@
 // Each step's validation, as useForm resolvers. Three kinds, the way a real
 // app mixes them: a schema (zod) with an async availability check composed on
-// top (About), rule maps (Address, Business), rules per array item, nested
-// (Vehicles, Drivers), and a schema with a cross-field rule (Coverage).
+// top (About), rule maps (Address, Business), schemas over nested arrays of
+// items (Vehicles, Drivers, whose items each hold incidents), and a schema
+// with a cross-field rule (Coverage).
 //
 // A resolver is told which fields to judge in `options.names` (a field's own
 // validation); a whole-step validation passes none and judges every field.
+// A schema judges every field either way, and the form shows a field's own
+// validation on that field alone.
 
 import { z } from 'zod';
 import { rules, simpleResolver, zodResolver } from 'what-framework/form';
@@ -74,78 +77,59 @@ export const addressResolver = simpleResolver({
   mailingStreet: [rules.custom((v, all) => (all.mailingDiffers && !String(v).trim() ? 'Enter your mailing street' : undefined))],
 });
 
-// --- Arrays: per-item rules over `prefix.<id>.<field>` names --------------
+// --- Arrays: schemas over the items, nested -----------------------------------
+// The form's values are nested by the fields' names (`vehicles.0.vin` is
+// values.vehicles[0].vin), so a schema describes the arrays as they are, and
+// an issue's path is the name of the field it belongs to.
 
-export const VEHICLE_FIELDS = ['year', 'make', 'model', 'vin', 'usage', 'miles'];
-export const vehicleRules = {
-  year: (v) => (v === '' ? 'Enter the year' : (Number(v) < 1981 || Number(v) > 2027 ? 'A year from 1981 to 2027' : undefined)),
-  make: (v) => (!v ? 'Choose a make' : undefined),
-  model: (v) => (!String(v).trim() ? 'Enter the model' : undefined),
-  vin: (v) => (!/^[A-HJ-NPR-Z0-9]{17}$/i.test(String(v)) ? 'A VIN is 17 letters and digits, without I, O or Q' : undefined),
-  usage: (v) => (!v ? 'Choose how it is used' : undefined),
-  miles: (v) => (v === '' ? 'Enter the miles a year' : (Number(v) < 0 || Number(v) > 99999 ? 'Up to 99,999 miles' : undefined)),
-};
+const between = (min, max, message) => (v) => (Number(v) >= min && Number(v) <= max ? undefined : message);
+const judged = (check) => z.string().superRefine((v, ctx) => {
+  const message = check(v);
+  if (message) ctx.addIssue({ code: 'custom', message });
+});
 
-export const DRIVER_FIELDS = ['name', 'license', 'since'];
-export const INCIDENT_FIELDS = ['date', 'kind', 'detail'];
-export const driverRules = {
-  name: (v) => (!String(v).trim() ? 'Enter the driver\'s name' : undefined),
-  license: (v) => (!/^[A-Z0-9]{6,12}$/i.test(String(v)) ? '6 to 12 letters and digits' : undefined),
-  since: (v) => {
+const vehicleSchema = z.object({
+  year: z.string().min(1, 'Enter the year').superRefine((v, ctx) => {
+    const message = v && between(1981, 2027, 'A year from 1981 to 2027')(v);
+    if (message) ctx.addIssue({ code: 'custom', message });
+  }),
+  make: z.string().min(1, 'Choose a make'),
+  model: z.string().trim().min(1, 'Enter the model'),
+  vin: z.string().regex(/^[A-HJ-NPR-Z0-9]{17}$/i, 'A VIN is 17 letters and digits, without I, O or Q'),
+  usage: z.string().min(1, 'Choose how it is used'),
+  miles: z.string().min(1, 'Enter the miles a year').superRefine((v, ctx) => {
+    const message = v && between(0, 99999, 'Up to 99,999 miles')(v);
+    if (message) ctx.addIssue({ code: 'custom', message });
+  }),
+});
+export const vehiclesResolver = zodResolver(z.object({ vehicles: z.array(vehicleSchema).min(1, 'Add a vehicle') }));
+
+const incidentSchema = z.object({
+  date: judged((v) => (!v ? 'Enter the date' : v > today() ? 'That date is in the future' : undefined)),
+  kind: z.string().min(1, 'Choose a kind'),
+  detail: z.string().max(200, 'At most 200 characters'),
+});
+
+const driverSchema = z.object({
+  name: z.string().trim().min(1, 'Enter the driver\'s name'),
+  license: z.string().regex(/^[A-Z0-9]{6,12}$/i, '6 to 12 letters and digits'),
+  since: judged((v) => {
     if (!v) return 'Enter the date licensed';
     if (v > today()) return 'That date is in the future';
     const born = draft.peek().about.birthDate;
     if (born && yearsBetween(born, v) < 16) return 'Licensed before turning 16?';
     return undefined;
-  },
-};
-export const incidentRules = {
-  date: (v, values, driver) => {
-    if (!v) return 'Enter the date';
-    if (v > today()) return 'That date is in the future';
-    const since = values[`drivers.${driver}.since`];
-    if (since && v < since) return 'Before this driver was licensed';
-    return undefined;
-  },
-  kind: (v) => (!v ? 'Choose a kind' : undefined),
-  detail: (v) => (String(v).length > 200 ? 'At most 200 characters' : undefined),
-};
-
-// The live items' field names, for a whole-step validation. Fields of
-// removed items stay in the form's values; only the live ones are judged.
-function judge(names, values, ruleFor, rootErrors) {
-  const errors = { ...rootErrors };
-  for (const name of names) {
-    const message = ruleFor(name, values);
-    if (message) errors[name] = err(message);
-  }
-  return { values, errors };
-}
-
-export function vehiclesResolver(liveIds) {
-  return async (values, _context, options) => {
-    const ids = liveIds();
-    const names = options?.names ?? ids.flatMap((id) => VEHICLE_FIELDS.map((f) => `vehicles.${id}.${f}`));
-    const root = !options?.names && ids.length === 0 ? { vehicles: err('Add a vehicle') } : {};
-    return judge(names, values, (name, all) => vehicleRules[name.split('.')[2]]?.(all[name], all), root);
-  };
-}
-
-export function driversResolver(liveDrivers) {
-  return async (values, _context, options) => {
-    const drivers = liveDrivers();
-    const names = options?.names ?? drivers.flatMap(({ id, incidents }) => [
-      ...DRIVER_FIELDS.map((f) => `drivers.${id}.${f}`),
-      ...incidents.flatMap((i) => INCIDENT_FIELDS.map((f) => `drivers.${id}.incidents.${i}.${f}`)),
-    ]);
-    const root = !options?.names && drivers.length === 0 ? { drivers: err('Add a driver') } : {};
-    return judge(names, values, (name, all) => {
-      const parts = name.split('.');
-      if (parts[2] === 'incidents') return incidentRules[parts[4]]?.(all[name], all, parts[1]);
-      return driverRules[parts[2]]?.(all[name], all);
-    }, root);
-  };
-}
+  }),
+  incidents: z.array(incidentSchema),
+}).superRefine((d, ctx) => {
+  // An incident before the driver was licensed: a rule across the item.
+  d.incidents.forEach((incident, i) => {
+    if (d.since && incident.date && incident.date <= today() && incident.date < d.since) {
+      ctx.addIssue({ code: 'custom', path: ['incidents', i, 'date'], message: 'Before this driver was licensed' });
+    }
+  });
+});
+export const driversResolver = zodResolver(z.object({ drivers: z.array(driverSchema).min(1, 'Add a driver') }));
 
 // --- Business, Coverage, Documents ------------------------------------------
 

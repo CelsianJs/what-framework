@@ -96,14 +96,15 @@ export function emptyDraft() {
 }
 
 // What the server says about a submitted quote: errors mapped to the step
-// and field they belong to, or the quote.
+// and the name of the field they belong to (a vehicle's by its place in the
+// list), or the quote.
 export function judgeQuote(draft, license) {
   const errors = [];
-  for (const v of draft.vehicles) {
+  draft.vehicles.forEach((v, i) => {
     if (STOLEN_VINS.includes(String(v.vin).toUpperCase())) {
-      errors.push({ step: 'vehicles', name: `vehicles.${v.id}.vin`, message: 'This VIN is reported stolen' });
+      errors.push({ step: 'vehicles', name: `vehicles.${i}.vin`, message: 'This VIN is reported stolen' });
     }
-  }
+  });
   if (!license || license.size === 0) {
     errors.push({ step: 'documents', name: 'license', message: 'Attach a photo of your license' });
   }

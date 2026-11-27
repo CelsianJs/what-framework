@@ -39,6 +39,8 @@ Three waves, in this order.
   load. All three are in what-react: an event a React handler should not
   hear, a context a React component could not reach, and console noise in
   Firefox.
+- **46** is the gap `wizard` had worked around by hand (reported as J):
+  `useForm` could not forget a field, so its field arrays could not use it.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -891,6 +893,27 @@ each. Any page with a React click handler had them. React's synthetic event
 has neither field, and the copy now leaves out `moz*` fields.
 - Test: `packages/react-compat/test/synthetic-event-fields.test.js` (fails
   before: both fields read for one click).
+### 46. `useForm` could not forget a field, so a field array kept every item it ever had
+`packages/core/src/form.js` (`unregister`, `useFieldArray`, names as paths)
+
+A field array item the visitor removed stayed in the form for its lifetime:
+its value in `formState.values`, `watch()` and what `handleSubmit` handed
+over, its error in `formState.errors` (so `isValid` stayed false and a
+step's "3 things to fix" counted it until a whole-form validation), its
+touched state, and a validation of it still in flight landed after it was
+gone. Names were flat keys, so `register('vehicles.0.vin')` was no path and
+a zod schema over the arrays saw none of the values. wizard cleared a
+removed item's errors by hand and read only the live items' values. As in
+React Hook Form, a name is a path (`values.vehicles[0].vin`; errors stay
+keyed by the name), `unregister(name | names)` forgets a field, and
+`useFieldArray` keeps each item's values, errors and touched state under
+the item, so they move with it and go when it is removed. A row is built
+once, so a field registered in it keeps its item while rows move, and its
+name follows the item's place. wizard's vehicles and drivers (with their
+incidents) are `useFieldArray`s now, validated by zod schemas over the
+nested arrays, and its draft is the form's values as they are.
+- Tests: `packages/core/test/form-unregister.test.js`,
+  `form-paths.test.js`, `form-field-array.test.js` (each fails before).
 
 ## Reported, not fixed
 
@@ -1061,28 +1084,6 @@ later visit and the retry each download the chunk, and the chapter replaces
 the error page in the same document. In WebKit they ask for it and get the
 failure again, below. `packages/core/test/lazy-retry.test.js` and
 `packages/router/test/lazy-route-retry.test.js` pin it.
-
-### J. `useForm` cannot forget a field: no `unregister`, no field arrays
-
-A field array item the visitor removes stays in the form for its lifetime:
-its value in `formState.values`, `watch()` and what `handleSubmit` hands
-over, its error in `formState.errors` (so `isValid` stays false and a step's
-"3 things to fix" counts it until a whole-form validation), its touched
-state, and a validation of it still in flight lands after it is gone. Every
-add and remove leaves its fields behind, so a long session grows the form.
-React Hook Form forgets a field with `unregister(name | names)`, and
-`useFieldArray().remove()` does it for an item. wizard works around it:
-removing an item clears its errors by hand (`forgetFields`), and the draft
-reads only the live items' values.
-- Failing test, not in the tree: `form-unregister.test.js` in the round 6
-  wizard lane's `keep/` (2 of 2 fail: `form.unregister is not a function`).
-- Why not fixed: deleting a field's signal is not safe while something still
-  reads it. An input still mounted would keep its binding on the old signal,
-  and the controlled-field restore would then put back every keystroke; a
-  `watch(name)` would stay on the old signal after the name came back. It
-  needs a decision on what `unregister` keeps (RHF's `keepValue`,
-  `keepError`, ...) and whether `register` re-creates, so it is left for a
-  design.
 
 ## The load apps: what they measured
 

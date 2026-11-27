@@ -1,25 +1,23 @@
-// Step 3: the vehicles, a field array. Each vehicle is a keyed row whose
-// fields are named `vehicles.<id>.<field>`, so a row keeps its fields, its
-// element and its focus when rows are added, removed or reordered around it.
-// Alt+ArrowUp and Alt+ArrowDown move the row being edited; its menu (which
-// closes on a click outside it) duplicates or removes it.
+// Step 3: the vehicles, a field array (useFieldArray). Each vehicle is a row
+// keyed by its field's id, whose fields are named by its place
+// (`vehicles.0.vin`): a row is built once, and its fields keep their vehicle,
+// its element and its focus when rows are added, removed or reordered
+// around it. Alt+ArrowUp and Alt+ArrowDown move the row being edited; its
+// menu (which closes on a click outside it) duplicates or removes it.
 
-import { flushSync, onCleanup, useEffect, useSignal, useState } from 'what-framework';
+import { flushSync, onCleanup, useEffect, useState } from 'what-framework';
+import { useFieldArray } from 'what-framework/form';
 import { Link } from 'what-router';
 
 import { MAKES, USAGES, emptyVehicle, newId } from '../data.js';
-import { draft } from '../draft.js';
-import { VEHICLE_FIELDS, vehiclesResolver } from '../validation.js';
-import { fieldError, forgetFields, previousStepPath, problemCount, useStepForm } from '../step-form.js';
+import { vehiclesResolver } from '../validation.js';
+import { fieldError, previousStepPath, problemCount, useStepForm } from '../step-form.js';
 import { countBinding, probes } from '../probes.js';
 
 const MAX_VEHICLES = 6;
 
-function flatten(list) {
-  const out = {};
-  for (const v of list) for (const f of VEHICLE_FIELDS) out[`vehicles.${v.id}.${f}`] = v[f];
-  return out;
-}
+// A row's place now: the index it was built at goes stale when rows move.
+export const placeOf = (fields, field) => () => fields().findIndex((f) => f.id === field.id);
 
 export function focusIn(selector) {
   queueMicrotask(() => document.querySelector(selector)?.focus());
@@ -41,14 +39,10 @@ export function keepFocus(reorder) {
   }
 }
 
-export function moveIn(list, id, by) {
-  const at = list.indexOf(id);
+// Moves the item at `at` by `by` places, when there is room.
+export function moveBy(array, at, by) {
   const to = at + by;
-  if (at === -1 || to < 0 || to >= list.length) return list;
-  const next = [...list];
-  next.splice(at, 1);
-  next.splice(to, 0, id);
-  return next;
+  if (at !== -1 && to >= 0 && to < array.fields.peek().length) keepFocus(() => array.move(at, to));
 }
 
 // A row's menu, open until a click lands outside it. The listener on the
@@ -77,48 +71,53 @@ export function RowMenu({ label, actions }) {
   );
 }
 
-function VehicleRow({ id, ids, form, onMove, onRemove, onDuplicate }) {
+// `id` is the vehicle's own id in the draft, which the page's test hooks
+// (data-vehicle, data-error) carry; field.id is the row's key.
+function VehicleRow({ field, index, array, form, onRemove, onDuplicate }) {
+  const id = form.getValue(`vehicles.${index}.id`);
   probes.created.vehicle++;
   probes.effectsLive++;
   onCleanup(() => { probes.disposed.vehicle++; probes.effectsLive--; });
   const { register } = form;
-  const name = (f) => `vehicles.${id}.${f}`;
+  const place = placeOf(array.fields, field);
+  const onMove = (by) => moveBy(array, place(), by);
   const onKeyDown = (e) => {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    onMove(id, e.key === 'ArrowUp' ? -1 : 1);
+    onMove(e.key === 'ArrowUp' ? -1 : 1);
   };
-  const field = (f, label, input) => (
+  const cell = (f, label, input) => (
     <div class="field">
-      <label for={`f-${name(f)}`}>{label}</label>
+      <label for={`f-${id}-${f}`}>{label}</label>
       {input}
-      <span class="field-error" data-error={name(f)} role="alert">{fieldError(form, name(f), () => countBinding(id))}</span>
+      <span class="field-error" data-error={`vehicles.${id}.${f}`} role="alert">{fieldError(form, () => `vehicles.${place()}.${f}`, () => countBinding(id))}</span>
     </div>
   );
+  const name = (f) => `vehicles.${index}.${f}`;
   return (
     <fieldset class="item" data-vehicle={id} onKeyDown={onKeyDown}>
       <legend>
-        <span data-vehicle-number>{`Vehicle ${ids().indexOf(id) + 1}`}</span>
+        <span data-vehicle-number>{() => `Vehicle ${place() + 1}`}</span>
         <RowMenu label="Vehicle" actions={[
-          { name: 'up', label: 'Move up', run: () => onMove(id, -1) },
-          { name: 'down', label: 'Move down', run: () => onMove(id, 1) },
-          { name: 'duplicate', label: 'Duplicate', run: () => onDuplicate(id) },
-          { name: 'remove', label: 'Remove', run: () => onRemove(id) },
+          { name: 'up', label: 'Move up', run: () => onMove(-1) },
+          { name: 'down', label: 'Move down', run: () => onMove(1) },
+          { name: 'duplicate', label: 'Duplicate', run: () => onDuplicate(place()) },
+          { name: 'remove', label: 'Remove', run: () => onRemove(place()) },
         ]} />
       </legend>
       <div class="grid three">
-        {field('year', 'Year', <input id={`f-${name('year')}`} type="number" inputmode="numeric" {...register(name('year'))} />)}
-        {field('make', 'Make', (
-          <select id={`f-${name('make')}`} {...register(name('make'))}>
+        {cell('year', 'Year', <input id={`f-${id}-year`} type="number" inputmode="numeric" {...register(name('year'))} />)}
+        {cell('make', 'Make', (
+          <select id={`f-${id}-make`} {...register(name('make'))}>
             <option value="">Choose…</option>
             {MAKES.map((m) => <option value={m}>{m}</option>)}
           </select>
         ))}
-        {field('model', 'Model', <input id={`f-${name('model')}`} {...register(name('model'))} />)}
+        {cell('model', 'Model', <input id={`f-${id}-model`} {...register(name('model'))} />)}
       </div>
       <div class="grid two">
-        {field('vin', 'VIN', <input id={`f-${name('vin')}`} class="mono" maxlength="17" {...register(name('vin'))} />)}
-        {field('miles', 'Miles a year', <input id={`f-${name('miles')}`} type="number" {...register(name('miles'))} />)}
+        {cell('vin', 'VIN', <input id={`f-${id}-vin`} class="mono" maxlength="17" {...register(name('vin'))} />)}
+        {cell('miles', 'Miles a year', <input id={`f-${id}-miles`} type="number" {...register(name('miles'))} />)}
       </div>
       <div class="field" role="radiogroup" aria-label="Used for">
         <span class="label">Used for</span>
@@ -130,66 +129,51 @@ function VehicleRow({ id, ids, form, onMove, onRemove, onDuplicate }) {
             </label>
           ))}
         </div>
-        <span class="field-error" data-error={name('usage')} role="alert">{fieldError(form, name('usage'))}</span>
+        <span class="field-error" data-error={`vehicles.${id}.usage`} role="alert">{fieldError(form, () => `vehicles.${place()}.usage`)}</span>
       </div>
     </fieldset>
   );
 }
 
 export function VehiclesStep() {
-  const initial = draft.peek().vehicles;
-  const ids = useSignal(initial.map((v) => v.id));
   const form = useStepForm('vehicles', {
-    defaults: () => flatten(initial),
-    collect: (values) => ids().map((id) => {
-      const v = { id };
-      for (const f of VEHICLE_FIELDS) v[f] = values[`vehicles.${id}.${f}`] ?? '';
-      return v;
-    }),
-    resolver: vehiclesResolver(() => ids.peek()),
+    defaults: (d) => ({ vehicles: d.vehicles }),
+    collect: (values) => values.vehicles,
+    resolver: vehiclesResolver,
     mode: 'onChange',
   });
+  const array = useFieldArray({ control: form.control, name: 'vehicles' });
+  const { fields } = array;
 
   const add = (from) => {
-    if (ids.peek().length >= MAX_VEHICLES) return;
+    if (fields.peek().length >= MAX_VEHICLES) return;
     const id = newId('v');
-    const seed = from ? { ...collectOne(form, from), id } : emptyVehicle(id);
-    for (const f of VEHICLE_FIELDS) form.setValue(`vehicles.${id}.${f}`, seed[f], { shouldDirty: false });
-    const list = ids.peek();
-    ids(from ? [...list.slice(0, list.indexOf(from) + 1), id, ...list.slice(list.indexOf(from) + 1)] : [...list, id]);
-    focusIn(`[name="vehicles.${id}.year"]`);
+    if (from === undefined) array.append(emptyVehicle(id));
+    else array.insert(from + 1, { ...form.getValue(`vehicles.${from}`), id });
+    focusIn(`[data-vehicle="${id}"] [name$=".year"]`);
   };
-  const remove = (id) => {
-    const list = ids.peek();
-    const at = list.indexOf(id);
-    ids(list.filter((x) => x !== id));
-    forgetFields(form, `vehicles.${id}.`);
-    const next = list[at + 1] ?? list[at - 1];
+  const remove = (at) => {
+    const ids = form.getValue('vehicles').map((v) => v.id);
+    array.remove(at);
+    const next = ids[at + 1] ?? ids[at - 1];
     if (next) focusIn(`[data-vehicle="${next}"] [data-menu-toggle]`);
     else focusIn('[data-add-vehicle]');
   };
-  const move = (id, by) => keepFocus(() => ids(moveIn(ids.peek(), id, by)));
 
   return (
     <form data-step-form="vehicles" onSubmit={form.next} novalidate>
       <h2>Your vehicles</h2>
       <p class="muted">Up to {MAX_VEHICLES}. Alt+↑ and Alt+↓ move the vehicle you are editing.</p>
       <div class="items" data-vehicles>
-        {ids().map((id) => <VehicleRow key={id} id={id} ids={ids} form={form} onMove={move} onRemove={remove} onDuplicate={(v) => add(v)} />)}
+        {fields().map((field, index) => <VehicleRow key={field.id} field={field} index={index} array={array} form={form} onRemove={remove} onDuplicate={add} />)}
       </div>
       <span class="field-error" data-error="vehicles" role="alert">{fieldError(form, 'vehicles')}</span>
       <p class="field-error" data-step-problems>{problemCount(form)}</p>
-      <button type="button" data-add-vehicle onClick={() => add()} disabled={ids().length >= MAX_VEHICLES}>Add a vehicle</button>
+      <button type="button" data-add-vehicle onClick={() => add()} disabled={fields().length >= MAX_VEHICLES}>Add a vehicle</button>
       <footer class="actions">
         <Link href={previousStepPath('vehicles')} data-back>Back</Link>
         <button type="submit" class="primary" data-next>Next</button>
       </footer>
     </form>
   );
-}
-
-function collectOne(form, id) {
-  const v = { id };
-  for (const f of VEHICLE_FIELDS) v[f] = form.getValue(`vehicles.${id}.${f}`);
-  return v;
 }

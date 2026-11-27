@@ -62,15 +62,6 @@ export function useStepForm(id, { defaults, collect, resolver, mode = 'onChange'
   return { ...form, next };
 }
 
-// useForm keeps every field it was ever told about, and has no way to forget
-// one (React Hook Form's unregister): a removed array item's errors would
-// stay in formState.errors and count against the step. Removing an item
-// clears them; the item's values stay in the form, and collect() reads only
-// the live items, so they never reach the draft.
-export function forgetFields(form, prefix) {
-  for (const name of Object.keys(form.formState.errors)) if (name.startsWith(prefix)) form.clearError(name);
-}
-
 // How many problems the step shows, for its summary.
 export function problemCount(form) {
   return () => {
@@ -79,10 +70,12 @@ export function problemCount(form) {
   };
 }
 
-// Field errors, read in JSX so each one follows its own field only.
+// Field errors, read in JSX so each one follows its own field only. `name`
+// is a field's name, or a function giving it: the name of a field of a
+// field array item changes when the item moves, and a row is built once.
 export function fieldError(form, name, onRun) {
   return () => {
     if (onRun) onRun();
-    return form.formState.error(name)?.message || '';
+    return form.formState.error(typeof name === 'function' ? name() : name)?.message || '';
   };
 }
