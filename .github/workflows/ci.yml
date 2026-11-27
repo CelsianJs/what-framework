@@ -633,3 +633,11 @@ jobs:
         run: npx playwright install --with-deps webkit
       - name: Native hydration, forms and islands acceptance
         run: node smoke/native-acceptance.mjs --browser=webkit
+      - name: Build packages
+        if: success() || failure()
+        run: npm run -s build
+      - name: App smoke suite in WebKit
+        if: success() || failure()
+        env:
+          WHAT_SMOKE_BROWSER: webkit
+        run: npm run -s smoke:apps
