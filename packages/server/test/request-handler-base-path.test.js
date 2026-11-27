@@ -141,7 +141,7 @@ describe('createRequestHandler basePath and a CDN purge', () => {
     const own = createCacheEngine({ store: createMemoryStore(), cdn, basePath: '/shop' });
     createRequestHandler({ routes, cache: own, basePath: '/app', csrf: false });
     await own.revalidatePath('/about');
-    assert.deepEqual(purged, ['/app/about', '/app/x?q=1', '/shop/about']);
+    assert.deepEqual(purged, ['/app/about', '/app/about/', '/app/x?q=1', '/app/x/?q=1', '/shop/about', '/shop/about/']);
   });
 });
 

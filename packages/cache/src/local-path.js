@@ -61,3 +61,57 @@ export function purgeUrlBelow(baseUrl, target) {
     return null;
   }
 }
+
+/**
+ * The URLs a CDN may hold the page at the local path `local` (a canonical
+ * "path?query") under, below `base`: with and without its trailing slash, as
+ * a request handler serves both ('/app/x' and '/app/x/', the root '/app' and
+ * '/app/'), and at the site's root, '/' alone.
+ * @param {string} base
+ * @param {string} local
+ */
+export function cdnPathsOf(base, local) {
+  const at = local.indexOf('?');
+  const search = at < 0 ? '' : local.slice(at);
+  const bare = base + (at < 0 ? local : local.slice(0, at)).replace(/\/+$/, '');
+  return bare ? [bare + search, bare + '/' + search] : ['/' + search];
+}
+
+/**
+ * A CDN adapter's `purge` of the local paths in `targets`, as absolute URLs
+ * below `baseUrl`. With no `baseUrl` a local path names no URL the CDN can
+ * purge: it is skipped, and `warn(path)` is called (once per adapter, by its
+ * caller). An absolute URL is kept as it is when `keepAbsolute` is true.
+ * @param {string | undefined} baseUrl
+ * @param {string[]} targets
+ * @param {boolean} keepAbsolute
+ * @param {(path: string) => void} warn
+ */
+export function purgeUrlsBelow(baseUrl, targets, keepAbsolute, warn) {
+  const urls = [];
+  for (const target of targets) {
+    if (typeof target === 'string' && !target.startsWith('/')) {
+      if (keepAbsolute) urls.push(target);
+    } else if (baseUrl) {
+      const url = purgeUrlBelow(baseUrl, target);
+      if (url !== null) urls.push(url);
+    } else {
+      warn(String(target));
+    }
+  }
+  return urls;
+}
+
+/**
+ * The warning an adapter `name` gives, once, when a purge of a local path
+ * finds no `baseUrl` to name its URL with.
+ * @param {string} name
+ */
+export function noBaseUrlWarning(name) {
+  let warned = false;
+  return (path) => {
+    if (warned) return;
+    warned = true;
+    console.warn(`[what-isr] ${name}: a purge of ${JSON.stringify(path)} was skipped, and every path's will be: pass \`baseUrl\`, the site's URL at the CDN ('https://example.com'), which a purged path is joined to.`);
+  };
+}

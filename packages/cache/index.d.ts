@@ -127,9 +127,9 @@ export interface CDNAdapter {
   purge(urls: string[]): Promise<void>;
   purgeTags(tags: string[]): Promise<void>;
 }
-/** A local path is purged at its URL below `baseUrl` (the site's URL at the CDN, its path kept); an absolute URL as it is. */
+/** A local path is purged at its URL below `baseUrl` (the site's URL at the CDN, its path kept), and skipped with one warning without it; an absolute URL as it is. */
 export function createCloudflareCDN(options: { zoneId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
-/** `baseUrl` is required for URL purge: only local paths are purged, at their URL below it (the site's URL at the CDN, its path kept). */
+/** `baseUrl` is required for URL purge: only local paths are purged, at their URL below it (the site's URL at the CDN, its path kept); without it a purge does nothing, with one warning. */
 export function createFastlyCDN(options: { serviceId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
 export function createVercelCDN(options: { projectId: string; token: string; teamId?: string }): CDNAdapter;
 

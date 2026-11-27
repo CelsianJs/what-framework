@@ -43,7 +43,7 @@
 import { cacheKey, canonicalMatch, keyOrigin, keyTarget, normalizePath, normalizeQuery, resolveVary, declaredVary } from './key.js';
 import { makeEntry, isFresh, isServableStale } from './stores/store-interface.js';
 import { buildCacheHeaders, responseHeaderList, servedHeaders } from './headers.js';
-import { basePathOf, safeLocalPath } from './local-path.js';
+import { basePathOf, cdnPathsOf, safeLocalPath } from './local-path.js';
 
 function isShareable(entry) {
   return entry.status === 200 && !entry.private;
@@ -418,8 +418,9 @@ export function createCacheEngine({ store, render, cdn, now = Date.now, logger =
     const norm = normalizePath(local);
     const deleted = await store.deleteByPath(norm);
     forget(deleted);
-    // The CDN caches the page at its URL below the base.
-    if (cdn && cdn.purge) await cdn.purge([base + local]);
+    // The CDN caches the page at its URL below the base, with and without
+    // its trailing slash.
+    if (cdn && cdn.purge) await cdn.purge(cdnPathsOf(base, local));
     if (regen) {
       const route = routeFor(norm, routeResolver, { path: norm, query: '' });
       if (route === null) {

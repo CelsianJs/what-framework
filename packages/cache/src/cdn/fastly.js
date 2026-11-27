@@ -1,6 +1,6 @@
 // Fastly CDN adapter — surrogate-key purge (tags) and URL purge.
 
-import { purgeUrlBelow } from '../local-path.js';
+import { noBaseUrlWarning, purgeUrlsBelow } from '../local-path.js';
 
 /**
  * @param {object} [credentials]
@@ -15,8 +15,9 @@ export function createFastlyCDN({ serviceId, apiToken, baseUrl } = {}) {
   // A URL purge is a request to an arbitrary host carrying the Fastly API key,
   // so only local paths below the configured baseUrl are ever sent. A path in
   // baseUrl is kept ('https://example.com/shop' purges '/x' at
-  // 'https://example.com/shop/x').
-  const purgeUrl = (target) => purgeUrlBelow(baseUrl, target);
+  // 'https://example.com/shop/x'). Without baseUrl nothing is purged by URL,
+  // with one warning.
+  const warn = noBaseUrlWarning('createFastlyCDN');
 
   async function purgeKey(key) {
     if (!serviceId || !apiToken) return;
@@ -29,10 +30,7 @@ export function createFastlyCDN({ serviceId, apiToken, baseUrl } = {}) {
   return {
     async purge(paths) {
       if (!apiToken) return;
-      for (const p of paths) {
-        const url = purgeUrl(p);
-        if (url) await fetch(url, { method: 'PURGE', headers });
-      }
+      for (const url of purgeUrlsBelow(baseUrl, paths, false, warn)) await fetch(url, { method: 'PURGE', headers });
     },
     async purgeTags(tags) {
       for (const t of tags) await purgeKey(t);
