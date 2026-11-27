@@ -28,6 +28,14 @@ export function whatImport(sourceCode, callee) {
   return def.node.imported.name ?? def.node.imported.value;
 }
 
+const REACT_SOURCES = /^(react|react-dom|preact|what-react)(\/|$)/;
+
+/** Whether `callee` is imported from React, Preact or what-react, whose hooks return values. */
+function reactImport(sourceCode, callee) {
+  const def = resolve(sourceCode, callee)?.defs[0];
+  return def?.type === 'ImportBinding' && REACT_SOURCES.test(String(def.parent?.source?.value));
+}
+
 /**
  * What the identifier `node` is, when What made it: 'accessor' for the state a
  * What hook or primitive returns (`const x = signal()`, the first element of
@@ -54,13 +62,15 @@ export function whatState(sourceCode, node) {
  * under its name (createSignalTracker, which goes by name): the declaration
  * it resolves to is a call of a signal creator, an accessor-pair hook or a
  * data hook. A same-named variable of another scope (a parameter, a local
- * `const idx = current()`) is not. Without scope information (a test's fake
- * context) the name decides.
+ * `const idx = current()`) is not, nor is state a React, Preact or what-react
+ * hook returns. Without scope information (a test's fake context) the name
+ * decides.
  */
 export function declaredAsSignal(sourceCode, node) {
   if (!sourceCode?.getScope) return true;
   const def = resolve(sourceCode, node)?.defs[0];
   if (def?.type !== 'Variable' || def.node.init?.type !== 'CallExpression' || def.node.init.callee.type !== 'Identifier') return false;
+  if (reactImport(sourceCode, def.node.init.callee)) return false;
   const hook = def.node.init.callee.name;
   const id = def.node.id;
   if (id.type === 'Identifier') return id === def.name && SIGNAL_CREATORS.includes(hook);

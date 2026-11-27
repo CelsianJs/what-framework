@@ -89,4 +89,13 @@ describe('no-uncalled-signals: What state used as data', () => {
     assert.deepEqual(lint("function A() { const [name] = useState(''); const [s, setS] = useState(null); return <p onClick={() => setS({ name })}>{JSON.stringify(s)}</p>; }", { head: react, wrap: false }), []);
     assert.deepEqual(lint("function A() { const [name] = useState(''); const show = (name) => JSON.stringify({ name }); return <p>{show(1)}{name}</p>; }", { wrap: false }), []);
   });
+
+  it('does not report a React state value compared or interpolated', () => {
+    const code = "function A() { const [status] = useState('loading'); const [error] = useState(null); " +
+      "return <div className={`card ${status}`}>{status === 'fail' && `FAIL: ${error}`}</div>; }";
+    for (const source of ['react', 'preact/hooks', 'what-react']) {
+      assert.deepEqual(lint(code, { head: `import { useState } from '${source}';\n`, wrap: false }), [], source);
+    }
+    assert.equal(lint(code, { wrap: false }).length, 3, "What's own useState still is");
+  });
 });
