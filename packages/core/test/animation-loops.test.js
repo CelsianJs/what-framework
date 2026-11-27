@@ -104,7 +104,7 @@ describe('tween', () => {
 describe('useGesture', () => {
   const at = (type, x, y, target = window) => target.dispatchEvent(Object.assign(new window.MouseEvent(type, { bubbles: true, clientX: x, clientY: y })));
 
-  it('reports a drag, a swipe and then a tap, each from its own start', () => {
+  it('reports a drag, a swipe, a tap and a long press, each from its own start', () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     let now = 0;
     const realNow = performance.now;
@@ -145,8 +145,7 @@ describe('useGesture', () => {
         ['start', 5, 5], ['tap', 5, 5], ['end', 0, 0],
         ['start', 7, 7],
       ]);
-      assert.deepEqual(log[8], ['long', 7, 7]);
-      assert.deepEqual(log.at(-1), ['end', 0, 0]);
+      assert.deepEqual(log.slice(8), [['long', 7, 7], ['end', 0, 0]], 'a long press is not also a tap');
 
       const count = log.length;
       dispose();

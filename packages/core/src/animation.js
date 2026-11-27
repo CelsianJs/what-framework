@@ -269,6 +269,9 @@ export function useGesture(element, handlers = {}) {
   let lastY = 0;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let longPressTimer = null;
+  // Whether this gesture was reported as a long press, which is then not
+  // also a tap.
+  let longPressed = false;
 
   function handleStart(e) {
     const touch = e.touches ? e.touches[0] : e;
@@ -291,9 +294,12 @@ export function useGesture(element, handlers = {}) {
     if (onDragStart) onDragStart({ x: state.startX, y: state.startY });
 
     // Long press detection
+    longPressed = false;
     if (onLongPress) {
       longPressTimer = setTimeout(() => {
+        longPressTimer = null;
         if (state.isDragging.peek()) {
+          longPressed = true;
           onLongPress({ x: lastX, y: lastY });
         }
       }, 500);
@@ -361,7 +367,7 @@ export function useGesture(element, handlers = {}) {
     const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
 
     // Tap detection
-    if (distance < 10 && onTap) {
+    if (distance < 10 && onTap && !longPressed) {
       onTap({ x: state.startX, y: state.startY });
     }
 
