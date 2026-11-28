@@ -1285,6 +1285,27 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   console warnings from `[what]` and `[vite]` fail it unless it lists them,
   and admin-dashboard saves an edit and waits for the reload. workspace-ssr,
   mixed-desk and chat gain `npm run dev`.
+- **Layouts nest** (what-router, what-compiler): a `nestedRoutes` or
+  `routeGroup` layout goes around a route's own layout, a route's `layout`
+  may be a list (outermost first), and the file router gives each page every
+  enclosing `_layout`. In development, a read of the query in the body of a
+  page kept across a query change is reported as `ERR_PROP_READ_ONCE`, with
+  the fix, and the compiler reports a value derived from a route's `query`
+  in the body.
+- **`virtual:what-routes/server`** (what-compiler's Vite plugin): the file
+  router's routes with each page's `loader`, `getStaticPaths` and `page`
+  config, for a server entry. The plugin served only the browser's module, so
+  a server entry wrote its routes by hand.
+- **A file-router page's `preload` and `middleware` exports are its
+  route's** (what-compiler, what-router), in the browser's routes module and
+  the server's: a navigation to the page waits for what `preload` returns,
+  and `middleware` decides whether it shows. A `loader` stays out of the
+  browser's module.
+- **smoke/apps/saas**, a multi-tenant console of file-router pages with a
+  `_layout` per section nested three deep, server-rendered below a base path
+  and hydrated: URL-driven filters and editor, loaders, one query cache, an
+  optimistic action that redirects, a sign-in guard and a 2,000-row table,
+  in every browser and in dev mode.
 
 ### Fixed
 
@@ -2406,6 +2427,39 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
 - **`unregister` after `reset()` leaves `dirtyFields` alone**: it put every
   array- or object-valued field (a multiple select, a checkbox group) in
   `dirtyFields`.
+- **Moving between routes keeps every layout the two chains share**
+  (what-router), from the outermost down to the first that differs, as React
+  Router's nested `<Outlet>`s and Next.js's nested layouts do: `/app/x`
+  (layouts App, X) to `/app/y` (App, Y) keeps App with its state and DOM and
+  builds only Y, where any difference in the chain built all of it again. A
+  layout whose own params change stays, with live `params`. A server-rendered
+  chain hydrates with no mismatch, and its shared layouts stay the server's
+  elements after a navigation. `packages/router/test/nested-layout-persists.test.js`,
+  `nested-layout-hydration.test.js`.
+- **A change of the query alone keeps the page mounted** (what-router), with
+  its state, as React Router keeps the route's element and Next.js keeps a
+  page on a search-param change: its `query` and `data` props are live, and
+  no `loading:` screen shows. Other params, or another route, still build
+  the page again. A route showing its error page builds it again.
+  `packages/router/test/page-query-persists.test.js`.
+- **A route group's `(auth)/_layout` wraps the group's pages** (what-compiler,
+  file router): layouts were matched by URL prefix, so the group's layout and
+  the root's shared one key and one replaced the other.
+- **A `<Link>` follows its live props** (what-router): in a layout kept
+  across navigations, `href={`/org/${params.orgId}/members`}`, a live
+  `class`, `replace`, `transition`, `prefetch`, the active classes and each
+  attribute it passes on (`aria-current`) follow their values, and a click
+  goes where the href says now. It read them once while
+  it was built, so a kept layout's links pointed at the params it was built
+  for, and a link on a page kept across a query change was reported as
+  reading the query once (`ERR_PROP_READ_ONCE`).
+  `packages/router/test/link-live-href.test.js`,
+  `page-query-read-once-diagnostic.test.js`.
+- **`useQuery` and `useSWR` render an entry the page's loader prefetched**
+  (what-core, what-server) on the server and in the hydration walk, as
+  TanStack Query renders a query prefetched on the server, and the client
+  fetches nothing: they rendered their loading state. The document names
+  those entries in its data channel. `packages/server/test/query-roundtrip.test.js`.
 - **what-router and what-server errors thrown with a catalogue code read
   `[what] ERR_…` and the fix line in development**, as what-core's do;
   production keeps the `[what-router]` and `[what-server]` text.

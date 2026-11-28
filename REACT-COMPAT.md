@@ -415,7 +415,7 @@ Production builds through Vite, gzip, as `npm run check:size` measures them
 |---|---|---|---|
 | `react-counter`: a counter, `reactCompat()` alone | 16,379 B | 22,160 B | 67,599 B |
 | `mixed-recharts`: a native What page that draws a recharts chart; the chunk that holds what-core and what-react, recharts' own code apart | 24,410 B | 29,074 B | 67,383 B (React and ReactDOM) |
-| `mixed-hydrate`: a native page with one React island, hydrating | 44,026 B | 44,964 B | (none) |
+| `mixed-hydrate`: a native page with one React island, hydrating | 44,027 B | 44,964 B | (none) |
 
 `node benchmark/size/why.mjs <scenario>` lists what is in a scenario's
 bundle, declaration by declaration, with what keeps each one there.
