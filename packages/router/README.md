@@ -81,6 +81,11 @@ function Products({ query }) {
 }
 ```
 
+A component the change disposes is not reported: one under a `key` that
+changes with the query is built again with the new value, as in React
+(`{query.edit ? <Editor key={query.edit} /> : null}` gives each `?edit=` a
+fresh editor), and one in a branch the change closes is gone.
+
 ## Route Patterns
 
 ```js
