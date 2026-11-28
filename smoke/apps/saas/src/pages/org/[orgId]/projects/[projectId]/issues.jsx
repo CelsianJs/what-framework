@@ -7,8 +7,13 @@
 import { useOptimistic, useState, useTransition } from 'what-framework';
 import { Link, navigate } from 'what-router';
 import { updateIssue } from '../../../../../actions.js';
-import { issueFilters, keys, useIssues } from '../../../../../queries.js';
+import { issueFilters, keys, prefetchIssues, useIssues } from '../../../../../queries.js';
 import { loadPage } from '../../../../../loaders.js';
+
+// A navigation here (a tab, a filter, a page) waits for the list it shows, so
+// the page appears with its rows. The server's render has them already: its
+// loader filled the entry.
+export const preload = ({ params, query }) => (import.meta.env.SSR ? undefined : prefetchIssues(params.orgId, params.projectId, issueFilters(query)));
 
 export const loader = (ctx) => loadPage(ctx, (db) => {
   const { orgId, projectId } = ctx.params;

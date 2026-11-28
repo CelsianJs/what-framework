@@ -5,7 +5,7 @@
 // the entries it reads (loaders.js), and the browser adopts them when it
 // hydrates.
 
-import { useQuery } from 'what-framework/data';
+import { prefetchQuery, useQuery } from 'what-framework/data';
 
 const API = `${import.meta.env.BASE_URL}api/`;
 
@@ -38,15 +38,18 @@ export const useProject = (orgId, projectId) => useQuery({
   queryFn: ({ queryKey, signal }) => getJson(`orgs/${queryKey[1]}/projects/${queryKey[2]}`, signal),
   ...FRESH,
 });
+const fetchIssues = (queryKey, signal) => {
+  const [, o, p, status, sort, page] = queryKey;
+  return getJson(`orgs/${o}/projects/${p}/issues?${new URLSearchParams({ status, sort, page })}`, signal);
+};
 export const useIssues = (orgId, projectId, filters) => useQuery({
   queryKey: () => keys.issues(orgId(), projectId(), filters()),
-  queryFn: ({ queryKey, signal }) => {
-    const [, o, p, status, sort, page] = queryKey;
-    return getJson(`orgs/${o}/projects/${p}/issues?${new URLSearchParams({ status, sort, page })}`, signal);
-  },
+  queryFn: ({ queryKey, signal }) => fetchIssues(queryKey, signal),
   keepPreviousData: true,
   ...FRESH,
 });
+/** Fill the issue list's entry for these filters, unless it holds a fresh value. */
+export const prefetchIssues = (orgId, projectId, filters) => prefetchQuery(keys.issues(orgId, projectId, filters), (key, { signal }) => fetchIssues(key, signal), FRESH);
 export const useMembers = (orgId) => useQuery({ queryKey: () => keys.members(orgId()), queryFn: ({ queryKey, signal }) => getJson(`orgs/${queryKey[1]}/members`, signal), ...FRESH });
 export const useBilling = (orgId) => useQuery({ queryKey: () => keys.billing(orgId()), queryFn: ({ queryKey, signal }) => getJson(`orgs/${queryKey[1]}/billing`, signal), ...FRESH });
 

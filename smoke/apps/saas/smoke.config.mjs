@@ -302,7 +302,8 @@ export default {
 
       // Another org: the shell stays and its links follow the org's id.
       await go('[data-switch="globex"]', '[data-page="overview"]');
-      await page.waitForFunction(() => document.querySelector('[data-org-name]')?.textContent === 'Globex');
+      await page.waitForFunction(() => document.querySelector('[data-org-name]')?.textContent === 'Globex'
+        && document.querySelector('[data-project-card]')?.dataset.projectCard === 'delta', undefined, { timeout: 10000 });
       const switched = await page.evaluate(() => ({
         members: document.querySelector('[data-nav="members"]').getAttribute('href'),
         cards: [...document.querySelectorAll('[data-project-card]')].map((el) => el.dataset.projectCard),
@@ -331,6 +332,24 @@ export default {
       gapCheck('query-remount', 'route:query-keeps-page', after.kept && after.draft === 'Write the release notes',
         'a filter change (a query-string change on the same route) keeps the issue list mounted, with what was typed in it',
         `page-same-node=${after.kept} draft="${after.draft}"`);
+
+      // The page's exported preload holds the navigation until the list it
+      // shows is there: a filter nobody has fetched yet shows its rows at once.
+      await page.evaluate(() => {
+        window.__shown = [];
+        new MutationObserver(() => {
+          const total = document.querySelector('[data-issue-total]')?.textContent;
+          if (total && window.__shown[window.__shown.length - 1] !== total) window.__shown.push(total);
+        }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      });
+      const fetchesBefore = await page.evaluate(() => window.__nsApi.count);
+      await page.selectOption('[data-filter="status"]', 'in_progress');
+      await page.waitForURL(/status=in_progress/);
+      await page.waitForFunction(() => document.querySelector('[data-issue-total]')?.textContent === '35 issues', undefined, { timeout: 10000 });
+      const shown = await page.evaluate(() => ({ totals: window.__shown, fetched: window.__nsApi.count }));
+      check('route:file-router', !shown.totals.includes('Loading…') && shown.totals.includes('35 issues') && shown.fetched > fetchesBefore,
+        "a page's exported preload holds a navigation to it until its list is there: a filter not fetched before shows its rows with no loading state",
+        `shown=${shown.totals.join(' > ')} fetched=${shown.fetched - fetchesBefore}`);
       await context.close();
     }
 
