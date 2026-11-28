@@ -1603,6 +1603,8 @@ function transformComponentFineGrained(path, state) {
   const { node } = path;
   const openingElement = node.openingElement;
   const componentRef = componentCallee(openingElement.name);
+  // The tag's own reference, for isPlainFunctionComponent.
+  componentRef._whatTag = true;
   const attributes = openingElement.attributes;
   const children = node.children;
 
@@ -3193,7 +3195,10 @@ function isPlainFunctionComponent(scope, name) {
   // Another module could give an exported function a prototype with render().
   const statement = t.isVariableDeclarator(decl.node) ? decl.parentPath : decl;
   if (t.isExportNamedDeclaration(statement.parent) || t.isExportDefaultDeclaration(statement.parent)) return false;
-  return binding.referencePaths.every((ref) => t.isJSXOpeningElement(ref.parent) || t.isJSXClosingElement(ref.parent));
+  // A component call this compiler wrote is a tag too: Babel counts its
+  // reference once the call stands in a function a later lowering made (the
+  // element of a branch's arm).
+  return binding.referencePaths.every((ref) => ref.node._whatTag === true || t.isJSXOpeningElement(ref.parent) || t.isJSXClosingElement(ref.parent));
 }
 
 // Whether a component tag may hold a string at run time (a tag held in a

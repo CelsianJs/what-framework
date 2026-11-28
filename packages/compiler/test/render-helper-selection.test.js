@@ -237,11 +237,17 @@ describe('the leaf call for a module whose every component is a plain function',
     ['a function expression', 'const App = function () { return <p />; }; mount(<App />, "#app");'],
     ['a component of what-framework', 'import { Portal } from "what-framework"; export const x = <Portal />;'],
     ['an island (what-framework\'s _$Island)', 'export const x = <Counter client:idle start={1} />;'],
+    ['a function used in a branch\'s element and again after it', 'function Icon() { return <i />; } function A(p) { return <p>{p.on ? <a><Icon /></a> : null}</p>; } mount(<div><A /><b><Icon /></b></div>, "#app");'],
   ]) {
     it(`is the one that runs no class component for ${what}`, () => {
       assert.equal(component(source), '_$createFn');
     });
   }
+
+  it("counts the component calls it wrote as the tags they are, so a module that can build no form field does not carry the carrying of one", () => {
+    const code = compile('function Icon() { return <i />; } function A(p) { return <p>{p.on ? <a><Icon /></a> : null}</p>; } mount(<div><A /><b><Icon /></b></div>, "#app");');
+    assert.doesNotMatch(code, /_\$carryFields/);
+  });
 
   for (const [what, source] of [
     ['an imported component', 'import Other from "./other.js"; export const x = <Other />;'],
