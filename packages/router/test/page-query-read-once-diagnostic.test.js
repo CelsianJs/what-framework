@@ -14,6 +14,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { url: 'http://localhost/' });
 
 const { h, mount, useEffect } = await import('what-core');
+const { _$keyed, _$memo } = await import('what-core/render');
 const { subscribeDiagnostics } = await import('what-core/internal');
 const { Router, Link, navigate, useSearch, route } = await import('../src/index.js');
 
@@ -104,6 +105,34 @@ describe('a read of the query in the body of a kept page', () => {
     await flush();
     assert.equal(document.getElementById('item').textContent, '2 desc');
     assert.deepEqual(reports, []);
+  });
+
+  it('is not reported for a component the change disposes: under a key it changes, in a branch it closes', async () => {
+    // `{query.edit ? <Edit key={query.edit} /> : null}` as compiled JSX
+    // builds it (what-core render.js _$keyed).
+    function Edit() {
+      const first = route.query.edit;
+      return h('b', { id: 'edit' }, `edit ${first}`);
+    }
+    function Issues(props) {
+      const open = _$memo(() => !!props.query.edit);
+      return h('main', null, () => (open() ? _$keyed(() => props.query.edit, () => h(Edit, {})) : null));
+    }
+    const edit = () => document.getElementById('edit')?.textContent ?? null;
+    await start('/issues?edit=1', [{ path: '/issues', component: Issues }]);
+    await navigate('/issues?edit=2');
+    await flush();
+    assert.equal(edit(), 'edit 2', 'a new key builds a new one, which reads the new query');
+    await navigate('/issues');
+    await flush();
+    assert.equal(edit(), null);
+    assert.deepEqual(reports, [], 'neither the one the key replaced nor the one the branch removed read anything that stays');
+    await navigate('/issues?edit=3');
+    await flush();
+    await navigate('/issues?edit=3&page=2');
+    await flush();
+    assert.equal(edit(), 'edit 3');
+    assert.deepEqual(reports.map((r) => r.data.component), ['Edit'], 'one the change keeps, under the same key, is reported');
   });
 
   it("is not reported for a <Link> given live props read from the query, which follow it", async () => {

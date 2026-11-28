@@ -211,8 +211,9 @@ export const route = {
 // one it renders) that reads the query in its body reads it once, and a
 // change of query alone keeps the page: the router reports it
 // (ERR_PROP_READ_ONCE) when the query first changes under it, from the one
-// those components read (`devQuery`). The view a Router shows is `devView`
-// on its route state.
+// those components read (`devQuery`), unless the change disposes it (a key
+// it changes builds a new one, a branch it closes removes it). The view a
+// Router shows is `devView` on its route state.
 function devQueryRead(state) {
   const v = state.devView;
   let o = /** @type {any} */ (getOwner());
@@ -220,15 +221,28 @@ function devQueryRead(state) {
   const reader = o;
   for (; o != null; o = o.owner) {
     if (o.Component === v.route.component) {
-      (v.devReads ??= new Map()).set(reader.Component, __ownerPath(reader));
+      const reads = (v.devReads ??= new Map());
+      if (reads.get(reader.Component)?.reader !== reader) {
+        const read = { reader, owner: __ownerPath(reader), gone: false };
+        reads.set(reader.Component, read);
+        onCleanup(() => { read.gone = true; });
+      }
       v.devQuery ??= state.query.peek();
       return;
     }
   }
 }
 
+// Reported once the change has run, for the readers it left mounted.
 function devReportQueryReads(v) {
-  for (const [component, owner] of v.devReads) {
+  const reads = v.devReads;
+  v.devReads = v.devQuery = null;
+  queueMicrotask(() => devReportReads(v, reads));
+}
+
+function devReportReads(v, reads) {
+  for (const [component, { owner, gone }] of reads) {
+    if (gone) continue;
     const name = component.displayName || component.name || 'Anonymous';
     reportDiagnostic('ERR_PROP_READ_ONCE', {
       data: {
@@ -241,7 +255,6 @@ function devReportQueryReads(v) {
       loc: owner.loc,
     });
   }
-  v.devReads = v.devQuery = null;
 }
 
 // A state of its own: a server render's, a nested <Router>'s. `url` reads
