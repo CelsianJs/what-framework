@@ -1290,8 +1290,9 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   may be a list (outermost first), and the file router gives each page every
   enclosing `_layout`. In development, a read of the query in the body of a
   page kept across a query change is reported as `ERR_PROP_READ_ONCE`, with
-  the fix, and the compiler reports a value derived from a route's `query`
-  in the body.
+  the fix (not for a component the change disposes: one under a key the
+  query changes, or in a branch it closes), and the compiler reports a value
+  derived from a route's `query` in the body.
 - **`virtual:what-routes/server`** (what-compiler's Vite plugin): the file
   router's routes with each page's `loader`, `getStaticPaths` and `page`
   config, for a server entry. The plugin served only the browser's module, so
@@ -2455,6 +2456,15 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   reading the query once (`ERR_PROP_READ_ONCE`).
   `packages/router/test/link-live-href.test.js`,
   `page-query-read-once-diagnostic.test.js`.
+- **A `key` outside a list starts its component or element again when its
+  value changes** (what-compiler, what-core), as React's key does:
+  `{editing() ? <EditIssue key={editing().id} issue={editing()} /> : null}`
+  shows a fresh editor, with fresh state, for each record, and the old one's
+  cleanups run; the same value keeps the instance. It holds on the client,
+  on the server, through hydration and in a static export, and the server
+  writes what the unkeyed component renders. The compiler dropped the key,
+  so the editor kept the first record's state, with no warning. A key that
+  cannot change (`key="a"`) costs nothing. `packages/compiler/test/lone-key.test.js`.
 - **`useQuery` and `useSWR` render an entry the page's loader prefetched**
   (what-core, what-server) on the server and in the hydration walk, as
   TanStack Query renders a query prefetched on the server, and the client
@@ -2653,6 +2663,10 @@ moved imports. `docs/releases/v0.15.0.md` has the release summary.
   producer. An app that renders `h()`, a `<Router>`, `<Suspense>`,
   `<ErrorBoundary>` or a `<Portal>` installs a vnode producer and carries it
   as before.
+- **A function component used inside a branch's element and again
+  elsewhere in its module imports the plain-function component call**
+  (what-compiler), with no form-field carrying: which helper the module
+  imported depended on the order of its JSX.
 - **useForm is 166 B smaller with the same behaviour, and a field array's
   values read about twice as fast.** The hooks app measured by
   `check:size` went from 16,530 B to 16,401 B gzip, the fix for fields named
