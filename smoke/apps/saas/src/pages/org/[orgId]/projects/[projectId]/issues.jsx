@@ -144,13 +144,11 @@ export default function Issues({ params, query }) {
             aria-current={n === String(issues.data().page) ? 'page' : undefined}>{n}</Link>
         )) : null}
       </nav>
-      {/* A keyed list of one, by the issue's id: moving to another issue's
+      {/* Keyed by the issue's id, as in React: moving to another issue's
           editor (a link behind the dialog, back and forward) builds it again
           with that issue's title and status, and a save that changes the
           issue keeps what was typed. */}
-      {(editing() ? [editing().id] : []).map((id) => (
-        <EditIssue key={id} issue={rows().find((r) => r.id === id)} saving={saving} error={error} onSave={save} onCancel={close} />
-      ))}
+      {editing() ? <EditIssue key={editing().id} issue={editing()} saving={saving} error={error} onSave={save} onCancel={close} /> : null}
     </main>
   );
 }
