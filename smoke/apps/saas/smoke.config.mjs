@@ -7,11 +7,6 @@
 // query string, per-route loaders, useQuery over one cache every section
 // reads, an optimistic server action that redirects, a sign-in guard, and a
 // 2,000-row table.
-//
-// Two checks hold React Router's behaviour that the router does not have
-// yet. They are listed in KNOWN_GAPS: while one fails it is reported as a
-// skip naming the gap, with what it measured; once it passes it is a pass,
-// and the line saying so asks for the entry to be removed.
 
 import { startProcess, waitForHttp } from '../../harness/index.mjs';
 
@@ -19,12 +14,6 @@ const BASE_PATH = '/console';
 const SESSION = 'ns-session';
 const sessionValue = (name) => encodeURIComponent(JSON.stringify({ name }));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// The router's gaps these checks run into (REPORT round 10, dev lane, §2).
-const KNOWN_GAPS = {
-  'shared-layout': 'what-router rebuilds the whole layout chain when any layout in it changes, so the org shell (and the text in its search box) is built again between a section (frame > org) and a project (frame > org > projects); React Router keeps the shared parent layout',
-  'query-remount': 'what-router builds the page again when only the query string changes, so the issue list loses its state on a filter change; React Router keeps the page mounted',
-};
 
 // Budgets, measured in the page. The sort is a keyed reorder of 2,000 rows;
 // the hydration budget is at 4x CPU throttling (Chromium).
@@ -54,12 +43,6 @@ export default {
   // WHAT_SMOKE_MODE=dev runs `npm run dev` (server.js --dev): the pages
   // rendered from the source through Vite's dev server (smoke/README.md).
   dev: true,
-
-  // The development diagnostics the two router gaps raise, while they last.
-  devDiagnostics: {
-    'A reactive region rebuilt <Frame> when it ran again': `the shared-layout gap: ${KNOWN_GAPS['shared-layout']}`,
-    'A reactive region rebuilt <Issues> when it ran again': `the query-remount gap: ${KNOWN_GAPS['query-remount']}`,
-  },
 
   covers: [
     'render:server',
@@ -93,13 +76,6 @@ export default {
   async check({ workDir, appPort, mode, browser, browserName, check, skip, reporter, log, run }) {
     const origin = `http://127.0.0.1:${appPort}`;
     const url = (path) => `${origin}${BASE_PATH}${path}`;
-    // A check that runs into a known router gap: a skip with the gap and the
-    // measurement while it fails, a pass once it holds.
-    const gapCheck = (gap, capability, cond, name, detail) => {
-      if (cond) return check(capability, true, name, `${detail}; the ${gap} gap is fixed: remove it from KNOWN_GAPS`);
-      skip(capability, name, `known router gap (${gap}): ${KNOWN_GAPS[gap]}. Measured: ${detail}`);
-      return false;
-    };
 
     if (mode !== 'dev') {
       const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
@@ -296,8 +272,8 @@ export default {
       await go('[data-project-link="apollo"]', '[data-page="project-overview"]');
       await go('[data-nav="billing"]', '[data-page="billing"]');
       const across = await state();
-      gapCheck('shared-layout', 'route:layout-persists', across.shell && across.search === 'sso',
-        'moving between a section and a project keeps the org shell node and its search text',
+      check('route:layout-persists', across.shell && across.search === 'sso',
+        'moving between a section and a project keeps the org shell node and its search text, as React Router keeps a shared parent layout',
         `shell-same-node=${across.shell} search="${across.search}" after members > projects > apollo > billing`);
 
       // Another org: the shell stays and its links follow the org's id.
@@ -329,8 +305,8 @@ export default {
       await page.waitForURL(/status=open/);
       await page.waitForFunction(() => document.querySelector('[data-issue-total]')?.textContent === '53 issues');
       const after = await page.evaluate(() => ({ kept: document.querySelector('[data-page="issues"]').__kept === true, draft: document.querySelector('[data-draft]').value }));
-      gapCheck('query-remount', 'route:query-keeps-page', after.kept && after.draft === 'Write the release notes',
-        'a filter change (a query-string change on the same route) keeps the issue list mounted, with what was typed in it',
+      check('route:query-keeps-page', after.kept && after.draft === 'Write the release notes',
+        'a filter change (a query-string change on the same route) keeps the issue list mounted, with what was typed in it, as React Router keeps the route element',
         `page-same-node=${after.kept} draft="${after.draft}"`);
 
       // The page's exported preload holds the navigation until the list it
@@ -422,6 +398,27 @@ export default {
       check('route:history', backOk && forwardOk && diag.errors.length === 0,
         'browser back and forward through six URLs of one page show the state each had, with no page error',
         `back=${backOk} forward=${forwardOk} errors=${diag.errors.slice(0, 2).join(' | ') || 0}${backOk ? '' : ` walked=${JSON.stringify(walked.map((w) => [w.search, w.first, w.editing]))}`}`);
+
+      // From one issue's editor to another's (a keyboard user reaches the
+      // rows' links behind the dialog), then back: each editor holds its own
+      // issue's title.
+      const other = await page.evaluate((id) => [...document.querySelectorAll('[data-issue]')].map((el) => el.dataset.issue).find((x) => x !== id), firstOnPage3);
+      const rowTitle = (id) => page.textContent(`[data-issue="${id}"] [data-issue-title]`);
+      const editor = () => page.evaluate(() => ({
+        id: document.querySelector('[data-edit-dialog]')?.dataset.editDialog ?? null,
+        title: document.querySelector('[data-edit-title]')?.value ?? null,
+      }));
+      await page.focus(`[data-edit="${other}"]`);
+      await page.keyboard.press('Enter');
+      await page.waitForSelector(`[data-edit-dialog="${other}"]`);
+      const toOther = await editor();
+      await page.goBack();
+      await page.waitForSelector(`[data-edit-dialog="${firstOnPage3}"]`);
+      const backToFirst = await editor();
+      const [firstTitle, otherTitle] = [await rowTitle(firstOnPage3), await rowTitle(other)];
+      check('route:url-state', toOther.title === otherTitle && backToFirst.title === firstTitle,
+        "moving from one issue's editor to another's and back shows each issue's own title in the editor",
+        `to=${toOther.id}:"${toOther.title}" (want "${otherTitle}") back=${backToFirst.id}:"${backToFirst.title}" (want "${firstTitle}")`);
       await context.close();
     }
 
