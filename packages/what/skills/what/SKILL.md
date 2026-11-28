@@ -25,7 +25,7 @@ Six rules:
 1. **Components run once.** The body never re-runs; signals update the DOM directly.
 2. **Read a signal by calling it.** `count()` is the value, `count` is the function. `${count}` in a template literal prints the function's source.
 3. **Read state where it renders.** In compiled JSX `{count() * 2}` updates as written; with `h()` or the automatic JSX runtime wrap it: `{() => count() * 2}`. A value read into a `const` in the component body, or an `if (loading()) return …`, is a snapshot that never updates (ERR_STATE_READ_ONCE).
-4. **Lists need a stable `key`.** `items().map(i => <li key={i.id}>…</li>)`.
+4. **Lists need a stable `key`.** `items().map(i => <li key={i.id}>…</li>)`. A `key` outside a list starts its component or element again, with fresh state, whenever the key's value changes, as in React: `{doc() ? <Editor key={doc().id} doc={doc()} /> : null}`.
 5. **An effect that writes what it reads loops.** Read it with `untrack(count)` or derive with `computed()`.
 6. **A branch that renders a component is a ternary or `<Show>`.** `{loading() ? <Spinner /> : <Chart data={data()} />}` builds `<Chart>` once and updates its props; a block function `{() => { ...; return <Chart data={d} />; }}` rebuilds it, and its state, on every run (ERR_REBUILT_COMPONENT).
 

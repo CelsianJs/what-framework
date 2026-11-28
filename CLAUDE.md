@@ -64,6 +64,14 @@ function TodoList(props) {
 </For>
 ```
 
+A `key` outside a list works as React's does: the component (or element) is built again, fresh, in the same place whenever the key's value changes, and the same value keeps the one it has. It is how to reset an editor's state for another record:
+
+```jsx
+{editing() ? <EditIssue key={editing().id} issue={editing()} /> : null}
+```
+
+A key that cannot change (`key="a"`) costs nothing.
+
 | Pattern | Key required? | Item passed as | Best for |
 |---|---|---|---|
 | `.map()` + `key` prop | Yes (compile warning without) | Raw value (the compiler reads it through the row's item cell) | Most lists (simple, idiomatic) |
