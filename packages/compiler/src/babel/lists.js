@@ -482,7 +482,8 @@ export function listSlot(node) {
 // --- A key outside a list ---
 // A `key` on a component that is no list's row (`<Form key={user().id} />`)
 // is React's way to start it again: a new instance whenever the key's value
-// changes, the same key keeping the one it has.
+// changes, the same key keeping the one it has. An element with one is built
+// again the same way (`<input key={id()} />`: a new input, its typing gone).
 
 // Before any JSX is lowered, on both targets: marks the key of a list's row
 // (the JSX a `.map()` or `.flatMap()` callback returns, an arm of it, or what
@@ -512,9 +513,9 @@ export function markRowKey(elPath, state) {
   }
 }
 
-// The value of a component's key outside a list row when it can change: it
-// reads a signal, a prop or a row's item. Both back ends build the component
-// in a reactive child that runs again when the value changes (the DOM
+// The value of the key of a component or an element outside a list row when
+// it can change: it reads a signal, a prop or a row's item. Both back ends
+// build the JSX in a reactive child that runs again when the value changes (the DOM
 // target's render.js _$keyed, the server's function child, which the
 // hydratable renderers bracket and hydration adopts), so the two decide it
 // alike. Null for no key, a row's, or one that cannot change, which costs

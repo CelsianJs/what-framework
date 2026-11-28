@@ -171,7 +171,9 @@ function jsxValue(node, path, state) {
   appendElement(node, markup, state);
   const value = markupExpression(markup, state, node._whatRow === true);
   if (markup.row !== null) passRowAttributes(markup.row);
-  return value;
+  // A key outside a list that can change: the function child the DOM target
+  // builds the element in (lists.js liveKey), as for a component.
+  return liveKey(node, state) !== null ? thunk(value) : value;
 }
 
 // --- A row's reactive attributes ---------------------------------------------
@@ -495,7 +497,7 @@ function appendChildList(children, markup, state) {
         continue;
       }
       addHole(markup, childHole(expr, state));
-    } else if (t.isJSXElement(child) && !isComponentElement(child)) {
+    } else if (t.isJSXElement(child) && !isComponentElement(child) && liveKey(child, state) === null) {
       appendElement(child, markup, state);
     } else if (t.isJSXFragment(child)) {
       appendChildList(child.children, markup, state);

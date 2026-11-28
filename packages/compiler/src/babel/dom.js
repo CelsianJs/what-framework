@@ -88,7 +88,7 @@ function layoutChildren(children, withHtml, state, rawTag = null, textOnly = fal
       } else if (t.isJSXExpressionContainer(child)) {
         if (!t.isJSXEmptyExpression(child.expression)) slots.push({ kind: 'dynamic', node: child });
       } else if (t.isJSXElement(child)) {
-        slots.push({ kind: isComponentElement(child) ? 'dynamic' : 'element', node: child });
+        slots.push({ kind: isComponentElement(child) || liveKey(child, state) !== null ? 'dynamic' : 'element', node: child });
       }
     }
   };
@@ -512,6 +512,19 @@ function transformElementFineGrained(path, state) {
 
   if (isComponentElement(node)) {
     return transformComponentFineGrained(path, state);
+  }
+
+  // A key outside a list that can change (lists.js liveKey): the element is
+  // built in a reactive child that builds it again whenever the key's value
+  // changes (render.js _$keyed), as a component with one is.
+  const key = node._whatKeyed === true ? null : liveKey(node, state);
+  if (key !== null) {
+    node._whatKeyed = true;
+    const from = state._pendingSetup.length;
+    const el = transformElementFineGrained(path, state);
+    const setup = state._pendingSetup.splice(from);
+    const build = setup.length === 0 ? el : t.blockStatement([...setup, t.returnStatement(el)]);
+    return t.callExpression(helper(state, '_$keyed'), [t.arrowFunctionExpression([], key), t.arrowFunctionExpression([], build)]);
   }
 
   const attributes = openingElement.attributes;
@@ -1967,7 +1980,8 @@ function transformComponentFineGrained(path, state) {
   }
   // A key outside a list that can change (lists.js liveKey): a reactive
   // child that builds the component again whenever the key's value changes
-  // (render.js _$keyed).
+  // (render.js _$keyed). An element with one is built the same way
+  // (transformElementFineGrained).
   const key = isHydrateRoot ? null : liveKey(node, state);
   if (key !== null) call = t.callExpression(helper(state, '_$keyed'), [t.arrowFunctionExpression([], key), t.arrowFunctionExpression([], call)]);
   return call;
@@ -2701,7 +2715,7 @@ function orderedRows(expr, state, bracketed) {
 // or a reactive child.
 function lowersToRegion(node, state) {
   const flow = controlFlowTag(node, state);
-  return flow === 'For' || flow === 'Show' || flow === 'Switch' || (flow === null && isComponentElement(node) && liveKey(node, state) !== null);
+  return flow === 'For' || flow === 'Show' || flow === 'Switch' || (flow === null && liveKey(node, state) !== null);
 }
 
 function transformFragmentFineGrained(path, state) {

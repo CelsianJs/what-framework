@@ -1,10 +1,12 @@
 // A key on a component outside a list row (`<Form key={user().id} />`) is
 // React's way to start it again: a new instance whenever the key's value
 // changes, the old one disposed (its cleanups run, its DOM removed), the new
-// one run fresh in the same place, and the same value rebuilding nothing.
-// Compiled output on both targets, behaviour in a DOM in every position the
-// JSX can stand in, and a server render that hydrates with no mismatch and
-// starts the component again after hydration when its key changes.
+// one run fresh in the same place, and the same value rebuilding nothing. An
+// element with a key outside a list (`<input key={id()} />`) is built again
+// the same way. Compiled output on both targets, behaviour in a DOM in every
+// position the JSX can stand in, and a server render that hydrates with no
+// mismatch and starts the component again after hydration when its key
+// changes.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { installDOM } from '../../../test-utils/dom.js';
@@ -38,6 +40,7 @@ const SOURCE = `
   function Card(props) { return <section class="card">{props.header}{props.children}</section>; }
   export function Root() { return <Edit key={id()} seed={'r' + id()} tone={tone()} />; }
   export function Frag() { return <><i>f</i><Edit key={id()} seed={'f' + id()} tone={tone()} /><i>g</i></>; }
+  export function Field() { return <input class="i" key={id()} data-tone={tone()} />; }
   export function Page() {
     return (
       <main>
@@ -50,12 +53,16 @@ const SOURCE = `
         <div class="slot"><Card header={<Edit key={id()} seed={'s' + id()} tone={tone()} />} /></div>
         <ul class="rows">{rows().map((r) => <li key={r.id}><Edit key={r.v} seed="v" tone={tone()} /></li>)}</ul>
         <div class="crow">{rows().map((r) => <Edit key={r.id} seed={r.id} tone={tone()} />)}</div>
+        <p class="el-child"><input class="i" key={id()} data-tone={tone()} />tail</p>
+        <p class="el-root"><Field /></p>
+        <p class="el-arm">{show() ? <input class="i" key={id()} data-tone={tone()} /> : null}</p>
       </main>
     );
   }
 `;
 
 const POSITIONS = ['child', 'root', 'tern', 'and', 'frag', 'kids', 'slot'];
+const FIELDS = ['el-child', 'el-root', 'el-arm'];
 
 // Loaded before any test is registered: a top-level await between tests
 // lets the root after() hook (the DOM's cleanup) run before the later ones.
@@ -88,6 +95,14 @@ test('a key that can change builds the component in a reactive child that reads 
   const server = body(compileJSX(src, ssr));
   assert.match(server, /_\$ssr\(_tmpl\$\d+, \(\) => _\$ssrLeaf\(Edit, \{\s*x: 1\s*\}[^)]*\), \(\) => _\$ssrLeaf\(Edit, null[^)]*\), \(\) => _\$ssrLeaf\(Edit/,
     'the server renders the function child the client builds, which a hydratable render brackets');
+
+  const field = `import { signal } from 'what-framework';
+    const id = signal(1);
+    export function A(p) { return <p><b>a</b><input key={id()} value={p.v} /></p>; }`;
+  assert.match(body(compileJSX(field)), /_\$insert\(_el\$\d+, _\$keyed\(\(\) => id\(\), \(\) => \{\s*const (_el\$\d+) = _tmpl\$\d+\(\);[\s\S]*?return \1;\s*\}\)/,
+    'an element with such a key is built, bindings and all, in the function the key runs again');
+  assert.match(compileJSX(field), /_\$template\("<p><b>a"\)/, "it is not part of its parent's template");
+  assert.match(body(compileJSX(field, ssr)), /_\$ssr\(_tmpl\$\d+, \(\) => _\$ssr\(_tmpl\$\d+, p\.v\)\)/);
 });
 
 test("a list row's key stays the list's key; a key inside the row is the row's component's own", () => {
@@ -150,6 +165,28 @@ function checkRestarts(m, host) {
   assert.equal(host.querySelector('.frag').textContent, 'ff2g');
 }
 
+// An element with a key outside a list follows the same rule: a new key is a
+// new element, what was typed in the old one gone.
+function checkElements(m, host) {
+  const field = (p) => host.querySelector(`.${p} .i`);
+  const before = Object.fromEntries(FIELDS.map((p) => [p, field(p)]));
+  for (const p of FIELDS) before[p].value = 'typed';
+  m.id(2); m.tone('z'); flushSync();
+  for (const p of FIELDS) {
+    assert.equal(field(p), before[p], `${p}: the same key keeps the element`);
+    assert.equal(field(p).value, 'typed', `${p}: and what was typed`);
+    assert.equal(field(p).getAttribute('data-tone'), 'z', `${p}: its bindings follow`);
+  }
+  m.id(3); flushSync();
+  for (const p of FIELDS) {
+    assert.notEqual(field(p), before[p], `${p}: a new key builds a new element`);
+    assert.equal(before[p].isConnected, false, `${p}: the old one is gone`);
+    assert.equal(field(p).value, '', `${p}: the new one is fresh`);
+    assert.equal(field(p).getAttribute('data-tone'), 'z');
+  }
+  assert.equal(host.querySelector('.el-child').lastChild.textContent, 'tail', 'in the same place');
+}
+
 // A row keeps its DOM while the list's key does, and the component in it
 // starts again when its own key changes (a row whose component reads the item
 // in its body is built again for a new item anyway, as without a key).
@@ -183,12 +220,13 @@ test('in every position, a new key value starts the component again in place; th
   const stop = mount(h(mod.Page, {}), host);
   checkRestarts(mod, host);
   checkRows(mod, host);
+  checkElements(mod, host);
   assert.deepEqual(getDiagnostics().events.map((e) => e.code), [], 'development reports nothing: a new key is a new instance, not lost state');
   mod.show(false); flushSync();
   assert.equal(host.querySelector('.tern').textContent, 'none');
   assert.equal(host.querySelector('.and').textContent, '');
-  mod.id(3); mod.show(true); flushSync();
-  assert.equal(at(host, 'tern').textContent, 't3', 'an arm shown again is a new instance with the current key');
+  mod.id(4); mod.show(true); flushSync();
+  assert.equal(at(host, 'tern').textContent, 't4', 'an arm shown again is a new instance with the current key');
   const cleaned = mod.log.cleaned.length;
   stop();
   assert.ok(mod.log.cleaned.length > cleaned, 'unmounting disposes the keyed instances');
@@ -202,6 +240,7 @@ test('the server renders what the unkeyed component renders, in the function chi
   assert.match(html, /<div class="child"><b class="e" data-tone="x">c1<\/b>tail<\/div>/);
   assert.match(html, /<div class="frag"><i>f<\/i><b class="e" data-tone="x">f1<\/b><i>g<\/i><\/div>/);
   assert.match(html, /<li><b class="e" data-tone="x">v<\/b><\/li>/);
+  assert.match(html, /<p class="el-child"><input class="i" data-tone="x">tail<\/p>/);
   const hydratable = renderToHydratableString(h(server.Page, {}));
   assert.match(hydratable, /<div class="child"><!--\$--><b data-hk="00" class="e" data-tone="x"><!--\$-->c1<!--\/\$--><\/b><!--\/\$-->tail<\/div>/);
 });
@@ -223,5 +262,6 @@ test('hydration adopts every keyed component with no mismatch, and a key change 
   assert.equal(client.log.cleaned.length, 0);
   checkRestarts(client, host);
   checkRows(client, host);
+  checkElements(client, host);
   host.remove();
 });
