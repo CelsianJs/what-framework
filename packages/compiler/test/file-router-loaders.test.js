@@ -107,3 +107,25 @@ describe('codegen: nested _layout files', () => {
     }
   });
 });
+
+describe("codegen: a page's preload and middleware", () => {
+  it("are its route's in the browser's module (named imports, no loader) and in the server's", () => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+    write('org/[orgId]/issues.jsx',
+      'export const loader = () => ({});\n' +
+      'export const preload = ({ params }) => params.orgId;\n' +
+      'export const middleware = [() => undefined];\n' +
+      'export default function Issues() {}');
+    write('about.jsx', 'export default function About() {}');
+    const client = generateRoutesModule(TMP, TMP);
+    assert.match(client, /import (_page\d+), \{ preload as \1_preload, middleware as \1_middleware \} from '\/org\/\[orgId\]\/issues\.jsx';/);
+    const line = client.split('\n').find((l) => l.includes("path: '/org/:orgId/issues'"));
+    assert.match(line, /preload: _page\d+_preload, middleware: _page\d+_middleware/);
+    assert.doesNotMatch(client, /\.loader|loader as/, 'the loader stays out of the browser module');
+    assert.doesNotMatch(client.split('\n').find((l) => l.includes("path: '/about'")), /preload|middleware/);
+    const server = generateServerRoutesModule(TMP, TMP);
+    assert.match(server.split('\n').find((l) => l.includes("path: '/org/:orgId/issues'")), /preload: _page\d+_ns\.preload, middleware: _page\d+_ns\.middleware, loader: _page\d+_ns\.loader/);
+    assert.ok(detectPageExports('export async function preload() {}').hasPreload);
+    assert.ok(!detectPageExports('export const preloadAll = 1').hasPreload);
+  });
+});

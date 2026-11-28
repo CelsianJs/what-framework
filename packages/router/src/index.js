@@ -1944,6 +1944,7 @@ export function FileRouter({
     loading: r.loading || undefined,
     error: r.error || globalError || undefined,
     preload: r.preload || undefined,
+    middleware: r.middleware || undefined,
     // Attach page mode as metadata for build system
     _mode: r.mode || 'client',
   }));

@@ -29,9 +29,11 @@ export interface PageExports {
   hasLoader: boolean;
   hasGetStaticPaths: boolean;
   hasPageConfig: boolean;
+  hasPreload: boolean;
+  hasMiddleware: boolean;
 }
 
-/** Detect which named exports (loader, getStaticPaths, page) a module declares. */
+/** Detect which named exports (loader, getStaticPaths, page, preload, middleware) a module declares. */
 export function detectPageExports(source: string): PageExports;
 
 /** Generate the `virtual:what-routes` client module source. */

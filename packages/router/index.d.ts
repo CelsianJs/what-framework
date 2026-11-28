@@ -214,7 +214,10 @@ export interface FileRouteConfig {
   /** Every `_layout` of a directory holding the page, outermost first. */
   layout?: Component<LayoutProps> | Component<LayoutProps>[];
   mode?: 'static' | 'server' | 'client' | 'hybrid';
+  /** The page's `export const preload`. */
   preload?: RouteConfig['preload'];
+  /** The page's `export const middleware`. */
+  middleware?: RouteMiddleware[];
 }
 
 export interface FileRouterProps {

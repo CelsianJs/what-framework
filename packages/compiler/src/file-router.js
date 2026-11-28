@@ -451,14 +451,28 @@ function readStringLiteral(source, start) {
 /**
  * Detect which named exports a page module declares. Functions (loader,
  * getStaticPaths) cannot live in `export const page` (JSON-only), so the codegen
- * imports them as live bindings instead. \b anchors avoid false positives like
- * `loaderState` or `getStaticPathsHelper`.
+ * imports them as live bindings instead. A page's `preload` and `middleware`
+ * are its route's (what-router), in the browser's routes module too. \b
+ * anchors avoid false positives like `loaderState` or `getStaticPathsHelper`.
  */
 export function detectPageExports(source) {
   return {
     hasLoader: /export\s+(?:async\s+)?(?:const|let|var|function)\s+loader\b/.test(source),
     hasGetStaticPaths: /export\s+(?:async\s+)?(?:const|let|var|function)\s+getStaticPaths\b/.test(source),
     hasPageConfig: /export\s+const\s+page\b/.test(source),
+    hasPreload: /export\s+(?:async\s+)?(?:const|let|var|function)\s+preload\b/.test(source),
+    hasMiddleware: /export\s+(?:const|let|var)\s+middleware\b/.test(source),
+  };
+}
+
+/** A page's route fields that come from its own exports (preload, middleware), and their imports. */
+function routeExports(detected, varName) {
+  const names = [];
+  if (detected.hasPreload) names.push('preload');
+  if (detected.hasMiddleware) names.push('middleware');
+  return {
+    named: names.map((n) => `${n} as ${varName}_${n}`).join(', '),
+    fields: names.map((n) => `, ${n}: ${varName}_${n}`).join(''),
   };
 }
 
@@ -484,22 +498,24 @@ export function generateRoutesModule(pagesDir, rootDir) {
   pages.forEach((page, i) => {
     const varName = `_page${i}`;
     const relPath = toImportPath(page.filePath, rootDir);
-    imports.push(`import ${varName} from '${relPath}';`);
 
     // Read file to extract page config + detect loader/getStaticPaths exports
     let pageConfig = { mode: 'client' };
-    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false };
+    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false, hasPreload: false, hasMiddleware: false };
     try {
       const source = fs.readFileSync(page.filePath, 'utf-8');
       pageConfig = extractPageConfig(source, { filePath: page.filePath });
       detected = detectPageExports(source);
     } catch {}
+    const own = routeExports(detected, varName);
+    imports.push(own.named ? `import ${varName}, { ${own.named} } from '${relPath}';` : `import ${varName} from '${relPath}';`);
 
     const entry = {
       path: page.routePath,
       component: varName,
       mode: pageConfig.mode || 'client',
       layout: findLayouts(page.filePath, layoutVars),
+      own: own.fields,
       hasLoader: detected.hasLoader,
     };
 
@@ -527,7 +543,7 @@ export function generateRoutesModule(pagesDir, rootDir) {
     '',
     'export const routes = [',
     ...routeEntries.map(r =>
-      `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ''}${r.hasLoader ? ', hasLoader: true' : ''} },`
+      `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ''}${r.own}${r.hasLoader ? ', hasLoader: true' : ''} },`
     ),
     '];',
     '',
@@ -572,14 +588,14 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
     const relPath = toImportPath(page.filePath, rootDir);
 
     let pageConfig = { mode: 'client' };
-    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false };
+    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false, hasPreload: false, hasMiddleware: false };
     try {
       const source = fs.readFileSync(page.filePath, 'utf-8');
       pageConfig = extractPageConfig(source, { filePath: page.filePath });
       detected = detectPageExports(source);
     } catch {}
 
-    const needsNs = detected.hasLoader || detected.hasGetStaticPaths || detected.hasPageConfig;
+    const needsNs = detected.hasLoader || detected.hasGetStaticPaths || detected.hasPageConfig || detected.hasPreload || detected.hasMiddleware;
     if (needsNs) {
       imports.push(`import ${def}, * as ${ns} from '${relPath}';`);
     } else {
@@ -606,6 +622,8 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
   const routeLine = (r) =>
     `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'` +
     `${r.layout ? `, layout: ${r.layout}` : ''}` +
+    `${r.hasPreload ? `, preload: ${r.ns}.preload` : ''}` +
+    `${r.hasMiddleware ? `, middleware: ${r.ns}.middleware` : ''}` +
     `${r.hasLoader ? `, loader: ${r.ns}.loader` : ''}` +
     `${r.hasGetStaticPaths ? `, getStaticPaths: ${r.ns}.getStaticPaths` : ''}` +
     `${r.hasPageConfig ? `, page: ${r.ns}.page` : ''} },`;

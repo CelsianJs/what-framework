@@ -192,6 +192,11 @@ import { mount } from 'what-framework';
 mount(<FileRouter routes={routes} />, '#app');
 ```
 
+A page may export `preload` and `middleware`, which are its route's as on a
+route object (what-router): the navigation waits for what `preload` returns,
+and `middleware` decides whether the page shows. Both are in the browser's
+module; a `loader` never is.
+
 A server entry imports `virtual:what-routes/server`: the same routes, each with
 its page's `loader`, `getStaticPaths` and `page` config as live bindings, which
 the browser's module leaves out so no loader reaches the client bundle.
