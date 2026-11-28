@@ -130,6 +130,13 @@ expects. Their accessors are functions: `q.data()`, `q.isLoading()`.
   what the cache holds, with no request for a value the page carried. Use
   `query()` to render data on the server. (`packages/server/test/query-roundtrip.test.js`,
   "hooks on the key outside the query's boundary hydrate without a mismatch")
+- **An entry the page's loader prefetched is the exception**: it was there
+  before the render began, so a hook on its key renders the value on the
+  server and in the walk, as TanStack Query renders a query prefetched on the
+  server, and the client fetches nothing. The document names those entries
+  (`loaded` in its data channel); `renderDocument`, `renderDocumentStream` and
+  the request handler write them. (`query-roundtrip.test.js`, "hooks on an
+  entry the loader prefetched")
 
 ## The cache
 

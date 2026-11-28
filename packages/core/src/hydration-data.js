@@ -30,6 +30,8 @@
 //                 client renders them itself
 //   head          { [boundaryId]: { title?, meta?, link? } } <Head> tags a
 //                 streamed boundary set after the shell (noScripts streams)
+//   loaded        { [key]: 1 } for the `resources` the page's loader filled
+//                 before the render began (shell only)
 //
 // Every read first merges the elements it has not seen yet, so data that
 // arrives with a late boundary is found by the same lookups.
@@ -45,7 +47,7 @@ let _data;
 /** @type {Set<Element> | null} */
 let _merged = null;
 
-const MAPS = ['resources', 'owned', 'owners', 'errors', 'ownedErrors', 'failed', 'islandStores', 'head'];
+const MAPS = ['resources', 'owned', 'owners', 'errors', 'ownedErrors', 'failed', 'islandStores', 'head', 'loaded'];
 
 const DATA_ELEMENTS = 'script[type="application/json"]#__what_data, script[type="application/json"][data-what-data]';
 
@@ -107,6 +109,11 @@ function lookup(map, key) {
 
 export function getResource(key) {
   return lookup('resources', key);
+}
+
+/** Whether the page's loader filled the keyed resource before the render began. */
+export function _loadedResource(key) {
+  return lookup('loaded', key) !== undefined;
 }
 
 /** The server's error record for a keyed resource, or undefined. */

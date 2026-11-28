@@ -40,7 +40,7 @@ import {
   _isNotReady,
   __DEV__,
 } from './reactive.js';
-import { _seedFor, getResource, getResourceError, _errorFromRecord } from './hydration-data.js';
+import { _seedFor, getResource, getResourceError, _errorFromRecord, _loadedResource } from './hydration-data.js';
 import { getServerContext, _isServerProcess } from './server-context.js';
 import { report } from './diagnostics.js';
 import { _enableSuspense, isHydrating } from './render.js';
@@ -853,13 +853,20 @@ function stateOf(o) {
 // the hydration walk that adopts the server's DOM: its first state, with its
 // own initialData and nothing else the cache holds. What a query() of the same
 // key fetched depends on the order the server rendered the two in, which the
-// client cannot know. Right after the walk it shows the cache, with no request
-// for a value the page carried.
+// client cannot know. An entry the page's loader filled is the exception: it
+// was there before the render began, whatever the order, and the page names
+// it (`loaded`), so a hook renders its value on the server and in the walk,
+// as TanStack Query renders a query prefetched on the server. Right after the
+// walk it shows the cache, with no request for a value the page carried.
 const walked = /* @__PURE__ */ signal(0);
 let walkEnding = false;
 
+/** @type {WeakMap<object, Set<string>>} */
+const loadedBy = new WeakMap();
+
 function firstState(o) {
-  if (getServerContext() === null) {
+  const ctx = getServerContext();
+  if (ctx === null) {
     walked();
     if (!walkEnding) {
       walkEnding = true;
@@ -869,8 +876,28 @@ function firstState(o) {
       });
     }
   }
+  const h = untrack(o.hash);
+  if (h !== null && (ctx !== null ? loadedBy.get(ctx)?.has(h) : _loadedResource(CHANNEL + h))) {
+    const value = ctx !== null ? valueOf(untrack(o.current)) : getResource(CHANNEL + h);
+    return { value, error: null, fetching: false, first: false, e: null };
+  }
   const initial = o.initialData;
   return { value: typeof initial === 'function' ? untrack(initial) : initial, error: null, fetching: false, first: true, e: null };
+}
+
+/**
+ * @internal The keys (`query:KEY`) of the entries a server render's loader
+ * filled, which have landed: what-server calls it once the loader has run,
+ * before the render begins, and the page carries them as `loaded`. The hooks
+ * of that render show their values (firstState).
+ */
+export function _loadedQueries(ctx) {
+  const done = new Set();
+  for (const [hash, e] of serverCaches.get(ctx)?.[PLAIN] ?? []) {
+    if (e.flight === null && e.error === undefined && valueOf(e) !== undefined) done.add(hash);
+  }
+  loadedBy.set(ctx, done);
+  return [...done].map((hash) => CHANNEL + hash);
 }
 
 // The `enabled` gate, mirrored into a signal: an effect that reads the

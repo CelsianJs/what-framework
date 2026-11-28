@@ -15,6 +15,7 @@ import {
   endHeadCollection,
   _assignOwnerPath,
   _runComponentSync,
+  _loadedQueries,
   isVNode,
 } from 'what-core/internal';
 import { childNamespace } from 'what-core/internal/markup-rules';
@@ -614,6 +615,15 @@ async function loadPage(pageModule, reqCtx) {
   return { ctx, vnode, loaderData };
 }
 
+// The query entries the loader filled, landed before the render begins: the
+// render's hooks show them, and the document names them (`loaded`) so the
+// hydration walk shows the same. Only a document carries them, so only a
+// document's render asks.
+function loadedPayload(ctx) {
+  const keys = _loadedQueries(ctx);
+  return keys.length ? { loaded: Object.fromEntries(keys.map((key) => [key, 1])) } : {};
+}
+
 // --- Async render (resolves Suspense / createResource data) ---
 // Renders with the streaming engine and waits for everything it waits for: a
 // resource read inside or outside a <Suspense>, an async component, a lazy()
@@ -641,12 +651,14 @@ async function renderSettled(vnode, ctx, options) {
 export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
   ensureServerRuntime();
   const { ctx, vnode, loaderData } = await loadPage(pageModule, reqCtx);
+  const loaded = loadedPayload(ctx);
   const { body, head } = await renderSettled(vnode, ctx, options);
   ctx.response._commit();
   const payload = {
     loaderData: loaderData ?? null,
     resources: {},
     ...resourcePayload(ctx),
+    ...loaded,
     islandStores: getIslandStoresSnapshot(ctx),
   };
   return wrapHtmlDocument({ body, head, payload, options });
@@ -662,6 +674,7 @@ export async function renderDocumentStream(pageModule, reqCtx = {}, options = {}
   ensureServerRuntime();
   checkStreamOptions(options);
   const { ctx, vnode, loaderData } = await loadPage(pageModule, reqCtx);
+  const loaded = loadedPayload(ctx);
   return startStream(vnode, ctx, options, {
     head: true,
     open: (renderCtx) => documentOpen(endHeadCollection(renderCtx.head), options),
@@ -669,6 +682,7 @@ export async function renderDocumentStream(pageModule, reqCtx = {}, options = {}
       loaderData: loaderData ?? null,
       resources: {},
       ...resourcePayload(renderCtx, sent),
+      ...loaded,
       islandStores: getIslandStoresSnapshot(renderCtx),
     }, options),
     close: DOCUMENT_CLOSE,

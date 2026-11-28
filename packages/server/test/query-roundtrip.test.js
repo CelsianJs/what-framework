@@ -156,3 +156,62 @@ describe('query() through the server and back', () => {
     assert.equal(calls.length, 2, 'each request fetched its own');
   });
 });
+
+// An entry the page's loader prefetched is there before the render begins,
+// whatever order the page renders in: a hook renders its value on the server
+// and in the hydration walk, as TanStack Query renders a query prefetched on
+// the server, and the client fetches nothing. A key a query() fetches during
+// the render is not one of them (the tests above).
+describe('hooks on an entry the loader prefetched', () => {
+  for (const via of ['renderDocument', 'renderDocumentStream']) {
+    it(`render its value on the server and in the walk, with no mismatch and no request (${via})`, async () => {
+      const { h } = core;
+      const calls = [];
+      const id = via === 'renderDocument' ? 7 : 8;
+      const fetchUser = async (key) => {
+        calls.push(`${key.join('/')}@${internal.getServerContext() ? 'server' : 'client'}`);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        return { name: 'Noor' };
+      };
+      function Status() {
+        const q = data.useQuery({ queryKey: ['user', id], queryFn: ({ queryKey }) => fetchUser(queryKey), refetchOnWindowFocus: false });
+        return h('i', { id: 'loaded' }, () => (q.isSuccess() ? q.data().name : q.status()));
+      }
+      function Swr() {
+        const s = data.useSWR(['user', id], (key) => fetchUser(key), { revalidateOnFocus: false });
+        return h('u', { id: 'swr' }, () => (s.data() ? s.data().name : 'none'));
+      }
+      function Other() {
+        const q = data.useQuery({ queryKey: ['team', id], queryFn: async () => ['a'], refetchOnWindowFocus: false, enabled: false });
+        return h('s', { id: 'other' }, () => q.status());
+      }
+      const App = () => h('main', null, h(Status), h(Swr), h(Other));
+      const page = {
+        default: App,
+        loader: async () => {
+          await data.prefetchQuery(['user', id], fetchUser);
+          return {};
+        },
+      };
+      const html = via === 'renderDocument'
+        ? await server.renderDocument(page)
+        : await collect(await server.renderDocumentStream(page));
+      assert.deepEqual(payloadOf(html).loaded, { [`query:user:${id}`]: 1 }, 'the page names the entry its loader filled');
+      document.body.innerHTML = bodyOf(html);
+      assert.equal(document.getElementById('loaded').textContent, 'Noor', 'the server renders the hook with the value');
+      assert.equal(document.getElementById('swr').textContent, 'Noor');
+      assert.equal(document.getElementById('other').textContent, 'idle', 'a key the loader did not fill keeps its first state');
+      internal.__resetHydrationData();
+      calls.length = 0;
+      const mismatches = [];
+      const text = document.getElementById('loaded').firstChild;
+      core.hydrate(core.h(App, {}), document.body, { onHydrationError: (info) => mismatches.push(info) });
+      assert.deepEqual(mismatches, [], 'the walk renders the hooks as the server did');
+      assert.equal(document.getElementById('loaded').firstChild, text, 'and keeps the server\'s text');
+      for (let i = 0; i < 4; i++) await drain();
+      assert.deepEqual(calls, [], 'no request: the page carried the value');
+      assert.equal(document.getElementById('loaded').textContent, 'Noor');
+      assert.equal(document.getElementById('swr').textContent, 'Noor');
+    });
+  }
+});

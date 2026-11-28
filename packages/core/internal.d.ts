@@ -47,6 +47,8 @@ export function __getCacheSnapshot(): Array<{
 }>;
 /** @internal what_invalidate_cache: invalidate the entries under `key` (every entry when omitted); returns the keys matched. */
 export function __invalidateFromDevtools(key?: string | readonly unknown[]): string[];
+/** @internal what-server: the keys (`query:KEY`) of the landed entries render context `ctx`'s loader filled; that render's hooks show them. */
+export function _loadedQueries(ctx: object): string[];
 /** @internal what-router: run `fn`, tagging the entries its queries read with `path` for invalidatePath(path). */
 export function _tagQueries<T>(path: string, fn: () => T): T;
 /** @internal what-router: run `fn` outside the running transition, so what it writes shows at once. */
