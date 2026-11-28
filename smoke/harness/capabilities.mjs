@@ -39,6 +39,11 @@ export const CAPABILITIES = {
   'route:prefetch': { area: 'routing', desc: "hovering a link downloads its route's chunk, so the click shows the page without waiting for the network" },
   'route:lazy-race': { area: 'routing', desc: 'a navigation to a slow chunk that a newer navigation overtakes never shows, even after its chunk lands' },
   'route:conditional-step': { area: 'routing', desc: 'a step that an earlier answer adds or skips appears in and leaves the progress indicator, and a deep link to a step goes there only once the steps before it are done' },
+  'route:file-router': { area: 'routing', desc: 'pages from a src/pages directory with a _layout per section, nested three deep, each page inside every layout above it on the server and in the browser' },
+  'route:layout-persists': { area: 'routing', desc: "a shared layout keeps its DOM node and its state (text typed into it) while the visitor moves between the sections, projects and tabs below it" },
+  'route:query-keeps-page': { area: 'routing', desc: 'a query-string change on the same route keeps the page mounted, with its state' },
+  'route:base-path': { area: 'routing', desc: 'an app served below a base path keeps every link, redirect, asset, API request and action call below it, on the server and in the browser' },
+  'route:url-state': { area: 'routing', desc: 'filters, sort, page and an open editor kept in the query string; back and forward restore each, with its scroll position' },
   'route:chunk-error': { area: 'routing', desc: "a route whose chunk fails to download shows its error page inside the layout, the app keeps navigating, and a retry loads it once the network is back" },
 
   // --- State --------------------------------------------------------------
@@ -113,6 +118,7 @@ export const CAPABILITIES = {
   'lifecycle:unmount-cleanup': { area: 'load', desc: 'components unmounted while updates arrive release their subscriptions, timers, effects and bindings' },
   'perf:memory': { area: 'load', desc: 'the heap after a forced GC stays level over a long run of streaming and mount churn' },
   'perf:long-tasks': { area: 'load', desc: 'no main-thread task exceeds a stated bound while 200 updates a second arrive' },
+  'perf:hydration-tti': { area: 'load', desc: 'a server-rendered page hydrates and answers its first click within a budget on a 4x-throttled CPU' },
 
   // --- Server under load: streaming, hydration of long pages, concurrency --
   'stream:ttfb': { area: 'server-load', desc: "a streamed page's first byte (the shell, with its fallbacks) arrives before its slowest query resolves" },
