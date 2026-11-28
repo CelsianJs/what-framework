@@ -43,7 +43,7 @@ the umbrella most apps install.
 | `what-text` | `packages/what-text` | `what-core`, `@chenglou/pretext` (peers) | Optional text engine |
 | `what-devtools` | `packages/devtools` | `what-core` (peer) | Signal inspector, component tree, effect graph |
 | `what-devtools-mcp` | `packages/devtools-mcp` | `what-devtools` (peer) | MCP server bridging agents to a live app |
-| `eslint-plugin-what` | `packages/eslint-plugin` | `eslint` (peer) | 10 rules for the mistakes this model invites |
+| `eslint-plugin-what` | `packages/eslint-plugin` | `eslint` (peer) | Lint rules for the mistakes this model invites |
 | `what-mcp` | `packages/mcp-server` | nothing | **Deprecated.** Docs MCP server |
 
 Core has no external runtime dependencies. Compiler/MCP/lint packages have
@@ -61,17 +61,15 @@ Internal framework peers are separate from third-party runtime dependencies.
 Signals are functions. `count()` reads, `count(2)` and `count.set(2)` write.
 Reading inside an effect subscribes it.
 
-The graph is **level-based**, not topologically re-sorted per flush:
-
-- a signal is level 0
-- a computed's inner effect is level 1
-- an effect is `max(level of its deps) + 1`
-
-Effects flush in level order, so a value is never recomputed from a stale
-dependency and no effect runs twice for one batch. A subscriber `Set` owned by
-an effect carries `_owner`; a signal's own subscriber Set deliberately does
-not, and `_owner === undefined` is what marks level 0. That invariant is load
-bearing — see the comment at `reactive.js:50` before touching it.
+A write marks its subscribers (direct ones DIRTY, the rest PENDING, each node
+at most once) and queues the effects it reaches; nothing runs yet. Values are
+pulled: a stale computed recomputes when read, and a PENDING effect first
+re-verifies its computed inputs, so it never sees half-updated state and does
+not run if they recomputed to the same values. There is no level sort: effects
+run parent before child, otherwise in notification order, render phase before
+user phase. Edges are linked records reused across runs. The design, and the
+alien-signals algorithms it adapts (MIT; the notice is in the file), are described
+at the top of `reactive.js`; timing is in docs/EFFECT-TIMING.md.
 
 `__devtools` is a hook surface with three lifetimes: `null` in production, a
 buffering placeholder in dev before install, and the real hooks after
@@ -82,11 +80,13 @@ Successful initial effect execution reports its dependencies and run count;
 later writes report subsequent runs. Lazy computeds remain unevaluated until
 read. Reactive text and attribute bindings use these tracked effects too.
 
-Production defaults disable development hooks. The explicit runtime
-`globalThis.__WHAT_DEV__` override is retained for browser tooling, so a
-production bundle can retain development branches even when they do not run.
-Consumer gzip budgets include that tradeoff; complete compile-time stripping
-is not promised while the runtime override remains supported.
+`__DEV__` is the only development switch, read through what-core's `#env`
+import: `env-development.js` (`true`) under the `development` condition,
+`env.js` otherwise. Production builds (`dist/*.min.js`, and `what-compiler/vite`
+builds from dist or source) define it as `false`, so every development branch
+is stripped; `scripts/check-size.mjs` fails if one survives. `env.js` resolves
+it at runtime, where `globalThis.__WHAT_DEV__` set before load forces either
+tier (docs/ARCHITECTURE.md, "Development and production tiers").
 
 ### The DOM runtime — `dom.js`, `render.js`
 
@@ -102,11 +102,18 @@ markers.
 
 ### Components run once
 
-A component function body executes a single time. Props are read through a
-reactive proxy, so `props.label` tracks and `const { label } = props` does not.
-That is the single most common mistake this model invites, which is why it has
-an ESLint rule, an MCP analysis rule, and a catalogue entry
-(`ERR_DESTRUCTURED_PROPS`) all pointing at it.
+A component function body executes a single time. Props are an object with
+no prototype (frozen in development), not a reactive proxy. A prop whose
+value reads a signal is a getter over that expression (a live prop, compiled
+like Solid's), so a JSX binding that reads `props.label` re-runs when the
+signal changes; the compiler reads a destructured `{ label }` as
+`props.label` where it is used, and spreads and rest elements keep the
+getters (render.js `_$merge`, `_$omit`, dom.js `_isLiveProp`). A value can
+also be passed as its accessor (`label={label}`) and called where it renders
+(`{label()}`). The mistake this
+model invites is reading a signal without the call, or once in the body: an
+uncalled signal converted to text reports `ERR_MISSING_SIGNAL_READ`, and
+eslint-plugin-what's `no-uncalled-signals` and `signal-call-in-jsx` flag it.
 
 ### The rest of core
 
@@ -114,13 +121,13 @@ an ESLint rule, an MCP analysis rule, and a catalogue entry
 |---|---|
 | `h.js` | Element descriptors for uncompiled use |
 | `hooks.js` | `useState`, `useContext`, `useReducer`, and friends — all returning accessors |
-| `store.js`, `data.js` | Reactive stores; `useQuery`/`useMutation` |
+| `store.js`, `data.js` | Reactive stores (`createStore`); `useFetch`, `useSWR`, `useQuery`, `useInfiniteQuery` and the query cache |
 | `scheduler.js` | Read/write batching against the frame |
 | `head.js` | Deduplicated `<head>` management, server and client |
 | `server-context.js` | Render-scoped context; the SSR keystone |
 | `hydration-data.js` | Reads the single server payload script |
 | `errors.js` | The error-code catalogue (see below) |
-| `warnings.js`, `guardrails.js` | Dev-mode checks |
+| `diagnostics.js`, `guardrails.js` | Dev-mode checks: the coded diagnostics channel and the checks that report into it |
 | `a11y.js`, `animation.js`, `form.js`, `skeleton.js` | Standalone utilities |
 | `testing.js` | `render`, `act`, `trackSignals`, query helpers |
 | `jsx-runtime.js`, `jsx-dev-runtime.js` | The automatic JSX runtimes |
@@ -138,8 +145,8 @@ JSX source
                           attributes    →  setClass / setAttr / setProp
                           components    →  _$createComponent(Comp, props)
                           events        →  $$click prop + delegateEvents(['click'])
-  └─ vite-plugin.js       wires the transform, HMR, the error overlay,
-                          and the server-action id registry
+  └─ vite-plugin.js       wires the transform, HMR and the server-action
+                          id registry
   └─ file-router.js       pages/ directory → route table
   └─ runtime.js           the helpers compiled output imports
 ```
@@ -226,18 +233,20 @@ positioning, and it is real code rather than a claim:
 - **`what-devtools-mcp`** bridges that over a WebSocket to an MCP server, so
   an agent can read live app state, not just source. `bridge.js` is the
   socket, `client*.js` is the in-page half, `tools*.js` are the MCP tools.
-- **`eslint-plugin-what`** encodes ten rules for the mistakes this model
-  invites — uncalled signals, writes inside computeds, camelCase events,
-  destructured props.
+- **`eslint-plugin-what`** encodes rules for the mistakes this model
+  invites — uncalled signals, writes inside computeds and during render,
+  signal reads in effect dependency arrays, effects that write what they read,
+  imports that moved out of the root entry.
 - **`errors.js`** makes every failure machine-readable.
 
 ---
 
 ## Build and gates
 
-`scripts/build.js` is the build config: esbuild, per-package entry lists, code
-splitting for core so shared internals become one chunk. Six packages produce
-`dist/`; the rest ship source.
+`scripts/build.js` is the build config: esbuild, one output file per source
+module in each tier, built from the modules each package's export map reaches,
+so module state exists once per tier. Six packages produce `dist/`; the rest
+ship source.
 
 The gates, all runnable locally and all run in CI:
 

@@ -19,7 +19,7 @@
 // A Symbol key keeps it off the global namespace while still being one slot per
 // process, which is exactly the scope the thing being stored has.
 
-const KEY = Symbol.for('what.revalidationHandler');
+const KEY = Symbol.for('what.revalidationHandler.v1');
 
 const isDev = typeof process !== 'undefined' ? process.env?.NODE_ENV !== 'production' : true;
 

@@ -109,7 +109,9 @@ describe('what babel plugin fine-grained output', () => {
     assert.match(code, /<input>/);
   });
 
-  it('injects expression markers and emits insert(parent, value, marker) calls', () => {
+  // An expression followed by an element is inserted before that element: the
+  // template needs no comment marker for it.
+  it('inserts an expression before the next element, with no marker comment', () => {
     const source = `
       function App() {
         const content = signal('x');
@@ -118,7 +120,8 @@ describe('what babel plugin fine-grained output', () => {
     `;
 
     const code = compileJSX(source, { filename: 'test.jsx' });
-    assert.match(code, /<!--\$-->/);
+    assert.match(code, /_\$template\("<main><p>before<\/p><p>after"\)/);
+    assert.doesNotMatch(code, /<!/);
 
     const ast = compileAst(source);
     const insertArgCounts = collectInsertArgCounts(ast);
@@ -369,7 +372,7 @@ describe('component output', () => {
     `);
 
     assert.match(code, /Hello /, 'text children must survive the directive');
-    assert.match(code, /<b>world<\/b>/, 'element children must survive the directive');
+    assert.match(code, /<b>world/, 'element children must survive the directive');
   });
 
   it('keeps island spread props, with explicit attributes winning', () => {
@@ -380,7 +383,8 @@ describe('component output', () => {
       }
     `);
 
-    assert.match(code, /Object\.assign\(\{\}, cfg, \{/, 'the spread must be merged, not dropped');
+    // `cfg` is read through props where it is used (common.js deferPlacedProps).
+    assert.match(code, /Object\.assign\(\{\}, _props\.cfg, \{/, 'the spread must be merged, not dropped');
     const merged = code.slice(code.indexOf('Object.assign'));
     assert.ok(
       merged.indexOf('title: "explicit"') > merged.indexOf('cfg'),
@@ -396,11 +400,10 @@ describe('component output', () => {
       }
     `);
 
-    const merged = code.slice(code.indexOf('Object.assign'));
-    assert.ok(
-      merged.indexOf('mode: "load"') > merged.indexOf('cfg'),
-      'the hydration mode comes from the directive, not from spread data'
-    );
+    // The spread is the component's props, an object beside the island's
+    // options, so no key of it can stand for the mode.
+    assert.match(code, /mode: "load",\s*props: Object\.assign\(\{\}, _props\.cfg\)/,
+      'the hydration mode comes from the directive, not from spread data');
   });
 
   it('escapes < and > in attribute values', () => {
@@ -615,7 +618,7 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /addEventListener/, 'scroll should use addEventListener');
+    assert.match(code, /_\$on\(_el\$\d+, "scroll"/, 'scroll should be a listener of its own, which its owner removes');
     assert.doesNotMatch(code, /__scroll/, 'scroll should not use delegation');
   });
 
@@ -626,7 +629,7 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /addEventListener/, 'pointer events should use addEventListener');
+    assert.match(code, /_\$on\(_el\$\d+, "pointerdown"/, 'pointer events should be a listener of their own, which the owner removes');
   });
 
   it('emits delegateEvents with the list of used events', () => {
@@ -639,9 +642,28 @@ describe('event delegation', () => {
       }
     `);
 
-    assert.match(code, /_\$delegateEvents\(/, 'should emit delegateEvents call');
-    assert.match(code, /["']click["']/, 'should include click in delegated events');
-    assert.match(code, /["']change["']/, 'should include change in delegated events');
+    assert.match(code, /_\$delegateEvents\(\["click"\]\)/, 'should delegate click');
+    // onChange is React's change event, which its own install delegates.
+    assert.match(code, /_\$changes\(\)/, 'should install onChange');
+    assert.match(code, /\.\$\$change = /);
+  });
+
+  it('a module with onChange alone installs it and delegates nothing else', () => {
+    const code = compileJSX(`const a = <form onChange={() => {}}><input /></form>;`);
+    assert.match(code, /_\$changes\(\)/);
+    assert.doesNotMatch(code, /_\$delegateEvents/);
+  });
+
+  it('a module without onChange carries no install', () => {
+    const code = compileJSX(`const a = <button onClick={() => {}} onInput={() => {}}>A</button>;`);
+    assert.doesNotMatch(code, /_\$changes/);
+  });
+
+  it('onChange with modifiers is React\'s change event too: a spread\'s listener, with its options', () => {
+    const code = compileJSX(`const a = <input onChange__once__capture={h} onClick__once={k} />;`);
+    // It listens for two events, so `once` is the handler's: the first change.
+    assert.match(code, /_\$spread\(_el\$\d+, \{\s*onchange: \(\(h, done\) => e => done \|\| \(done = true, h\(e\)\)\)\(h\)\s*\}, null, \{\s*capture: true\s*\}\)/);
+    assert.match(code, /_\$on\(_el\$\d+, "click", k, \{\s*once: true\s*\}\)/, 'any other event keeps its DOM listener');
   });
 });
 
@@ -650,12 +672,15 @@ describe('event delegation', () => {
 // =========================================================================
 
 describe('issue #1: marker pre-capture for multiple dynamic children', () => {
+  // Three adjacent expressions need two placeholder markers (the last one
+  // appends), and inserting before the first would shift the second if it were
+  // read afterwards from firstChild.
   it('pre-captures markers when 2+ dynamic children exist', () => {
     const code = compileJSX(`
       import { signal } from 'what-framework';
       function App() {
         const items = signal([]);
-        return <div>{items().length === 0 ? "empty" : null}{items().map(i => i)}</div>;
+        return <div>{items().length === 0 ? "empty" : null}{items().map(i => i)}{items().length}</div>;
       }
     `);
 
@@ -716,11 +741,9 @@ describe('issue #4: ref prop handling in compiled output', () => {
     assert.ok(!code.includes('_$setProp') || !code.includes('"ref"'),
       'should not use setProp for ref');
 
-    // Should generate ref.current = el (or typeof check)
-    assert.ok(
-      code.includes('.current =') || code.includes('typeof'),
-      'should generate ref assignment (either .current = or typeof check)'
-    );
+    // A ref object or callback held in a binding goes through applyRef,
+    // which evaluates the expression once.
+    assert.match(code, /_\$applyRef\(boxRef, _el\$\d+\)/);
   });
 
   it('handles callback refs', () => {
@@ -731,11 +754,7 @@ describe('issue #4: ref prop handling in compiled output', () => {
       }
     `);
 
-    // Should generate typeof check for function vs object ref
-    assert.ok(
-      code.includes('typeof') || code.includes('.current'),
-      'should handle both function and object refs'
-    );
+    assert.match(code, /_\$applyRef\(refFn, _el\$\d+\)/);
   });
 });
 

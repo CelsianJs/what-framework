@@ -383,7 +383,7 @@ describe('#57 useRovingTabIndex under SSR + islands', () => {
     function Page() {
       const heading = useId('label');
       return h('div', {},
-        h('h2', { id: heading() }, 'Tools'),
+        h('h2', { id: heading }, 'Tools'),
         h('div', { 'data-island': 'Toolbar' }, h(Toolbar, { prefix: 'x' })),
       );
     }

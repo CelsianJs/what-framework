@@ -17,9 +17,17 @@ import {
   _getCurrentInstance,
   _getHookSlot,
   scheduleUpdate,
+  _isStuck,
+  _hostParent,
+  _pushInsertion,
   _pushLayout,
   _pushPassive,
-  flushUpdates,
+  _setFormActionRunner,
+  _whatContext,
+  claim,
+  EFFECT_INSERTION,
+  EFFECT_LAYOUT,
+  EFFECT_PASSIVE,
 } from './runtime.js';
 
 function depsChanged(oldDeps, newDeps) {
@@ -32,6 +40,58 @@ function depsChanged(oldDeps, newDeps) {
   return false;
 }
 
+// ---- State queues (useState, useReducer) ----
+// A setter queues its action and the next render applies the queue in order,
+// as React's update queue does. A reducer or an updater therefore runs while
+// the component renders: what it throws reaches the error boundary, an
+// updater queued behind another sees the result of the one before it, and
+// one whose component unmounts first never runs.
+//
+// With nothing queued the action is tried at the call (React's eager state):
+// a state that does not change schedules no render, and the result is kept
+// for the render, so the updater runs once. What it throws there is dropped:
+// the render runs it again, and throws where a boundary catches it.
+// useReducer takes the same path with the reducer of the last render, as
+// React 17 did (React 18 runs every action at render and discards a render
+// whose state came out the same; a render is not discarded here).
+
+function basicStateReducer(state, action) {
+  return typeof action === 'function' ? action(state) : action;
+}
+
+function enqueueAction(inst, slot, action, reducer) {
+  // The update-loop guard stopped this component (runtime.js): the update is
+  // refused, so the state stays what the screen shows.
+  if (_isStuck(inst)) return;
+  const update = { action, eager: false, value: undefined };
+  if (slot.queue.length === 0) {
+    try {
+      const next = reducer(slot.value, action);
+      if (Object.is(next, slot.value)) return;
+      update.eager = true;
+      update.value = next;
+    } catch { /* thrown again by the render */ }
+  }
+  if (inst.unmounted) return;
+  slot.queue.push(update);
+  scheduleUpdate(inst);
+}
+
+// The state for this render: the queued actions applied to the last one. An
+// action that throws takes the queue with it (the boundary above replaces
+// the component).
+function applyActions(slot, reducer) {
+  const queue = slot.queue;
+  if (queue.length === 0) return;
+  slot.queue = [];
+  let value = slot.value;
+  for (let i = 0; i < queue.length; i++) {
+    const update = queue[i];
+    value = update.eager ? update.value : reducer(value, update.action);
+  }
+  slot.value = value;
+}
+
 // ---- useState ----
 
 export function useState(initial) {
@@ -40,12 +100,17 @@ export function useState(initial) {
   if (!slot.init) {
     slot.init = true;
     slot.value = typeof initial === 'function' ? initial() : initial;
+    slot.queue = [];
     slot.set = (next) => {
-      const resolved = typeof next === 'function' ? next(slot.value) : next;
-      if (Object.is(resolved, slot.value)) return;
-      slot.value = resolved;
-      scheduleUpdate(inst);
+      // Inside a transition the update waits for the transition (below).
+      if (currentTransition !== null) {
+        currentTransition.updates.push(() => slot.set(next));
+        return;
+      }
+      enqueueAction(inst, slot, next, basicStateReducer);
     };
+  } else {
+    applyActions(slot, basicStateReducer);
   }
   return [slot.value, slot.set];
 }
@@ -58,15 +123,19 @@ export function useReducer(reducer, initialArg, init) {
   if (!slot.init) {
     slot.init = true;
     slot.value = init ? init(initialArg) : initialArg;
-    slot.reducer = reducer;
+    slot.queue = [];
     slot.dispatch = (action) => {
-      const next = slot.reducer(slot.value, action);
-      if (Object.is(next, slot.value)) return;
-      slot.value = next;
-      scheduleUpdate(inst);
+      if (currentTransition !== null) {
+        currentTransition.updates.push(() => slot.dispatch(action));
+        return;
+      }
+      enqueueAction(inst, slot, action, slot.reducer);
     };
+  } else {
+    // Queued actions run with this render's reducer (it may close over props).
+    applyActions(slot, reducer);
   }
-  slot.reducer = reducer; // always use the latest reducer closure
+  slot.reducer = reducer;
   return [slot.value, slot.dispatch];
 }
 
@@ -107,13 +176,15 @@ export function useRef(initial) {
 }
 
 // ---- useEffect / useLayoutEffect / useInsertionEffect ----
+// The hook queues its effect; the commit runs it (runtime.js): insertion
+// effects first, then layout effects, then passive ones after the commit.
 
-function useEffectImpl(hookName, push, fn, deps) {
+function useEffectImpl(hookName, kind, push, fn, deps) {
   const inst = _requireInstance(hookName);
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot._isEffect = true;
+    slot._effect = kind;
     slot.cleanup = null;
     slot.deps = undefined;
     slot._pending = null;
@@ -125,37 +196,17 @@ function useEffectImpl(hookName, push, fn, deps) {
 }
 
 export function useEffect(fn, deps) {
-  useEffectImpl('useEffect', _pushPassive, fn, deps);
+  useEffectImpl('useEffect', EFFECT_PASSIVE, _pushPassive, fn, deps);
 }
 
 export function useLayoutEffect(fn, deps) {
-  useEffectImpl('useLayoutEffect', _pushLayout, fn, deps);
+  useEffectImpl('useLayoutEffect', EFFECT_LAYOUT, _pushLayout, fn, deps);
 }
 
-// Runs synchronously during render (before this component's DOM mutations) —
-// the closest approximation of React's insertion phase for CSS-in-JS libs.
+// In the commit, before refs attach and layout effects run, children before
+// parents: where a CSS-in-JS library writes its rules.
 export function useInsertionEffect(fn, deps) {
-  const inst = _requireInstance('useInsertionEffect');
-  const slot = _getHookSlot(inst);
-  if (!slot.init) {
-    slot.init = true;
-    slot._isEffect = true;
-    slot.cleanup = null;
-    slot.deps = undefined;
-  }
-  if (depsChanged(slot.deps, deps)) {
-    slot.deps = deps;
-    if (slot.cleanup) {
-      try { slot.cleanup(); } catch (e) { console.error('[what-react] insertion effect cleanup error:', e); }
-      slot.cleanup = null;
-    }
-    try {
-      const result = fn();
-      if (typeof result === 'function') slot.cleanup = result;
-    } catch (e) {
-      console.error('[what-react] insertion effect error:', e);
-    }
-  }
+  useEffectImpl('useInsertionEffect', EFFECT_INSERTION, _pushInsertion, fn, deps);
 }
 
 // ---- useImperativeHandle ----
@@ -164,8 +215,8 @@ export function useImperativeHandle(ref, createHandle, deps) {
   useLayoutEffect(() => {
     if (typeof ref === 'function') {
       const handle = createHandle();
-      ref(handle);
-      return () => ref(null);
+      const cleanup = ref(handle);
+      return typeof cleanup === 'function' ? cleanup : () => ref(null);
     } else if (ref && typeof ref === 'object') {
       ref.current = createHandle();
       return () => { ref.current = null; };
@@ -179,6 +230,10 @@ export function createContext(defaultValue) {
   const context = {
     $$typeof: Symbol.for('react.context'),
     _defaultValue: defaultValue,
+    // React's fields: the value outside every provider. (React also keeps
+    // the nearest provider's value here while it renders; this does not.)
+    _currentValue: defaultValue,
+    _currentValue2: defaultValue,
     displayName: 'Context',
   };
 
@@ -200,6 +255,9 @@ export function createContext(defaultValue) {
   }
   Provider.displayName = 'Context.Provider';
   Provider._context = context;
+  // The brands React 18 gives them, which react-is 18 reads from an
+  // element's type (isContextProvider, isContextConsumer).
+  Provider.$$typeof = Symbol.for('react.provider');
 
   function Consumer(props) {
     const value = useContext(context);
@@ -208,14 +266,20 @@ export function createContext(defaultValue) {
   }
   Consumer.displayName = 'Context.Consumer';
   Consumer._context = context;
+  Consumer.$$typeof = Symbol.for('react.context');
 
   context.Provider = Provider;
   context.Consumer = Consumer;
+  // React 19: <Context value> is the provider (index.js renders the context
+  // object as its Provider).
   return context;
 }
 
 export function useContext(context) {
   const inst = _requireInstance('useContext');
+  // A What context (a function: what-core's createContext makes its own
+  // provider) has its value in the native code around the island.
+  if (typeof context === 'function') return _whatContext(inst, context, context._defaultValue);
   let p = inst.parent;
   while (p) {
     if (p._ctxProvided && p._ctxProvided.has(context)) {
@@ -245,12 +309,19 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot._isEffect = true; // unmount runs slot.cleanup (the unsubscribe)
+    slot._effect = EFFECT_LAYOUT; // unmount runs slot.cleanup (the unsubscribe)
     slot.cleanup = null;
     slot.subscribe = undefined;
     slot._pending = null;
   }
-  const value = getSnapshot();
+  // On the server, and in the render that hydrates the server's HTML, React
+  // reads getServerSnapshot; the subscription below then renders again with
+  // the client's snapshot when it differs. On the server there has to be one
+  // (React's error: the island renders in the browser instead, mixed.js).
+  if (inst._server && typeof _getServerSnapshot !== 'function') {
+    throw new Error('Missing getServerSnapshot, which is required for server-rendered content. Will revert to client rendering.');
+  }
+  const value = (inst._server || claim !== null) && typeof _getServerSnapshot === 'function' ? _getServerSnapshot() : getSnapshot();
   slot.value = value;
   slot.getSnapshot = getSnapshot;
 
@@ -274,32 +345,282 @@ export function useSyncExternalStore(subscribe, getSnapshot, _getServerSnapshot)
 }
 
 // ---- useTransition / useDeferredValue / startTransition ----
-// Rendering here is synchronous — transitions degrade to immediate updates.
+// Rendering here is not time-sliced: a transition's updates render in the
+// next flush, like any other. What a transition adds is its async form
+// (React 19 actions): while the promise its callback returned is pending,
+// useTransition reports isPending and optimistic state stays in place.
+
+/**
+ * The transition whose callback is running. State updates made while it runs
+ * are its updates, and optimistic updates last as long as it does.
+ * @type {{ settle: Array<() => void>, wait: Array<Promise<unknown>>, updates: Array<() => void> } | null}
+ */
+let currentTransition = null;
+/** Async transitions (actions) still running, and the state updates held for them. */
+let asyncTransitions = 0;
+/** @type {Array<() => void>} */
+const heldUpdates = [];
+
+function applyUpdates(updates) {
+  for (let i = 0; i < updates.length; i++) updates[i]();
+}
+
+// Run `fn` as a transition; `done` runs when it has finished, also when it
+// threw or its promise rejected. Returns a promise for an async one (its
+// callback returned a promise, or dispatched an action that is still
+// running), or null for a sync one.
+//
+// A sync transition's updates render in the next flush. An async one's are
+// held until it has finished, with those of every transition started
+// meanwhile (a `startTransition` after an `await`), and then render together
+// with the end of its pending and optimistic state: React commits an action's
+// updates in one go, so the screen never shows the new state next to the
+// optimistic one.
+function runTransition(fn, done) {
+  const scope = { settle: /** @type {Array<() => void>} */ ([]), wait: /** @type {Array<Promise<unknown>>} */ ([]), updates: /** @type {Array<() => void>} */ ([]) };
+  const prev = currentTransition;
+  currentTransition = scope;
+  let result;
+  /** @type {{ error: unknown } | null} */
+  let thrown = null;
+  try {
+    result = fn();
+  } catch (error) {
+    thrown = { error };
+  }
+  currentTransition = prev;
+  const thenable = thrown === null && result !== null && typeof result === 'object' && typeof result.then === 'function';
+  if (thenable || scope.wait.length > 0) {
+    asyncTransitions++;
+    for (const update of scope.updates) heldUpdates.push(update);
+    const finish = () => {
+      if (--asyncTransitions === 0) applyUpdates(heldUpdates.splice(0));
+      for (const settle of scope.settle) settle();
+      if (done) done();
+    };
+    const all = Promise.all([result, ...scope.wait]);
+    all.then(finish, finish);
+    return all;
+  }
+  // A sync transition: its updates apply now, unless an action is running
+  // (they are part of what it commits). It is over once they have rendered.
+  if (asyncTransitions > 0) for (const update of scope.updates) heldUpdates.push(update);
+  else applyUpdates(scope.updates);
+  queueMicrotask(() => {
+    for (const settle of scope.settle) settle();
+    if (done) done();
+  });
+  if (thrown !== null) throw thrown.error;
+  return null;
+}
 
 export function useTransition() {
-  _requireInstance('useTransition');
-  return [false, startTransition];
+  const inst = _requireInstance('useTransition');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.pending = 0;
+    slot.start = (fn) => {
+      let counted = false;
+      const promise = runTransition(fn, () => {
+        if (counted && --slot.pending === 0) scheduleUpdate(inst);
+      });
+      if (promise !== null) {
+        counted = true;
+        if (slot.pending++ === 0) scheduleUpdate(inst);
+        // React reports a rejected action at the nearest error boundary.
+        promise.then(undefined, (error) => { slot.error = { error }; scheduleUpdate(inst); });
+      }
+    };
+  }
+  if (slot.error) {
+    const { error } = slot.error;
+    slot.error = null;
+    throw error;
+  }
+  return [slot.pending > 0, slot.start];
 }
 
 export function startTransition(fn) {
-  fn();
-  flushUpdates();
+  const promise = runTransition(fn, null);
+  if (promise !== null) promise.then(undefined, (error) => { console.error('[what-react] a transition rejected:', error); });
 }
 
-export function useDeferredValue(value) {
+// React 19's second argument: the value for the first render, which commits
+// before a render with `value` follows. Later changes of `value` are not
+// deferred (rendering here is not time-sliced).
+export function useDeferredValue(value, initialValue) {
+  const inst = _requireInstance('useDeferredValue');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.initial = initialValue !== undefined && !Object.is(initialValue, value);
+  }
+  if (slot.initial) {
+    // Queued on every render until it ran (a render that suspends drops it).
+    _pushPassive(inst, slot, () => {
+      slot.initial = false;
+      scheduleUpdate(inst);
+    });
+    return initialValue;
+  }
   return value;
+}
+
+// ---- useOptimistic ----
+// The value with the optimistic updates applied, for as long as the
+// transition (action) that added them is running; then `passthrough` again.
+
+export function useOptimistic(passthrough, reducer) {
+  const inst = _requireInstance('useOptimistic');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.actions = [];
+    slot.add = (action) => {
+      const entry = { action };
+      slot.actions.push(entry);
+      scheduleUpdate(inst);
+      const revert = () => {
+        const at = slot.actions.indexOf(entry);
+        if (at !== -1) slot.actions.splice(at, 1);
+        scheduleUpdate(inst);
+      };
+      // Outside a transition React drops the update at once.
+      if (currentTransition !== null) currentTransition.settle.push(revert);
+      else queueMicrotask(revert);
+    };
+  }
+  slot.reducer = reducer;
+  let value = passthrough;
+  for (const entry of slot.actions) value = typeof slot.reducer === 'function' ? slot.reducer(value, entry.action) : entry.action;
+  return [value, slot.add];
+}
+
+// ---- useActionState ----
+// [state, dispatch, isPending]: dispatch(payload) runs action(state, payload)
+// in a transition, one call after the other, each with the last one's result.
+
+export function useActionState(action, initialState) {
+  const inst = _requireInstance('useActionState');
+  const slot = _getHookSlot(inst);
+  if (!slot.init) {
+    slot.init = true;
+    slot.state = initialState;
+    slot.pending = 0;
+    slot.queue = Promise.resolve();
+    slot.dispatch = (payload) => {
+      if (slot.pending++ === 0) scheduleUpdate(inst);
+      const run = () => {
+        const result = runTransition(() => slot.action(slot.state, payload), null);
+        return result === null ? slot.lastSync : result.then((values) => values[0]);
+      };
+      const done = slot.queue.then(run).then(
+        (next) => { slot.state = next; },
+        (error) => { slot.error = { error }; },
+      ).then(() => {
+        slot.pending--;
+        scheduleUpdate(inst);
+      });
+      slot.queue = done;
+      // The transition that dispatched (a form action) lasts as long as the action.
+      if (currentTransition !== null) currentTransition.wait.push(done);
+    };
+  }
+  // The latest action, wrapped so a sync result is kept for the queue.
+  slot.action = (state, payload) => {
+    const result = action(state, payload);
+    slot.lastSync = result;
+    return result;
+  };
+  if (slot.error) {
+    const { error } = slot.error;
+    slot.error = null;
+    throw error;
+  }
+  return [slot.state, slot.dispatch, slot.pending > 0];
+}
+
+// ---- useEffectEvent ----
+// A function that always calls the latest `fn`, for use inside effects.
+
+export function useEffectEvent(fn) {
+  const inst = _requireInstance('useEffectEvent');
+  const slot = _getHookSlot(inst);
+  slot.fn = fn;
+  if (!slot.init) {
+    slot.init = true;
+    slot.call = (...args) => slot.fn(...args);
+  }
+  return slot.call;
+}
+
+// ---- Form actions and useFormStatus (react-dom) ----
+
+const NOT_PENDING = Object.freeze({ pending: false, data: null, method: null, action: null });
+const formStatusListeners = new Set();
+
+// How a form's function action runs (runtime.js calls this on submit): in a
+// transition, with the form's status published for useFormStatus, and the
+// form's uncontrolled fields reset once it has succeeded.
+_setFormActionRunner((form, action, data) => {
+  const publish = (status) => {
+    form._compatStatus = status;
+    for (const listener of [...formStatusListeners]) listener();
+  };
+  publish({ pending: true, data, method: 'post', action });
+  let failed = false;
+  try {
+    const promise = runTransition(() => action(data), () => {
+      publish(NOT_PENDING);
+      if (!failed && form.isConnected) form.reset();
+    });
+    if (promise !== null) promise.then(undefined, (error) => { failed = true; console.error('[what-react] a form action rejected:', error); });
+  } catch (error) {
+    failed = true;
+    console.error('[what-react] a form action threw:', error);
+  }
+});
+
+/** The status of the <form> this component is inside (react-dom's useFormStatus). */
+export function useFormStatus() {
+  const inst = _requireInstance('useFormStatus');
+  return useSyncExternalStore(
+    (notify) => { formStatusListeners.add(notify); return () => formStatusListeners.delete(notify); },
+    () => {
+      const parent = _hostParent(inst);
+      const form = parent && typeof parent.closest === 'function' ? parent.closest('form') : null;
+      return (form && form._compatStatus) || NOT_PENDING;
+    },
+    () => NOT_PENDING,
+  );
 }
 
 // ---- useId ----
 
 let idCounter = 0;
 
+/** @type {(inst: any) => string} */
+let newId = () => ':w' + (++idCounter).toString(36) + ':';
+
+/**
+ * @internal An island the server rendered names its components' ids itself,
+ * the same on the server and in the render that hydrates it (server.js
+ * islandId); any other component gets a client id.
+ */
+export function _islandIds(islandId) {
+  if (islandId._names === true) return;
+  islandId._names = true;
+  const client = newId;
+  newId = (inst) => islandId(inst) || client(inst);
+}
+
 export function useId() {
   const inst = _requireInstance('useId');
   const slot = _getHookSlot(inst);
   if (!slot.init) {
     slot.init = true;
-    slot.value = ':w' + (++idCounter).toString(36) + ':';
+    slot.value = newId(inst);
   }
   return slot.value;
 }
@@ -330,26 +651,12 @@ export function use(usable) {
       return useContext(usable);
     }
   }
+  // A What context (what-core's createContext: a function that is its own
+  // provider), read as useContext reads it.
+  if (typeof usable === 'function' && usable.Provider === usable) return useContext(usable);
   // ERROR_CODES.USE_INVALID_ARG
   throw Object.assign(
     new Error('[what-react] use() expects a promise or a context.'),
     { code: 'ERR_USE_INVALID_ARG' },
-  );
-}
-
-// ---- useSignal (escape hatch) ----
-// Bridge helper for mixed codebases: subscribe a compat component to a
-// what-core signal. Re-renders this component when the signal changes.
-
-export function useWhatSignal(sig) {
-  return useSyncExternalStore(
-    (notify) => {
-      // what-core signals don't expose subscribe directly; poll via effect-free
-      // microtask comparison is wasteful — use sig.subscribe if present.
-      if (typeof sig.subscribe === 'function') return sig.subscribe(notify);
-      // Fallback: no subscription available; value still read each render.
-      return () => {};
-    },
-    () => sig(),
   );
 }

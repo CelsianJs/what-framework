@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -64,7 +64,7 @@
           <h1>effect()</h1>
           <p class="subtitle">Run a side-effect function that automatically re-runs when its signal dependencies change.</p>
 
-<pre><code><span class="keyword">const</span> dispose = <span class="function">effect</span>(fn, opts?)</code></pre>
+<pre><code><span class="keyword">const</span> dispose = <span class="function">effect</span>(fn, opts)</code></pre>
 
           <h2 id="parameters">Parameters</h2>
           <table>
@@ -79,8 +79,8 @@
               </tr>
               <tr>
                 <td><code>opts</code></td>
-                <td><code>{ stable?: boolean }</code></td>
-                <td>Optional. When <code>stable: true</code>, the effect skips re-tracking dependencies on re-run (assumes deps never change after first run). It also runs synchronously and inline on each write outside a <code>batch()</code>, instead of being queued for the microtask flush. Only use it when the dependency set is provably fixed.</td>
+                <td><code>{ stable?: boolean, phase?: 'user' }</code></td>
+                <td>Optional. <code>phase: 'user'</code> runs the effect in the user phase of a flush, after the render-phase effects (every DOM binding included), so it sees the DOM they wrote. When <code>stable: true</code>, the effect skips re-tracking dependencies on re-run (assumes deps never change after first run). It also runs synchronously and inline on each write outside a <code>batch()</code>, instead of being queued for the microtask flush. Only use it when the dependency set is provably fixed.</td>
               </tr>
             </tbody>
           </table>
@@ -152,13 +152,14 @@ dispose();
 count.set(<span class="number">2</span>);  <span class="comment">// Nothing happens, the effect is disposed</span></code></pre>
 
           <h3>Event Listener Pattern</h3>
-          <p>An <code>effect()</code> in a component body is not tied to that component, so
-          capture its dispose function and hand it to <code>onCleanup()</code>. Without that the
-          listener survives unmount.</p>
-<pre><code><span class="keyword">import</span> { effect, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+          <p>An <code>effect()</code> in a component body belongs to the component, which is an
+          owner: the effect is disposed, and its cleanup runs, when the component goes, whether a
+          reactive region, a list row or a route lets it go or the function <code>mount()</code>
+          returns unmounts the tree.</p>
+<pre><code><span class="keyword">import</span> { effect } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">ResizeWatcher</span>() {
-  <span class="keyword">const</span> stop = <span class="function">effect</span>(() =&gt; {
+  <span class="function">effect</span>(() =&gt; {
     <span class="keyword">const</span> handler = () =&gt; console.log(<span class="string">'resize'</span>);
     window.addEventListener(<span class="string">'resize'</span>, handler);
 
@@ -166,8 +167,6 @@ count.set(<span class="number">2</span>);  <span class="comment">// Nothing happ
       window.removeEventListener(<span class="string">'resize'</span>, handler);
     };
   });
-
-  <span class="function">onCleanup</span>(stop);
 
   <span class="keyword">return</span> &lt;div /&gt;;
 }</code></pre>
@@ -218,8 +217,8 @@ s.set(<span class="number">2</span>);
           <ul>
             <li>Effects run immediately on creation (synchronously), then re-run asynchronously via microtask when dependencies change. The single-dependency fast path above is the exception.</li>
             <li>Only signals actually read during execution are tracked. Conditional branches that are not taken do not create subscriptions.</li>
-            <li>If an effect reads and writes the same signal, it can cause infinite loops. What detects this and warns after 25 flush iterations, then drops the pending queue so the cycle stops instead of hanging the tab. Use <a href="./untrack.html">untrack()</a> to read without subscribing.</li>
-            <li>An <code>effect()</code> created in a component body is <strong>not</strong> disposed when the component unmounts. It keeps re-running on every later write. Capture its dispose function and pass it to <code>onCleanup()</code>, or use <code>useEffect()</code>, which registers with the component context.</li>
+            <li>If an effect reads and writes the same signal, it can cause infinite loops. What stops the loop after 100 flush rounds and drops the effects still queued, so the cycle stops instead of hanging the tab, and development reports <code>ERR_INFINITE_EFFECT</code> with the effect's name. Use <a href="./untrack.html">untrack()</a> to read without subscribing.</li>
+            <li>An <code>effect()</code> created in a component body is disposed with the component: when a reactive region, list row or route lets it go, or when the function <code>mount()</code> returns unmounts the tree. One created during another effect's run is disposed before that effect runs again. One created outside any owner (at module scope, in an event handler, a timer or after an <code>await</code>) lives until you call its <code>dispose</code> function.</li>
             <li>For derived values, prefer <a href="./computed.html">computed()</a> over setting a signal inside an effect.</li>
             <li>The cleanup function runs before each re-execution and on final disposal.</li>
           </ul>

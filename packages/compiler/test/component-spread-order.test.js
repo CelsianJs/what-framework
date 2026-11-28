@@ -257,21 +257,15 @@ describe('island spread ordering', () => {
   });
 
   it('an island spread can never reach the directive machinery', async () => {
-    const code = compileJSX(`
-      function Chart() { return <canvas />; }
-      function App({ cfg }) {
-        return <div><Chart client:load {...cfg} {...{ mode: 'static' }} /></div>;
-      }
-    `);
-    const merged = code.slice(code.indexOf('Object.assign'));
-    assert.ok(
-      merged.indexOf('mode: "load"') > merged.lastIndexOf('cfg'),
-      'the hydration mode comes from the directive, applied after all user data'
+    const { props, host } = await islandPropsSeenBy(
+      `<Chart client:load {...{ mode: 'static', component: 'x', name: 'n', mediaQuery: 'q' }} />`
     );
-    assert.ok(
-      merged.indexOf('component: Chart') > merged.lastIndexOf('cfg'),
-      'the component reference comes from the tag, applied after all user data'
-    );
+    // The island hydrated Chart on its directive's trigger, under its tag's
+    // name, and Chart got every key of the spread.
+    const island = host.querySelector('[data-island]');
+    assert.equal(island.getAttribute('data-island'), 'Chart');
+    assert.equal(island.getAttribute('data-island-mode'), 'load');
+    assert.deepEqual([props.mode, props.component, props.name, props.mediaQuery], ['static', 'x', 'n', 'q']);
   });
 });
 
@@ -280,10 +274,12 @@ describe('component spread lowering shape', () => {
     const code = compileJSX(`
       function App({ a, b }) { return <Box {...a} mid="m" {...b} />; }
     `);
-    const merged = code.slice(code.indexOf('Object.assign'));
-    const iA = merged.indexOf(' a,');
+    // Merged with getters kept (render.js _$merge); `a` and `b` are read
+    // through props where they are used (common.js deferPlacedProps).
+    const merged = code.slice(code.indexOf('_$merge('));
+    const iA = merged.indexOf('_props.a,');
     const iMid = merged.indexOf('mid: "m"');
-    const iB = merged.indexOf(' b)');
+    const iB = merged.indexOf('_props.b)');
     assert.ok(iA >= 0, `the first spread must survive, got:\n${code}`);
     assert.ok(iB >= 0, `the second spread must survive, got:\n${code}`);
     assert.ok(iA < iMid && iMid < iB, `arguments must follow source order, got:\n${code}`);

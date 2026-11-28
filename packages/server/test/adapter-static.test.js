@@ -1,4 +1,4 @@
-// Static export adapter (Phase 7).
+// Static export adapter.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,7 +27,7 @@ describe('exportStatic', () => {
       const inline = JSON.parse(html.match(/<script id="__what_data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
       const data = JSON.parse(await readFile(join(outDir, path, '__what_data.json'), 'utf8'));
       assert.equal(calls, 1);
-      assert.match(html, /<main>revision:1<\/main>/);
+      assert.match(html, /<main data-hk="0">revision:1<\/main>/);
       assert.deepEqual(data.loaderData, inline.loaderData);
     });
   }
@@ -116,7 +116,7 @@ describe('exportStatic', () => {
     const { pages } = await exportStatic({ routes, outDir });
     assert.deepEqual(pages, ['/']);
     const html = await readFile(join(outDir, 'index.html'), 'utf8');
-    assert.match(html, /<main>home<\/main>/);
+    assert.match(html, /<main data-hk="0">home<\/main>/);
     assert.match(html, /<!DOCTYPE html>/i);
   });
 
@@ -146,6 +146,52 @@ describe('exportStatic', () => {
     }];
     await assert.rejects(() => exportStatic({ routes, outDir }), /outside outDir/);
     await assert.rejects(() => readFile(join(escaped, 'index.html'), 'utf8'), { code: 'ENOENT' });
+  });
+
+  it('renders each page at its own URL: a Router in it shows that page, and the loader gets the request', async () => {
+    const { Router } = await import('what-router');
+    const appRoutes = [
+      { path: '/', component: () => h('p', {}, 'home') },
+      { path: '/guide/:topic', component: ({ params }) => h('h1', {}, `guide ${params.topic}`) },
+    ];
+    const urls = [];
+    const routes = [{
+      path: '/guide/:topic',
+      page: { mode: 'static' },
+      getStaticPaths: async () => ({ paths: [{ params: { topic: 'intro' } }] }),
+      loader: ({ request }) => { urls.push(request.url); return {}; },
+      component: () => h(Router, { routes: appRoutes }),
+    }];
+    await exportStatic({ routes, outDir });
+    const html = await readFile(join(outDir, 'guide/intro/index.html'), 'utf8');
+    assert.match(html, /<h1[^>]*>guide intro<\/h1>/);
+    assert.doesNotMatch(html, />home</);
+    assert.deepEqual([...new Set(urls)], ['http://localhost/guide/intro/']);
+  });
+
+  it('renders each page below `basePath`, where a Router below that base shows it and links below it', async () => {
+    const { Router, Link, setBase } = await import('what-router');
+    setBase('/app/');
+    try {
+      const appRoutes = [
+        { path: '/', component: () => h('p', {}, 'home') },
+        { path: '/about', component: () => h('h1', {}, 'about') },
+        { path: '/old', middleware: [() => '/about'], component: () => h('p', {}, 'old') },
+      ];
+      const App = () => h('div', {}, h(Link, { href: '/' }, 'contents'), h(Router, { routes: appRoutes, fallback: () => h('p', {}, 'not found') }));
+      const urls = [];
+      const routes = ['/about', '/old'].map((path) => ({ path, page: { mode: 'static' }, loader: ({ request }) => { urls.push(request.url); return {}; }, component: App }));
+      const { pages, redirects } = await exportStatic({ routes, outDir, basePath: '/app/' });
+      assert.deepEqual(pages, ['/about']);
+      const html = await readFile(join(outDir, 'about/index.html'), 'utf8');
+      assert.match(html, /<h1[^>]*>about<\/h1>/);
+      assert.match(html, /<a [^>]*href="\/app\/"[^>]*>contents/);
+      assert.doesNotMatch(html, /not found/);
+      assert.deepEqual(redirects.map((r) => [r.path, r.location]), [['/old', '/app/about']]);
+      assert.deepEqual([...new Set(urls)], ['http://localhost/app/about/', 'http://localhost/app/old/']);
+    } finally {
+      setBase('');
+    }
   });
 
   it('skips server-mode and dynamic-without-getStaticPaths routes', async () => {

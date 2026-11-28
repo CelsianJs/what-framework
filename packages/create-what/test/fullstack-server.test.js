@@ -6,15 +6,18 @@
 //     (entry-client, styles, pages, framework modules) is 200
 //   - /new SSRs the no-JS progressive-enhancement fields (_action,
 //     what-csrf-token, _redirect) and a plain form-encoded POST creates a post
+//   - with JavaScript, a /new post the server refuses is shown in the form
 //   - unknown routes return a real 404 status and are never ISR-cached
 //   - the ISR cache still works for legit routes (second hit is a HIT)
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const createWhat = resolve(repoRoot, 'packages/create-what/index.js');
@@ -63,7 +66,7 @@ async function scaffoldAndBoot(workDir, { name = 'fs-app', port = PORT, env = {}
   child.stdout.on('data', (d) => { child.logs += d; });
   child.stderr.on('data', (d) => { child.logs += d; });
 
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       assert.fail(`server.js exited (${child.exitCode}) before listening:\n${child.logs}`);
@@ -72,9 +75,9 @@ async function scaffoldAndBoot(workDir, { name = 'fs-app', port = PORT, env = {}
       const res = await fetch(`http://localhost:${port}/`);
       if (res.ok) return { appDir, child, base: `http://localhost:${port}` };
     } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 25));
   }
-  assert.fail(`server.js did not answer on :${port} within 15s:\n${child.logs}`);
+  assert.fail(`server.js did not answer on :${port} within 60s:\n${child.logs}`);
 }
 
 function readCsrfCookie(res) {
@@ -85,7 +88,7 @@ function readCsrfCookie(res) {
 
 test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', async (t) => {
   const workDir = await mkdtemp(join(tmpdir(), 'create-what-boot-'));
-  const { child } = await scaffoldAndBoot(workDir);
+  const { child, appDir } = await scaffoldAndBoot(workDir);
 
   try {
     await t.test('SSR document renders with hydration payload + import map', async () => {
@@ -95,6 +98,24 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
       assert.match(html, /id="__what_data"/, 'embeds the hydration payload');
       assert.match(html, /src="\/src\/entry-client\.js"/, 'references the client entry');
       assert.match(html, /type="importmap"/, 'injects the import map');
+    });
+
+    await t.test('the first line names the mode, and a target that is not a path is refused without ending the server', async () => {
+      assert.match(child.logs, /http:\/\/localhost:\d+ \(development; NODE_ENV=production serves the production build\)/);
+      const net = await import('node:net');
+      const send = (target) => new Promise((resolve) => {
+        const socket = net.connect(PORT, '127.0.0.1');
+        let data = '';
+        socket.on('connect', () => socket.write(`GET ${target} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n`));
+        socket.on('data', (chunk) => { data += chunk; });
+        socket.on('close', () => resolve(Number((/^HTTP\/1\.1 (\d+)/.exec(data) || [])[1] || 0)));
+        socket.on('error', () => resolve(0));
+      });
+      for (const target of ['//', '//[::1', '*', 'http://[']) {
+        assert.ok([400, 404].includes(await send(target)), target);
+      }
+      assert.equal(child.exitCode, null, child.logs);
+      assert.equal((await fetch(BASE + '/')).status, 200);
     });
 
     await t.test('server-only modules are NOT served over HTTP', async () => {
@@ -107,7 +128,11 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
     });
 
     await t.test('allowlisted client files ARE served', async () => {
+      // what_scaffold writes a store under src/stores/, which pages import.
+      await mkdir(join(appDir, 'src', 'stores'), { recursive: true });
+      await writeFile(join(appDir, 'src', 'stores', 'demo.js'), 'export const demo = 1;\n');
       for (const path of [
+        '/src/stores/demo.js',
         '/src/entry-client.js',
         '/src/styles.css',
         '/src/pages/home.js',
@@ -182,6 +207,37 @@ test('fullstack scaffold server: /src/ allowlist, no-JS form, real 404s, ISR', a
       assert.match(home, /No JS Boot Post/, 'action revalidated the cached home listing');
     });
 
+    await t.test('with JavaScript, a /new post the server refuses is shown in the form', { skip: !(await chromiumLaunches(chromium)) && 'Chromium does not launch' }, async () => {
+      const browser = await chromium.launch();
+      try {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
+        await page.goto(BASE + '/new', { waitUntil: 'networkidle' });
+        await page.fill('input[name=title]', 'Over the limit');
+        await page.evaluate(() => { document.querySelector('textarea[name=body]').value = 'x'.repeat(2 * 1024 * 1024); });
+        const refused = page.waitForResponse((r) => r.url().endsWith('/__what_action'));
+        await page.click('button[type=submit]');
+        const { limit, code } = await (await refused).json();
+        assert.equal(code, 'ERR_PAYLOAD_TOO_LARGE');
+        const alert = page.locator('form [role=alert]');
+        await alert.waitFor();
+        assert.equal(await alert.textContent(), `Too large: the limit is ${limit} bytes.`);
+        assert.equal(new URL(page.url()).pathname, '/new', 'the visitor stays on the form');
+
+        // Any other refusal says the server's message, in the same place.
+        await page.route('**/__what_action', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'The database is down.' }) }));
+        await page.evaluate(() => { document.querySelector('textarea[name=body]').value = 'short'; });
+        await page.click('button[type=submit]');
+        await page.waitForFunction(() => document.querySelector('form [role=alert]').textContent.startsWith('Could not'));
+        assert.equal(await alert.textContent(), 'Could not publish: The database is down.');
+        assert.equal(await page.locator('form [role=alert]').count(), 1, 'one message, replaced');
+        assert.deepEqual(errors, []);
+      } finally {
+        await browser.close();
+      }
+    });
+
     await t.test('unknown routes return 404 and are never ISR-cached', async () => {
       const first = await fetch(BASE + '/blog/definitely-not-a-post');
       assert.equal(first.status, 404);
@@ -218,6 +274,12 @@ test('fullstack scaffold production server starts from a path containing spaces'
     assert.equal(res.status, 200, `server in a path with spaces must answer:\n${child.logs}`);
     assert.match(await res.text(), /fs space app/);
     assert.equal(child.exitCode, null, `server exited in path with spaces:\n${child.logs}`);
+    assert.match(child.logs, /http:\/\/localhost:\d+ \(production\)/, 'the first line names the mode');
+    // Of each package, the production build only: no development build, no map.
+    assert.equal((await fetch(base + '/node_modules/what-core/dist/index.min.js')).status, 200);
+    for (const path of ['/node_modules/what-core/dist/reactive.js', '/node_modules/what-core/dist/index.min.js.map', '/node_modules/what-core/dist/entries/dom.js']) {
+      assert.equal((await fetch(base + path)).status, 404, path);
+    }
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });

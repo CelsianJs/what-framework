@@ -20,7 +20,7 @@ export default function Home() {
       meta: [{ name: 'description', content: 'A full-stack blog built with What Framework' }],
     }),
     h('h1', {}, 'What Blog'),
-    h('p', {}, 'Server-rendered, ISR-cached, hydrated islands.'),
+    h('p', {}, 'Server-rendered and ISR-cached.'),
     h('ul', {}, posts.map((p) =>
       h('li', { key: p.slug },
         h('a', { href: `/blog/${p.slug}` }, p.title)

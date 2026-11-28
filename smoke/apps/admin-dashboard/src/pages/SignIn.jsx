@@ -11,13 +11,14 @@ import { signIn } from '../state/session.js';
 
 export default function SignIn(props) {
   const name = signal('Ines Okafor', 'signin:name');
-  const next = props.query?.next || '/';
+  // A function, read where it is used: a change of query alone keeps the page.
+  const next = () => props.query?.next || '/';
 
   function submit(e) {
     e.preventDefault();
     signIn(name());
     // Programmatic navigation: the form has no href to follow.
-    navigate(next, { replace: true });
+    navigate(next(), { replace: true });
   }
 
   return (
@@ -32,7 +33,7 @@ export default function SignIn(props) {
         </div>
         <h1>Sign in</h1>
         <p class="hint" data-signin-next>
-          {next === '/' ? 'Pick a name and continue.' : `You will be sent to ${next}.`}
+          {next() === '/' ? 'Pick a name and continue.' : `You will be sent to ${next()}.`}
         </p>
         <label class="field">
           Operator name

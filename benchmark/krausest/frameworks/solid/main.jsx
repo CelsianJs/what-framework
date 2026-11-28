@@ -1,7 +1,9 @@
-// SolidJS keyed implementation — mirrors the official js-framework-benchmark
-// frameworks/keyed/solid entry: <For> keyed list + per-row label signals so
-// the partial update is fine-grained.
-import { createSignal, batch, For } from 'solid-js';
+// SolidJS 1.9 keyed implementation — state logic mirrors the official
+// js-framework-benchmark frameworks/keyed/solid entry: <For> keyed list,
+// per-row label signals so the partial update is fine-grained, and
+// createSelector so selecting a row touches two rows instead of all of them.
+// Markup is this harness's shared markup (identical across implementations).
+import { createSignal, createSelector, batch, For } from 'solid-js';
 import { render } from 'solid-js/web';
 import '../../shared/main.css';
 
@@ -22,25 +24,24 @@ function buildData(count) {
 
 function App() {
   const [data, setData] = createSignal([]);
-  const [selected, setSelected] = createSignal(0);
+  const [selected, setSelected] = createSignal(null);
+  const isSelected = createSelector(selected);
 
-  const run = () => batch(() => { setData(buildData(1000)); setSelected(0); });
-  const runLots = () => batch(() => { setData(buildData(10000)); setSelected(0); });
-  const add = () => setData((d) => d.concat(buildData(1000)));
+  const run = () => setData(buildData(1000));
+  const runLots = () => setData(buildData(10000));
+  const add = () => setData((d) => [...d, ...buildData(1000)]);
   const update = () => batch(() => {
-    const d = data();
-    for (let i = 0; i < d.length; i += 10) d[i].setLabel(d[i].label() + ' !!!');
+    for (let i = 0, d = data(), len = d.length; i < len; i += 10) d[i].setLabel((l) => l + ' !!!');
   });
-  const clear = () => batch(() => { setData([]); setSelected(0); });
+  const clear = () => setData([]);
   const swapRows = () => {
-    const d = data();
-    if (d.length > 998) {
-      const e = d.slice();
-      const tmp = e[1]; e[1] = e[998]; e[998] = tmp;
-      setData(e);
+    const list = data().slice();
+    if (list.length > 998) {
+      const tmp = list[1]; list[1] = list[998]; list[998] = tmp;
+      setData(list);
     }
   };
-  const remove = (id) => setData((d) => d.filter((r) => r.id !== id));
+  const remove = (id) => setData((d) => d.toSpliced(d.findIndex((r) => r.id === id), 1));
 
   return (
     <div class="container">
@@ -56,14 +57,17 @@ function App() {
         </div></div>
       </div></div>
       <table class="table table-hover table-striped test-data"><tbody>
-        <For each={data()}>{(row) => (
-          <tr class={selected() === row.id ? 'danger' : ''}>
-            <td class="col-md-1">{row.id}</td>
-            <td class="col-md-4"><a class="lbl" onClick={() => setSelected(row.id)}>{row.label()}</a></td>
-            <td class="col-md-1"><a class="remove" onClick={() => remove(row.id)}><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td>
-            <td class="col-md-6"></td>
-          </tr>
-        )}</For>
+        <For each={data()}>{(row) => {
+          const rowId = row.id;
+          return (
+            <tr class={isSelected(rowId) ? 'danger' : ''}>
+              <td class="col-md-1">{rowId}</td>
+              <td class="col-md-4"><a class="lbl" onClick={() => setSelected(rowId)}>{row.label()}</a></td>
+              <td class="col-md-1"><a class="remove" onClick={() => remove(rowId)}><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td>
+              <td class="col-md-6"></td>
+            </tr>
+          );
+        }}</For>
       </tbody></table>
     </div>
   );

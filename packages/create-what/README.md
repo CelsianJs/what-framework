@@ -62,8 +62,10 @@ is in the HTML, and the browser hydrates it in place when its `mode` fires
 no framework code.
 
 Pages are written in JSX compiled by What's automatic runtime
-(`jsxImportSource: 'what-framework'`), not by `what-compiler`, because every
-page is rendered on the server. Reactive text is therefore always a function:
+(`jsxImportSource: 'what-framework'`), not by `what-compiler`: an island
+hydrates in place over its server-rendered markup, which takes the vnode tree
+the automatic runtime builds, while compiled JSX builds its DOM directly.
+Nothing wraps reactive text for you, so it is always a function:
 `{() => count()}`.
 
 ## Options

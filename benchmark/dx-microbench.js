@@ -52,7 +52,9 @@ function bench(name, fn, iterations = 500) {
   const entry = {
     name,
     avg,
+    mean: times.reduce((sum, t) => sum + t, 0) / times.length,
     p50: times[Math.floor(times.length * 0.5)],
+    p95: times[Math.floor(times.length * 0.95)],
     p99: times[Math.floor(times.length * 0.99)],
     opsPerSec,
     iterations,

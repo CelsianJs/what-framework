@@ -79,4 +79,18 @@ describe('FileRouter forwards the per-route conventions it was dropping', () => 
     assert.ok(app().querySelector('#own'), "the route's own error component wins");
     assert.equal(app().querySelector('#global'), null);
   });
+
+  it("runs a page's middleware (its `export const middleware`), which can send the visitor elsewhere", async () => {
+    app().innerHTML = '';
+    const routes = [
+      { path: '/dashboard', component: () => h('div', { id: 'secret' }, 'secret'), mode: 'client', middleware: [() => '/login'] },
+      { path: '/login', component: () => h('div', { id: 'login' }, 'login'), mode: 'client' },
+    ];
+
+    mount(h(FileRouter, { routes }), '#app');
+    await flush(60);
+
+    assert.equal(app().querySelector('#secret'), null, 'the guarded page is not shown');
+    assert.ok(app().querySelector('#login'), `the middleware's redirect is followed: ${app().innerHTML}`);
+  });
 });

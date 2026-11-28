@@ -1,7 +1,7 @@
 /**
  * Compiler Hardening Tests — SVG, Tables, Imported Signals
  *
- * Tests for Sprint 2 compiler fixes:
+ * Covers:
  * 1. SVG namespace support in template()
  * 2. Table element wrapping in template()
  * 3. Imported signal reactivity tracking in babel-plugin
@@ -252,7 +252,8 @@ describe('static template handler stripping', () => {
     const code = compileJSX('const a = <div id="keep" class="c">x</div>;', { filename: 'test.jsx' });
     const tmpls = templateStrings(code);
     assert.equal(tmpls.length, 1, code);
-    assert.ok(/id=\\"keep\\"/.test(tmpls[0]), tmpls[0]);
-    assert.ok(/class=\\"c\\"/.test(tmpls[0]), tmpls[0]);
+    // Simple values are written unquoted (template minification).
+    assert.ok(/ id=keep/.test(tmpls[0]), tmpls[0]);
+    assert.ok(/ class=c/.test(tmpls[0]), tmpls[0]);
   });
 });

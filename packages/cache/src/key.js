@@ -1,6 +1,9 @@
 // Cache key scheme. A key uniquely identifies a cacheable render:
-//   <normalizedPath>\0<normalizedQuery>\0<varyString>
-// NUL separators avoid cross-field collisions. Tracking params are stripped so
+//   <origin>\0<normalizedPath>\0<normalizedQuery>\0<varyString>
+// the origin (scheme and host) when the request names one: a shared render
+// sees the request's URL, so two hosts serving one app keep two entries, and
+// a Host one sender chose never reaches another host's visitors. NUL
+// separators avoid cross-field collisions. Tracking params are stripped so
 // /p?utm_source=x and /p share one cache entry.
 
 import { createHash } from 'node:crypto';
@@ -13,12 +16,11 @@ import { createHash } from 'node:crypto';
  * escape rather than a raw 0x00 byte so this file stays plain text, which means
  * grep can search it and git can diff it without a .gitattributes override.
  *
- * It is a CONSTANT because it used to be spelled twice and the two spellings
- * disagreed: cacheKey() joined with a raw NUL while redactVary() searched for a
- * space. redactVary therefore never found a separator and returned every key
- * unchanged, so the redaction that exists to keep session tokens out of Redis
- * key names and out of cache files on disk had never once fired on a real key.
- * Both readers now use this binding and cannot drift apart again.
+ * It is a CONSTANT so cacheKey(), which joins with it, and redactVary(), which
+ * searches for it, cannot disagree. If they did, redactVary would never find a
+ * separator and would return every key unchanged, and the redaction that keeps
+ * session tokens out of Redis key names and out of cache files on disk would
+ * never fire.
  */
 const KEY_SEP = '\u0000';
 
@@ -39,13 +41,11 @@ export function normalizePath(path) {
   return p || '/';
 }
 
+// URLSearchParams takes one leading '?' off itself, as URL's searchParams
+// does: '??a=1' is the key '?a'.
 function queryToEntries(query) {
   if (!query) return [];
-  if (typeof query === 'string') {
-    const s = query.startsWith('?') ? query.slice(1) : query;
-    if (!s) return [];
-    return [...new URLSearchParams(s).entries()];
-  }
+  if (typeof query === 'string') return [...new URLSearchParams(query).entries()];
   // plain object — values may be arrays
   const out = [];
   for (const [k, v] of Object.entries(query)) {
@@ -70,13 +70,67 @@ export function normalizeQuery(query) {
   return entries.map(([k, v]) => `${enc(k)}=${enc(v)}`).join('&');
 }
 
-function parseCookies(header) {
-  const out = {};
-  if (!header) return out;
-  for (const part of String(header).split(';')) {
+// A Cookie header's pairs, one per name: the first, as the `cookie` package,
+// what-server's readCookie and most server code read a repeated name.
+function cookiePairs(header) {
+  const pairs = new Map();
+  for (const part of String(header || '').split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+    const name = part.slice(0, i).trim();
+    if (name && !pairs.has(name)) pairs.set(name, part.slice(i + 1).trim());
+  }
+  return pairs;
+}
+
+/** `header` with one pair per cookie name, the first: the view the key varies on. */
+function canonicalCookie(header) {
+  return [...cookiePairs(header)].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+/** `query` (a string or an object) without the parameters the key ignores. */
+function keyedQuery(query) {
+  if (!query) return query;
+  if (typeof query === 'string') {
+    const params = new URLSearchParams(query);
+    for (const name of new Set(params.keys())) if (shouldStrip(name)) params.delete(name);
+    const s = params.toString();
+    return query.startsWith('?') && s ? `?${s}` : s;
+  }
+  // Null-prototype, as the router's parseQuery makes it: a cached route sees
+  // the query object an uncached one sees.
+  const kept = Object.create(null);
+  for (const [name, value] of Object.entries(query)) if (!shouldStrip(name)) kept[name] = value;
+  return kept;
+}
+
+/**
+ * `routeMatch` as a render that may be stored sees it: made of what its key
+ * is made of. A query parameter the key ignores (utm_*, fbclid, ...) is gone
+ * from the query and from the request's URL, a cookie name the request
+ * repeats keeps its first value in the Cookie header, the URL's path has no
+ * trailing slash (normalizePath), and a HEAD request is a GET (the key has no
+ * method: a HEAD visitor's render is what a GET visitor is served). Otherwise
+ * one request could store, under the key every visitor shares, a render made
+ * from an input that key never saw (`?utm_source=<text>`,
+ * `theme=<text>; theme=dark`, `/docs/guide/`).
+ */
+export function canonicalMatch(routeMatch) {
+  const out = { ...routeMatch, path: normalizePath(routeMatch.path), query: keyedQuery(routeMatch.query) };
+  for (const field of ['varyHeaders', 'headers']) {
+    const headers = routeMatch[field];
+    if (!headers || typeof headers !== 'object') continue;
+    out[field] = Object.fromEntries(Object.entries(headers).map(([name, value]) =>
+      [name, name.toLowerCase() === 'cookie' ? canonicalCookie(Array.isArray(value) ? value.join('; ') : value) : value]));
+  }
+  const request = routeMatch.request;
+  if (typeof Request !== 'undefined' && request instanceof Request && (request.method === 'GET' || request.method === 'HEAD')) {
+    const url = new URL(request.url);
+    for (const name of new Set(url.searchParams.keys())) if (shouldStrip(name)) url.searchParams.delete(name);
+    url.pathname = normalizePath(url.pathname);
+    const headers = new Headers(request.headers);
+    if (headers.has('cookie')) headers.set('cookie', canonicalCookie(headers.get('cookie')));
+    out.request = new Request(url, { method: 'GET', headers, signal: request.signal });
   }
   return out;
 }
@@ -95,14 +149,14 @@ export function declaredVary(routeMatch) {
  * Coerce a `vary` declaration into the canonical `string[]` form, or null when
  * it is a shape we cannot resolve.
  *
- * This exists because the key builder and the Cache-Control builder each used to
- * test the declaration themselves, and they disagreed. `vary: 'cookie:session'`
- * (the most natural shorthand) was passed through as if it were an
- * already-resolved name -> value map, so varyString() ran Object.entries() over
- * the STRING and keyed on its character indices: one constant key for every
- * user, plus `Cache-Control: public`, which is the cross-user leak the vary
- * mechanism exists to prevent. Both callers now read this one function, so a
- * third shape cannot desynchronise the key from the header again.
+ * The key builder and the Cache-Control builder both read this one function,
+ * so no shape can desynchronise the key from the header. Were each to test the
+ * declaration itself, `vary: 'cookie:session'` (the most natural shorthand)
+ * could pass through one of them as an already-resolved name -> value map, and
+ * varyString() would run Object.entries() over the STRING and key on its
+ * character indices: one constant key for every user, plus
+ * `Cache-Control: public`, which is the cross-user leak the vary mechanism
+ * exists to prevent.
  *
  * Anything that is neither a string nor an array of strings returns null, which
  * every caller treats as "refuse to cache". Failing closed is the only safe
@@ -136,7 +190,7 @@ export function resolveVary(vary, headers) {
 
   const lower = {};
   for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = Array.isArray(v) ? v.join(',') : v;
-  const cookies = parseCookies(lower.cookie);
+  const cookies = cookiePairs(lower.cookie);
 
   const out = {};
   for (const raw of declared) {
@@ -144,7 +198,7 @@ export function resolveVary(vary, headers) {
     const i = name.indexOf(':');
     const kind = i < 0 ? 'header' : name.slice(0, i).toLowerCase();
     const source = i < 0 ? name : name.slice(i + 1);
-    if (kind === 'cookie') out[name] = cookies[source] ?? '';
+    if (kind === 'cookie') out[name] = cookies.get(source) ?? '';
     else if (kind === 'header') out[name] = lower[source.toLowerCase()] ?? '';
     else return null;
   }
@@ -164,12 +218,13 @@ function varyString(vary) {
  * name -> value map, or a declared list resolved here against `headers`.
  *
  * @param {object} [request]
+ * @param {string} [request.origin] the request URL's origin, when it has one
  * @param {string} [request.path]
  * @param {string|Record<string, any>} [request.query]
  * @param {string|string[]|Record<string, any>} [request.vary]
  * @param {Record<string, any>} [request.headers]
  */
-export function cacheKey({ path, query, vary, headers } = {}) {
+export function cacheKey({ origin, path, query, vary, headers } = {}) {
   // A string or an array is a DECLARATION and has to be resolved against the
   // request. A plain object is an already-resolved name -> value map (what the
   // ISR engine passes). Anything else is refused rather than silently producing
@@ -181,11 +236,25 @@ export function cacheKey({ path, query, vary, headers } = {}) {
   if (resolved === null) {
     // ERROR_CODES.ISR_VARY_UNRESOLVED
     throw Object.assign(
-      new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request (unsupported shape, or no request headers were supplied)'),
+      new Error('[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request.'),
       { code: 'ERR_ISR_VARY_UNRESOLVED' },
     );
   }
-  return [normalizePath(path), normalizeQuery(query), varyString(resolved)].join(KEY_SEP);
+  const fields = [normalizePath(path), normalizeQuery(query), varyString(resolved)];
+  return (origin ? [String(origin), ...fields] : fields).join(KEY_SEP);
+}
+
+/** The origin a stored key was made with: '' for a key made without one (cacheKey). */
+export function keyOrigin(key) {
+  const fields = String(key).split(KEY_SEP);
+  return fields.length === 4 ? fields[0] : '';
+}
+
+/** The normalized path and query a stored key was made with. */
+export function keyTarget(key) {
+  const fields = String(key).split(KEY_SEP);
+  const at = fields.length === 4 ? 1 : 0;
+  return { path: fields[at], query: fields[at + 1] };
 }
 
 /**

@@ -9,27 +9,106 @@
  * - Is always truthy in conditionals
  * - Produces wrong comparisons
  * - Coerces to the function source in template literals
- * - In JSX children it only works because the compiler auto-wraps it —
- *   explicit () reads don't depend on that
  *
  * Bad:  {isLoading && <Spinner />}  → always truthy
  * Bad:  `Total: ${count}`           → function source, not the value
- * Bad:  <span>{count}</span>        → implicit (relies on compiler auto-wrap)
- * Bad:  {swr.data}                  → implicit (relies on compiler auto-wrap)
  *
- * Good: <span>{count()}</span>
  * Good: {isLoading() && <Spinner />}
- * Good: {swr.data()}
  * Good: `Total: ${count()}`
+ * Good: <span>{count}</span>, <input value={count} />, {swr.data}: a signal
+ *       that is the whole JSX child or attribute value is a live binding, with
+ *       or without the compiler
+ *
+ * Also warns when What state is stored or passed as data where its value is
+ * what is used (accessorAsData): a property or element of an object or array
+ * literal handed to a state setter (`setSubmitted({ name, age })`), an
+ * argument of a function that reads values (`JSON.stringify(submitted)`,
+ * `String(name)`, `console.log(name)`), anything nested in such an argument
+ * (`fetch(url, { body: JSON.stringify({ name }) })`), and an array literal
+ * read as text (`[a, b].join()`). Only state made by a What hook or primitive
+ * imported from what-framework or what-core, resolved through the scope, is
+ * reported there: React's useState in a what-react file returns a value.
  *
  * Does NOT warn when:
  * - Signal is passed as a callback argument: fn(count)
  * - Signal method is accessed: count.set(5), count.peek()
  * - Signal is on left side of assignment or in typeof
- * - Signal is used in an event handler attribute value: onClick={handler}
+ * - Signal is the whole expression of a JSX child or attribute
+ * - The name is being declared or exported: const [count] = useState(0), export { count }
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
+import { whatState, declaredAsSignal } from '../utils/what-state.js';
+
+// Functions that read the values of their arguments: an accessor handed to one
+// is turned into its source text, `undefined` or `{}`.
+const VALUE_FUNCTIONS = new Set(['String', 'Number', 'Boolean', 'parseInt', 'parseFloat', 'encodeURIComponent', 'encodeURI', 'structuredClone', 'alert']);
+const VALUE_METHODS = {
+  JSON: new Set(['stringify']),
+  console: new Set(['log', 'info', 'warn', 'error', 'debug', 'table']),
+  Math: null,
+  localStorage: new Set(['setItem']),
+  sessionStorage: new Set(['setItem']),
+};
+// Methods of an array literal that read its elements as values.
+const ARRAY_VALUE_METHODS = new Set(['join', 'toString', 'toLocaleString']);
+
+/** Whether the call `call` reads the values of its arguments. */
+function readsValues(call) {
+  const callee = call.callee;
+  if (callee.type === 'Identifier') return VALUE_FUNCTIONS.has(callee.name);
+  if (callee.type !== 'MemberExpression' || callee.computed || callee.object.type !== 'Identifier' || callee.property.type !== 'Identifier') return false;
+  if (!Object.hasOwn(VALUE_METHODS, callee.object.name)) return false;
+  const methods = VALUE_METHODS[callee.object.name];
+  return methods === null || methods.has(callee.property.name);
+}
+
+/** Whether the call `call` writes What state with its argument: `setX(v)`, `x.set(v)`, `x(v)`. */
+function writesState(sourceCode, call) {
+  if (call.arguments.length === 0) return false;
+  const callee = call.callee;
+  if (callee.type === 'Identifier') {
+    const kind = whatState(sourceCode, callee);
+    return kind === 'setter' || kind === 'accessor';
+  }
+  return callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier' &&
+    callee.property.name === 'set' && callee.object.type === 'Identifier' && whatState(sourceCode, callee.object) === 'accessor';
+}
+
+/**
+ * Where the identifier `node` is used as data whose value is read, described
+ * for the message, or null. `node` sits in a call argument, an object
+ * property's value or an array element.
+ */
+function valueSink(sourceCode, node) {
+  let n = node;
+  let nested = false;
+  for (;;) {
+    const parent = n.parent;
+    if (!parent) return null;
+    if (parent.type === 'Property' && parent.value === n && parent.parent?.type === 'ObjectExpression') {
+      n = parent.parent;
+      nested = true;
+      continue;
+    }
+    if (parent.type === 'ArrayExpression' || (parent.type === 'SpreadElement' && parent.parent?.type === 'ArrayExpression' && nested)) {
+      n = parent.type === 'SpreadElement' ? parent.parent : parent;
+      nested = true;
+      continue;
+    }
+    if (parent.type === 'CallExpression' && parent.arguments.includes(n)) {
+      if (readsValues(parent)) return `${sourceCode.getText(parent.callee)}() is given the function, not its value`;
+      // An accessor in a literal written to state: the state holds the function.
+      if (nested && writesState(sourceCode, parent)) return `the ${n.type === 'ArrayExpression' ? 'array' : 'object'} written to ${sourceCode.getText(parent.callee)}() holds the function, not its value`;
+      return null;
+    }
+    if (parent.type === 'MemberExpression' && parent.object === n && n.type === 'ArrayExpression' &&
+        !parent.computed && parent.property.type === 'Identifier' && ARRAY_VALUE_METHODS.has(parent.property.name)) {
+      return `.${parent.property.name}() reads the function, not its value`;
+    }
+    return null;
+  }
+}
 
 export default {
   meta: {
@@ -37,6 +116,7 @@ export default {
     docs: {
       description: 'Require calling signals to read their value — catch missing ()',
       recommended: true,
+      code: 'ERR_MISSING_SIGNAL_READ',
     },
     messages: {
       uncalledSignal:
@@ -45,12 +125,29 @@ export default {
         '"{{obj}}.{{prop}}" is a signal getter — call it to read the value: {{obj}}.{{prop}}()',
       uncalledDestructuredGetter:
         '"{{name}}" is a signal getter from a data hook — call it to read the value: {{name}}()',
+      accessorAsData:
+        '"{{name}}" is What state, a function: {{sink}}. Call it to use the value: {{name}}()',
+      callIt: 'Call it: {{name}}()',
     },
+    hasSuggestions: true,
     schema: [],
   },
 
   create(context) {
     const tracker = createSignalTracker();
+    const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+
+    /** The suggestion that calls the identifier `node`: `{ name }` becomes `{ name: name() }`. */
+    function callSuggestion(node) {
+      const name = node.name;
+      return [{
+        messageId: 'callIt',
+        data: { name },
+        fix: (fixer) => (node.parent.type === 'Property' && node.parent.shorthand
+          ? fixer.replaceText(node.parent, `${name}: ${name}()`)
+          : fixer.insertTextAfter(node, '()')),
+      }];
+    }
 
     /**
      * Check if a node is in a "pass-through" position where the signal
@@ -124,16 +221,36 @@ export default {
     }
 
     /**
-     * Check if node is a JSX attribute value (event handler).
-     * e.g., onClick={handler} — not a value context.
+     * Check if node is the whole expression of a JSX child or attribute value:
+     * {count}, value={count}, onClick={handler}. A function there is a live
+     * binding (or a handler), not a value read once.
      */
-    function isJSXAttributeValue(node) {
-      // Walk up: Identifier -> JSXExpressionContainer -> JSXAttribute
-      const exprContainer = node.parent;
-      if (exprContainer?.type === 'JSXExpressionContainer') {
-        return exprContainer.parent?.type === 'JSXAttribute';
+    function isWholeJSXExpression(node) {
+      return node.parent?.type === 'JSXExpressionContainer' && node.parent.expression === node;
+    }
+
+    /**
+     * Check if node names a binding rather than reading one: a destructuring
+     * target (const [count] = useState(0)), a parameter, or an export.
+     */
+    function isBindingName(node) {
+      const parent = node.parent;
+      switch (parent.type) {
+        case 'ArrayPattern':
+        case 'RestElement':
+        case 'ExportSpecifier':
+          return true;
+        case 'AssignmentPattern':
+          return parent.left === node;
+        case 'Property':
+          return parent.value === node && parent.parent?.type === 'ObjectPattern';
+        case 'FunctionDeclaration':
+        case 'FunctionExpression':
+        case 'ArrowFunctionExpression':
+          return parent.params.includes(node);
+        default:
+          return false;
       }
-      return false;
     }
 
     function checkIdentifier(node) {
@@ -145,18 +262,26 @@ export default {
       // Skip method access: count.set(...), count.peek()
       if (isMethodAccess(node)) return;
 
-      // Skip pass-through positions
-      if (isPassThrough(node)) return;
+      // A pass-through position, unless the data it is in is read as a value
+      if (isPassThrough(node)) {
+        if (node.parent.type === 'ReturnStatement' || node.parent.type === 'AssignmentExpression' || node.parent.type === 'VariableDeclarator' || node.parent.type === 'UnaryExpression') return;
+        const sink = valueSink(sourceCode, node);
+        if (sink !== null && whatState(sourceCode, node) === 'accessor') {
+          context.report({ node, messageId: 'accessorAsData', data: { name, sink }, suggest: callSuggestion(node) });
+        }
+        return;
+      }
 
-      // Skip JSX attribute values (event handlers): onClick={handler}
-      if (isJSXAttributeValue(node)) return;
+      // Skip a live binding or a handler: {count}, value={count}, onClick={handler}
+      if (isWholeJSXExpression(node)) return;
 
       // Check: is this a direct signal variable?
-      if (tracker.isSignalLike(name)) {
+      if (tracker.isSignalLike(name) && declaredAsSignal(sourceCode, node)) {
         context.report({
           node,
           messageId: tracker.isSignal(name) ? 'uncalledSignal' : 'uncalledDestructuredGetter',
           data: { name },
+          suggest: callSuggestion(node),
         });
       }
     }
@@ -177,6 +302,9 @@ export default {
 
         // Skip pass-through positions on the parent
         if (isPassThrough(node)) return;
+
+        // Skip a live binding: {swr.data}
+        if (isWholeJSXExpression(node)) return;
 
         context.report({
           node,
@@ -207,6 +335,7 @@ export default {
         if (parent.type === 'Property' && parent.key === node && !parent.computed) return;
         if (parent.type === 'ImportSpecifier') return;
         if (parent.type === 'ImportDefaultSpecifier') return;
+        if (isBindingName(node)) return;
 
         // Skip: member expression property (count.set — we handle this separately)
         if (parent.type === 'MemberExpression' && parent.property === node && !parent.computed) return;

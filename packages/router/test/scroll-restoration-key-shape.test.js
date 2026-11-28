@@ -58,7 +58,7 @@ function mountAnchor(id) {
   return el;
 }
 
-const { navigate, enableScrollRestoration } = await import('../src/index.js');
+const { navigate, enableScrollRestoration, beforeNavigate } = await import('../src/index.js');
 
 // Effects flush on a microtask and the restore itself lands in a
 // requestAnimationFrame (stubbed to setTimeout 0), so a few macrotask ticks
@@ -273,12 +273,14 @@ describe('enableScrollRestoration hash precedence', () => {
 
     events = [];
     // An in-page anchor click. navigate()'s same-page hash branch scrolls the
-    // element into view synchronously; the restore effect must not then drag
-    // the user back to the offset saved for "/doc#section" a frame later.
+    // element into view smoothly; the restore effect must not then drag the
+    // user back to the offset saved for "/doc#section" a frame later, nor
+    // scroll to the element again at once, which in a browser cuts the smooth
+    // scroll short (a jump instead of the animation).
     await navigate('#section');
     await flush();
 
-    assert.deepEqual(events, ['anchor#section:smooth', 'anchor#section']);
+    assert.deepEqual(events, ['anchor#section:smooth']);
     el.remove();
   });
 
@@ -325,6 +327,60 @@ describe('enableScrollRestoration hash precedence', () => {
     el.remove();
   });
 
+  it('back/forward onto a saved hash url goes to the saved offset without first jumping to the anchor', async () => {
+    // As the browser restores a same-document entry: its position, never its
+    // fragment. A scroll to the anchor a frame before the offset is a visible
+    // jump, and an animated one under `scroll-behavior: smooth`.
+    const el = mountAnchor('api3');
+    await navigate('/guide3#api3');
+    await flush();
+    setScroll(0, 480);
+    await navigate('/blog4');
+    await flush();
+    setScroll(0, 0);
+
+    events = [];
+    history.back();
+    await flush();
+    await flush();
+    assert.deepEqual(events, ['scrollTo(0, 480)']);
+
+    // Back from another place on the same page restores the same way.
+    setScroll(0, 900);
+    await navigate('/guide3#other-place');
+    await flush();
+    setScroll(0, 0);
+    events = [];
+    history.back();
+    await flush();
+    await flush();
+    assert.deepEqual(events, ['scrollTo(0, 900)']);
+    el.remove();
+  });
+
+  it('a back/forward a guard cancelled leaves its hash url to scroll to its anchor when visited later', async () => {
+    const el = mountAnchor('api4');
+    await navigate('/guide4#api4');
+    await flush();
+    setScroll(0, 300);
+    await navigate('/blog5');
+    await flush();
+    setScroll(0, 0);
+    const stop = beforeNavigate(() => false);
+    try {
+      history.back();
+      await flush();
+      await flush();
+    } finally {
+      stop();
+    }
+    events = [];
+    await navigate('/guide4#api4');
+    await flush();
+    assert.deepEqual(events, ['anchor#api4']);
+    el.remove();
+  });
+
   it('does not throw on a fragment that is not a valid CSS selector', async () => {
     // "#1" is a legal id and browsers navigate to it, but querySelector('#1')
     // throws "Invalid selector". The throw happened inside the rAF callback,
@@ -337,6 +393,19 @@ describe('enableScrollRestoration hash precedence', () => {
 
     assert.deepEqual(events, ['anchor#1'], 'a numeric fragment must resolve, not throw');
     el.remove();
+  });
+
+  it('skips a scroll that would not move the page (a DOM without layout calls every scrollTo unimplemented)', async () => {
+    setScroll(0, 0);
+    scrollCalls = [];
+    await navigate('/never-visited-at-top');
+    await flush();
+    assert.deepEqual(scrollCalls, [], 'already at the top: no scrollTo');
+
+    setScroll(0, 90);
+    await navigate('/never-visited-scrolled');
+    await flush();
+    assert.deepEqual(lastScroll(), [0, 0], 'scrolled down: back to the top');
   });
 
   it('does not scroll to the top on its first run', async () => {

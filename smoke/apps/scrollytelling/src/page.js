@@ -6,17 +6,14 @@
 // trigger is reachable.
 //
 // Client-safe by construction: the server imports this module to render, and
-// the browser imports the same file to hydrate.
+// the browser imports the same file to hydrate. Each island is written by
+// hand, so each gets a `name`: a minifier renames the component's function,
+// and the server and the browser must agree.
 
-import {
-  Head,
-  Island,
-  easings,
-  h,
-  onIntersect,
-  signal,
-  tween,
-} from 'what-framework';
+import { Head, h, signal } from 'what-framework';
+import { _$Island as Island } from 'what-framework/render';
+import { easings, tween } from 'what-framework/motion';
+import { onIntersect } from 'what-framework/dom';
 
 import {
   BURN_IN_HOURS,
@@ -172,7 +169,7 @@ export default function StoryPage() {
       ),
     ),
 
-    h(Island, { component: ChapterNav, mode: 'idle' }),
+    h(Island, { component: ChapterNav, name: 'ChapterNav', mode: 'idle' }),
 
     h('main', { class: 'story-main' },
 
@@ -187,7 +184,7 @@ export default function StoryPage() {
           h('span', { class: 'lamp-cone' }),
           h('span', { class: 'lamp-pool' }),
         ),
-        h(Island, { component: Colorway, mode: 'load' }),
+        h(Island, { component: Colorway, name: 'Colorway', mode: 'load' }),
         h('p', { class: 'scroll-cue' }, 'Keep scrolling'),
       ),
 
@@ -209,7 +206,7 @@ export default function StoryPage() {
           'The shade is spun, not pressed, so the inside carries a continuous '
           + 'curve and the pool of light has no seam in it. The meter below fills '
           + 'the moment this chapter reaches you.'),
-        h(Island, { component: LumenMeter, mode: 'visible' }),
+        h(Island, { component: LumenMeter, name: 'LumenMeter', mode: 'visible' }),
       ),
 
       // --- 03 -----------------------------------------------------------
@@ -217,7 +214,7 @@ export default function StoryPage() {
         h('p', {},
           'Nothing here is a composite pretending to be metal. The full bench '
           + 'sheet is below; reach for it and it becomes filterable.'),
-        h(Island, { component: SpecExplorer, mode: 'interaction' }),
+        h(Island, { component: SpecExplorer, name: 'SpecExplorer', mode: 'interaction' }),
       ),
 
       // --- 04 -----------------------------------------------------------
@@ -226,7 +223,7 @@ export default function StoryPage() {
           'Against the incandescent it is meant to retire. On a narrow screen '
           + 'these are two plain tables, which is the honest way to read them '
           + 'there.'),
-        h(Island, { component: WideCompare, mode: 'media', mediaQuery: '(min-width: 900px)' }),
+        h(Island, { component: WideCompare, name: 'WideCompare', mode: 'media', mediaQuery: '(min-width: 900px)' }),
       ),
 
       // --- 05 -----------------------------------------------------------

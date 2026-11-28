@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -167,7 +167,7 @@
 
           <div class="callout callout-note">
             <p class="callout-title">Two different components are called Island</p>
-            <p>The <code>Island</code> imported from <code>what-framework/server</code> is the registry marker documented here: it knows only the island's name, so the server cannot render the component and the marker is empty unless you supply children. The <code>Island</code> exported from <code>what-framework</code> is a different component that takes the component itself: <code>h(Island, { component: AddToCart, mode: 'action', productId: 1 })</code>. Rendered on the server that one puts the component's real HTML inside the marker, on the client it hydrates in place over that HTML, and it sets <code>data-island-self</code> so <code>hydrateIslands()</code> leaves it alone. what-compiler emits the same component for a <code>client:</code> directive such as <code>&lt;AddToCart client:interaction /&gt;</code>. Reach for it when the island has content worth putting in the HTML; the registry form suits widgets with no meaningful static representation, or components your server build does not have.</p>
+            <p>The <code>Island</code> imported from <code>what-framework/server</code> is the registry marker documented here: it knows only the island's name, so the server cannot render the component and the marker is empty unless you supply children. The other is <code>_$Island</code> from <code>what-framework/render</code>, which takes the component itself: <code>h(_$Island, { component: AddToCart, name: 'AddToCart', mode: 'action', props: { productId: 1 } })</code>. The component's props go in <code>props</code>, apart from the island's own options, so a prop may be called <code>name</code> or <code>mode</code>; <code>name</code> is the island's <code>data-island</code>, and without it the island takes the component function's name, which a minified build may change. Rendered on the server that one puts the component's real HTML inside the marker, on the client it hydrates in place over that HTML, and it sets <code>data-island-self</code> so <code>hydrateIslands()</code> leaves it alone. what-compiler emits the same component for a <code>client:</code> directive such as <code>&lt;AddToCart client:interaction /&gt;</code>. Reach for it when the island has content worth putting in the HTML; the registry form suits widgets with no meaningful static representation, or components your server build does not have.</p>
           </div>
 
           <h2 id="registering-islands">Registering Islands</h2>
@@ -223,7 +223,7 @@
 
           <div class="callout callout-warning">
             <p class="callout-title">Module-scope stores are request-scoped on the server</p>
-            <p>A <code>createIslandStore()</code> call at module scope returns a concrete store in the browser, but on the server it returns a lazy handle. Reading or writing it outside an active render throws <code>[what-server] Island store "cart" was accessed outside an active server render.</code> That is deliberate: it is what stops one request from observing another request's cart. Touch the store only from inside a component that <code>renderDocument</code> or <code>renderPage</code> is rendering, never at module scope. Only keys present in the initial state become reactive properties, so a key added later is inert.</p>
+            <p>A <code>createIslandStore()</code> call at module scope returns a concrete store in the browser, but on the server it returns a lazy handle. Reading or writing it outside an active render throws <code>ERR_ISLAND_STORE_OUTSIDE_RENDER</code>: <code>Island store "cart" was accessed outside an active server render.</code> That is deliberate: it is what stops one request from observing another request's cart. Touch the store only from inside a component that <code>renderDocument</code> or <code>renderPage</code> is rendering, never at module scope. Only keys present in the initial state become reactive properties, so a key added later is inert.</p>
           </div>
 
           <p>You do not have to serialize the stores yourself. <code>renderDocument()</code> takes a snapshot at the end of the render and writes it into the consolidated <code>&lt;script id="__what_data"&gt;</code> payload, and <code>hydrateIslands()</code> reads <code>islandStores</code> back out of that same script before it hydrates anything:</p>
@@ -254,7 +254,7 @@
   });
 });</code></pre>
 
-          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component. A same-origin form needs a CSRF token before <code>enhanceForms</code> will submit it at all: put <code>&lt;meta name="what-csrf-token"&gt;</code> in the head (that is what <code>csrfMetaTag()</code> emits, and the deploy adapters emit it on uncached renders), or set <code>data-no-csrf="true"</code> on a form that posts somewhere with its own policy. Without one, the enhancer issues no request, warns on the console and dispatches <code>form:error</code> with "Missing CSRF token":</p>
+          <p>Enhanced forms dispatch <code>form:response</code> and <code>form:error</code> custom events so you can react to the result without mounting a full component. A same-origin form carries the page's CSRF token when it has one (the <code>&lt;meta name="what-csrf-token"&gt;</code> tag <code>csrfMetaTag()</code> emits and the deploy adapters emit on uncached renders, a <code>what-csrf-token</code> field, or the <code>what-csrf</code> cookie); without one it posts anyway, as its native submit would, and the action endpoint accepts it when the browser marks the request same-origin (Fetch Metadata, or the Origin header), which is how a form on a cached page posts. A form aimed at another origin is never given the token:</p>
 
 <pre><code><span class="comment">// In your HTML</span>
 <span class="comment">// &lt;meta name="what-csrf-token" content="abc-123..."&gt;</span>

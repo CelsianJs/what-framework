@@ -62,10 +62,18 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
+      # Some tests bundle the packages the way an app's production build does,
+      # through the `production` export condition, which names dist/*.min.js.
+      - name: Build packages
+        run: npm run -s build
+
       - name: Test
         env:
           WHAT_REQUIRE_BROWSER_TESTS: '1'
         run: npm run -s test
+
+      - name: Test heap retention with forced GC
+        run: npm run -s test:gc
 
   lint:
     runs-on: ubuntu-latest
@@ -112,6 +120,86 @@ jobs:
           WHAT_REQUIRE_COMPAT_LIBS: '1'
         run: node --test 'test/libs.test.js'
 
+  # The React package matrix (packages/react-compat/test/matrix-browser.mjs):
+  # 38 fixtures over 47 React packages, each on real React (the control) and on
+  # what-react alone, as a React file in a native app and as a native file,
+  # driven in Chromium with the same steps. One job per way of serving,
+  # because each finds failures the others cannot see: a production client
+  # build, Vite's dev server (dependency pre-bundling, a CommonJS dependency
+  # served raw), and a production server build that the browser hydrates (two
+  # copies of what-react in the server bundle, an island left empty).
+  #
+  # The fixture has its own package.json and a committed lockfile (403
+  # packages, about 435 MB installed), so the versions REACT-COMPAT.md names
+  # are the ones tested. A failed fixture is run once more (--retries=1); a
+  # result that passed only on the rerun is listed in the job summary, as is
+  # a quarantined step that failed (react-virtuoso's "a growing count", an
+  # open what-react defect its spec describes).
+  react-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        serve: [build, dev, ssr]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/react-compat/test/fixtures/matrix/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the matrix fixture's packages (pinned by its lockfile)
+        run: npm ci --prefix packages/react-compat/test/fixtures/matrix --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # WHAT_REQUIRE_MATRIX: a fixture that is not installed fails the job
+      # instead of skipping it.
+      - name: React package matrix (--serve=${{ matrix.serve }})
+        env:
+          WHAT_REQUIRE_MATRIX: '1'
+          # Passed through the environment: a run script never has an
+          # expression substituted into it (workflow-inputs.test.js).
+          MATRIX_SERVE: ${{ matrix.serve }}
+        run: |
+          mkdir -p artifacts
+          node packages/react-compat/test/matrix-browser.mjs "--serve=$MATRIX_SERVE" --retries=1 "--json=artifacts/react-matrix-$MATRIX_SERVE.json"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: react-matrix-${{ matrix.serve }}-${{ github.run_id }}
+          path: artifacts/react-matrix-${{ matrix.serve }}.json
+          if-no-files-found: ignore
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -143,6 +231,12 @@ jobs:
       - name: Error-code docs gate (published reference matches the catalogue)
         run: npm run -s check:error-docs
 
+      - name: Upgrade guide gate (import and MCP tool tables match their sources, the shipped copy matches)
+        run: npm run -s check:import-docs
+
+      - name: Engines floor gate (no source or test uses a Node API newer than engines.node)
+        run: npm run -s check:node-floor
+
       - name: Typecheck declarations
         run: npm run -s typecheck
 
@@ -152,6 +246,9 @@ jobs:
 
       - name: Production build smoke gate (no blank-screen regression)
         run: npm run -s test:prod
+
+      - name: Compiled runtime behavior using production exports
+        run: npm run -s test:prod:runtime
 
   scaffold-smoke:
     runs-on: ubuntu-latest
@@ -210,6 +307,9 @@ jobs:
   # after a release, since there is nothing to install before one exists.
   app-smoke:
     runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -237,14 +337,68 @@ jobs:
       - name: Install Playwright system deps (browser cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
+      - name: Install the compat tests' own dependencies
+        run: npm install --prefix examples/compat-tests --no-package-lock --ignore-scripts
       - name: App smoke suite
         run: npm run -s smoke:apps
+      - name: Server round trips in Chromium
+        if: success() || failure()
+        run: npm run -s test:browser:roundtrip
+      - name: Workspace examples and templates in production
+        if: success() || failure()
+        run: npm run -s smoke:workspace-apps
+      - name: App interaction effect and diagnostic budgets
+        if: success() || failure()
+        run: npm run -s smoke:app-budgets
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: smoke-apps-${{ github.run_id }}
           path: artifacts/smoke-apps.json
+          if-no-files-found: ignore
+  app-smoke-dev:
+    runs-on: ubuntu-latest
+    # The Vite apps on their dev servers (WHAT_SMOKE_MODE=dev, smoke/README.md):
+    # the pipeline developers run, which the build-mode suite never serves.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build packages
+        run: npm run -s build
+      - name: Resolve Playwright version (cache key)
+        id: playwright-version
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: App smoke suite on the dev servers
+        run: npm run -s smoke:apps
+        env:
+          WHAT_SMOKE_MODE: dev
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-apps-dev-${{ github.run_id }}
+          path: artifacts/smoke-apps-dev.json
           if-no-files-found: ignore
   manual-setup-smoke:
     runs-on: ubuntu-latest
@@ -389,7 +543,7 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate
 
-  bench-gate:
+  reactivity-correctness:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -400,12 +554,40 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: benchmark/reactivity/package-lock.json
+
+      - name: Install pinned reactivity harness dependencies
+        # npm's lockfile spells the public Git dependency's fallback URL as SSH.
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: url.https://github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: ssh://git@github.com/
+        run: npm ci --ignore-scripts --prefix benchmark/reactivity
+
+      - name: Check graph workloads and callback counts
+        run: npm run --prefix benchmark/reactivity bench -- --check
+
+  bench-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The gate measures core and DX against the commit in
+          # benchmark/reference.json, which it reads from history.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install krausest benchmark dependencies
-        run: npm ci --prefix benchmark/krausest
+      - name: Install krausest root and Solid 2 workspace dependencies
+        run: npm ci --prefix benchmark/krausest --workspaces --include-workspace-root
 
       - name: Resolve Playwright version (cache key)
         id: playwright-version
@@ -427,19 +609,15 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Benchmark gate (perf — non-blocking signal)
-        # Non-blocking, matching the bench:gate step in release-and-deploy.yml:
-        # the checked-in perf baselines are recorded on fast local hardware
-        # (M3 Max), and GitHub shared runners are several× slower/noisier on some
-        # microbenchmarks (e.g. `batch() 100 writes`), so this gate false-fails
-        # unpredictably. Kept as its own visible job (a signal, not a blocker);
-        # perf is gated strictly by `release:verify` on local hardware.
+        # Non-blocking, matching the bench:gate step in release-and-deploy.yml;
+        # perf is gated strictly by `release:verify` on local hardware. Core
+        # and DX are measured against a reference build on this same runner,
+        # interleaved (benchmark/ab.mjs), so they keep their default floors.
         continue-on-error: true
-        # The DOM stage runs here as a gross-regression signal only. The baseline
-        # is Mac-recorded, so the tolerance is loose for the same reason core and
-        # DX are, and the round count is low to keep the job short.
+        # The DOM stage runs here as a gross-regression signal only. Its
+        # baseline is absolute and Mac-recorded, so its tolerance is loose and
+        # the round count is low to keep the job short.
         env:
-          WHAT_BENCH_TOLERANCE_CORE: 0.80
-          WHAT_BENCH_TOLERANCE_DX: 0.85
           WHAT_BENCH_TOLERANCE_DOM: 0.50
           WHAT_BENCH_DOM_ROUNDS: 5
         run: npm run -s bench:gate
@@ -485,6 +663,9 @@ jobs:
         run: npm run -s test:templates:ui --prefix docs-site
   webkit-native:
     runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -499,3 +680,41 @@ jobs:
         run: npx playwright install --with-deps webkit
       - name: Native hydration, forms and islands acceptance
         run: node smoke/native-acceptance.mjs --browser=webkit
+      - name: Build packages
+        if: success() || failure()
+        run: npm run -s build
+      - name: App smoke suite in WebKit
+        if: success() || failure()
+        env:
+          WHAT_SMOKE_BROWSER: webkit
+        run: npm run -s smoke:apps
+  # The same native slice and app smoke suite in Firefox, as a job of its own
+  # so a Firefox failure shows apart from WebKit's. The heap checks skip here
+  # as in WebKit (no devtools protocol to force a GC).
+  firefox-native:
+    runs-on: ubuntu-latest
+    # One hung app fails at the runner's per-app limit (smoke/README.md);
+    # this bounds anything else that never ends.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Firefox
+        run: npx playwright install --with-deps firefox
+      - name: Native hydration, forms and islands acceptance
+        run: node smoke/native-acceptance.mjs --browser=firefox
+      - name: Build packages
+        if: success() || failure()
+        run: npm run -s build
+      - name: App smoke suite in Firefox
+        if: success() || failure()
+        env:
+          WHAT_SMOKE_BROWSER: firefox
+        run: npm run -s smoke:apps

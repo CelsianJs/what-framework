@@ -167,9 +167,51 @@ describe('.map() lowering to _$mapArray', () => {
       }
     `);
     assert.match(code, /_\$mapArray/, 'should emit _$mapArray');
-    assert.match(code, /key:/, 'should include a key option');
-    // `raw: true` is required so the user's map callback receives the raw item.
+    assert.match(code, /key: item => item\.id/, 'should include a key option');
+    // The row reads the item for more than its key, so it reads it through an
+    // accessor and follows an item replaced under the same key.
+    assert.match(code, /follow:\s*true/);
+    assert.match(code, /\(_item\$0, _i\$0, item\) =>/);
+    // A plain field is a text binding the row's item cell writes, read from
+    // the item through a reader hoisted to the module.
+    assert.match(code, /_\$field\(_el\$\d+, _item\$0, item\.name, void 0, _f\$0\)/, 'the read is a binding');
+    assert.match(code, /const _f\$0 = r => r\.name;/);
+  });
+
+  it('hands a row that reads only its key the raw item', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{ids().map(id => <Row key={id} id={id} />)}</ul>;
+      }
+    `);
     assert.match(code, /raw:\s*true/);
+    assert.doesNotMatch(code, /follow/);
+  });
+
+  it('reads the item through its cell inside template literals and nested callbacks', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{items().map(item => <li key={item.id} title={\`#\${item.id}: \${item.name}\`} onClick={() => pick(item)}>{item.tags.map((tag) => <b>{tag}</b>)}</li>)}</ul>;
+      }
+    `);
+    assert.match(code, /follow:\s*true/);
+    assert.match(code, /\$\{_\$item\(_item\$0, "name"\)\.name\}/, 'a field read names its field');
+    assert.match(code, /pick\(_\$item\(_item\$0\)\)/);
+    assert.match(code, /#\$\{item\.id\}/, 'the key expression reads the raw item');
+  });
+
+  it('hands the item to a callback that binds the name again where its row is built', () => {
+    const code = compileJSX(`
+      function App() {
+        return <ul>{items().map(item => <li key={item.id} onClick={() => [1].forEach((item) => use(item))}>{item.name}</li>)}</ul>;
+      }
+    `);
+    // The callback is left as written and called with the cell's item, so an
+    // item replaced under its key builds the row again (follow mode).
+    assert.match(code, /\(_\$item\(_item\$\d+\), _i\$\d+\)/);
+    assert.match(code, /follow:\s*true/);
+    assert.doesNotMatch(code, /raw:\s*true/);
+    assert.match(code, /_\$insert\(_el\$1, item\.name\)/);
   });
 
   it('does NOT lower map without a key prop (and warns)', () => {
@@ -248,8 +290,8 @@ describe('event modifiers', () => {
         return <button onclick__preventDefault__stopPropagation={fn}>x</button>;
       }
     `);
-    // Should produce an addEventListener with a wrapper that calls preventDefault
-    assert.match(codeUnderscore, /addEventListener\(\s*["']click["']/);
+    // Should produce a listener (_$on) with a wrapper that calls preventDefault
+    assert.match(codeUnderscore, /_\$on\(_el\$\d+,\s*["']click["']/);
     assert.match(codeUnderscore, /preventDefault/);
     assert.match(codeUnderscore, /stopPropagation/);
   });
@@ -277,7 +319,7 @@ describe('event modifiers', () => {
     // Regression: `onclick__totalyWrong` used to be classified as "no
     // modifiers", which emitted `el.$$onclick__totalyWrong = handler` —
     // a delegated-event property that never fires. Now it must warn AND
-    // route through addEventListener('click', handler) (modifier path).
+    // route through a listener for 'click' (modifier path).
     const origWarn = console.warn;
     const warnings = [];
     console.warn = (...args) => warnings.push(args.join(' '));
@@ -302,8 +344,8 @@ describe('event modifiers', () => {
       /\$\$onclick__totalyWrongUniqA/,
       'must not silently emit el.$$onclick__totalyWrongUniqA assignment'
     );
-    // Must route through addEventListener with the bare event name
-    assert.match(code, /addEventListener\(\s*["']click["']/);
+    // Must route through a listener with the bare event name
+    assert.match(code, /_\$on\(_el\$\d+,\s*["']click["']/);
   });
 
   it('mixed known+unknown modifiers: warns about unknown, applies known', () => {
@@ -327,7 +369,7 @@ describe('event modifiers', () => {
     );
     // The known modifier must still be applied — wrapper calls preventDefault
     assert.match(code, /preventDefault/);
-    assert.match(code, /addEventListener\(\s*["']click["']/);
+    assert.match(code, /_\$on\(_el\$\d+,\s*["']click["']/);
     // And the broken delegated-property form must not appear
     assert.doesNotMatch(code, /\$\$onclick__/);
   });
@@ -348,7 +390,7 @@ describe('event modifiers', () => {
     }
     // Should NOT route through addEventListener (no real modifiers)
     // Should use delegated event or direct assignment
-    assert.doesNotMatch(code, /addEventListener\(\s*["']click["']/,
+    assert.doesNotMatch(code, /_\$on\(_el\$\d+,\s*["']click["']/,
       'onclick__ with no real modifiers should not use addEventListener');
     // No warnings about unknown modifiers (empty string filtered out)
     const modWarnings = warnings.filter(w => /modifier/.test(w));

@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -131,11 +131,17 @@
   );
 }
 
-<span class="comment">// Uses defaults</span>
-&lt;Button&gt;Click me&lt;/Button&gt;
+<span class="keyword">function</span> <span class="function">Actions</span>() {
+  <span class="keyword">return</span> (
+    &lt;div&gt;
+      {<span class="comment">/* Uses defaults */</span>}
+      &lt;Button&gt;Click me&lt;/Button&gt;
 
-<span class="comment">// Override defaults</span>
-&lt;Button variant=<span class="string">"secondary"</span> size=<span class="string">"large"</span>&gt;Submit&lt;/Button&gt;</code></pre>
+      {<span class="comment">/* Override defaults */</span>}
+      &lt;Button variant=<span class="string">"secondary"</span> size=<span class="string">"large"</span>&gt;Submit&lt;/Button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
           <h3 id="spread-props">Spreading Props</h3>
           <p>Pass remaining props to child elements:</p>
@@ -156,6 +162,8 @@
   required
 /&gt;</code></pre>
 
+          <p>The rest keeps the props live, as React's re-render would: a prop that reads a signal updates the input where it renders, and a handler handed through the rest (<code>onInput</code>) follows the parent's current one. An attribute written after the spread wins over it, as in React: <code>&lt;input {...rest} type="email" /&gt;</code> keeps <code>email</code> whatever <code>rest.type</code> is.</p>
+
           <h2 id="children">Children</h2>
           <p>Content between component tags is passed as <code>children</code>:</p>
 
@@ -174,6 +182,8 @@
   &lt;p&gt;This is the card content.&lt;/p&gt;
   &lt;button&gt;Learn More&lt;/button&gt;
 &lt;/Card&gt;</code></pre>
+
+          <p>Children are built where the component places them, however it reads them: destructured (renamed, with a rest element or a literal default), from <code>props</code> in the body, or as <code>props.children</code>, placed in an element, a fragment, a condition or another component. On a page rendered on the server, they keep the nodes the server sent, and what the user typed in them before the page's code ran. The same holds for JSX passed in any other prop (<code>header={&lt;Nav /&gt;}</code>, a boundary's <code>fallback</code>, <code>items={links.map((l) =&gt; &lt;li&gt;{l}&lt;/li&gt;)}</code>) and for a prop a component hands on to another: it is built where the component places it, as an element written with <code>h()</code> is, and placed twice it is built twice. Placed in a <code>&lt;Show&gt;</code> or a condition, it is not built again when a signal its JSX read changes. Read after the component's run without being placed (a test in <code>onMount</code>, a handler that shows it in a dialog), it runs its components no second time: the test is true, and the dialog shows a copy built where it shows it. A component that inspects its children (<code>children.length</code>, <code>children.map(...)</code> as <code>TabList</code> below does, a test such as <code>{children &amp;&amp; ...}</code>) builds them where it inspects them, so while hydrating they are built on the client and take the place of the server's (reported as a hydration mismatch of kind <code>prebuilt</code>, with what the user typed in them kept). Hand such a component its data as a prop when it renders on the server.</p>
 
           <h2 id="state-in-components">State in Components</h2>
           <p>Use signals for component state:</p>
@@ -196,7 +206,7 @@
           <div class="callout callout-info">
             <p class="callout-title">Components Run Once</p>
             <p>Unlike React, What components only run once when first rendered. Updates happen through signals, not by re-running the component function. This is a key difference from React's mental model.</p>
-            <p>It has one consequence worth internalizing now: <strong>a prop passed as a value is frozen forever.</strong> <code>&lt;Greeting name={name()} /&gt;</code> reads the signal once, at the call site, and the child will still say "Alice" after <code>name.set('Bob')</code>. Pass the signal itself (<code>name={name}</code>) and read it as <code>name()</code> in the child, or pass a thunk (<code>name={() =&gt; name()}</code>). See <a href="#best-practices">Pass Signals, Not Values</a> below.</p>
+            <p>Props still follow the parent's state, as React's re-render would: <code>&lt;Greeting name={name()} /&gt;</code> hands the child a live prop, so its <code>{name}</code> says "Bob" after <code>name.set('Bob')</code>. What runs once is the child's body: a value it computes there, outside JSX (<code>const upper = name.toUpperCase()</code>, then <code>{upper}</code>), keeps its first value, and nothing reports it. Compute it in the JSX (<code>{name.toUpperCase()}</code>) or with <code>computed()</code>, and call it there. When the child writes the state, pass the signal itself; see <a href="#best-practices">Pass the Signal When the Child Writes It</a> below.</p>
           </div>
 
           <h2 id="composition">Composition Patterns</h2>
@@ -280,14 +290,18 @@
 
           <p>Here is what the compiler actually emits:</p>
 <pre><code><span class="comment">// Your JSX:</span>
-&lt;div className="card"&gt;
-  &lt;p&gt;Count: {count()}&lt;/p&gt;
-&lt;/div&gt;
+<span class="keyword">export function</span> <span class="function">Card</span>() {
+  <span class="keyword">return</span> (
+    &lt;div className=<span class="string">"card"</span>&gt;
+      &lt;p&gt;Count: {count()} items&lt;/p&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
 
-<span class="comment">// Compiler output:</span>
+<pre><code><span class="comment">// Compiler output:</span>
 <span class="keyword">import</span> { _$template, insert <span class="keyword">as</span> _$insert } <span class="keyword">from</span> <span class="string">"what-framework/render"</span>;
 
-<span class="keyword">const</span> _tmpl$0 = <span class="function">_$template</span>(<span class="string">'&lt;div class="card"&gt;&lt;p&gt;Count: &lt;!--$--&gt;&lt;/p&gt;&lt;/div&gt;'</span>);
+<span class="keyword">const</span> _tmpl$0 = <span class="function">_$template</span>(<span class="string">"&lt;div class=card&gt;&lt;p&gt;Count: &lt;!&gt; items"</span>);
 
 <span class="keyword">export function</span> <span class="function">Card</span>() {
   <span class="keyword">const</span> _el$0 = <span class="function">_tmpl$0</span>();
@@ -296,7 +310,7 @@
   <span class="keyword">return</span> _el$0;
 }</code></pre>
 
-          <p>Two details are worth reading closely. <code>_$template(...)</code> returns a <em>factory</em>, so <code>_tmpl$0()</code> hands back a fresh clone each time. And the <code>&lt;!--$--&gt;</code> in the template string is the anchor: it marks the exact position the dynamic child occupies, which is the third argument to <code>_$insert</code>, so the effect can update that one spot without touching its siblings. There is no separate <code>render()</code> function, the component body <em>is</em> the render.</p>
+          <p>Three details are worth reading closely. <code>_$template(...)</code> returns a <em>factory</em>, so <code>_tmpl$0()</code> hands back a fresh clone each time. The template string is minified HTML: the closing tags and attribute quotes the HTML parser restores are left out. And the <code>&lt;!&gt;</code> in it is the anchor: it marks the exact position the dynamic child occupies, which is the third argument to <code>_$insert</code>, so the effect can update that one spot without touching its siblings. A dynamic child that comes last needs no anchor, and the third argument is <code>null</code>. There is no separate <code>render()</code> function, the component body <em>is</em> the render.</p>
 
           <div class="callout callout-info">
             <p class="callout-title">Fine-Grained Rendering</p>
@@ -333,19 +347,21 @@
           <h3 id="attributes">Attributes</h3>
           <p>Some differences from HTML:</p>
 
-<pre><code><span class="comment">// className instead of class</span>
-&lt;div className=<span class="string">"container"</span>&gt;
+<pre><code>&lt;div&gt;
+  {<span class="comment">/* class or className: both set the element's class */</span>}
+  &lt;div className=<span class="string">"container"</span> /&gt;
 
-<span class="comment">// camelCase for multi-word attributes</span>
-&lt;input tabIndex={<span class="number">1</span>} autoFocus /&gt;
+  {<span class="comment">/* camelCase for multi-word attributes */</span>}
+  &lt;input tabIndex={<span class="number">1</span>} autoFocus /&gt;
 
-<span class="comment">// style as an object</span>
-&lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="string">'16px'</span> }}&gt;
+  {<span class="comment">/* style as an object */</span>}
+  &lt;div style={{ color: <span class="string">'red'</span>, fontSize: <span class="string">'16px'</span> }} /&gt;
 
-<span class="comment">// boolean attributes</span>
-&lt;input disabled /&gt;
-&lt;input disabled={<span class="keyword">true</span>} /&gt;
-&lt;input disabled={isDisabled()} /&gt;</code></pre>
+  {<span class="comment">/* boolean attributes */</span>}
+  &lt;input disabled /&gt;
+  &lt;input disabled={<span class="keyword">true</span>} /&gt;
+  &lt;input disabled={isDisabled()} /&gt;
+&lt;/div&gt;</code></pre>
 
           <p>Two things to watch. A numeric attribute value has to be an expression, so <code>tabIndex={1}</code>, not <code>tabIndex=1</code>, which is a JSX syntax error. And unlike React, What does not append <code>px</code> to numbers in a style object: <code>fontSize: 16</code> is rejected by the CSSOM and silently dropped, so write the unit yourself. Genuinely unitless properties such as <code>opacity</code> and <code>zIndex</code> take numbers fine.</p>
 
@@ -401,8 +417,8 @@
   <span class="keyword">return</span> &lt;p&gt;You typed: {value}&lt;/p&gt;;
 }</code></pre>
 
-          <h3>3. Pass Signals, Not Values</h3>
-          <p>For reactive props, pass the signal itself:</p>
+          <h3>3. Pass the Signal When the Child Writes It</h3>
+          <p>A prop that reads a signal (<code>count={count()}</code>) is enough for a child that shows the value. A child that changes it gets the signal itself:</p>
 
 <pre><code><span class="comment">// GOOD - Child can update the signal</span>
 &lt;Counter count={count} /&gt;

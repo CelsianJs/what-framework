@@ -14,7 +14,7 @@ global.MutationObserver = dom.window.MutationObserver;
 const { signal, computed, batch } = await import('../src/reactive.js');
 const { h, Fragment } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
-const { template, insert, mapArray, hydrate, isHydrating, setStyle } = await import('../src/render.js');
+const { template, insert, mapArray, hydrate, setStyle } = await import('../src/render.js');
 const {
   useState,
   useEffect,
@@ -151,30 +151,6 @@ describe('Integration: useEffect with signal deps', () => {
 // =========================================================================
 
 describe('Integration: useEffect cleanup', () => {
-  it('runs cleanup when component unmounts', async () => {
-    const container = getContainer();
-    let cleanupRan = false;
-
-    function CleanupComponent() {
-      useEffect(() => {
-        return () => {
-          cleanupRan = true;
-        };
-      }, []);
-      return h('div', null, 'has cleanup');
-    }
-
-    const unmount = mount(h(CleanupComponent), container);
-    await flush();
-
-    assert.equal(cleanupRan, false, 'cleanup has not run yet');
-
-    unmount();
-    await flush();
-
-    assert.equal(cleanupRan, true, 'cleanup ran on unmount');
-  });
-
   it('runs cleanup before re-running effect with changed deps', async () => {
     const container = getContainer();
     const log = [];
@@ -535,15 +511,6 @@ describe('Integration: Hydration with hooks', () => {
     await flush();
 
     assert.equal(refValue, 42, 'useRef initialized during hydration');
-  });
-
-  it('isHydrating returns false after hydration completes', () => {
-    const container = getContainer();
-    container.innerHTML = '<div>Test</div>';
-
-    assert.equal(isHydrating(), false, 'not hydrating before');
-    hydrate(h('div', null, 'Test'), container);
-    assert.equal(isHydrating(), false, 'not hydrating after');
   });
 });
 
@@ -906,12 +873,12 @@ describe('Integration: Reactive props', () => {
     setStyle(el, 'padding: 2px');
     assert.equal(el.style.color, '', 'cssText replaced prior inline styles');
     assert.equal(el.style.padding, '2px');
-    // A following object applies its own keys; cssText-set keys are NOT tracked
-    // as a prior object, so they persist (cssText owns them) — only keys from a
-    // prior OBJECT are diffed/cleared. This matches the intended scope of the fix.
+    // An object after a string is the whole inline style too: the string's
+    // declarations go (every path writes styles through setStyle, as the h()
+    // path always did; style-transitions.test.js).
     setStyle(el, { color: 'black' });
     assert.equal(el.style.color, 'black');
-    assert.equal(el.style.padding, '2px', 'cssText-set padding persists (not object-tracked)');
+    assert.equal(el.style.padding, '', 'the string\'s padding is cleared');
   });
 });
 

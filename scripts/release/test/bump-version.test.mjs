@@ -14,6 +14,16 @@ function fixture() {
     'package.json': JSON.stringify({ name: 'what-fw', private: true, version: '0.13.7' }),
     'packages/core/package.json': JSON.stringify({ name: 'what-core', version: '0.13.7' }),
     'packages/mcp-server/package.json': JSON.stringify({ name: 'what-mcp', version: '0.12.4' }),
+    'packages/compiler/package.json': JSON.stringify({
+      name: 'what-compiler', version: '0.13.7',
+      peerDependencies: { '@babel/core': '^7.0.0', 'what-core': '^0.13.7', 'what-framework': '^0.13.7' },
+      peerDependenciesMeta: { 'what-framework': { optional: true } },
+    }),
+    'packages/what/package.json': JSON.stringify({
+      name: 'what-framework', version: '0.13.7',
+      dependencies: { 'what-core': '^0.13.7' },
+      peerDependencies: { 'what-compiler': '^0.13.7' },
+    }),
     'CHANGELOG.md': '# Changelog\n\n## [0.13.7] - 2026-09-06\n\nHistorical notes.\n',
     'docs/releases/v0.13.7.md': '# What 0.13.7\nHistorical notes.\n',
     'README.md': 'This behavior exists as of v0.13.7.\n',
@@ -69,6 +79,25 @@ test('dry-run version preparation leaves every fixture file untouched', () => {
     for (const [file, contents] of Object.entries(files)) {
       assert.equal(readFileSync(join(dir, file), 'utf8'), contents, file);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The compiler and the runtime declare each other as peers (an optional one on
+// what-framework), which is what makes npm refuse an install that mixes their
+// releases. A bump that left one behind would make npm refuse the release itself.
+test('version bumps move the compiler and runtime peer ranges with the release', () => {
+  const { dir } = fixture();
+  try {
+    bump(dir);
+    const read = (file) => JSON.parse(readFileSync(join(dir, file), 'utf8'));
+    const compiler = read('packages/compiler/package.json');
+    const framework = read('packages/what/package.json');
+    assert.deepEqual(compiler.peerDependencies, { '@babel/core': '^7.0.0', 'what-core': '^0.13.8', 'what-framework': '^0.13.8' });
+    assert.deepEqual(compiler.peerDependenciesMeta, { 'what-framework': { optional: true } });
+    assert.deepEqual(framework.dependencies, { 'what-core': '^0.13.8' });
+    assert.deepEqual(framework.peerDependencies, { 'what-compiler': '^0.13.8' });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

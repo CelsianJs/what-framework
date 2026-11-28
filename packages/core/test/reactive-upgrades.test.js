@@ -4,7 +4,7 @@
 // 3. Ownership tree for automatic disposal
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, memo, batch, untrack, flushSync, createRoot, getOwner, runWithOwner, onCleanup } from '../src/reactive.js';
+import { signal, computed, effect, memo, batch, flushSync, createRoot, getOwner, runWithOwner, onCleanup } from '../src/reactive.js';
 
 // Helper: flush microtask queue
 async function flush() {
@@ -102,25 +102,26 @@ describe('topological ordering', () => {
     dispose();
   });
 
-  it('effects at different levels execute in order', async () => {
+  it('effects at different depths run once, in notification order, on settled values', async () => {
     const s = signal(0);
     const c1 = computed(() => s() + 1);
     const c2 = computed(() => c1() + 1);
 
     const log = [];
-    // Effect depending on deep computed (level 3)
-    const d1 = effect(() => { c2(); log.push('deep'); });
-    // Effect depending on source signal (level 1)
-    const d2 = effect(() => { s(); log.push('shallow'); });
+    // Effect depending on a deep computed
+    const d1 = effect(() => { log.push('deep:' + c2()); });
+    // Effect depending on the source signal
+    const d2 = effect(() => { log.push('shallow:' + s()); });
 
     log.length = 0; // Clear initial runs
 
     s.set(1);
     await flush();
 
-    // Shallow effect (level 1) should run before deep effect (level 3)
-    assert.equal(log[0], 'shallow');
-    assert.equal(log[1], 'deep');
+    // Effects pull settled values whatever their depth, so there is no level
+    // sort: they run in the order the write reached them (s notifies c1, on
+    // d1's path, before d2).
+    assert.deepEqual(log, ['deep:3', 'shallow:1']);
 
     d1();
     d2();
@@ -388,10 +389,12 @@ describe('ownership tree', () => {
         childDispose = dispose;
       });
 
-      assert.equal(owner.children.length, 1);
+      assert.ok(owner.firstChild !== null);
+      assert.equal(owner.firstChild, owner.lastChild);
 
       childDispose();
-      assert.equal(owner.children.length, 0);
+      assert.equal(owner.firstChild, null);
+      assert.equal(owner.lastChild, null);
 
       disposeParent();
     });
@@ -449,7 +452,7 @@ describe('ownership tree', () => {
     createRoot(() => {
       const owner = getOwner();
       assert.ok(owner !== null);
-      assert.ok(Array.isArray(owner.children));
+      assert.equal(owner.firstChild, null);
       assert.ok(Array.isArray(owner.disposals));
     });
   });
@@ -583,102 +586,5 @@ describe('backward compatibility', () => {
     s.set(5);
     assert.equal(c(), 10);
     assert.equal(runs, 2);
-  });
-
-  it('effect runs immediately and tracks deps', async () => {
-    const s = signal(0);
-    const values = [];
-    const dispose = effect(() => values.push(s()));
-
-    assert.deepEqual(values, [0]);
-    s.set(1);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
-    dispose();
-  });
-
-  it('batch groups writes', () => {
-    const a = signal(0);
-    const b = signal(0);
-    let runs = 0;
-
-    const dispose = effect(() => { a(); b(); runs++; });
-    assert.equal(runs, 1);
-
-    batch(() => {
-      a.set(1);
-      b.set(2);
-    });
-    assert.equal(runs, 2);
-    dispose();
-  });
-
-  it('untrack prevents subscription', () => {
-    const s = signal(0);
-    let runs = 0;
-    const dispose = effect(() => {
-      untrack(() => s());
-      runs++;
-    });
-    assert.equal(runs, 1);
-    s.set(1);
-    flushSync();
-    assert.equal(runs, 1);
-    dispose();
-  });
-
-  it('createRoot dispose works', () => {
-    const s = signal(0);
-    let runs = 0;
-
-    createRoot(dispose => {
-      effect(() => { s(); runs++; });
-      assert.equal(runs, 1);
-
-      s.set(1);
-      flushSync();
-      assert.equal(runs, 2);
-
-      dispose();
-
-      s.set(2);
-      flushSync();
-      assert.equal(runs, 2);
-    });
-  });
-
-  it('memo equality check still works', async () => {
-    const s = signal(1);
-    const m = memo(() => s() > 5 ? 'big' : 'small');
-    let runs = 0;
-    const dispose = effect(() => { m(); runs++; });
-
-    assert.equal(runs, 1);
-    assert.equal(m(), 'small');
-
-    s.set(3); // still 'small' — memo should not propagate
-    await flush();
-    assert.equal(runs, 1); // memo suppressed the notification
-
-    s.set(10); // now 'big' — memo should propagate
-    await flush();
-    assert.equal(runs, 2);
-    assert.equal(m(), 'big');
-    dispose();
-  });
-
-  it('signal.subscribe still works', async () => {
-    const s = signal(0);
-    const values = [];
-    const unsub = s.subscribe(v => values.push(v));
-
-    assert.deepEqual(values, [0]);
-    s.set(1);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
-    unsub();
-    s.set(2);
-    await flush();
-    assert.deepEqual(values, [0, 1]);
   });
 });

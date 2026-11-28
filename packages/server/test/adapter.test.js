@@ -1,4 +1,4 @@
-// Deploy adapter core (Phase 7): the Web-Fetch request handler tying route
+// Deploy adapter core: the Web-Fetch request handler tying route
 // match -> ISR cache -> render -> action dispatch -> revalidate webhook.
 
 import { describe, it } from 'node:test';
@@ -59,10 +59,25 @@ describe('createRequestHandler', () => {
     assert.equal(r1.headers.get('x-what-cache'), 'MISS');
     assert.match(await r1.text(), /#1/);
 
-    const r2 = await handle(new Request('http://x/'));
+    // A browser sends back the CSRF cookie the first response set. A response
+    // that has to set it is never public (see the next test).
+    const cookie = r1.headers.getSetCookie()[0].split(';')[0];
+    const r2 = await handle(new Request('http://x/', { headers: { cookie } }));
     assert.equal(r2.headers.get('x-what-cache'), 'HIT');
     assert.equal(count(), 1, 'second request served from cache');
     assert.match(r2.headers.get('cache-control'), /s-maxage=60/);
+    assert.deepEqual(r2.headers.getSetCookie(), []);
+  });
+
+  it('a cached page that has to set the CSRF cookie is sent private, so no shared cache keeps the cookie', async () => {
+    const { render } = countingRender();
+    const cache = createCacheEngine({ store: createMemoryStore() });
+    const handle = createRequestHandler({ routes, cache, render });
+    await handle(new Request('http://x/'));
+    const hit = await handle(new Request('http://x/'));
+    assert.equal(hit.headers.get('x-what-cache'), 'HIT');
+    assert.match(hit.headers.getSetCookie()[0], /^what-csrf=/);
+    assert.equal(hit.headers.get('cache-control'), 'private, no-store');
   });
 
   it('server-mode routes bypass cache and render every time', async () => {
@@ -138,7 +153,7 @@ describe('createRequestHandler', () => {
     const res = await handle(new Request('http://x/p'));
     const html = await res.text();
     assert.match(html, /<!DOCTYPE html>/i);
-    assert.match(html, /<main>docrender<\/main>/);
+    assert.match(html, /<main data-hk="0">docrender<\/main>/);
     assert.match(html, /id="__what_data"/);
   });
 });

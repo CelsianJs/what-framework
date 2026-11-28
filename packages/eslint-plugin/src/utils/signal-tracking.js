@@ -2,14 +2,22 @@
  * Shared signal-tracking utility for eslint-plugin-what rules.
  *
  * Single source of truth for identifying signal variables across all rules.
- * Tracks variables from useSignal, signal, useComputed, computed,
- * useSWR destructured fields, useFetch, useQuery, useInfiniteQuery, and createResource.
+ * Tracks variables from useSignal, signal, useComputed, computed, useMemo,
+ * the accessor useState, useReducer, createResource, useTransition and
+ * useOptimistic return first, useSWR destructured fields, useFetch, useQuery
+ * and useInfiniteQuery.
  */
 
-// Functions that return a signal or computed directly
+// Functions that return a signal or computed directly. (`memo` is React's
+// component memo, which returns a component.)
 export const SIGNAL_CREATORS = [
-  'signal', 'useSignal', 'computed', 'useComputed', 'memo',
+  'signal', 'useSignal', 'computed', 'useComputed', 'useMemo',
 ];
+
+// Functions that return [accessor, ...]: a component runs once, so the first
+// element is an accessor, not this render's value. useTransition's isPending
+// and useOptimistic's optimistic value are called like any signal.
+export const ACCESSOR_PAIR_HOOKS = ['useState', 'useReducer', 'createResource', 'useTransition', 'useOptimistic'];
 
 // Functions whose return value has signal-like getter properties
 export const SWR_LIKE_HOOKS = [
@@ -17,7 +25,7 @@ export const SWR_LIKE_HOOKS = [
 ];
 
 // Properties on SWR-like return objects that are getter functions (must be called)
-export const SWR_GETTER_FIELDS = new Set([
+const SWR_GETTER_FIELDS = new Set([
   'data', 'error', 'isLoading', 'isValidating',
   'isFetching', 'isError', 'isSuccess',
   'status', 'fetchStatus',
@@ -26,8 +34,9 @@ export const SWR_GETTER_FIELDS = new Set([
 ]);
 
 // Properties on signals/computeds that are safe to access without calling
+// (an async computed's pending() included)
 export const SIGNAL_METHODS = new Set([
-  'set', 'peek', 'subscribe', '_signal', '_subs', '_debugName',
+  'set', 'peek', 'subscribe', 'mutate', 'pending', '_signal', '_debugName',
 ]);
 
 /**
@@ -85,11 +94,12 @@ export function createSignalTracker() {
         }
       }
 
-      // createResource returns [dataSignal, { loading, error, ... }]
+      // const [count, setCount] = useState(0); createResource returns
+      // [dataSignal, { loading, error, ... }]
       if (
         node.init.type === 'CallExpression' &&
         node.init.callee.type === 'Identifier' &&
-        node.init.callee.name === 'createResource' &&
+        ACCESSOR_PAIR_HOOKS.includes(node.init.callee.name) &&
         node.id.type === 'ArrayPattern'
       ) {
         const elements = node.id.elements;

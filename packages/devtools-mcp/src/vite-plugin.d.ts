@@ -5,11 +5,28 @@
 export const DISCOVERY_PATH: string;
 
 export interface WhatDevToolsMCPOptions {
-  /** Bridge port. Default 9229. */
+  /** Bridge port when no bridge file is found under the project. Default 9229. */
   port?: number;
-  /** Shared secret required by the bridge. */
+  /** Pre-shared pairing key (also WHAT_MCP_TOKEN), when the bridge file is not readable. */
   token?: string;
 }
+
+/**
+ * The same-origin discovery endpoint as a plain Node `(req, res)` handler, for
+ * a dev server that is not Vite. Pairs with the bridge Node-side and answers
+ * the requesting page with a credential bound to its origin, or
+ * `{ bridge: false }`.
+ */
+export function createDiscoveryHandler(options?: WhatDevToolsMCPOptions & {
+  /** The dev server's project root (default: cwd). */
+  root?: string;
+  /** The dev server serves https. */
+  https?: boolean;
+}): (req: { headers: Record<string, string | string[] | undefined> }, res: {
+  setHeader(name: string, value: string): unknown;
+  statusCode: number;
+  end(body: string): unknown;
+}) => Promise<void>;
 
 // Structural Vite plugin shape — assignable to Vite's `PluginOption` without a
 // hard type dependency on `vite`. Same convention as `what-compiler/vite`.

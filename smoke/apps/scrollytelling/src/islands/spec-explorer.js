@@ -24,15 +24,12 @@ export default function SpecExplorer() {
     h('div', { class: 'spec-filters', role: 'group', 'aria-label': 'Filter specifications' },
       specGroups.map((entry) => h('button', {
         type: 'button',
-        class: 'chip',
+        // Reactive props, so the server shows the chip that is on as the
+        // client does, before the visitor's first interaction hydrates it.
+        class: () => (group() === entry.id ? 'chip is-on' : 'chip'),
         'data-spec-filter': entry.id,
-        'aria-pressed': entry.id === 'all' ? 'true' : 'false',
+        'aria-pressed': () => String(group() === entry.id),
         onclick: () => group(entry.id),
-        ref: (el) => bindEl(el, () => {
-          const on = group() === entry.id;
-          el.setAttribute('aria-pressed', String(on));
-          el.classList.toggle('is-on', on);
-        }),
       }, entry.label)),
     ),
     h('table', { class: 'spec-table' },

@@ -11,7 +11,7 @@
 
 import { createRequire } from 'node:module';
 
-import noSignalInEffectDeps from './rules/no-signal-in-effect-deps.js';
+import noSignalReadInEffectDeps from './rules/no-signal-read-in-effect-deps.js';
 import reactiveJsxChildren from './rules/reactive-jsx-children.js';
 import noSignalWriteInRender from './rules/no-signal-write-in-render.js';
 import noCamelcaseEvents from './rules/no-camelcase-events.js';
@@ -19,8 +19,20 @@ import preferSet from './rules/prefer-set.js';
 import noUncalledSignals from './rules/no-uncalled-signals.js';
 import noHInUserCode from './rules/no-h-in-user-code.js';
 import signalCallInJsx from './rules/signal-call-in-jsx.js';
+import noPropReadOnce from './rules/no-prop-read-once.js';
+import noStateReadOnce from './rules/no-state-read-once.js';
+import noCleanupReadsLive from './rules/no-cleanup-reads-live.js';
 import noSetInComputed from './rules/no-set-in-computed.js';
-import noDestructuredProps from './rules/no-destructured-props.js';
+import noMovedImports from './rules/no-moved-imports.js';
+import noEffectSelfWrite from './rules/no-effect-self-write.js';
+import effectCleanup from './rules/effect-cleanup.js';
+import noUnsafeInnerhtml from './rules/no-unsafe-innerhtml.js';
+import signalDebugName from './rules/signal-debug-name.js';
+import preferComputed from './rules/prefer-computed.js';
+import noAsyncComponent from './rules/no-async-component.js';
+import noPromiseInUsememo from './rules/no-promise-in-usememo.js';
+import noOptimisticSnapshot from './rules/no-optimistic-snapshot.js';
+import preferAsyncComputed from './rules/prefer-async-computed.js';
 
 // Read the real version from package.json so plugin meta never goes stale.
 const require = createRequire(import.meta.url);
@@ -33,7 +45,7 @@ const plugin = {
   },
 
   rules: {
-    'no-signal-in-effect-deps': noSignalInEffectDeps,
+    'no-signal-read-in-effect-deps': noSignalReadInEffectDeps,
     'reactive-jsx-children': reactiveJsxChildren,
     'no-signal-write-in-render': noSignalWriteInRender,
     'no-camelcase-events': noCamelcaseEvents,
@@ -42,7 +54,19 @@ const plugin = {
     'no-h-in-user-code': noHInUserCode,
     'signal-call-in-jsx': signalCallInJsx,
     'no-set-in-computed': noSetInComputed,
-    'no-destructured-props': noDestructuredProps,
+    'no-moved-imports': noMovedImports,
+    'no-effect-self-write': noEffectSelfWrite,
+    'effect-cleanup': effectCleanup,
+    'no-unsafe-innerhtml': noUnsafeInnerhtml,
+    'signal-debug-name': signalDebugName,
+    'prefer-computed': preferComputed,
+    'no-async-component': noAsyncComponent,
+    'no-promise-in-usememo': noPromiseInUsememo,
+    'no-optimistic-snapshot': noOptimisticSnapshot,
+    'prefer-async-computed': preferAsyncComputed,
+    'no-prop-read-once': noPropReadOnce,
+    'no-state-read-once': noStateReadOnce,
+    'no-cleanup-reads-live': noCleanupReadsLive,
   },
 
   configs: {},
@@ -87,16 +111,28 @@ plugin.configs.recommended = {
   languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'warn',
+    'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'warn',
     'what/no-signal-write-in-render': 'warn',
-    'what/no-camelcase-events': 'warn',
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'warn',
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': 'warn',
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'warn',
+    'what/no-unsafe-innerhtml': 'warn',
+    'what/signal-debug-name': 'off',
+    'what/prefer-computed': 'warn',       // an effect that only writes one signal is a computed()
+    'what/no-async-component': 'warn',
+    'what/no-promise-in-usememo': 'warn',
+    'what/no-optimistic-snapshot': 'warn',
+    'what/prefer-async-computed': 'warn',
+    'what/no-prop-read-once': 'warn',
+    'what/no-state-read-once': 'warn',
+    'what/no-cleanup-reads-live': 'warn',
   },
 };
 
@@ -107,16 +143,28 @@ plugin.configs.strict = {
   languageOptions: baseLanguageOptions,
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'error',
+    'what/no-signal-read-in-effect-deps': 'error',
     'what/reactive-jsx-children': 'error',
     'what/no-signal-write-in-render': 'error',
-    'what/no-camelcase-events': 'error',
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'error',
     'what/prefer-set': 'warn',
     'what/no-h-in-user-code': 'error',
     'what/signal-call-in-jsx': 'error',
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': 'error',
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'error',
+    'what/no-unsafe-innerhtml': 'error',
+    'what/signal-debug-name': 'warn',
+    'what/prefer-computed': 'warn',
+    'what/no-async-component': 'error',
+    'what/no-promise-in-usememo': 'error',
+    'what/no-optimistic-snapshot': 'error',
+    'what/prefer-async-computed': 'error',
+    'what/no-prop-read-once': 'error',
+    'what/no-state-read-once': 'error',
+    'what/no-cleanup-reads-live': 'error',
   },
 };
 
@@ -127,16 +175,28 @@ plugin.configs.compiler = {
   languageOptions: { ...baseLanguageOptions, globals: COMPILER_LOWERED_TAGS },
   plugins: { what: plugin },
   rules: {
-    'what/no-signal-in-effect-deps': 'warn',
+    'what/no-signal-read-in-effect-deps': 'warn',
     'what/reactive-jsx-children': 'off',       // compiler handles reactive wrapping
     'what/no-signal-write-in-render': 'warn',
-    'what/no-camelcase-events': 'off',          // compiler normalizes events
+    'what/no-camelcase-events': 'off',          // the runtime takes onClick as well as onclick
     'what/no-uncalled-signals': 'warn',
     'what/prefer-set': 'off',
     'what/no-h-in-user-code': 'warn',
     'what/signal-call-in-jsx': 'off',          // compiler handles signal wrapping in JSX
     'what/no-set-in-computed': 'error',
-    'what/no-destructured-props': ['warn', { assumeNative: true }],
+    'what/no-moved-imports': 'error',
+    'what/no-effect-self-write': 'error',
+    'what/effect-cleanup': 'warn',
+    'what/no-unsafe-innerhtml': 'warn',
+    'what/signal-debug-name': 'off',
+    'what/prefer-computed': 'warn',       // an effect that only writes one signal is a computed()
+    'what/no-async-component': 'warn',
+    'what/no-promise-in-usememo': 'warn',
+    'what/no-optimistic-snapshot': 'warn',
+    'what/prefer-async-computed': 'warn',
+    'what/no-prop-read-once': 'off',          // what-compiler reports these at build time
+    'what/no-state-read-once': 'off',
+    'what/no-cleanup-reads-live': 'off',
   },
 };
 

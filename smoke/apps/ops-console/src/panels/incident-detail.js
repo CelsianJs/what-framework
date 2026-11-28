@@ -1,7 +1,8 @@
 // The lazily loaded detail panel. Its own module, reached only by navigating to
 // /incidents/:id, so it is never in the first byte the browser parses.
 
-import { h, useQuery } from 'what-framework';
+import { h } from 'what-framework';
+import { useQuery } from 'what-framework/data';
 import { useParams } from 'what-router';
 
 import { SeverityTag } from '../components/chrome.js';

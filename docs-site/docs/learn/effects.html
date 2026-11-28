@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -139,7 +139,7 @@ b.set(<span class="number">20</span>);
           <div class="callout callout-info">
             <p class="callout-title">No dependency arrays</p>
             <p>Unlike React's <code>useEffect(fn, [deps])</code>, What effects auto-track. Every signal read inside the function becomes a dependency automatically. You never need to maintain a deps array, and you'll never have stale closure bugs.</p>
-            <p>If you only need code to run once on mount (like React's <code>useEffect(fn, [])</code>), use <a href="./lifecycle.html"><code>onMount</code></a> instead.</p>
+            <p>What's own <code>useEffect</code> auto-tracks the same way. Given a dependency array, it re-runs only for the accessors listed (<code>[count]</code>, never <code>[count()]</code>, which reports <code>ERR_EFFECT_DEP_NOT_FUNCTION</code>), and <code>[]</code> runs it once after mount. If you only need code to run once on mount, <a href="./lifecycle.html"><code>onMount</code></a> says so most directly.</p>
           </div>
 
           <h2 id="cleanup">Cleanup Functions</h2>
@@ -163,159 +163,29 @@ b.set(<span class="number">20</span>);
             <li>Closing connections</li>
           </ul>
 
-          <div class="callout callout-warning">
-            <p class="callout-title">An effect in a component is not disposed for you</p>
-            <p><code>effect()</code> returns a dispose function, and inside a component nothing calls it: the effect (and its cleanup) keeps running after the component unmounts. Register the disposer yourself, or use <code>useEffect</code>, which registers itself with the component.</p>
+          <div class="callout callout-info">
+            <p class="callout-title">Effects in a component</p>
+            <p>A component is an owner. An <code>effect()</code> created in its body belongs to it, and is disposed, cleanup included, when the component goes: when a reactive region, a list row or a route lets it go, or when the function <code>mount()</code> returns unmounts the tree. An effect created inside another effect's run belongs to that run the same way, and is disposed before the outer effect runs again.</p>
 <pre><code><span class="keyword">import</span> { effect, onCleanup } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
 
 <span class="keyword">function</span> <span class="function">Widget</span>({ userId }) {
-  <span class="keyword">const</span> dispose = <span class="function">effect</span>(() =&gt; {
-    console.log(<span class="string">'watching'</span>, userId());
+  <span class="function">effect</span>(() =&gt; {
+    <span class="keyword">const</span> id = <span class="function">setInterval</span>(() =&gt; console.log(<span class="string">'watching'</span>, userId()), <span class="number">1000</span>);
+    <span class="function">onCleanup</span>(() =&gt; <span class="function">clearInterval</span>(id));  <span class="comment">// before the next run, and when Widget goes</span>
   });
-  <span class="function">onCleanup</span>(dispose);
 
   <span class="keyword">return</span> &lt;div /&gt;;
 }</code></pre>
-            <p>A module-scope effect has no component to belong to and lives for the life of the page. That is by design, and most of the examples below are that kind.</p>
+            <p>An effect created outside any owner (at module scope, in an event handler, a timer, or after an <code>await</code>) lives until you call the disposer <code>effect()</code> returns. At module scope that is by design: it lives for the life of the page, and most of the examples below are that kind.</p>
           </div>
-
-          <h2 id="practical-examples">Practical Examples</h2>
-
-          <h3>Document Title</h3>
-<pre><code><span class="keyword">const</span> unreadCount = <span class="function">signal</span>(<span class="number">0</span>);
-
-<span class="function">effect</span>(() =&gt; {
-  <span class="keyword">const</span> count = unreadCount();
-  document.title = count &gt; <span class="number">0</span>
-    ? <span class="string">`(${count}) My App`</span>
-    : <span class="string">'My App'</span>;
-});</code></pre>
-
-          <h3>Fetch Data</h3>
-<pre><code><span class="keyword">const</span> userId = <span class="function">signal</span>(<span class="number">1</span>);
-<span class="keyword">const</span> user = <span class="function">signal</span>(<span class="keyword">null</span>);
-<span class="keyword">const</span> loading = <span class="function">signal</span>(<span class="keyword">false</span>);
-
-<span class="function">effect</span>(() =&gt; {
-  <span class="keyword">const</span> id = userId();
-  <span class="keyword">const</span> controller = <span class="keyword">new</span> AbortController();
-  loading.set(<span class="keyword">true</span>);
-
-  fetch(<span class="string">`/api/users/${id}`</span>, { signal: controller.signal })
-    .then(r =&gt; r.json())
-    .then(data =&gt; {
-      user.set(data);
-      loading.set(<span class="keyword">false</span>);
-    })
-    .catch(err =&gt; {
-      <span class="keyword">if</span> (err.name !== <span class="string">'AbortError'</span>) loading.set(<span class="keyword">false</span>);
-    });
-
-  <span class="comment">// Abort the in-flight request before the next run</span>
-  <span class="keyword">return</span> () =&gt; controller.abort();
-});</code></pre>
-
-          <p>Without the abort, a slow response for the old <code>userId</code> can land after a fast one for the new <code>userId</code> and overwrite it. For anything beyond a demo, reach for <code>createResource</code>, <code>useQuery</code> or <code>useSWR</code>, which handle aborting, loading state and errors for you. See <a href="./data-fetching.html">Data Fetching</a>.</p>
-
-          <h3>Local Storage Sync</h3>
-<pre><code><span class="keyword">const</span> theme = <span class="function">signal</span>(
-  localStorage.getItem(<span class="string">'theme'</span>) || <span class="string">'light'</span>
-);
-
-<span class="function">effect</span>(() =&gt; {
-  localStorage.setItem(<span class="string">'theme'</span>, theme());
-});</code></pre>
-
-          <p>This one and the document-title example above both touch browser globals at module scope, and an effect body runs the moment the module is evaluated. If the same module is ever imported on the server that throws before any component renders, so guard the access (<code>typeof localStorage !== 'undefined'</code>) or move the work into <a href="./lifecycle.html"><code>onMount</code></a>, which never runs on the server.</p>
-
-          <h3>Debounced Search</h3>
-<pre><code><span class="keyword">const</span> query = <span class="function">signal</span>(<span class="string">''</span>);
-<span class="keyword">const</span> results = <span class="function">signal</span>([]);
-
-<span class="function">effect</span>(() =&gt; {
-  <span class="keyword">const</span> q = query();
-  <span class="keyword">if</span> (!q) {
-    results.set([]);
-    <span class="keyword">return</span>;
-  }
-
-  <span class="keyword">const</span> timeout = setTimeout(() =&gt; {
-    fetch(<span class="string">`/api/search?q=${q}`</span>)
-      .then(r =&gt; r.json())
-      .then(data =&gt; results.set(data));
-  }, <span class="number">300</span>);
-
-  <span class="keyword">return</span> () =&gt; clearTimeout(timeout);
-});</code></pre>
-
-          <h2 id="effects-vs-computed">Effects vs Computed</h2>
-          <p>Use <strong>computed</strong> for derived values (pure transformations):</p>
-
-<pre><code><span class="comment">// GOOD - derived value</span>
-<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt; <span class="string">`${first()} ${last()}`</span>);</code></pre>
-
-          <p>Use <strong>effect</strong> for side effects (interactions with the outside world):</p>
-
-<pre><code><span class="comment">// GOOD - side effect</span>
-<span class="function">effect</span>(() =&gt; {
-  document.title = fullName();
-});</code></pre>
-
-          <div class="callout callout-warning">
-            <p class="callout-title">Avoid: Effects that just set signals</p>
-<pre><code><span class="comment">// BAD - use computed instead</span>
-<span class="keyword">const</span> doubled = <span class="function">signal</span>(<span class="number">0</span>);
-<span class="function">effect</span>(() =&gt; {
-  doubled.set(count() * <span class="number">2</span>);
-});
-
-<span class="comment">// GOOD</span>
-<span class="keyword">const</span> doubled = <span class="function">computed</span>(() =&gt; count() * <span class="number">2</span>);</code></pre>
-          </div>
-
-          <h2 id="conditional-tracking">Conditional Tracking</h2>
-          <p>Only signals read during execution are tracked:</p>
-
-<pre><code><span class="keyword">const</span> showDetails = <span class="function">signal</span>(<span class="keyword">false</span>);
-<span class="keyword">const</span> details = <span class="function">signal</span>(<span class="string">'...'</span>);
-
-<span class="function">effect</span>(() =&gt; {
-  <span class="keyword">if</span> (showDetails()) {
-    console.log(details());  <span class="comment">// Only tracks details when showDetails is true</span>
-  }
-});
-
-details.set(<span class="string">'new'</span>);  <span class="comment">// Doesn't trigger (showDetails is false)</span>
-showDetails.set(<span class="keyword">true</span>);  <span class="comment">// Triggers, now details is tracked</span>
-details.set(<span class="string">'newer'</span>);  <span class="comment">// Triggers</span></code></pre>
-
-          <h2 id="reading-without-tracking">Reading Without Tracking</h2>
-          <p>Use <code>peek()</code> or <code>untrack()</code> to read without creating a subscription:</p>
-
-<pre><code><span class="keyword">import</span> { untrack } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
-
-<span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
-<span class="keyword">const</span> multiplier = <span class="function">signal</span>(<span class="number">2</span>);
-
-<span class="function">effect</span>(() =&gt; {
-  <span class="comment">// Re-runs when count changes, NOT when multiplier changes</span>
-  <span class="keyword">const</span> result = count() * multiplier.peek();
-  console.log(result);
-});
-
-<span class="comment">// Alternative syntax</span>
-<span class="function">effect</span>(() =&gt; {
-  <span class="keyword">const</span> result = count() * <span class="function">untrack</span>(() =&gt; multiplier());
-  console.log(result);
-});</code></pre>
 
           <h2 id="best-practices">Best Practices</h2>
           <ul>
             <li><strong>Keep effects focused.</strong> One effect, one purpose.</li>
             <li><strong>Always clean up.</strong> If you add a listener, remove it in cleanup.</li>
             <li><strong>Prefer computed for derived values.</strong> Effects are for side effects only.</li>
-            <li><strong>Don't modify signals you're reading.</strong> An effect that writes a signal it also reads re-triggers itself, and What stops it with a loop warning. Use <code>peek()</code>, <code>untrack()</code>, or the updater form <code>count.set(c =&gt; c + 1)</code>, none of which subscribe.</li>
-            <li><strong>Dispose effects you create in a component.</strong> Pass the returned disposer to <code>onCleanup</code>, or use <code>useEffect</code>.</li>
+            <li><strong>Don't modify signals you're reading.</strong> An effect that writes a signal it also reads re-triggers itself, and What stops it after 100 rounds and reports <code>ERR_INFINITE_EFFECT</code>. Use <code>peek()</code>, <code>untrack()</code>, or the updater form <code>count.set(c =&gt; c + 1)</code>, none of which subscribe.</li>
+            <li><strong>Dispose effects you create outside an owner.</strong> An effect created in a component body or an effect's run is disposed with it. One created in an event handler, a timer or after an <code>await</code> lives until you call the disposer <code>effect()</code> returns.</li>
             <li><strong>Use <code>onMount</code> for one-time setup.</strong> Don't use <code>effect</code> when you just need code to run once.</li>
             <li><strong>Handle errors.</strong> Wrap async code in try/catch.</li>
           </ul>

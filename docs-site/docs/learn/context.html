@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -137,11 +137,13 @@
   <span class="keyword">const</span> theme = <span class="function">signal</span>(<span class="string">'dark'</span>);
 
   <span class="keyword">return</span> (
-    &lt;ThemeContext.Provider value={theme}&gt;
+    &lt;ThemeContext value={theme}&gt;
       &lt;Layout /&gt;
-    &lt;/ThemeContext.Provider&gt;
+    &lt;/ThemeContext&gt;
   );
 }</code></pre>
+
+          <p>The context is its own provider, as in React 19: <code>&lt;ThemeContext value={theme}&gt;</code> and <code>&lt;ThemeContext.Provider value={theme}&gt;</code> render the same component. A context created with no default (<code>createContext()</code>) says the value must come from a provider: reading it with none above reports <code>ERR_CONTEXT_NOT_PROVIDED</code> in development.</p>
 
           <h2 id="consuming-context">Consuming Context</h2>
           <p>Access the value from any component in the tree:</p>
@@ -162,7 +164,7 @@
 
           <div class="callout callout-warning">
             <p class="callout-title">Call useContext during render</p>
-            <p><code>useContext</code> resolves the nearest provider by walking up from the component being rendered. Call it from an event handler, an effect, or any other deferred callback and there is no component to walk up from: it silently returns the context <strong>default</strong> and logs a dev warning. Read it once in the component body and close over the result.</p>
+            <p><code>useContext</code> resolves the nearest provider by walking up the owner tree from the current owner: the component being rendered, or an effect, region or list row it created, however long after the body ran. Call it from an event handler, a timer or after an <code>await</code> and there is no owner to walk up from: it returns the context <strong>default</strong>, and development reports <code>ERR_HOOK_OUTSIDE_COMPONENT</code>. Read it once in the component body and close over the result.</p>
             <p>This is also why a guard like the <code>useAuth</code> hook below cannot catch the mistake unless the default is <code>null</code>. A non-null default looks like a successful read.</p>
           </div>
 

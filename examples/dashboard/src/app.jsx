@@ -22,6 +22,7 @@ function TabBar() {
     <div class="tabs">
       {tabs.map(tab => (
         <button
+          key={tab.id}
           class={() => `tab-btn ${activeTab() === tab.id ? 'active' : ''}`}
           onClick={() => activeTab.set(tab.id)}
         >

@@ -17,6 +17,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },

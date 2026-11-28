@@ -20,25 +20,34 @@ import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
 
 // Set up DOM globals before importing framework modules (animation.js pulls in
-// dom.js). rAF is modelled as a 16ms timer, the same shim the other core tests use.
+// dom.js). Frames are a queue the test runs itself (frames(n)), not timers: a
+// loaded machine delays a timer past any slack, and the order the tests check
+// is the order of frames, not of milliseconds.
 installDOM('<!DOCTYPE html><html><body></body></html>');
 
-const pendingFrames = new Set();
+const pendingFrames = new Map();
+let lastFrame = 0;
 global.requestAnimationFrame = (cb) => {
-  const id = setTimeout(() => { pendingFrames.delete(id); cb(performance.now()); }, 16);
-  pendingFrames.add(id);
-  return id;
+  pendingFrames.set(++lastFrame, cb);
+  return lastFrame;
 };
 global.cancelAnimationFrame = (id) => {
   pendingFrames.delete(id);
-  clearTimeout(id);
 };
 
 const { scheduleRead, scheduleWrite, flushScheduler } = await import('../src/scheduler.js');
 const { cssTransition } = await import('../src/animation.js');
 
-// Wait for `n` mocked animation frames to elapse, with slack for timer jitter.
-const frames = (n) => new Promise((r) => setTimeout(r, n * 16 + 20));
+// Run `n` frames: each calls the callbacks requested before it began, then
+// lets the promise work they started run.
+async function frames(n) {
+  for (let i = 0; i < n; i++) {
+    const due = [...pendingFrames.values()];
+    pendingFrames.clear();
+    for (const cb of due) cb(performance.now());
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 
 describe('scheduler: work queued during a flush', () => {
   beforeEach(() => {
@@ -46,7 +55,7 @@ describe('scheduler: work queued during a flush', () => {
     // one cannot fire mid-test and drain queues the test is watching, then
     // flush repeatedly: on the unfixed scheduler a single pass cannot drain
     // work that was queued during that same pass.
-    for (const id of [...pendingFrames]) global.cancelAnimationFrame(id);
+    pendingFrames.clear();
     flushScheduler();
     flushScheduler();
     flushScheduler();
@@ -136,10 +145,14 @@ describe('scheduler: work queued during a flush', () => {
     const el = document.createElement('div');
     document.body.appendChild(el);
 
-    const outcome = await Promise.race([
-      cssTransition(el, 'fade', 'enter', 10).then(() => 'settled'),
-      new Promise((r) => setTimeout(() => r('timeout'), 500)),
-    ]);
+    // Frames until it settles: its done class lands on a 10 ms timer after the
+    // frames that apply the start and active classes.
+    let outcome = 'pending';
+    cssTransition(el, 'fade', 'enter', 10).then(() => { outcome = 'settled'; });
+    for (let i = 0; i < 500 && outcome === 'pending'; i++) {
+      await frames(1);
+      await new Promise((r) => setTimeout(r, 1));
+    }
 
     assert.equal(outcome, 'settled', 'cssTransition() promise never resolved');
     assert.equal(el.classList.contains('fade-enter'), false, 'start class must be removed');
@@ -160,7 +173,12 @@ describe('scheduler: work queued during a flush', () => {
     assert.equal(el.classList.contains('slide-exit-active'), true, 'active class must be applied');
     assert.equal(el.classList.contains('slide-exit-done'), false, 'done class must not be applied yet');
 
-    await done;
+    let finished = false;
+    done.then(() => { finished = true; });
+    for (let i = 0; i < 2000 && !finished; i++) {
+      await frames(1);
+      await new Promise((r) => setTimeout(r, 1));
+    }
     assert.equal(el.classList.contains('slide-exit-done'), true);
   });
 });

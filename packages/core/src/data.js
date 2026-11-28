@@ -1,513 +1,1036 @@
-// What Framework - Data Fetching
-// SWR-like data fetching with caching, revalidation, and optimistic updates
-
-import { signal, effect, batch, computed, untrack, __DEV__ } from './reactive.js';
-import { getCurrentComponent } from './dom.js';
-
-// --- Reactive Cache ---
-// Each cache key maps to shared signals so all components reading the same key
-// see updates when ANY component mutates/revalidates that key.
-// Shared per key: data signal, error signal, isValidating signal.
-const cacheSignals = new Map();  // key -> signal(value)
-const errorSignals = new Map();  // key -> signal(error)
-const validatingSignals = new Map(); // key -> signal(boolean)
-const cacheTimestamps = new Map(); // key -> last access time (for LRU)
-const MAX_CACHE_SIZE = 200;
-
-// --- Query key normalization ---
-// Array keys are joined into the same flat string space as useSWR's string keys,
-// so `useQuery({queryKey: ['todos']})` and `useSWR('todos')` share one cache
-// entry by design. Every cache-facing entry point must normalize identically:
-// useQuery used to be the only one that did, so `invalidateQueries(['todos'])`
-// looked up a raw Array object as a Map key, found nothing, and silently did
-// nothing. The documented shape was the broken one.
+// What Framework - Data: one query cache on async values (docs/DATA.md).
 //
-// Segments escape ':' so `['user', 'a:b']` cannot collide with
-// `['user', 'a', 'b']`. A collision here serves one query's data to another,
-// which is worse than a miss.
+// Every key the app reads is one entry, and every entry is one async value in
+// the reactive graph (reactive.js _asyncComputed): what reads it waits for it
+// the way it waits for any async value, a transition holds what its refetch
+// reaches, settled() waits for its fetch, and a server render serializes it in
+// the hydration channel under its key, so the client adopts it instead of
+// fetching. On top of the entries:
+//
+//   query(key, fetcher)    the signal-native read: an async value whose key may
+//                          be reactive (suspends, holds, pending(), refresh())
+//   useQuery, useSWR,      the React-ecosystem shapes (TanStack Query, SWR):
+//   useInfiniteQuery,      views that never suspend, with status flags
+//   useFetch
+//   invalidateQueries, invalidatePath, prefetchQuery, setQueryData,
+//   getQueryData, clearCache    the cache, whichever hook reads it
+//
+// An entry's fetches are flights. One flight is current; a newer one
+// supersedes it (aborting its signal), and a flight whose result can no longer
+// be shown (its readers all left, or clearCache() ran) is killed: its result is
+// dropped and nothing is delivered. Readers are observers: an entry with none
+// is not fetched, and is dropped after its gcTime.
+
+import {
+  signal,
+  effect,
+  computed,
+  untrack,
+  onCleanup,
+  getOwner,
+  createRoot,
+  runWithOwner,
+  _detached,
+  _asyncComputed,
+  _refresh,
+  _asyncStatus,
+  _asyncError,
+  _setAsyncValue,
+  _installSeedOps,
+  _isNotReady,
+  __DEV__,
+} from './reactive.js';
+import { _seedFor, getResource, getResourceError, _errorFromRecord, _loadedResource } from './hydration-data.js';
+import { getServerContext, _isServerProcess } from './server-context.js';
+import { report } from './diagnostics.js';
+import { _enableSuspense, isHydrating } from './render.js';
+
+const PLAIN = 0;
+const INFINITE = 1;
+
+// An entry's value before anything landed, or after clearCache(): no data.
+const IDLE = /* @__PURE__ */ Object.freeze({ toString: () => '[what] no data' });
+
+// What the next run of an entry's node does (entry.next).
+const FETCH = 1;    // start a flight
+const ADOPT = 2;    // wait for the flight already in flight (after a hard invalidation)
+
+const DEFAULT_GC_TIME = 5 * 60 * 1000;
+
+function noop() {}
+
+// Every timer here is housekeeping or polling, which is no reason to keep a
+// Node process alive.
+function unrefTimer(timer) {
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
+// --- Keys ---
+// Array keys are joined into the same flat string space as string keys, so
+// `useQuery({ queryKey: ['todos'] })`, `useSWR('todos')` and `query('todos')`
+// are one entry, and every entry point (invalidateQueries, getQueryData, the
+// predicate a caller writes) sees the same spelling. Segments escape ':' so
+// ['user', 'a:b'] cannot collide with ['user', 'a', 'b'].
+// A function in a key array (a signal, a thunk) is read as part of the key:
+// it names the entry of its current value, and, read where the key is
+// tracked, moves the reader to a new entry when it changes.
+function keyParts(key) {
+  return Array.isArray(key) && key.some((part) => typeof part === 'function')
+    ? key.map((part) => (typeof part === 'function' ? part() : part))
+    : key;
+}
+
 function normalizeQueryKey(key) {
-  if (!Array.isArray(key)) return key;
+  key = keyParts(key);
+  if (!Array.isArray(key)) return String(key);
   return key
     .map((part) => (typeof part === 'string' ? part : JSON.stringify(part) ?? String(part)))
     .map((part) => part.replace(/([\\:])/g, '\\$1'))
     .join(':');
 }
 
-function getCacheSignal(key) {
-  cacheTimestamps.set(key, Date.now());
-  if (!cacheSignals.has(key)) {
-    cacheSignals.set(key, signal(null));
-    // Evict oldest entries if cache exceeds limit
-    if (cacheSignals.size > MAX_CACHE_SIZE) {
-      evictOldest();
+const CHANNEL = 'query:';
+
+// --- The cache ---
+// The client keeps one cache per page. A server render keeps one per render
+// (a request's data must never answer another request), released with it.
+const clientCache = [new Map(), new Map()];
+/** @type {WeakMap<object, Map<string, any>[]>} */
+const serverCaches = new WeakMap();
+
+function cacheOf(kind) {
+  const ctx = getServerContext();
+  if (ctx === null) {
+    if (!_isServerProcess()) return clientCache[kind];
+    // On a server, outside every render, loader and action: no request to
+    // bind to, and a cache every request shares would hand one user's data to
+    // another. The call gets an empty cache nothing else sees.
+    if (__DEV__) report('ERR_QUERY_OUTSIDE_RENDER');
+    return new Map();
+  }
+  let caches = serverCaches.get(ctx);
+  if (caches === undefined) serverCaches.set(ctx, caches = [new Map(), new Map()]);
+  return caches[kind];
+}
+
+// Server values the page carried, taken once per key: a key read again later
+// (after it was dropped) fetches, it does not adopt the page's old value.
+/** @type {Set<string>} */
+const adopted = new Set();
+let channelOpen = true;
+
+function hydrationSeed(hash) {
+  if (!channelOpen || adopted.has(hash)) return null;
+  const value = getResource(CHANNEL + hash);
+  if (value !== undefined) {
+    adopted.add(hash);
+    return { value, track: false };
+  }
+  const record = getResourceError(CHANNEL + hash);
+  if (record === undefined) return null;
+  adopted.add(hash);
+  return { error: _errorFromRecord(record), track: false };
+}
+
+function entryFor(kind, hash, key, observer) {
+  const cache = cacheOf(kind);
+  let e = cache.get(hash);
+  if (e === undefined) {
+    e = newEntry(kind, hash, key, cache, observer);
+    cache.set(hash, e);
+  }
+  return e;
+}
+
+function newEntry(kind, hash, key, cache, observer) {
+  const e = {
+    kind,
+    hash,
+    key,
+    cache,
+    /** @type {any} */ node: null,
+    dispose: noop,
+    /** @type {any} */ flight: null,
+    next: 0,
+    /** @type {any} */ error: undefined,
+    version: 0,
+    updatedAt: 0,
+    fetchedAt: 0,
+    fetches: 0,
+    /** @type {any} */ last: null,
+    hydrated: false,
+    /** @type {Set<any>} */ observers: new Set(),
+    gcTime: DEFAULT_GC_TIME,
+    /** @type {any} */ timer: null,
+    /** @type {any} */ conf: observer !== null ? observer.conf : null,
+    /** @type {any} */ src: null,
+    /** @type {any} */ by: null,
+    /** @type {any} */ op: null,
+    /** @type {Set<string> | null} */ paths: null,
+    dir: kind === INFINITE ? signal(/** @type {string | null} */ (null)) : null,
+    // Moves at every landing: query() reads it, not the node, while the entry
+    // has no data, so the engine never sees "a value being refetched" there.
+    tick: signal(0),
+    /** @type {{ promise: Promise<any>, resolve: (v: any) => void, reject: (e: any) => void } | null} */ arrival: null,
+    dropped: false,
+  };
+  const ctx = getServerContext();
+  /** @type {any} */
+  let seed;
+  if (ctx !== null) {
+    seed = _seedFor(CHANNEL + hash, false);
+  } else {
+    seed = kind === PLAIN ? hydrationSeed(hash) : null;
+    if (seed !== null) {
+      e.hydrated = true;
+      e.updatedAt = Date.now();
+      if ('error' in seed) e.error = seed.error;
+      queueMicrotask(() => { e.hydrated = false; });
+    } else if (observer !== null && observer.initialData !== undefined) {
+      const initial = typeof observer.initialData === 'function' ? observer.initialData() : observer.initialData;
+      seed = { value: initial === undefined ? IDLE : initial, track: false };
+      if (initial !== undefined) e.updatedAt = observer.initialDataUpdatedAt ?? Date.now();
+    } else {
+      seed = { value: IDLE, track: false };
     }
   }
-  return cacheSignals.get(key);
+  _installSeedOps();
+  const make = () => createRoot((dispose) => {
+    e.dispose = dispose;
+    e.node = _asyncComputed(run(e), seed);
+  });
+  // Entries outlive the component that first read them; a server render's
+  // belong to the render, which releases them with everything else it made.
+  if (ctx !== null && ctx.owner) runWithOwner(ctx.owner, make);
+  else _detached(make);
+  return e;
 }
 
-function getErrorSignal(key) {
-  if (!errorSignals.has(key)) errorSignals.set(key, signal(null));
-  return errorSignals.get(key);
-}
-
-function getValidatingSignal(key) {
-  if (!validatingSignals.has(key)) validatingSignals.set(key, signal(false));
-  return validatingSignals.get(key);
-}
-
-function evictOldest() {
-  // Remove the 20% oldest entries
-  const entries = [...cacheTimestamps.entries()].sort((a, b) => a[1] - b[1]);
-  const toRemove = Math.floor(MAX_CACHE_SIZE * 0.2);
-  for (let i = 0; i < toRemove && i < entries.length; i++) {
-    const key = entries[i][0];
-    // Don't evict keys with active subscribers
-    if (revalidationSubscribers.has(key) && revalidationSubscribers.get(key).size > 0) continue;
-    cacheSignals.delete(key);
-    errorSignals.delete(key);
-    validatingSignals.delete(key);
-    cacheTimestamps.delete(key);
-    lastFetchTimestamps.delete(key);
-  }
-}
-
-// Subscribers for invalidation: key -> Set<revalidateFn>
-// When invalidateQueries is called, all subscribers re-fetch
-const revalidationSubscribers = new Map();
-
-function subscribeToKey(key, revalidateFn) {
-  if (!revalidationSubscribers.has(key)) revalidationSubscribers.set(key, new Set());
-  revalidationSubscribers.get(key).add(revalidateFn);
+// The function of an entry's node: what one run of it does.
+function run(e) {
   return () => {
-    const subs = revalidationSubscribers.get(key);
-    if (subs) {
-      subs.delete(revalidateFn);
-      if (subs.size === 0) revalidationSubscribers.delete(key);
+    const op = e.next;
+    e.next = 0;
+    if (op === ADOPT && e.flight !== null) return e.flight.promise;
+    if (op === 0) {
+      // A run nothing asked for (what the fetcher read changed, an error
+      // boundary's reset) while nothing would show the result: no request.
+      if (!wanted(e)) {
+        if (e.error !== undefined) throw e.error;
+        return untrack(() => e.node.peek());
+      }
+      // Otherwise it fetches as the active reader that attached last, whose
+      // callbacks hear it, as an invalidation's fetch does.
+      e.by = lastActive(e);
     }
+    return startFlight(e).promise;
   };
 }
 
-// What clearCache() cannot reach by walking the cache Maps.
-//
-// Two different things live outside them. useInfiniteQuery keeps its pages in
-// signals local to the hook (see the note above it on why), so walking
-// cacheSignals emptied nothing at all for it. And EVERY hook keeps the request
-// it currently has in flight in a local AbortController: emptying the cache
-// does not cancel a request that is already on the wire, so the previous user's
-// response lands a moment after the clear and writes their data straight back
-// onto the screen. That is the exact failure clearCache exists to prevent, at
-// the exact moment (logout) it is called for, and it was guarded in
-// useInfiniteQuery and nowhere else.
-//
-// A handler is registered for the lifetime of the hook's effect, the same
-// lifetime as its invalidation subscription, so it goes away on unmount with
-// everything else.
-const clearCacheHandlers = new Set();
+// --- Structural sharing ---
+// TanStack Query's default (and what SWR's deep compare gives): a fetch that
+// answers data equal to what the cache holds keeps the cached references, and
+// one that changes part of it keeps every part it did not change. A refetch of
+// a list with the same rows hands a keyed .map() the same row objects, so no
+// row shows a replaced item and nothing its rows built (a component's state,
+// an open menu) is rebuilt; a changed row is a new object, its neighbours are
+// not. Only arrays and plain objects are compared; anything else is taken as
+// it arrives.
 
-function registerClearCacheHandler(handler) {
-  clearCacheHandlers.add(handler);
-  return () => clearCacheHandlers.delete(handler);
+function isPlainObject(v) {
+  if (v === null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
 }
 
-const inFlightRequests = new Map(); // key -> { promise, timestamp, refCount, epoch }
-const lastFetchTimestamps = new Map(); // key -> timestamp of last completed fetch
-
-// How many times each key has been invalidated. This orders invalidations
-// against in-flight requests, which a wall clock cannot: Date.now() has 1ms
-// resolution, so a refetch and an unrelated invalidation issued microseconds
-// apart share a timestamp, and the invalidation would be answered by a request
-// that predates the mutation. A counter has no ties.
-const keyEpochs = new Map();
-
-function currentEpoch(key) {
-  return keyEpochs.get(key) || 0;
+/** `next`, reusing every part of `prev` it equals (prev itself when all of it does). */
+export function replaceEqualDeep(prev, next) {
+  if (prev === next) return prev;
+  const array = Array.isArray(prev) && Array.isArray(next);
+  if (!array && !(isPlainObject(prev) && isPlainObject(next))) return next;
+  const prevKeys = array ? null : Object.keys(prev);
+  const prevSize = prevKeys === null ? prev.length : prevKeys.length;
+  const nextKeys = array ? null : Object.keys(next);
+  const nextSize = nextKeys === null ? next.length : nextKeys.length;
+  const copy = array ? new Array(nextSize) : {};
+  let equal = 0;
+  for (let i = 0; i < nextSize; i++) {
+    const key = nextKeys === null ? i : nextKeys[i];
+    const was = prev[key];
+    const shared = (array || Object.prototype.hasOwnProperty.call(prev, key)) ? replaceEqualDeep(was, next[key]) : next[key];
+    copy[key] = shared;
+    if (shared === was && (array ? i < prevSize : Object.prototype.hasOwnProperty.call(prev, key))) equal++;
+  }
+  return prevSize === nextSize && equal === prevSize ? prev : copy;
 }
 
-function bumpEpoch(key) {
-  keyEpochs.set(key, currentEpoch(key) + 1);
+// The option's value as the share function the fetch applies (null: none).
+function sharing(option) {
+  if (option === false || option == null) return null;
+  return typeof option === 'function' ? option : replaceEqualDeep;
 }
 
-// Every timer this module arms is housekeeping or polling. None of it is work
-// worth keeping a Node process alive for, and on the server the usual owner of a
-// timer (a component that unmounts) does not exist, so nothing ever clears them:
-// an SSR render that touched one query pinned the event loop for minutes and kept
-// firing the query function long after the HTML had been sent.
-function unrefTimer(timer) {
-  if (timer && typeof timer.unref === 'function') timer.unref();
-  return timer;
+// Whether anything would show a fetch nothing asked for by name.
+function wanted(e) {
+  if (getServerContext() !== null) return true;
+  for (const o of e.observers) if (o.active()) return true;
+  return false;
 }
 
-// EVERY computed() in this file reads EVERY signal it depends on
-// UNCONDITIONALLY, even when a short circuit would let it skip one.
-//
-// This is not a style preference, it is a requirement of the reactive core. A
-// computed is backed by an effect, and _runEffect auto-promotes an effect to
-// "stable" when it had exactly one dependency before a re-run and the same
-// single dependency after it (the assumption being that a one-dependency effect
-// cannot have conditional reads). A stable effect re-runs with currentEffect
-// set to null: it still produces a fresh value, but it can never SUBSCRIBE to
-// anything it was not already subscribed to.
-//
-// So a computed of the shape `a() === 'x' && b()` is one re-run away from
-// permanent deafness to `b`: any re-run in which `a` is not 'x' reads only `a`,
-// promotes the computed, and from then on `b` can change without the computed
-// ever being notified. It goes stale silently and forever, and only for some
-// orderings of the writes, which is why both instances of this in the file
-// looked fine in tests and failed in an app. See the notes on useQuery's
-// `status` and useSWR's `isLoading` for what each one actually broke.
-//
-// Reading everything unconditionally fixes it whatever the promotion rule is:
-// the dependency set never varies, so there is nothing left to lose.
-
-// Create an effect scoped to the current component's lifecycle.
-// When the component unmounts, the effect is automatically disposed.
-function scopedEffect(fn) {
-  const ctx = getCurrentComponent?.();
-  const dispose = effect(fn);
-  if (ctx) ctx.effects.push(dispose);
-  return dispose;
+function valueOf(e) {
+  const v = untrack(() => e.node.peek());
+  return v === IDLE ? undefined : v;
 }
 
-// Register a teardown with the component that owns this hook.
-//
-// scopedEffect's cleanup is not the right home for all of it: that cleanup runs
-// before every RE-RUN of the effect as well as on disposal, and some teardown
-// (cancelling a request the application explicitly asked for) must happen only
-// when the component actually goes away. Outside a component there is nothing
-// to unmount and the effect is never disposed either, so the two agree.
-function onComponentDispose(fn) {
-  const ctx = getCurrentComponent?.();
-  if (ctx) ctx.effects.push(fn);
+// --- Flights ---
+
+function startFlight(e) {
+  const prev = e.flight;
+  if (prev !== null) kill(e, prev, true);
+  const ac = new AbortController();
+  const op = e.op;
+  e.op = null;
+  const from = sourceOf(e);
+  const f = {
+    ac,
+    dead: false,
+    superseded: false,
+    by: e.by,
+    conf: from.conf,
+    key: from.key,
+    // A prefetchQuery waits on it (it started it, joined it, or a flight it
+    // waited on was superseded by this one): no reader unmounting cancels it.
+    keep: from.keep === true || (prev !== null && prev.keep),
+    op,
+    /** @type {any} */ promise: null,
+    failed: false,
+    /** @type {any} */ result: undefined,
+    /** @type {any} */ page: undefined,
+    started: Date.now(),
+    /** @type {(() => void) | null} */ onKill: null,
+    /** @type {any} */ at: null,
+  };
+  // How the flight's own promises reach it and its entry (retrying, watch):
+  // kill() empties it.
+  f.at = { e, f };
+  e.by = null;
+  e.flight = f;
+  e.fetchedAt = f.started;
+  e.fetches++;
+  let first;
+  try {
+    first = callFetcher(e, f);
+  } catch (err) {
+    // A fetcher that threw before it started, or read an input that is not
+    // ready: the node takes that as its run's answer. A throw is the entry's
+    // error, as a rejection would be; the query() whose run this is reads it
+    // from the entry at once, so the landing does not run it again.
+    e.flight = null;
+    f.dead = true;
+    if (_isNotReady(err)) e.version++;
+    else record(e, f, err, true);
+    throw err;
+  }
+  f.promise = retrying(f.at, first);
+  watch(f.at, f.promise);
+  return f;
 }
 
-// `enabled` as a READABLE gate rather than a value captured once.
-//
-// Components run once here, so a plain boolean read at call time is frozen for
-// the lifetime of the query: `enabled: userId() != null` could never become
-// true, and the whole point of the option (a dependent query that starts when
-// its dependency arrives) was unreachable. Accepting a signal or any thunk lets
-// the query's own effect track it, so flipping the flag starts the query.
-//
-// The thunk is MIRRORED into a boolean signal rather than read by the query's
-// own effect. Reading it there subscribes that effect to everything the thunk
-// touches, and re-running it is destructive: it aborts whatever request is in
-// flight. So `enabled: () => tab() === 'reports'` let an unrelated move of
-// `tab` cancel the query even though the gate's value never changed, which
-// silently killed an explicit refetch() (its promise resolved with `undefined`:
-// no data, no error, no rejection), and `enabled: () => userId() != null`
-// issued a redundant second fetch on every change of `userId`, into the
-// queryKey captured at hook creation, i.e. the OLD key. A signal does not
-// notify when it is written the value it already holds, so mirroring collapses
-// "something the thunk reads moved" down to "the gate flipped", which is the
-// only event a query has any business reacting to.
-//
-// A boolean is still accepted and still behaves exactly as before: it reads no
-// signals, so the mirroring effect tracks no dependencies and the reactive core
-// releases it on the spot.
+// What a fetch of `e` calls, and with which key: the fetcher of whatever asked
+// (an observer, or a prefetchQuery), with its key as it wrote it now (['q',
+// 'a'] and 'q:a' name one entry); for a fetch the cache starts itself, the
+// reader that attached last, as TanStack Query uses its last observer's
+// options. An observer whose key has moved to another entry asks with the
+// entry's own: the last attach's fetcher and key.
+function sourceOf(e) {
+  for (const o of [e.by, e.src]) {
+    if (o != null && (o.hash === undefined || untrack(o.hash) === e.hash)) return o;
+  }
+  return e;
+}
+
+// A flight's landing, and its observer's callbacks after it. Its own scope,
+// holding the flight's link and nothing else: until its transport answers, the
+// flight's promise is reachable from it (retrying), and a dropped flight's
+// link is empty.
+function watch(at, promise) {
+  // Before the engine lands the result: readers that re-run on the landing see
+  // the new version, so they can tell it from a refresh.
+  promise.then((v) => {
+    if (at.f !== null) landed(at.e, at.f, v, false);
+  }, (err) => {
+    if (at.f !== null) landed(at.e, at.f, err, true);
+  });
+  // After it: callbacks see the value in the cache.
+  promise.then(noop, noop).then(() => {
+    if (at.f !== null) deliver(at.e, at.f);
+  });
+}
+
+function callFetcher(e, f) {
+  const conf = f.conf;
+  if (e.kind === PLAIN) {
+    const result = conf.run(f.key, f.ac.signal);
+    const share = conf.share;
+    if (share == null) return result;
+    // Structural sharing: what the fetch answers keeps every part of the
+    // cached value it equals, compared when it lands.
+    return result != null && typeof result.then === 'function'
+      ? result.then((next) => share(valueOf(e), next))
+      : share(valueOf(e), result);
+  }
+  const base = valueOf(e) ?? { pages: [], pageParams: [] };
+  const op = f.op || { param: conf.initialPageParam, place: 'first' };
+  // Through the flight's link, as retrying() holds it (see there).
+  const at = f.at;
+  return Promise.resolve(conf.run(f.key, op.param, f.ac.signal)).then((page) => {
+    if (at.f !== null) at.f.page = page;
+    if (op.place === 'next') return { pages: [...base.pages, page], pageParams: [...base.pageParams, op.param] };
+    if (op.place === 'previous') return { pages: [page, ...base.pages], pageParams: [op.param, ...base.pageParams] };
+    return { pages: [page], pageParams: [op.param] };
+  });
+}
+
+// The first attempt is called synchronously (what the fetcher reads before its
+// first await is tracked); a failed attempt is retried after retryDelay, up to
+// `retry` attempts in all, unless the flight is aborted meanwhile. The entry and
+// the flight are read through the flight's link (`at`), which kill() empties: a
+// transport that ignores the abort and never answers holds this frame, and
+// through it nothing of the flight, its entry or the fetcher.
+async function retrying(at, first) {
+  let pending = first;
+  for (let tries = 1; ; tries++) {
+    try {
+      return await pending;
+    } catch (err) {
+      if (at.f === null || tries >= attemptsOf(at.f.conf.retry, tries, err)) throw err;
+      await wait(at.f.conf.retryDelay(tries), at.f.ac.signal);
+      if (at.f === null) throw err;
+      pending = callFetcher(at.e, at.f);
+    }
+  }
+}
+
+function attemptsOf(retry, tries, err) {
+  if (typeof retry === 'function') return retry(tries - 1, err) ? tries + 1 : tries;
+  if (retry === true) return Infinity;
+  if (retry === false) return 1;
+  return Math.max(1, Number(retry) || 0);
+}
+
+function wait(ms, abortSignal) {
+  return new Promise((resolve, reject) => {
+    const id = unrefTimer(setTimeout(resolve, ms));
+    abortSignal.addEventListener('abort', () => {
+      clearTimeout(id);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
+function landed(e, f, result, failed) {
+  f.failed = failed;
+  f.result = result;
+  if (f.dead) return;
+  if (e.flight === f) e.flight = null;
+  record(e, f, result, failed);
+  e.tick((n) => n + 1);
+}
+
+// A fetch's result, on the entry.
+function record(e, f, result, failed) {
+  e.version++;
+  const now = Date.now();
+  e.updatedAt = now;
+  e.error = failed ? result : undefined;
+  e.last = { at: now, ms: now - f.started, ok: !failed };
+  if (e.dir !== null) e.dir(null);
+  answer(e, result, failed);
+}
+
+// The entry got a value or an error: a query() waiting for its first one
+// lands with it, and runs again to read the node from then on.
+function arrive(e, result, failed) {
+  answer(e, result, failed);
+  e.tick((n) => n + 1);
+}
+
+function answer(e, result, failed) {
+  const a = e.arrival;
+  if (a !== null) {
+    e.arrival = null;
+    (failed ? a.reject : a.resolve)(result);
+  }
+}
+
+function arrival(e) {
+  if (e.arrival === null) {
+    /** @type {(value: any) => void} */
+    let resolve = noop;
+    /** @type {(error: any) => void} */
+    let reject = noop;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    e.arrival = { promise, resolve, reject };
+  }
+  return e.arrival.promise;
+}
+
+// A flight's result is dropped: superseded by a newer flight, or nothing can
+// show it any more.
+function kill(e, f, superseded) {
+  if (f.dead) return;
+  f.dead = true;
+  f.superseded = superseded;
+  f.at.e = f.at.f = null;
+  f.ac.abort(droppedReason());
+  if (e.flight === f) e.flight = null;
+  if (f.onKill !== null) f.onKill();
+}
+
+// What a dropped flight's signal aborts with. Its stack is read at once: until
+// then an error holds the functions of the stack it was made on (the
+// component code that dropped the flight), and a transport that ignores the
+// abort may keep the signal, and with it the reason.
+function droppedReason() {
+  const reason = new DOMException('The query was dropped.', 'AbortError');
+  void reason.stack;
+  return reason;
+}
+
+// The callbacks of the observer that asked for a flight, once its result is in
+// the cache. A flight the cache started itself (an invalidation) belongs to
+// the active observer that attached last.
+function deliver(e, f) {
+  if (f.dead) return;
+  const o = f.by;
+  if (o === null || !o.alive) return;
+  if (f.failed) {
+    if (o.onError) o.onError(f.result, f.key);
+    if (o.onSettled) o.onSettled(null, f.result);
+  } else {
+    // An infinite query's callbacks hear the page that was fetched.
+    const value = e.kind === INFINITE ? f.page : f.result;
+    if (o.onSuccess) o.onSuccess(value, f.key);
+    if (o.onSettled) o.onSettled(value, null);
+  }
+}
+
+// What a fetch the caller asked for gave: its value (an infinite query's: the
+// page it fetched), the value of the flight that superseded it, or undefined
+// when its result was dropped.
+function outcome(e, f) {
+  if (f.dead) return Promise.resolve(follow(e, f));
+  const settled = flightValue(f.at, f.promise);
+  // Dropped, it answers at once, without waiting for a transport that may
+  // ignore the abort: the newer flight is in place by the time this runs.
+  const dropped = new Promise((resolve) => {
+    const prev = f.onKill;
+    f.onKill = () => {
+      if (prev !== null) prev();
+      resolve(undefined);
+    };
+  }).then(() => follow(e, f));
+  return Promise.race([settled, dropped]);
+}
+
+function follow(e, f) {
+  return f.superseded && e.flight !== null ? outcome(e, e.flight) : undefined;
+}
+
+// What a flight's promise gives the caller of outcome(): its value (an
+// infinite query's: the page it fetched) or its rejection, and never an answer
+// once it is dropped, which outcome()'s other branch gives. Its own scope, like
+// watch(), so it holds the flight's link and nothing else.
+function flightValue(at, promise) {
+  return promise.then(
+    (v) => (at.f === null ? new Promise(noop) : at.e.kind === INFINITE ? at.f.page : v),
+    (err) => (at.f === null ? new Promise(noop) : Promise.reject(err)),
+  );
+}
+
+// Fetch an entry now, superseding what is in flight. `by` is the observer
+// whose callbacks hear the result. Returns the flight, or null when the run
+// answered at once.
+function fetchEntry(e, by, op) {
+  e.by = by;
+  e.op = op || null;
+  e.next = FETCH;
+  if (e.dir !== null) e.dir(op ? op.dir : 'next');
+  refreshNode(e);
+  e.next = 0;
+  e.by = null;
+  e.op = null;
+  return e.flight;
+}
+
+// Run an entry's node now. A failed run's error is the entry's, which its
+// readers see; the promise refresh() returns adds nothing to that.
+function refreshNode(e) {
+  _refresh(e.node).then(noop, noop);
+}
+
+function refetchOf(e, by, op) {
+  const f = fetchEntry(e, by, op);
+  return f !== null ? outcome(e, f) : Promise.resolve(valueOf(e));
+}
+
+// Make `value` the entry's value now, dropping what is in flight. It lands as
+// a fetch's would, so its readers run; the engine ends the node's run in
+// flight, and a transition waiting for that run stops waiting.
+function commitValue(e, value) {
+  if (e.flight !== null) kill(e, e.flight, false);
+  if (e.dir !== null) e.dir(null);
+  e.version++;
+  _setAsyncValue(e.node, value);
+  if (value !== IDLE) arrive(e, value, false);
+  else e.tick((n) => n + 1);
+}
+
+// Land `value` in the entry now, as a fetch would.
+function setEntry(e, value) {
+  e.updatedAt = Date.now();
+  e.error = undefined;
+  commitValue(e, value);
+}
+
+function dropEntry(e) {
+  if (e.dropped) return;
+  e.dropped = true;
+  if (e.timer !== null) clearTimeout(e.timer);
+  if (e.flight !== null) kill(e, e.flight, false);
+  if (e.cache.get(e.hash) === e) e.cache.delete(e.hash);
+  e.dispose();
+}
+
+// --- Observers ---
+// Each query(), useQuery(), useSWR()... call is an observer of the entry its
+// key names now. It counts as a reader of that entry from its first run until
+// its owner is disposed or its key moves on; a key change hands it to the new
+// key's entry. On a server render there are no observers: entries live as
+// long as the render.
+
+let pathTag = /** @type {string | null} */ (null);
+
+// The path of the page a query is read on outside route data: what-router's,
+// which it registers under this key once it is in use (the page's path as
+// the app writes it, without the base, as route data is), else the address
+// bar's.
+const PAGE_PATH = Symbol.for('what.router.path.v1');
+
+/**
+ * @internal Run `fn` and tag the entries its observers read with `path`, so
+ * invalidatePath(path) reaches them (the router's route data).
+ */
+export function _tagQueries(path, fn) {
+  const prev = pathTag;
+  pathTag = path;
+  try {
+    return fn();
+  } finally {
+    pathTag = prev;
+  }
+}
+
+/**
+ * @internal what-router: resolves once no entry read on `path` is fetching
+ * its first value: the data a page a navigation committed reads, and what
+ * that data makes fetch in turn.
+ */
+export function _pathLoaded(path) {
+  const waits = [];
+  for (const e of allEntries()) {
+    if (e.flight !== null && e.paths !== null && e.paths.has(path) && e.error === undefined && valueOf(e) === undefined) {
+      waits.push(outcome(e, e.flight).then(noop, noop));
+    }
+  }
+  return waits.length === 0 ? Promise.resolve() : Promise.all(waits).then(() => _pathLoaded(path));
+}
+
+function acquire(e, o) {
+  if (e.dropped) {
+    // Dropped (clearCache) between choosing it and attaching: take it back.
+    e.dropped = false;
+    if (!e.cache.has(e.hash)) e.cache.set(e.hash, e);
+  }
+  if (e.timer !== null) {
+    clearTimeout(e.timer);
+    e.timer = null;
+  }
+  // An entry is kept unread for the longest gcTime among its readers.
+  e.gcTime = e.observers.size === 0 ? o.gcTime : Math.max(e.gcTime, o.gcTime);
+  e.observers.add(o);
+  // The reader the cache's own fetches go through (sourceOf), and its fetcher
+  // and key for when it has moved on.
+  e.src = o;
+  e.conf = o.conf;
+  e.key = o.key;
+  const path = o.path ?? /** @type {any} */ (globalThis)[PAGE_PATH]?.() ?? (typeof location !== 'undefined' ? location.pathname : null);
+  if (path != null) (e.paths || (e.paths = new Set())).add(path);
+}
+
+function release(e, o) {
+  if (!e.observers.delete(o)) return;
+  // A reader that let go holds nothing through the entry (its last fetcher
+  // and key stay, as e.conf and e.key).
+  if (e.src === o) e.src = null;
+  if (e.observers.size > 0) return;
+  // Nothing shows this entry now: what the readers had in flight is cancelled
+  // (they keep the last value), a prefetch's runs on, and the entry is dropped
+  // once it has stayed unread for its gcTime.
+  if (e.flight !== null && !e.flight.keep) commitValue(e, untrack(() => e.node.peek()));
+  armGc(e);
+}
+
+function armGc(e) {
+  if (getServerContext() !== null || e.observers.size > 0 || e.dropped) return;
+  if (e.timer !== null) clearTimeout(e.timer);
+  e.timer = Number.isFinite(e.gcTime)
+    ? unrefTimer(setTimeout(() => {
+      e.timer = null;
+      if (e.observers.size === 0) dropEntry(e);
+    }, e.gcTime))
+    : null;
+}
+
+// An observer reads `e` now: it holds it, and lets go of the entries it read
+// before.
+function settle(o, e) {
+  for (const x of o.entries) {
+    if (x !== e) {
+      o.entries.delete(x);
+      release(x, o);
+    }
+  }
+  if (e !== null) hold(o, e);
+  o.entry = e;
+}
+
+function hold(o, e) {
+  if (o.entries.has(e)) return;
+  o.entries.add(e);
+  acquire(e, o);
+}
+
+// query()'s value reads a new key's entry before the observer's effect runs
+// (a transition holds that effect until it commits): it holds the entry at
+// once, and lets go of the old one after the evaluation, which must not
+// change the graph it is reading.
+function holdFromRead(o, e) {
+  if (getServerContext() !== null || !o.alive) return;
+  hold(o, e);
+  if (o.entries.size > 1 && !o.sweeping) {
+    o.sweeping = true;
+    queueMicrotask(() => {
+      o.sweeping = false;
+      if (o.alive) settle(o, untrack(o.current));
+    });
+  }
+}
+
+function readKey(keyFn, lenient) {
+  if (!lenient) return keyParts(keyFn());
+  // SWR's contract: a key function (or a function in a key array) that
+  // throws, because its input is not there yet, means "not now", like a null
+  // key.
+  try {
+    return keyParts(keyFn());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {number} kind
+ * @param {any} key a key, or a function returning one (null/false: none)
+ * @param {any} conf what fetches: { run, retry, retryDelay, ... }
+ * @param {any} opts { gate, staleTime, gcTime, initialData, callbacks, lenient }
+ */
+function observe(kind, key, conf, opts) {
+  const o = {
+    kind,
+    conf,
+    alive: true,
+    /** @type {any} */ entry: null,
+    /** @type {Set<any>} */ entries: new Set(),
+    /** @type {any} */ previous: null,
+    sweeping: false,
+    gate: opts.gate || null,
+    staleTime: opts.staleTime ?? 0,
+    gcTime: opts.gcTime ?? DEFAULT_GC_TIME,
+    initialData: opts.initialData,
+    initialDataUpdatedAt: opts.initialDataUpdatedAt,
+    onSuccess: opts.onSuccess,
+    onError: opts.onError,
+    onSettled: opts.onSettled,
+    path: pathTag,
+    active: () => o.alive && (o.gate === null || o.gate.peek()),
+    /** @type {() => any} */ current: noop,
+    // The key as this observer wrote it last: a new spelling of the same
+    // entry ('q:a', then ['q', 'a']) moves it without moving the entry.
+    /** @type {any} */ key: null,
+    /** @type {() => string | null} */ hash: () => null,
+  };
+  const keyFn = typeof key === 'function' ? key : () => key;
+  const hash = computed(() => {
+    const k = readKey(keyFn, opts.lenient);
+    o.key = k;
+    return k == null || k === false ? null : normalizeQueryKey(k);
+  });
+  o.hash = hash;
+  let last = null;
+  o.current = computed(() => {
+    const h = hash();
+    const e = h === null ? null : entryFor(kind, h, o.key, o);
+    // The entry the key named before: what keepPreviousData shows.
+    if (e !== last) {
+      if (last !== null) o.previous = last;
+      last = e;
+    }
+    return e;
+  });
+  if (getServerContext() !== null) return o;
+
+  let wasOpen = false;
+  effect(() => {
+    const e = o.current();
+    const open = o.gate === null || o.gate();
+    untrack(() => {
+      // An attach, or the gate opening, fetches what is stale. An entry the
+      // value already read (inside a transition that held this effect) was
+      // fetched then; what it got since is not news to refetch.
+      const attaching = e !== null && !o.entries.has(e);
+      const opening = open && !wasOpen;
+      wasOpen = open;
+      settle(o, e);
+      if (e !== null && open && (attaching || opening) && stale(e, o)) fetchEntry(e, o);
+    });
+  });
+  if (getOwner() !== null) {
+    onCleanup(() => {
+      o.alive = false;
+      settle(o, null);
+    });
+  }
+  return o;
+}
+
+// Whether an observer attaching to `e` (or hearing focus, reconnect) fetches
+// it: nothing in flight, and no value, a failure, or a value older than its
+// staleTime. A value the page's data channel carried counts as fresh for the
+// observers that attach in the task that adopted it.
+function stale(e, o) {
+  if (e.flight !== null || e.hydrated) return false;
+  if (e.error !== undefined || valueOf(e) === undefined) return true;
+  // Stale once its age reaches staleTime, as in TanStack Query: with the
+  // default 0 a value is stale at once, even one written this millisecond
+  // (setQueryData, then a mount in the same tick, did not refetch).
+  return Date.now() - e.updatedAt >= o.staleTime;
+}
+
+// What a hook shows of the entry its key names now. Tracked: it re-runs when a
+// fetch starts or ends and when the value changes. Never suspends.
+function stateOf(o) {
+  if (getServerContext() !== null || isHydrating()) return firstState(o);
+  const e = o.current();
+  if (e === null) return { value: undefined, error: null, fetching: false, first: false, e };
+  const n = e.node;
+  const status = _asyncStatus(n);
+  // Subscribes to the value as well, without holding the reader: a value that
+  // is not ready, or failed, is what `status` already says.
+  try { n(); } catch { /* see status */ }
+  const v = n.peek();
+  return {
+    value: v === IDLE ? undefined : v,
+    error: status === 'errored' ? _asyncError(n) : null,
+    fetching: status === 'pending' || status === 'unresolved',
+    first: false,
+    e,
+  };
+}
+
+// A hook does not fetch on the server, and it renders the same there as in
+// the hydration walk that adopts the server's DOM: its first state, with its
+// own initialData and nothing else the cache holds. What a query() of the same
+// key fetched depends on the order the server rendered the two in, which the
+// client cannot know. An entry the page's loader filled is the exception: it
+// was there before the render began, whatever the order, and the page names
+// it (`loaded`), so a hook renders its value on the server and in the walk,
+// as TanStack Query renders a query prefetched on the server. Right after the
+// walk it shows the cache, with no request for a value the page carried.
+const walked = /* @__PURE__ */ signal(0);
+let walkEnding = false;
+
+/** @type {WeakMap<object, Set<string>>} */
+const loadedBy = new WeakMap();
+
+function firstState(o) {
+  const ctx = getServerContext();
+  if (ctx === null) {
+    walked();
+    if (!walkEnding) {
+      walkEnding = true;
+      queueMicrotask(() => {
+        walkEnding = false;
+        walked((n) => n + 1);
+      });
+    }
+  }
+  const h = untrack(o.hash);
+  if (h !== null && (ctx !== null ? loadedBy.get(ctx)?.has(h) : _loadedResource(CHANNEL + h))) {
+    const value = ctx !== null ? valueOf(untrack(o.current)) : getResource(CHANNEL + h);
+    return { value, error: null, fetching: false, first: false, e: null };
+  }
+  const initial = o.initialData;
+  return { value: typeof initial === 'function' ? untrack(initial) : initial, error: null, fetching: false, first: true, e: null };
+}
+
+/**
+ * @internal The keys (`query:KEY`) of the entries a server render's loader
+ * filled, which have landed: what-server calls it once the loader has run,
+ * before the render begins, and the page carries them as `loaded`. The hooks
+ * of that render show their values (firstState).
+ */
+export function _loadedQueries(ctx) {
+  const done = new Set();
+  for (const [hash, e] of serverCaches.get(ctx)?.[PLAIN] ?? []) {
+    if (e.flight === null && e.error === undefined && valueOf(e) !== undefined) done.add(hash);
+  }
+  loadedBy.set(ctx, done);
+  return [...done].map((hash) => CHANNEL + hash);
+}
+
+// The `enabled` gate, mirrored into a signal: an effect that reads the
+// caller's thunk re-runs whenever anything it reads moves, and only a flip of
+// the gate is news to a query.
 function createGate(enabled) {
   const read = typeof enabled === 'function' ? enabled : () => enabled;
   const gate = signal(untrack(() => !!read()));
-  scopedEffect(() => { gate.set(!!read()); });
+  if (getServerContext() === null) effect(() => { gate(!!read()); });
   return gate;
 }
 
-// --- useFetch Hook ---
-// Simple fetch with automatic JSON parsing and error handling
-
-export function useFetch(url, options = {}) {
-  const {
-    method = 'GET',
-    body,
-    headers = {},
-    transform = (data) => data,
-    initialData = null,
-  } = options;
-
-  const data = signal(initialData);
-  const error = signal(null);
-  const isLoading = signal(true);
-  /** @type {AbortController | null} */
-  let abortController = null;
-
-  async function fetchData() {
-    // Abort previous request
-    if (abortController) abortController.abort();
-    abortController = new AbortController();
-    const { signal: abortSignal } = abortController;
-
-    isLoading.set(true);
-    error.set(null);
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: abortSignal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const json = await response.json();
-      if (!abortSignal.aborted) {
-        data.set(transform(json));
-      }
-    } catch (e) {
-      if (!abortSignal.aborted) {
-        error.set(e);
-      }
-    } finally {
-      if (!abortSignal.aborted) {
-        isLoading.set(false);
-      }
-    }
-  }
-
-  // Fetch on mount, abort on unmount
-  scopedEffect(() => {
-    fetchData();
-    return () => {
-      if (abortController) abortController.abort();
+function onWindow(o, events, check) {
+  if (getServerContext() !== null || typeof window === 'undefined') return;
+  effect(() => {
+    const handler = () => {
+      if (events[0] === 'visibilitychange' && document.visibilityState !== 'visible') return;
+      const e = o.entry;
+      if (e !== null && o.active() && check(e)) fetchEntry(e, o);
     };
+    const target = events[0] === 'visibilitychange' ? document : window;
+    target.addEventListener(events[0], handler);
+    return () => target.removeEventListener(events[0], handler);
   });
-
-  return {
-    data: () => data(),
-    error: () => error(),
-    isLoading: () => isLoading(),
-    refetch: fetchData,
-    mutate: (newData) => data.set(newData),
-  };
 }
 
-// --- useSWR Hook ---
-// Stale-while-revalidate pattern with caching
-
-export function useSWR(rawKey, fetcher, options = {}) {
-  const { revalidateOnFocus = true, revalidateOnReconnect = true, refreshInterval = 0, dedupingInterval = 2000, fallbackData, onSuccess, onError } = options;
-
-  // Support null/undefined/false key for conditional/dependent fetching
-  // When key is falsy, don't fetch — return idle state
-  if (rawKey == null || rawKey === false) {
-    const data = signal(fallbackData || null);
-    const error = signal(null);
-    return {
-      data: () => data(),
-      error: () => error(),
-      isLoading: () => false,
-      isValidating: () => false,
-      mutate: (newData) => data.set(typeof newData === 'function' ? newData(data()) : newData),
-      revalidate: () => Promise.resolve(),
-    };
-  }
-
-  // Normalized into the same flat string space every other cache-facing entry
-  // point uses (see normalizeQueryKey, which says every one of them must
-  // normalize identically). useSWR was the one that did not, so an ARRAY key
-  // was used as a Map key by object IDENTITY, and the documented array-key
-  // shape `useSWR(['/api/user', id], ...)` broke three ways at once: two
-  // components passing equal-but-distinct arrays got two cache entries and
-  // never saw each other's data, getQueryData(['/api/user', 1]) could not find
-  // what was there, and an Array reached invalidateQueries' predicate, where
-  // the documented `key => key.startsWith('/api/posts')` throws -- before any
-  // key has been bumped, so ONE array key anywhere in the app turned every
-  // predicate invalidation into a no-op that reported itself as a TypeError.
-  //
-  // The FETCHER still receives the original key. SWR's contract is
-  // `useSWR(['/api/user', id], ([url, id]) => ...)`, and how the cache spells a
-  // key internally is none of the fetcher's business.
-  const key = normalizeQueryKey(rawKey);
-
-  // Shared reactive cache signals — all useSWR instances with the same key
-  // read from these signals, so mutating from one component updates all others.
-  const cacheS = getCacheSignal(key);
-  const error = getErrorSignal(key);
-  const isValidating = getValidatingSignal(key);
-  const data = computed(() => cacheS() ?? fallbackData ?? null);
-  // Both reads are unconditional. See the note on conditional reads above
-  // scopedEffect: as `cacheS() == null && isValidating()` this computed dropped
-  // to a single dependency on any re-run that found the cache full (a mutate(),
-  // a setQueryData(), a second successful fetch), was promoted to a stable
-  // effect there, and never tracked isValidating again -- after which
-  // isLoading() answered false for the rest of the page's life, including with
-  // an empty cache and a request in flight, which is the one state it exists to
-  // report.
-  const isLoading = computed(() => {
-    const empty = cacheS() == null;
-    const fetching = isValidating();
-    return empty && fetching;
+function poll(o, interval) {
+  if (!interval || getServerContext() !== null) return;
+  effect(() => {
+    const id = unrefTimer(setInterval(() => {
+      const e = o.entry;
+      if (e !== null && o.active() && e.flight === null) fetchEntry(e, o);
+    }, interval));
+    return () => clearInterval(id);
   });
-
-  /** @type {AbortController | null} */
-  let abortController = null;
-
-  // `force` is invalidateQueries(): "this data is wrong now". It bypasses the
-  // FRESHNESS window, which is the one caller that must never be answered from
-  // it (with the default 2s dedupingInterval an invalidation issued right after
-  // a fetch was silently swallowed and the stale data stayed on screen).
-  //
-  // It does NOT bypass request COALESCING, which is a different mechanism
-  // wearing a similar name. Every component reading a key subscribes
-  // separately, so one invalidateQueries() call fans out to N subscribers; the
-  // in-flight map is what collapses those back into one request. Skipping it
-  // opened N concurrent fetches of the same key whose responses then raced to
-  // write the cache.
-  //
-  // What force does change is WHICH in-flight request is acceptable. A response
-  // to a request that started before the data was invalidated is already stale,
-  // so it cannot answer the invalidation. One that started after it is a
-  // sibling subscriber's, and is exactly what we want to join.
-  async function revalidate({ force = false } = {}) {
-    const now = Date.now();
-    const epoch = currentEpoch(key);
-
-    // Deduplication: if there's already a request in flight, reuse it
-    if (inFlightRequests.has(key)) {
-      const existing = inFlightRequests.get(key);
-      const usable = force
-        ? existing.epoch === epoch
-        : now - existing.timestamp < dedupingInterval;
-      if (usable) {
-        existing.refCount++;
-        return existing.promise;
-      }
-    }
-
-    // Also deduplicate against recently completed fetches
-    const lastFetch = lastFetchTimestamps.get(key);
-    if (!force && lastFetch && now - lastFetch < dedupingInterval && cacheS.peek() != null) {
-      return cacheS.peek();
-    }
-
-    // Abort previous request only if no other subscribers are using it
-    if (abortController) {
-      const existing = inFlightRequests.get(key);
-      if (!existing || existing.refCount <= 1) {
-        abortController.abort();
-      }
-    }
-    abortController = new AbortController();
-    const { signal: abortSignal } = abortController;
-
-    isValidating.set(true);
-
-    // rawKey, not the normalized one: see the note where `key` is derived.
-    const promise = fetcher(rawKey, { signal: abortSignal });
-    inFlightRequests.set(key, { promise, timestamp: now, refCount: 1, epoch });
-
-    try {
-      const result = await promise;
-      if (abortSignal.aborted) return;
-      batch(() => {
-        cacheS.set(result); // Updates ALL components reading this key
-        error.set(null);
-      });
-      cacheTimestamps.set(key, Date.now());
-      lastFetchTimestamps.set(key, Date.now());
-      if (onSuccess) onSuccess(result, rawKey);
-      return result;
-    } catch (e) {
-      if (abortSignal.aborted) return;
-      error.set(e);
-      if (onError) onError(e, rawKey);
-      throw e;
-    } finally {
-      if (!abortSignal.aborted) isValidating.set(false);
-      const flight = inFlightRequests.get(key);
-      if (flight) {
-        flight.refCount--;
-        if (flight.refCount <= 0) inFlightRequests.delete(key);
-      }
-    }
-  }
-
-  // Initial fetch, plus the invalidation subscription for this key.
-  //
-  // The subscription lives INSIDE the effect. It used to be created once
-  // outside, while the effect's cleanup tore it down, and this effect re-runs
-  // whenever the fetcher reads a signal that changed. So the first reactive
-  // refetch unsubscribed the key and never resubscribed: from then on
-  // invalidateQueries() had no subscriber to call and silently did nothing.
-  // Re-subscribing per run keeps the two halves in the same lifecycle.
-  scopedEffect(() => {
-    const unsubscribe = subscribeToKey(key, () => revalidate({ force: true }).catch(() => {}));
-    // clearCache() empties this key's shared signals, but the request already on
-    // the wire is not in any Map it can walk: it landed after the clear and put
-    // the previous user's data back. See registerClearCacheHandler.
-    const releaseHandler = registerClearCacheHandler(() => {
-      if (abortController) {
-        abortController.abort();
-        abortController = null;
-      }
-      // isValidating is the SHARED signal for this key and clearCache has
-      // already set it false; the aborted request deliberately returns without
-      // touching it, so there is nothing left to reset here.
-    });
-    revalidate().catch(() => {});
-    // Cleanup: abort and unsubscribe on unmount
-    return () => {
-      if (abortController) abortController.abort();
-      unsubscribe();
-      releaseHandler();
-    };
-  });
-
-  // Revalidate on focus
-  if (revalidateOnFocus && typeof window !== 'undefined') {
-    scopedEffect(() => {
-      const handler = () => {
-        if (document.visibilityState === 'visible') {
-          revalidate().catch(() => {});
-        }
-      };
-      document.addEventListener('visibilitychange', handler);
-      return () => document.removeEventListener('visibilitychange', handler);
-    });
-  }
-
-  // Revalidate on reconnect
-  if (revalidateOnReconnect && typeof window !== 'undefined') {
-    scopedEffect(() => {
-      const handler = () => revalidate().catch(() => {});
-      window.addEventListener('online', handler);
-      return () => window.removeEventListener('online', handler);
-    });
-  }
-
-  // Polling
-  if (refreshInterval > 0) {
-    scopedEffect(() => {
-      const interval = unrefTimer(setInterval(() => {
-        revalidate().catch(() => {});
-      }, refreshInterval));
-      return () => clearInterval(interval);
-    });
-  }
-
-  return {
-    data: () => data(),
-    error: () => error(),
-    isLoading: () => isLoading(),
-    isValidating: () => isValidating(),
-    mutate: (newData, shouldRevalidate = true) => {
-      const resolved = typeof newData === 'function' ? newData(cacheS.peek()) : newData;
-      cacheS.set(resolved); // Updates ALL components reading this key
-      cacheTimestamps.set(key, Date.now());
-      if (shouldRevalidate) {
-        revalidate().catch(() => {});
-      }
-    },
-    revalidate,
-  };
 }
 
-// --- useQuery Hook ---
-// TanStack Query-like API
+function asArray(key) {
+  return Array.isArray(key) ? key : [key];
+}
+
+const defaultRetryDelay = (attempt) => Math.min(1000 * 2 ** attempt, 30000);
+
+// --- query ---
+
+/**
+ * The signal-native read of the cache: an async value for the entry `key`
+ * names now. `key` may be a function of signals; when it moves, the value
+ * fetches the new key's entry (or shows it at once, if it is cached) and keeps
+ * the old value meanwhile (`pending()`). Reading it before the first value
+ * lands holds the reader, or suspends its <Suspense>, like any async value;
+ * `refresh(q)` fetches the entry again. `fetcher(key, { signal })` gets the
+ * key as written.
+ */
+export function query(key, fetcher, options = {}) {
+  _enableSuspense();
+  const o = observe(PLAIN, key, {
+    run: (k, abortSignal) => fetcher(k, { signal: abortSignal }),
+    retry: options.retry ?? 1,
+    retryDelay: options.retryDelay ?? defaultRetryDelay,
+  }, {
+    staleTime: options.staleTime,
+    gcTime: options.gcTime,
+    initialData: options.initialData,
+  });
+  if (getServerContext() !== null) {
+    // A server render reads the key once, and nothing in it changes: the
+    // value is the entry's node, which belongs to the render and is in its
+    // data channel. It starts now, so sibling queries fetch side by side; a
+    // retried render finds it in the render's cache.
+    const e = untrack(o.current);
+    if (e === null) return _asyncComputed(noop, { value: undefined, track: false });
+    // Its first evaluation fetches, unless the render's store had it.
+    untrack(() => _asyncStatus(e.node));
+    return e.node;
+  }
+  /** @type {{ e: any, version: number } | null} */
+  let seen = null;
+  return _asyncComputed(() => {
+    const e = o.current();
+    if (e === null) {
+      seen = null;
+      return undefined;
+    }
+    holdFromRead(o, e);
+    // A run with the same entry at the same version is not a change reaching
+    // this value (every landing bumps the version first): it is a refresh()
+    // of it, or an error boundary's reset. Fetch the entry again.
+    const again = seen !== null && seen.e === e && seen.version === e.version;
+    seen = { e, version: e.version };
+    if (untrack(() => e.node.peek()) === IDLE) {
+      // No data yet (a fetch that landed undefined is data): wait for the
+      // entry's first landing, subscribed to the landing itself rather than to
+      // the node, whose placeholder is not a value to show as pending.
+      e.tick();
+      if (again || (e.flight === null && e.error === undefined)) fetchEntry(e, o);
+      seen.version = e.version;
+      if (e.error !== undefined && e.flight === null) throw e.error;
+      return arrival(e);
+    }
+    if (again) fetchEntry(e, o);
+    seen.version = e.version;
+    const read = attempt(e.node);
+    if (read.waiting !== null) return read.waiting.then(() => settledValue(e));
+    if (read.failed) throw read.value;
+    return read.value;
+  }, null);
+}
+
+// A tracked read of an entry's node that reports, instead of throwing, a value
+// that is not ready.
+function attempt(n) {
+  try {
+    return { value: n(), waiting: null, failed: false };
+  } catch (err) {
+    if (_isNotReady(err)) return { value: undefined, waiting: err, failed: false };
+    return { value: err, waiting: null, failed: true };
+  }
+}
+
+function settledValue(e) {
+  return untrack(() => {
+    const n = e.node;
+    if (_asyncStatus(n) === 'errored') throw _asyncError(n);
+    const v = n.peek();
+    return v === IDLE ? undefined : v;
+  });
+}
+
+// --- useQuery ---
+// TanStack Query's shape. `status` is 'idle' (nothing cached, nothing in
+// flight: a disabled query), 'loading', 'success' or 'error'; `fetchStatus`
+// is 'fetching' while a request is on the wire. `data()` never suspends.
 
 export function useQuery(options) {
   const {
@@ -515,346 +1038,183 @@ export function useQuery(options) {
     queryFn,
     enabled = true,
     staleTime = 0,
-    cacheTime = 5 * 60 * 1000,
+    cacheTime,
+    gcTime = cacheTime ?? DEFAULT_GC_TIME,
     refetchOnWindowFocus = true,
+    refetchOnReconnect = true,
     refetchInterval = false,
     retry = 3,
-    retryDelay = (attempt) => Math.min(1000 * 2 ** attempt, 30000),
+    retryDelay = defaultRetryDelay,
     onSuccess,
     onError,
     onSettled,
     select,
     placeholderData,
+    keepPreviousData = false,
+    initialData,
+    initialDataUpdatedAt,
+    structuralSharing = true,
   } = options;
 
-  const key = normalizeQueryKey(queryKey);
   const gate = createGate(enabled);
+  const o = observe(PLAIN, queryKey, {
+    run: (k, abortSignal) => queryFn({ queryKey: asArray(k), signal: abortSignal }),
+    share: sharing(structuralSharing),
+    retry,
+    retryDelay,
+  }, { gate, staleTime, gcTime, initialData, initialDataUpdatedAt, onSuccess, onError, onSettled });
+  if (refetchOnWindowFocus) onWindow(o, ['visibilitychange'], (e) => stale(e, o));
+  if (refetchOnReconnect) onWindow(o, ['online'], (e) => stale(e, o));
+  poll(o, refetchInterval);
 
-  const cacheS = getCacheSignal(key);
-  const data = computed(() => {
-    const d = cacheS();
-    // `!= null`, not `!== null`: an emptied entry reads `undefined` (see
-    // clearCache), and handing a user's select() an undefined it was never
-    // written to expect turns a cleared cache into a crash inside their code.
-    return select && d != null ? select(d) : d;
+  // select(), memoized on its input as TanStack Query does: the same cached
+  // value gives the same selected value, so readers see no change.
+  let selectedFrom = IDLE;
+  let selected;
+  const selectOf = (v) => {
+    if (!select) return v;
+    if (v !== selectedFrom) {
+      selectedFrom = v;
+      selected = select(v);
+    }
+    return selected;
+  };
+  const view = () => {
+    const s = stateOf(o);
+    if (s.value != null) return { data: selectOf(s.value), placeholder: false, s };
+    // keepPreviousData (or placeholderData: (previous) => ...): the data of
+    // the key this query named before, while the new one loads.
+    const before = o.previous !== null && o.previous !== s.e ? valueOf(o.previous) : undefined;
+    if (before != null && (keepPreviousData || typeof placeholderData === 'function')) {
+      const previous = select ? select(before) : before;
+      return { data: typeof placeholderData === 'function' ? placeholderData(previous) : previous, placeholder: true, s };
+    }
+    const data = typeof placeholderData === 'function' ? placeholderData(undefined) : placeholderData;
+    return { data, placeholder: data !== undefined, s };
+  };
+  const status = () => {
+    const s = stateOf(o);
+    if (s.error != null) return 'error';
+    if (s.value != null) return 'success';
+    return s.fetching || (s.first && gate.peek()) ? 'loading' : 'idle';
+  };
+
+  // Each accessor is a computed: a fetch that starts or lands without changing
+  // what one returns (a background refetch of equal data, with structural
+  // sharing) re-runs nothing that reads it. A region that reads data() keeps
+  // what it rendered, as a React component keeps its children's state when
+  // it renders the same elements again.
+  const dataOf = computed(() => view().data);
+  const placeholderOf = computed(() => view().placeholder);
+  const statusOf = computed(status);
+  const errorOf = computed(() => stateOf(o).error);
+  const fetchingOf = computed(() => stateOf(o).fetching);
+  const updatedAtOf = computed(() => {
+    const e = stateOf(o).e;
+    return e !== null ? e.updatedAt : 0;
   });
-  const error = getErrorSignal(key);
-  // What this hook WRITES. Components read the derived `status` just below.
-  //
-  // A disabled query with nothing cached is NOT loading: no request is in
-  // flight and none will be until it is enabled or refetch() is called.
-  // Reporting 'loading' forever made "waiting for the user" indistinguishable
-  // from "waiting for the network", so a spinner rendered on isLoading() never
-  // came down. 'idle' is the honest third state, and isLoading() is false in it.
-  const rawStatus = signal(
-    cacheS.peek() != null ? 'success' : (gate.peek() ? 'loading' : 'idle')
-  );
-  const fetchStatus = signal('idle');
-
-  // A settled status only holds while the cache still holds what it settled on.
-  // The data lives in a SHARED signal that something this hook never hears
-  // about can empty -- clearCache() on logout, a sibling's
-  // setQueryData(key, null) -- and a per-hook status signal has no way to
-  // notice. That left status 'success' with data() === undefined, which walks
-  // the canonical guarded render
-  //
-  //   if (q.isLoading()) return 'Loading...';
-  //   if (q.isError()) return 'Error';
-  //   if (q.isIdle()) return 'Idle';
-  //   return q.data().name;
-  //
-  // past every guard and into a TypeError, at the one moment (logout) when
-  // clearCache is most likely to be called. Deriving keeps status and data
-  // moving together whatever emptied the entry, instead of requiring every
-  // writer of the shared cache to know about every hook reading it.
-  //
-  // All four reads are UNCONDITIONAL, and that is load-bearing rather than
-  // tidy. Written as `s === 'success' && cacheS() == null` this computed reads
-  // the cache only in the success branch, so a re-run that finds any other
-  // status reads rawStatus alone -- one dependency -- and the reactive core
-  // promotes it to a stable effect that can never subscribe to anything new.
-  // See the note on conditional reads above scopedEffect.
-  //
-  // A query created with `enabled: false` takes exactly that path and an
-  // enabled one does not, which is why this looked fixed: 'idle' -> 'loading'
-  // (refetch starts) is a one-dependency re-run, where an enabled query goes
-  // straight from 'loading' to 'success' in a batch that writes the cache too,
-  // and so keeps both dependencies. So after refetch() a disabled query's
-  // status was permanently deaf to its own cache, and clearCache() left it
-  // reporting 'success' with data() === undefined -- walking the guarded render
-  // above into the TypeError this computed was written to prevent, at logout,
-  // with the previous user's value still painted on screen.
-  const status = computed(() => {
-    const s = rawStatus();
-    const hasData = cacheS() != null;
-    const hasError = error() != null;
-    // 'loading' only when something really is on its way to refill the entry.
-    // clearCache() starts no request, so reporting 'loading' there would render
-    // a spinner that never comes down -- the same defect, moved.
-    const refilling = fetchStatus() === 'fetching';
-    const lostData = s === 'success' && !hasData;
-    const lostError = s === 'error' && !hasError;
-    if (lostData || lostError) return refilling ? 'loading' : 'idle';
-    return s;
-  });
-
-  let lastFetchTime = 0;
-  // The request this hook has in flight, and who asked for it. An AUTOMATIC
-  // fetch (mount, focus, polling, invalidation) belongs to the effect below and
-  // dies with it; a `manual` one was asked for by application code, and the
-  // effect's cleanup must leave it alone. One shared controller meant an
-  // unrelated re-render cancelled a button click's refetch(), whose promise
-  // then resolved with `undefined`.
-  /** @type {{ controller: AbortController, manual: boolean, direction?: string } | null} */
-  let inFlight = null;
-  let cleanupTimer = null;
-
-  // See the note on useSWR's revalidate: an invalidation must not be answered
-  // from the freshness window, or `invalidateQueries` becomes a no-op for every
-  // query with a staleTime.
-  //
-  // `manual` separates an explicit refetch() from AUTOMATIC fetching (mount,
-  // window focus, polling, invalidation). Only the automatic paths are gated by
-  // `enabled`: a call from application code is a direct request for data, and
-  // gating it left `enabled: false` + "fetch on a button click" with no
-  // supported form at all. The gate is peeked, not read reactively, because
-  // this function is also called from detached callbacks (a focus handler, an
-  // invalidation subscriber) where a tracked read would attach the gate to
-  // whatever effect happened to be running; the effect below does the tracked
-  // read.
-  async function fetchQuery({ force = false, manual = false } = {}) {
-    if (!manual && !gate.peek()) return;
-
-    // Check if data is still fresh
-    const now = Date.now();
-    if (!force && cacheS.peek() != null && now - lastFetchTime < staleTime) {
-      return cacheS.peek();
-    }
-
-    // Supersede whatever this hook had in flight: one request per hook, as
-    // before, whoever asked for it. Superseding REPLACES the request, which is
-    // why it may do this to a manual one; the effect cleanup below only
-    // cancels, which is why it may not.
-    if (inFlight) inFlight.controller.abort();
-    const controller = new AbortController();
-    inFlight = { controller, manual };
-    const { signal: abortSignal } = controller;
-
-    fetchStatus.set('fetching');
-    if (cacheS.peek() == null) {
-      rawStatus.set('loading');
-    }
-
-    let attempts = 0;
-
-    async function attemptFetch() {
-      try {
-        const result = await queryFn({ queryKey: Array.isArray(queryKey) ? queryKey : [queryKey], signal: abortSignal });
-        if (abortSignal.aborted) return;
-        batch(() => {
-          cacheS.set(result); // Updates all components reading this key
-          error.set(null);
-          rawStatus.set('success');
-          fetchStatus.set('idle');
-        });
-        lastFetchTime = Date.now();
-        cacheTimestamps.set(key, Date.now());
-
-        if (onSuccess) onSuccess(result);
-        if (onSettled) onSettled(result, null);
-
-        // Schedule cache cleanup (only if no active subscribers).
-        //
-        // Replaces the previous timer instead of arming another: every
-        // successful fetch used to add one and clear none, so a polling query
-        // accumulated pending Timeout objects at roughly (fetch rate x cacheTime).
-        if (cleanupTimer) clearTimeout(cleanupTimer);
-        cleanupTimer = unrefTimer(setTimeout(() => {
-          if (Date.now() - lastFetchTime >= cacheTime) {
-            const subs = revalidationSubscribers.get(key);
-            if (!subs || subs.size === 0) {
-              cacheSignals.delete(key);
-              errorSignals.delete(key);
-              validatingSignals.delete(key);
-              cacheTimestamps.delete(key);
-              lastFetchTimestamps.delete(key);
-            }
-          }
-        }, cacheTime));
-
-        return result;
-      } catch (e) {
-        if (abortSignal.aborted) return;
-        attempts++;
-        if (attempts < retry) {
-          // Abort-aware retry delay: cancel the wait if the component unmounts
-          await new Promise((resolve, reject) => {
-            const id = unrefTimer(setTimeout(resolve, retryDelay(attempts)));
-            abortSignal.addEventListener('abort', () => {
-              clearTimeout(id);
-              reject(new DOMException('Aborted', 'AbortError'));
-            }, { once: true });
-          }).catch(e => { if (e.name === 'AbortError') return; throw e; });
-          if (abortSignal.aborted) return;
-          return attemptFetch();
-        }
-
-        batch(() => {
-          error.set(e);
-          rawStatus.set('error');
-          fetchStatus.set('idle');
-        });
-
-        if (onError) onError(e);
-        if (onSettled) onSettled(null, e);
-
-        throw e;
-      }
-    }
-
-    try {
-      return await attemptFetch();
-    } finally {
-      // Release ownership, but only if this request is still the current one:
-      // a newer fetch may already have superseded it while it was awaiting.
-      if (inFlight && inFlight.controller === controller) inFlight = null;
-    }
-  }
-
-  // clearCache() empties this key's shared signals, but the request this hook
-  // already has in flight is local to it and went on running: it landed a
-  // moment after the clear and wrote the previous user's data back into the
-  // entry the component is reading. See registerClearCacheHandler.
-  //
-  // A manual refetch() is cancelled too, unlike in the effect cleanup below.
-  // The caller's promise then resolves with undefined, which is the right trade
-  // against painting a logged-out user's data: clearCache() is a nuke, and
-  // useInfiniteQuery has always treated it as one.
-  function resetOnClearCache() {
-    if (inFlight) {
-      inFlight.controller.abort();
-      inFlight = null;
-    }
-    // An aborted fetch deliberately returns without touching either status
-    // signal, so nothing else would ever clear them. fetchStatus is the one
-    // that must not be left behind: the derived status above reads it to decide
-    // whether an emptied entry is being refilled, so 'fetching' would describe
-    // a request that no longer exists as a load in progress, and render a
-    // spinner that never comes down.
-    batch(() => {
-      if (rawStatus.peek() !== 'idle') rawStatus.set('idle');
-      if (fetchStatus.peek() !== 'idle') fetchStatus.set('idle');
-    });
-  }
-
-  // Initial fetch, plus the invalidation subscription for this key.
-  // Subscribing inside the effect is deliberate: see the matching comment in
-  // useSWR above. A query whose queryFn reads a signal re-runs this effect, and
-  // a subscription created once outside it was cancelled by the first such
-  // re-run, leaving the query permanently deaf to invalidateQueries().
-  scopedEffect(() => {
-    const unsubscribe = subscribeToKey(key, () => fetchQuery({ force: true }).catch(() => {}));
-    const releaseHandler = registerClearCacheHandler(resetOnClearCache);
-    // Tracked read of the MIRRORED gate, so this effect re-runs when the gate
-    // actually flips (and when the query function's own signals move), not
-    // whenever some unrelated signal a gate thunk happens to touch moves.
-    if (gate()) {
-      fetchQuery().catch(() => {});
-    } else if (!inFlight?.manual) {
-      // Turning a query off settles it. The cleanup below aborted anything the
-      // effect itself started, and an aborted request deliberately returns
-      // without touching either status signal, so nothing else would ever clear
-      // them. A request refetch() owns is still running, though, so this must
-      // not report 'idle' over the top of one.
-      batch(() => {
-        if (rawStatus.peek() === 'loading') rawStatus.set('idle');
-        if (fetchStatus.peek() !== 'idle') fetchStatus.set('idle');
-      });
-    }
-    return () => {
-      // Cancel only what this effect started. Cancelling a manual refetch here
-      // destroyed it without replacing it, and the caller saw nothing at all.
-      if (inFlight && !inFlight.manual) {
-        inFlight.controller.abort();
-        inFlight = null;
-      }
-      unsubscribe();
-      releaseHandler();
-    };
-  });
-
-  // Unmount cancels everything, including the manual request the effect's own
-  // cleanup deliberately spares.
-  onComponentDispose(() => {
-    if (inFlight) {
-      inFlight.controller.abort();
-      inFlight = null;
-    }
-  });
-
-  // Refetch on focus
-  if (refetchOnWindowFocus && typeof window !== 'undefined') {
-    scopedEffect(() => {
-      const handler = () => {
-        if (document.visibilityState === 'visible') {
-          fetchQuery().catch(() => {});
-        }
-      };
-      document.addEventListener('visibilitychange', handler);
-      return () => document.removeEventListener('visibilitychange', handler);
-    });
-  }
-
-  // Polling
-  if (refetchInterval) {
-    scopedEffect(() => {
-      const interval = unrefTimer(setInterval(() => {
-        fetchQuery().catch(() => {});
-      }, refetchInterval));
-      return () => clearInterval(interval);
-    });
-  }
 
   return {
-    data: () => data() ?? placeholderData,
-    error: () => error(),
-    status: () => status(),
-    fetchStatus: () => fetchStatus(),
-    isLoading: () => status() === 'loading',
-    isError: () => status() === 'error',
-    isSuccess: () => status() === 'success',
-    // A query that is disabled and has never resolved. Its complement used to
-    // be reported as isLoading(), which is why a disabled query rendered a
-    // spinner that never came down.
-    isIdle: () => status() === 'idle',
-    isFetching: () => fetchStatus() === 'fetching',
+    data: () => dataOf(),
+    error: () => errorOf(),
+    status: () => statusOf(),
+    fetchStatus: () => (fetchingOf() ? 'fetching' : 'idle'),
+    isLoading: () => statusOf() === 'loading',
+    isError: () => statusOf() === 'error',
+    isSuccess: () => statusOf() === 'success',
+    isIdle: () => statusOf() === 'idle',
+    isFetching: () => fetchingOf(),
+    isPlaceholderData: () => placeholderOf(),
     isEnabled: () => gate(),
-    // Explicit: never gated by `enabled`, and never answered from the freshness
-    // window. A manual "get me fresh data now" that a staleTime silently
-    // swallows is a no-op the caller has no way to see, which is the same bug
-    // class that made invalidateQueries() a no-op.
-    refetch: () => fetchQuery({ force: true, manual: true }),
+    dataUpdatedAt: () => updatedAtOf(),
+    // An explicit request: never gated by `enabled`, never answered from the
+    // freshness window. Resolves with the data it fetched.
+    refetch: () => {
+      const e = untrack(o.current);
+      return e === null ? Promise.resolve(undefined) : refetchOf(e, o);
+    },
   };
 }
 
-// --- useInfiniteQuery Hook ---
-// For paginated/infinite scroll data
+// --- useSWR ---
+// SWR's shape: `data()` is the cached value (or fallbackData, or null),
+// `isLoading()` is "no data yet and fetching", `isValidating()` is "fetching".
+// A null, false or throwing key pauses it. `fetcher(key, { signal })` gets the
+// key as written. A fetch within `dedupingInterval` of the last one answers
+// a new reader, a focus or a reconnect.
 
-// Every base query option used to fall into an unused `...rest`, so `enabled`,
-// `select`, `retry`, `onSuccess` and the rest were accepted and silently
-// dropped. Those are honoured here.
-//
-// DEFERRED, on purpose: joining the shared cache. `key` is normalized and used
-// for the invalidation subscription, but the pages live in signals local to
-// this hook rather than in cacheSignals, so staleTime/cacheTime, getQueryData,
-// setQueryData and cross-component sharing do not reach an infinite query yet.
-// The shared cache holds ONE value per key, and an infinite query holds a
-// growing list plus its page params; storing that under the same key would
-// collide head-on with a useQuery on the same key (each would serve the other
-// the wrong shape) and hand setQueryData a structure it has no way to describe.
-// That needs a cache entry with a declared kind, which is a design change, not
-// a patch. The options that depend on it (staleTime, cacheTime, placeholderData,
-// refetchOnWindowFocus, refetchInterval) are still not honoured.
+export function useSWR(key, fetcher, options = {}) {
+  const {
+    revalidateOnFocus = true,
+    revalidateOnReconnect = true,
+    refreshInterval = 0,
+    dedupingInterval = 2000,
+    fallbackData,
+    keepPreviousData = false,
+    onSuccess,
+    onError,
+    structuralSharing = true,
+  } = options;
+
+  const o = observe(PLAIN, key, {
+    run: (k, abortSignal) => fetcher(k, { signal: abortSignal }),
+    share: sharing(structuralSharing),
+    retry: 1,
+    retryDelay: defaultRetryDelay,
+  }, { staleTime: dedupingInterval, onSuccess, onError, lenient: true });
+  if (revalidateOnFocus) onWindow(o, ['visibilitychange'], (e) => stale(e, o));
+  if (revalidateOnReconnect) onWindow(o, ['online'], (e) => stale(e, o));
+  poll(o, refreshInterval);
+
+  const data = () => {
+    const s = stateOf(o);
+    if (s.value != null) return s.value;
+    if (keepPreviousData && o.previous !== null && o.previous !== s.e) {
+      const before = valueOf(o.previous);
+      if (before != null) return before;
+    }
+    return fallbackData ?? null;
+  };
+  const revalidate = () => {
+    const e = untrack(o.current);
+    if (e === null) return Promise.resolve(undefined);
+    return e.flight !== null ? outcome(e, e.flight) : refetchOf(e, o);
+  };
+
+  // Computeds, as useQuery's: a fetch that changes none of them re-runs no reader.
+  const dataOf = computed(data);
+  const errorOf = computed(() => stateOf(o).error);
+  const loadingOf = computed(() => {
+    const s = stateOf(o);
+    return s.value == null && s.fetching;
+  });
+  const validatingOf = computed(() => stateOf(o).fetching);
+
+  return {
+    data: () => dataOf(),
+    error: () => errorOf(),
+    isLoading: () => loadingOf(),
+    isValidating: () => validatingOf(),
+    // mutate(data, shouldRevalidate = true): put data in the cache for every
+    // reader of the key, then fetch it again. mutate() alone revalidates.
+    mutate: (...args) => {
+      if (args.length === 0) return revalidate();
+      const [next, shouldRevalidate = true] = args;
+      const e = untrack(o.current);
+      if (e === null) return Promise.resolve(undefined);
+      setEntry(e, typeof next === 'function' ? next(valueOf(e) ?? null) : next);
+      return shouldRevalidate ? refetchOf(e, o) : Promise.resolve(valueOf(e));
+    },
+    revalidate,
+  };
+}
+
+// --- useInfiniteQuery ---
+// TanStack Query's shape: `data()` is `{ pages, pageParams }`; pageParams[i]
+// names pages[i]. The pages are one cache entry: invalidating its key
+// refetches page one and replaces the list. Explicit calls (fetchNextPage,
+// refetch) are not gated by `enabled`.
+
 export function useInfiniteQuery(options) {
   const {
     queryKey,
@@ -863,466 +1223,338 @@ export function useInfiniteQuery(options) {
     getPreviousPageParam,
     initialPageParam,
     enabled = true,
+    staleTime = 0,
+    cacheTime,
+    gcTime = cacheTime ?? DEFAULT_GC_TIME,
+    refetchOnWindowFocus = false,
+    refetchInterval = false,
     select,
     retry = 3,
-    retryDelay = (attempt) => Math.min(1000 * 2 ** attempt, 30000),
+    retryDelay = defaultRetryDelay,
     onSuccess,
     onError,
     onSettled,
   } = options;
 
   const gate = createGate(enabled);
+  const o = observe(INFINITE, queryKey, {
+    run: (k, pageParam, abortSignal) => queryFn({ queryKey: asArray(k), pageParam, signal: abortSignal }),
+    retry,
+    retryDelay,
+    initialPageParam,
+  }, { gate, staleTime, gcTime, onSuccess, onError, onSettled });
+  if (refetchOnWindowFocus) onWindow(o, ['visibilitychange'], (e) => stale(e, o));
+  poll(o, refetchInterval);
 
-  const pages = signal([]);
-  // Starts EMPTY. It used to be seeded with initialPageParam AND appended to by
-  // the first fetch, so one page in produced [0, 0]: pageParams[i] no longer
-  // named pages[i], and anything walking the two together (a "load newer"
-  // control reading pageParams[0]) held a param for a page that did not exist.
-  const pageParams = signal([]);
-  const hasNextPage = signal(true);
-  const hasPreviousPage = signal(false);
-  const isFetchingNextPage = signal(false);
-  const isFetchingPreviousPage = signal(false);
-  // An infinite query had no failure surface at all: a rejected queryFn was
-  // swallowed by the effect's .catch() and the list just stayed empty forever,
-  // with no way for a component to tell "no results" from "the request failed".
-  // index.d.ts already promised error/status/isLoading here.
-  //
-  // These are local rather than the shared getErrorSignal(key), for the reason
-  // in the note above: an infinite query does not own the shared entry for its
-  // key, so writing errors into it would clobber a useQuery reading the same key.
-  const error = signal(null);
-  const status = signal(gate.peek() ? 'loading' : 'idle');
-
-  const key = normalizeQueryKey(queryKey);
-  // The page request in flight and who asked for it. See the matching note in
-  // useQuery: an explicit fetchNextPage()/refetch() belongs to the caller, and
-  // the effect's cleanup must not cancel one just because it re-ran.
-  /** @type {{ controller: AbortController, manual: boolean, direction?: string } | null} */
-  let inFlight = null;
-
-  // clearCache() reaches an infinite query through here, because its pages
-  // never entered cacheSignals for clearCache to empty. Same nuke: drop the
-  // pages, drop the error, and cancel anything in flight -- a request issued
-  // for the PREVIOUS user would otherwise land after the clear and put their
-  // rows back on screen, which is the whole thing we are preventing.
-  function resetOnClearCache() {
-    if (inFlight) {
-      inFlight.controller.abort();
-      inFlight = null;
-    }
-    batch(() => {
-      pages.set([]);
-      pageParams.set([]);
-      hasNextPage.set(true);
-      hasPreviousPage.set(false);
-      isFetchingNextPage.set(false);
-      isFetchingPreviousPage.set(false);
-      error.set(null);
-      // Nothing is in flight and the clear started nothing, so 'idle' -- the
-      // same honest report useQuery derives for an emptied entry.
-      status.set('idle');
-    });
-  }
-
-  // `replace` is a per-call argument, not a flag on the hook. As a flag it was
-  // set before the fetch and cleared only on success, so a refetch that aborted
-  // or failed left "replace the whole list" armed for whichever fetchNextPage()
-  // ran next, which silently deleted every loaded page.
-  async function fetchPage(pageParam, direction = 'next', { replace = false, manual = false } = {}) {
-    // Supersede the previous page fetch, whoever asked for it.
-    if (inFlight) inFlight.controller.abort();
-    const controller = new AbortController();
-    // `direction` is recorded so the finally below can tell whether the request
-    // that replaced this one owns the same loading flag. See the note there.
-    inFlight = { controller, manual, direction };
-    const { signal: abortSignal } = controller;
-
-    const loading = direction === 'next' ? isFetchingNextPage : isFetchingPreviousPage;
-    loading.set(true);
-    // Only the first page is 'loading'. Paging through an existing list keeps
-    // status 'success' and reports itself through isFetchingNextPage, so a list
-    // does not blink back to a spinner every time it grows.
-    if (pages.peek().length === 0) status.set('loading');
-
-    let attempts = 0;
-
-    try {
-      // Retry loop, with the same accounting as useQuery: `retry` is the total
-      // number of attempts, and the wait between them is abort-aware so an
-      // unmount cancels the pending retry instead of firing it into a dead
-      // component.
-      for (;;) {
-        try {
-          const result = await queryFn({
-            queryKey: Array.isArray(queryKey) ? queryKey : [queryKey],
-            pageParam,
-            signal: abortSignal,
-          });
-
-          if (abortSignal.aborted) return;
-
-          batch(() => {
-            if (replace) {
-              // Refetch: replace all pages with fresh first page (SWR pattern —
-              // old pages stayed visible during fetch, now swap atomically)
-              pages.set([result]);
-              pageParams.set([pageParam]);
-            } else if (direction === 'next') {
-              pages.set([...pages.peek(), result]);
-              pageParams.set([...pageParams.peek(), pageParam]);
-            } else {
-              pages.set([result, ...pages.peek()]);
-              pageParams.set([pageParam, ...pageParams.peek()]);
-            }
-
-            const nextParam = getNextPageParam?.(result, pages.peek());
-            hasNextPage.set(nextParam !== undefined);
-
-            if (getPreviousPageParam) {
-              const prevParam = getPreviousPageParam(result, pages.peek());
-              hasPreviousPage.set(prevParam !== undefined);
-            }
-
-            error.set(null);
-            status.set('success');
-          });
-
-          if (onSuccess) onSuccess(result);
-          if (onSettled) onSettled(result, null);
-
-          return result;
-        } catch (e) {
-          if (abortSignal.aborted) return;
-          attempts++;
-          if (attempts < retry) {
-            // Abort-aware retry delay: cancel the wait if the component unmounts
-            await new Promise((resolve, reject) => {
-              const id = unrefTimer(setTimeout(resolve, retryDelay(attempts)));
-              abortSignal.addEventListener('abort', () => {
-                clearTimeout(id);
-                reject(new DOMException('Aborted', 'AbortError'));
-              }, { once: true });
-            }).catch((err) => { if (err.name === 'AbortError') return; throw err; });
-            if (abortSignal.aborted) return;
-            continue;
-          }
-
-          batch(() => {
-            error.set(e);
-            status.set('error');
-          });
-
-          if (onError) onError(e);
-          if (onSettled) onSettled(null, e);
-
-          throw e;
-        }
-      }
-    } finally {
-      // Clear this direction's loading flag unless a LIVE request in the SAME
-      // direction has taken it over.
-      //
-      // `if (!abortSignal.aborted)` alone was too blunt. It exists so that an
-      // aborted fetch cannot report "not fetching" over the top of the fetch
-      // that replaced it, which is only a risk when the replacement uses the
-      // same flag. Every other abort left the flag stuck true with nothing
-      // alive behind it: fetchPreviousPage() over a fetchNextPage() still in
-      // flight left isFetchingNextPage() true for the rest of the page's life,
-      // and so isFetching() with it, which is a "loading more" spinner that
-      // never comes down. The effect's cleanup abort (a gate flip, or the query
-      // function's own signals moving) does the same for whichever direction it
-      // interrupted.
-      const successor = inFlight && inFlight.controller !== controller ? inFlight : null;
-      if (!abortSignal.aborted || !successor || successor.direction !== direction) {
-        loading.set(false);
-      }
-      // Release ownership, unless a newer fetch already superseded this one.
-      if (inFlight && inFlight.controller === controller) inFlight = null;
-    }
-  }
-
-  // Explicit call from application code, so never gated by `enabled` (the same
-  // rule as useQuery's refetch). `manual` distinguishes the public refetch()
-  // from the invalidation subscriber below, which is automatic fetching aimed
-  // at a key and is owned by the effect.
-  function refetchAll({ manual = false } = {}) {
-    // Keep old pages visible during refetch (SWR pattern).
-    // fetchPage swaps them atomically when the data arrives.
-    return fetchPage(initialPageParam, 'next', { replace: true, manual });
-  }
-
-  const view = computed(() => {
-    const raw = { pages: pages(), pageParams: pageParams() };
-    return select ? select(raw) : raw;
-  });
-
-  // Initial fetch, plus the invalidation subscription for this key. See the
-  // matching comment in useQuery for why the subscription lives INSIDE the
-  // effect.
-  scopedEffect(() => {
-    // The normalized key was computed and then never used, so an infinite query
-    // was invisible to invalidateQueries(). Refetching from the first page is
-    // the only coherent answer for a list whose later pages may no longer exist
-    // once the data behind it changed.
-    const unsubscribe = subscribeToKey(key, () => {
-      if (gate.peek()) refetchAll().catch(() => {});
-    });
-    const releaseHandler = registerClearCacheHandler(resetOnClearCache);
-    // Tracked read of the MIRRORED gate: this effect re-runs when the gate
-    // actually flips, not whenever some unrelated signal a gate thunk happens
-    // to touch moves. See createGate.
-    if (gate()) {
-      // `replace`, because a re-run of this effect means an input to page one
-      // changed (the query function read a signal that moved, or `enabled`
-      // flipped). Appending in that case left a stale copy of page one sitting
-      // above the fresh one, forever. On the first run the list is empty, so
-      // replacing and appending are the same thing.
-      fetchPage(initialPageParam, 'next', { replace: true }).catch(() => {});
-    } else if (!inFlight?.manual) {
-      // Turning it off settles it: the cleanup below aborted anything the
-      // effect started, and an aborted page fetch returns without clearing its
-      // own loading flag. A page an explicit call is still fetching is left
-      // alone, and so is the status describing it.
-      batch(() => {
-        if (status.peek() === 'loading') status.set('idle');
-        if (isFetchingNextPage.peek()) isFetchingNextPage.set(false);
-        if (isFetchingPreviousPage.peek()) isFetchingPreviousPage.set(false);
-      });
-    }
-    return () => {
-      // Cancel only what this effect started; see the matching note in useQuery.
-      if (inFlight && !inFlight.manual) {
-        inFlight.controller.abort();
-        inFlight = null;
-      }
-      unsubscribe();
-      releaseHandler();
-    };
-  });
-
-  // Unmount cancels everything, including a page fetch the application asked
-  // for that the effect's own cleanup spares.
-  onComponentDispose(() => {
-    if (inFlight) {
-      inFlight.controller.abort();
-      inFlight = null;
-    }
-  });
+  const pagesOf = (s) => (s.value != null ? s.value : { pages: [], pageParams: [] });
+  const status = () => {
+    const s = stateOf(o);
+    if (s.error != null) return 'error';
+    if (s.value != null && s.value.pages.length > 0) return 'success';
+    return s.fetching ? 'loading' : 'idle';
+  };
+  const direction = (dir) => {
+    const s = stateOf(o);
+    return s.fetching && s.e !== null && s.e.dir() === dir;
+  };
+  const page = (place, dir, param) => {
+    const e = untrack(o.current);
+    return e === null ? Promise.resolve(undefined) : refetchOf(e, o, { place, dir, param });
+  };
+  const first = (dir) => page('first', dir, initialPageParam);
 
   return {
-    data: () => view(),
-    error: () => error(),
-    status: () => status(),
+    data: () => {
+      const data = pagesOf(stateOf(o));
+      return select ? select(data) : data;
+    },
+    error: () => stateOf(o).error,
+    status,
     isLoading: () => status() === 'loading',
     isError: () => status() === 'error',
     isSuccess: () => status() === 'success',
     isIdle: () => status() === 'idle',
-    isFetching: () => isFetchingNextPage() || isFetchingPreviousPage(),
+    isFetching: () => stateOf(o).fetching,
     isEnabled: () => gate(),
-    hasNextPage: () => hasNextPage(),
-    hasPreviousPage: () => hasPreviousPage(),
-    isFetchingNextPage: () => isFetchingNextPage(),
-    isFetchingPreviousPage: () => isFetchingPreviousPage(),
-    // "Load more" is an explicit call from application code, so it is `manual`
-    // for the same reason refetch() is: a re-run of the effect must not cancel
-    // a page the user asked for and hand the caller back `undefined`.
-    //
-    // An EMPTY page list is answered by fetching page one, and the user's
-    // getNextPageParam/getPreviousPageParam is not consulted at all.
-    //
-    // Both of these are ungated by `enabled`, like refetch(), but a disabled
-    // query's state is always the empty list, and the empty list had no last
-    // page to derive a param from. So they called the user's callback with
-    // `undefined`, and the documented callback shape
-    // `(lastPage) => lastPage.nextCursor` throws on it -- while a defensive
-    // `lastPage?.nextCursor` returns undefined and made the call a silent
-    // no-op that fetched nothing. Either way refetch() was the only thing that
-    // could load a disabled list, so "explicit calls run either way" was true
-    // of one of the three. There is exactly one page it can mean here, and it
-    // is the first one; asking a getNextPageParam what follows a page that does
-    // not exist is not a question it can answer.
-    //
-    // `replace`, because this IS page one: it must land as the whole list, not
-    // as an append onto whatever a racing call left behind.
+    hasNextPage: () => {
+      const { pages } = pagesOf(stateOf(o));
+      return pages.length === 0 || (getNextPageParam ? getNextPageParam(pages[pages.length - 1], pages) !== undefined : false);
+    },
+    hasPreviousPage: () => {
+      const { pages } = pagesOf(stateOf(o));
+      return pages.length > 0 && getPreviousPageParam ? getPreviousPageParam(pages[0], pages) !== undefined : false;
+    },
+    isFetchingNextPage: () => direction('next'),
+    isFetchingPreviousPage: () => direction('previous'),
+    // An empty list has no last page to ask getNextPageParam about: the next
+    // page of nothing is the first page.
     fetchNextPage: async () => {
-      const loaded = pages.peek();
-      if (loaded.length === 0) {
-        return fetchPage(initialPageParam, 'next', { replace: true, manual: true });
-      }
-      const nextParam = getNextPageParam?.(loaded[loaded.length - 1], loaded);
-      if (nextParam !== undefined) {
-        return fetchPage(nextParam, 'next', { manual: true });
-      }
+      const { pages } = pagesOf(untrack(() => stateOf(o)));
+      if (pages.length === 0) return first('next');
+      const param = getNextPageParam?.(pages[pages.length - 1], pages);
+      if (param !== undefined) return page('next', 'next', param);
     },
     fetchPreviousPage: async () => {
-      const loaded = pages.peek();
-      if (loaded.length === 0) {
-        // Same reasoning, and the direction is kept so that a caller watching
-        // isFetchingPreviousPage() still sees the request it made.
-        return fetchPage(initialPageParam, 'previous', { replace: true, manual: true });
-      }
-      const prevParam = getPreviousPageParam?.(loaded[0], loaded);
-      if (prevParam !== undefined) {
-        return fetchPage(prevParam, 'previous', { manual: true });
-      }
+      const { pages } = pagesOf(untrack(() => stateOf(o)));
+      if (pages.length === 0) return first('previous');
+      const param = getPreviousPageParam?.(pages[0], pages);
+      if (param !== undefined) return page('previous', 'previous', param);
     },
-    refetch: () => refetchAll({ manual: true }),
+    refetch: () => first('next'),
   };
 }
 
-// --- Cache Management ---
+// --- useFetch ---
+// One URL's JSON, from the cache. `url` may be a function of signals.
 
-// Every key the cache knows about. A query that has subscribed but not yet
-// resolved has a revalidation subscriber before it has a cache signal, and
-// invalidating it is exactly how you tell it to fetch, so both maps count.
-function allKnownKeys() {
-  const keys = new Set(cacheSignals.keys());
-  for (const key of revalidationSubscribers.keys()) keys.add(key);
-  return keys;
+export function useFetch(url, options = {}) {
+  const {
+    method = 'GET',
+    body,
+    headers = {},
+    transform = (data) => data,
+    initialData = null,
+    fetch: request = globalThis.fetch,
+  } = options;
+  const keyOf = (u) => (u == null ? null : ['what:fetch', method, u, body ?? null]);
+  const key = typeof url === 'function' ? () => keyOf(url()) : keyOf(url);
+  const o = observe(PLAIN, key, {
+    run: async (k, abortSignal) => {
+      const response = await request(k[2], {
+        method,
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: abortSignal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      return transform(await response.json());
+    },
+    retry: 1,
+    retryDelay: defaultRetryDelay,
+  }, {});
+  return {
+    data: () => stateOf(o).value ?? initialData,
+    error: () => stateOf(o).error,
+    isLoading: () => {
+      const s = stateOf(o);
+      return s.fetching || (s.e !== null && s.value === undefined && s.error === null && s.e.fetches === 0);
+    },
+    // Never rejects: a failure shows in error().
+    refetch: () => {
+      const e = untrack(o.current);
+      return e === null ? Promise.resolve() : refetchOf(e, o).then(noop, noop);
+    },
+    mutate: (next) => {
+      const e = untrack(o.current);
+      if (e !== null) setEntry(e, next);
+    },
+  };
 }
 
-export function invalidateQueries(keyOrPredicate, options = {}) {
-  const { hard = false, exact = false } = options;
-  const keysToInvalidate = [];
-  if (typeof keyOrPredicate === 'function') {
-    // allKnownKeys, not cacheSignals: a query that has subscribed but not yet
-    // resolved has no cache entry, and an infinite query never gets one at all
-    // (its pages are local), so iterating the data Map made a predicate blind
-    // to exactly the queries an invalidation is aimed at. The prefix branch
-    // below already looks in both places.
-    for (const key of allKnownKeys()) {
-      if (keyOrPredicate(key)) keysToInvalidate.push(key);
-    }
-  } else if (Array.isArray(keyOrPredicate) && !exact) {
-    // An array key is a PREFIX: invalidateQueries(['todos']) invalidates
-    // ['todos', 1] and ['todos', {done: true}] too, which is what the shape
-    // implies and what every peer library does. Matching is on segment
-    // boundaries, so ['todo'] never matches 'todos'.
-    const prefix = normalizeQueryKey(keyOrPredicate);
+// --- The cache, whichever hook reads it ---
+
+function allEntries() {
+  const ctx = getServerContext();
+  const caches = ctx === null ? clientCache : (serverCaches.get(ctx) || []);
+  const out = [];
+  for (const cache of caches) for (const e of cache.values()) out.push(e);
+  return out;
+}
+
+function matching(target, exact) {
+  const out = [];
+  if (typeof target === 'function') {
+    for (const e of allEntries()) if (target(e.hash)) out.push(e);
+  } else if (Array.isArray(target) && !exact) {
+    // An array key is a prefix, on segment boundaries: ['todos'] matches
+    // ['todos', 1], never 'todosx'.
+    const prefix = normalizeQueryKey(target);
     const scoped = prefix + ':';
-    for (const key of allKnownKeys()) {
-      if (key === prefix || (typeof key === 'string' && key.startsWith(scoped))) {
-        keysToInvalidate.push(key);
-      }
-    }
+    for (const e of allEntries()) if (e.hash === prefix || e.hash.startsWith(scoped)) out.push(e);
   } else {
-    keysToInvalidate.push(normalizeQueryKey(keyOrPredicate));
+    const exactKey = normalizeQueryKey(target);
+    for (const e of allEntries()) if (e.hash === exactKey) out.push(e);
   }
+  return out;
+}
 
-  for (const key of keysToInvalidate) {
-    // Before notifying anyone: every subscriber woken below reads this epoch, so
-    // they agree on one refetch, and any request already in flight is now a
-    // generation behind and cannot answer for them.
-    bumpEpoch(key);
-    // Hard invalidation clears data immediately (shows loading state)
-    // Soft invalidation (default) keeps stale data visible during re-fetch (SWR pattern)
-    if (hard && cacheSignals.has(key)) cacheSignals.get(key).set(null);
-    // Trigger all subscribers to re-fetch
-    const subs = revalidationSubscribers.get(key);
-    if (subs) {
-      for (const revalidate of subs) revalidate();
+// The active reader that attached last: an invalidation fetches as it.
+function lastActive(e) {
+  let last = null;
+  // Among the readers that read it now: one whose key has just moved to
+  // another entry still holds this one until its effect runs.
+  for (const o of e.observers) if (o.active() && untrack(o.hash) === e.hash) last = o;
+  return last;
+}
+
+// Mark an entry stale and fetch it now if something shows it; a `hard`
+// invalidation empties it first (a request already in flight still refills
+// it). Resolves when the refetch has landed.
+function invalidateEntry(e, hard) {
+  e.updatedAt = 0;
+  if (hard) {
+    const f = e.flight;
+    e.version++;
+    e.error = undefined;
+    _setAsyncValue(e.node, null);
+    if (f !== null && !f.dead) {
+      e.next = ADOPT;
+      refreshNode(e);
+      e.next = 0;
     }
   }
-}
-
-export function prefetchQuery(key, fetcher) {
-  key = normalizeQueryKey(key);
-  const cacheS = getCacheSignal(key);
-  return fetcher(key).then(result => {
-    cacheS.set(result);
-    cacheTimestamps.set(key, Date.now());
-    return result;
-  });
-}
-
-export function setQueryData(key, updater) {
-  key = normalizeQueryKey(key);
-  const cacheS = getCacheSignal(key);
-  const current = cacheS.peek();
-  cacheS.set(typeof updater === 'function' ? updater(current) : updater);
-  cacheTimestamps.set(key, Date.now());
-}
-
-export function getQueryData(key) {
-  key = normalizeQueryKey(key);
-  return cacheSignals.has(key) ? cacheSignals.get(key).peek() : undefined;
-}
-
-// Empty the cache without detaching anything that is currently on screen.
-//
-// This used to .clear() the Maps. A mounted component captured its key's signal
-// OBJECTS when it mounted, so dropping the entries produced two failures at
-// once: the component kept displaying the old value (the signal it holds was
-// never reset, which is precisely wrong for the case clearCache exists for, a
-// logout), and the next getCacheSignal() for that key minted a FRESH signal, so
-// every later write (setQueryData, a sibling component's fetch, prefetchQuery)
-// landed somewhere the mounted component was not reading. That contradicts the
-// documented promise that components sharing a key share one set of signals.
-//
-// So: every key is EMPTIED IN PLACE, which is the only write that reaches what
-// is currently on screen. It is emptied to `undefined`, not `null`, so the
-// entry reads as ABSENT afterwards: getQueryData() answers `undefined` for a
-// cleared key whether or not the object had to be kept alive for a consumer.
-// That matters because "is anything still reading this?" is a guess, and it is
-// a wrong one for a hook created OUTSIDE a component (a module-scope store
-// query is never disposed, so its subscription is immortal); callers have no
-// business being able to tell those two cases apart.
-//
-// Dropping the entry is then purely about reclaiming memory, and the guess is
-// free to be wrong: a key whose emptied signals are kept reads exactly like one
-// whose entry went away.
-//
-// Deliberately NOT cleared: revalidationSubscribers. A subscriber is the live
-// wiring between a mounted component and its key; dropping it would deafen
-// every mounted query to invalidateQueries() forever, which is the same
-// detachment bug in the other channel. Subscriptions are owned by the effect
-// that created them and are released on unmount.
-export function clearCache() {
-  batch(() => {
-    for (const key of allKnownKeys()) {
-      cacheSignals.get(key)?.set(undefined);
-      errorSignals.get(key)?.set(null);
-      validatingSignals.get(key)?.set(false);
-
-      const subs = revalidationSubscribers.get(key);
-      if (subs !== undefined && subs.size > 0) {
-        cacheTimestamps.set(key, Date.now());
-      } else {
-        cacheSignals.delete(key);
-        errorSignals.delete(key);
-        validatingSignals.delete(key);
-        cacheTimestamps.delete(key);
-      }
-    }
-
-    // What walking the Maps above cannot reach: an infinite query's pages,
-    // which live in signals local to the hook, and every hook's in-flight
-    // REQUEST, which is not data at all but lands as data a moment later. See
-    // registerClearCacheHandler.
-    //
-    // Last, and inside the batch: the handlers read the emptied signals to
-    // decide what to settle to, so they must run after every key is emptied.
-    for (const handler of clearCacheHandlers) handler();
-  });
-  lastFetchTimestamps.clear();
-  inFlightRequests.clear();
-  keyEpochs.clear();
+  const by = lastActive(e);
+  if (by === null) return e.flight !== null ? outcome(e, e.flight).then(noop, noop) : Promise.resolve();
+  if (hard && e.flight !== null) return outcome(e, e.flight).then(noop, noop);
+  return refetchOf(e, by).then(noop, noop);
 }
 
 /**
- * Get a snapshot of all cache entries for devtools.
- * @internal
+ * Mark the entries `keyOrPredicate` names stale, and fetch again those
+ * something shows (inside a transition, the refetch joins it). An array key is
+ * a prefix unless `exact`; a predicate gets each normalized key. `hard`
+ * empties them first. Resolves when the refetches have landed; never rejects.
+ */
+export function invalidateQueries(keyOrPredicate, options = {}) {
+  const { hard = false, exact = false } = options;
+  const entries = matching(keyOrPredicate, exact);
+  // Server actions record the normalized cache entries they actually touched.
+  if (__DEV__ && arguments[2]) {
+    for (const e of entries) arguments[2].add(e.hash);
+  }
+  return Promise.all(entries.map((e) => invalidateEntry(e, hard))).then(noop);
+}
+
+const revalidationCallbacks = new Map();
+
+/**
+ * Call `callback` whenever `invalidatePath(path)` runs (a server action that
+ * revalidates `path`). Returns the unsubscribe.
+ */
+export function onRevalidate(path, callback) {
+  if (!revalidationCallbacks.has(path)) revalidationCallbacks.set(path, new Set());
+  revalidationCallbacks.get(path).add(callback);
+  return () => {
+    revalidationCallbacks.get(path)?.delete(callback);
+  };
+}
+
+/**
+ * The client side of a revalidated path: the entries read on `path` (the
+ * route data and every query read while the page was at that path) are
+ * invalidated, and the onRevalidate callbacks for it run. Resolves when the
+ * refetches have landed.
+ */
+export function invalidatePath(path) {
+  const callbacks = revalidationCallbacks.get(path);
+  if (callbacks) {
+    for (const cb of callbacks) {
+      try { cb(); } catch (e) { console.error('[what] Revalidation error:', e); }
+    }
+  }
+  const waits = [];
+  for (const e of allEntries()) if (e.paths !== null && e.paths.has(path)) waits.push(invalidateEntry(e, false));
+  return Promise.all(waits).then(noop);
+}
+
+/**
+ * Fetch `key` into the cache unless it holds a value fresher than
+ * `staleTime`, and resolve with it. Rejects with a failed fetch's error.
+ */
+export function prefetchQuery(key, fetcher, options = {}) {
+  key = keyParts(key);
+  const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
+  // Its fetch calls its own fetcher with its own key, whoever else reads the
+  // entry; with no reader, the cache's own fetches use them too.
+  const own = { conf: { run: (k, abortSignal) => fetcher(k, { signal: abortSignal }), share: sharing(options.structuralSharing ?? true), retry: options.retry ?? 1, retryDelay: defaultRetryDelay }, key, keep: true };
+  if (e.observers.size === 0) {
+    e.conf = own.conf;
+    e.key = key;
+  }
+  const v = valueOf(e);
+  let done;
+  if (e.flight !== null) {
+    // It joins the fetch in flight, which then runs to completion for it.
+    e.flight.keep = true;
+    done = outcome(e, e.flight);
+  } else if (v !== undefined && e.error === undefined && Date.now() - e.updatedAt <= (options.staleTime ?? 0)) done = Promise.resolve(v);
+  else done = refetchOf(e, own);
+  armGc(e);
+  return done;
+}
+
+/** Put `updater` (a value, or a function of the current one) in the cache now. */
+export function setQueryData(key, updater) {
+  key = keyParts(key);
+  const e = entryFor(PLAIN, normalizeQueryKey(key), key, null);
+  setEntry(e, typeof updater === 'function' ? updater(valueOf(e)) : updater);
+  armGc(e);
+}
+
+/** The cached value: undefined for a key with nothing cached, null for one emptied by a hard invalidation. */
+export function getQueryData(key) {
+  const e = cacheOf(PLAIN).get(normalizeQueryKey(key));
+  return e === undefined ? undefined : valueOf(e);
+}
+
+/**
+ * Empty the cache (logout). What is in flight is dropped, so no response
+ * requested before the clear lands after it; entries something shows stay
+ * attached to their readers, empty; the rest are forgotten. The page's
+ * server data is not adopted again.
+ */
+export function clearCache() {
+  channelOpen = false;
+  for (const e of allEntries()) {
+    if (e.observers.size > 0) {
+      e.error = undefined;
+      e.updatedAt = 0;
+      commitValue(e, IDLE);
+    } else {
+      dropEntry(e);
+    }
+  }
+}
+
+function messageOf(error) {
+  return error == null ? null : String((error && error.message) || error);
+}
+
+function statusOf(e) {
+  const status = _asyncStatus(e.node);
+  if (status === 'errored') return 'error';
+  const value = valueOf(e);
+  if (status === 'pending' || status === 'unresolved') return value === undefined || value === null ? 'loading' : 'refreshing';
+  return value === undefined || value === null ? 'idle' : 'success';
+}
+
+/**
+ * @internal The cache for devtools (what_cache): each entry's key, kind,
+ * status, value, error, readers, last fetch and how often its value changed.
  */
 export function __getCacheSnapshot() {
-  const entries = [];
-  for (const [key, sig] of cacheSignals) {
-    entries.push({
-      key,
-      data: sig.peek(),
-      error: errorSignals.has(key) ? errorSignals.get(key).peek() : null,
-      isValidating: validatingSignals.has(key) ? validatingSignals.get(key).peek() : false,
-    });
-  }
-  return entries;
+  return untrack(() => allEntries().map((e) => ({
+    key: e.hash,
+    kind: e.kind === INFINITE ? 'infinite' : 'query',
+    status: statusOf(e),
+    data: valueOf(e),
+    error: messageOf(e.error !== undefined ? e.error : (_asyncStatus(e.node) === 'errored' ? _asyncError(e.node) : null)),
+    isValidating: e.flight !== null,
+    observers: e.observers.size,
+    updatedAt: e.updatedAt || null,
+    fetches: e.fetches,
+    lastFetch: e.last,
+    version: e.version,
+    paths: e.paths !== null ? [...e.paths] : [],
+  })));
+}
+
+/**
+ * @internal what_invalidate_cache: invalidate the entries under `key` (all of
+ * them when it is omitted) and report how many matched.
+ */
+export function __invalidateFromDevtools(key) {
+  const entries = key == null ? allEntries() : matching(key, false);
+  for (const e of entries) invalidateEntry(e, false);
+  return entries.map((e) => e.hash);
 }

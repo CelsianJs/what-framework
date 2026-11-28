@@ -55,6 +55,8 @@ export interface CacheEntry {
   partial?: boolean;
   /** Per-user render: never stored, never served from a shared cache. */
   private?: boolean;
+  /** The page's own response headers, replayed on HIT and STALE (never Set-Cookie or the engine's headers). */
+  headers?: Record<string, string>;
   /** Epoch ms when the entry was rendered. */
   renderedAt: number;
   /** Seconds until stale. 0 means "always revalidate" when `revalidate: 0` was declared. */
@@ -99,12 +101,12 @@ export function isServableStale(entry: CacheEntry, now?: number): boolean;
 // --- Keys ---
 export function cacheKey(input: {
   path: string;
-  query?: Record<string, string> | string;
+  query?: Record<string, string | string[]> | string;
   vary?: string[] | string | Record<string, string>;
   headers?: Record<string, string>;
 }): string;
 export function normalizePath(path: string): string;
-export function normalizeQuery(query: Record<string, string> | string): string;
+export function normalizeQuery(query: Record<string, string | string[]> | string): string;
 export function hashKey(key: string): string;
 /** Resolve a declared vary list against request headers; null if unresolvable. */
 export function resolveVary(
@@ -125,8 +127,9 @@ export interface CDNAdapter {
   purge(urls: string[]): Promise<void>;
   purgeTags(tags: string[]): Promise<void>;
 }
-export function createCloudflareCDN(options: { zoneId: string; apiToken: string }): CDNAdapter;
-/** `baseUrl` is required for URL purge: only local paths resolved against it are purged. */
+/** A local path is purged at its URL below `baseUrl` (the site's URL at the CDN, its path kept), and skipped with one warning without it; an absolute URL as it is. */
+export function createCloudflareCDN(options: { zoneId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
+/** `baseUrl` is required for URL purge: only local paths are purged, at their URL below it (the site's URL at the CDN, its path kept); without it a purge does nothing, with one warning. */
 export function createFastlyCDN(options: { serviceId: string; apiToken: string; baseUrl?: string }): CDNAdapter;
 export function createVercelCDN(options: { projectId: string; token: string; teamId?: string }): CDNAdapter;
 
@@ -162,13 +165,17 @@ export function isKnownParams(staticPaths: StaticPathEntry[], params: Record<str
 // --- Route match (shape passed into the engine) ---
 export interface RouteMatch {
   path: string;
-  query?: Record<string, string>;
+  /** The base path the app is served below (`'/app'`): a regeneration with no request renders the path below it. */
+  base?: string;
+  query?: Record<string, string | string[]>;
   config?: PageCacheConfig;
   params?: Record<string, string>;
   route?: unknown;
   request?: Request;
   /** Request headers the route's `vary` names resolve against. */
   varyHeaders?: Record<string, string>;
+  /** This request's signal: when it aborts, the request stops waiting for a regeneration. */
+  signal?: AbortSignal;
 }
 
 export interface RenderResult {
@@ -177,9 +184,20 @@ export interface RenderResult {
   state?: unknown;
   status?: number;
   tags?: string[];
+  /**
+   * The response headers the render set. A Set-Cookie, a private/no-store/no-cache
+   * Cache-Control or a Vary makes the render private; the rest are stored with the entry.
+   */
+  headers?: Headers | Record<string, string | string[]>;
+  /** A render that read request headers its route does not vary on is per-user. */
+  usedRequestHeaders?: boolean;
+  private?: boolean;
 }
-/** The engine calls render(routeMatch, ctx); `ctx` is reserved and currently `{}`. */
-export type RenderFn = (routeMatch: RouteMatch, ctx?: Record<string, unknown>) => RenderResult | Promise<RenderResult>;
+/**
+ * The engine calls render(routeMatch, ctx). `ctx.signal` aborts only when every
+ * request waiting on this render has gone, and never for a background refresh.
+ */
+export type RenderFn = (routeMatch: RouteMatch, ctx?: { signal?: AbortSignal }) => RenderResult | Promise<RenderResult>;
 
 // --- ISR engine ---
 export interface ServeResult {
@@ -187,17 +205,28 @@ export interface ServeResult {
   head?: string;
   state?: unknown;
   status: number;
-  headers: Record<string, string>;
+  /** The engine's headers and the page's own; `set-cookie` (an array) only on a render made for this request. */
+  headers: Record<string, string | string[]>;
   cacheStatus: CacheStatus;
 }
 export interface RevalidateOptions {
+  /** Render what was purged again. Without a routeResolver, from the route the engine last rendered for it; a path it never rendered is only purged. */
   regenerate?: boolean;
   routeResolver?: (key: string) => RouteMatch | undefined;
 }
 export interface CacheEngine {
   handle(routeMatch: RouteMatch, renderOverride?: RenderFn): Promise<ServeResult>;
-  /** Render and re-store one route now. What the poll scheduler calls per tick. */
-  regenerate(routeMatch: RouteMatch): Promise<CacheEntry>;
+  /**
+   * Render and re-store one route now. What the poll scheduler calls per tick.
+   * A match with a `request` refreshes that request's origin's entry. One with
+   * none refreshes the entry of every origin in `origins`, when the engine has
+   * them; else of the origins with an entry for its path and query (at most
+   * 16: those a request read most recently, then those stored most recently),
+   * each from a GET request at that origin, or, with none, the path's default
+   * entry, which a request whose origin has no entry of its own is served.
+   * Resolves with the first entry, or null.
+   */
+  regenerate(routeMatch: RouteMatch): Promise<CacheEntry | null>;
   /** Both purges resolve to the cache keys they deleted, not to void. */
   revalidatePath(path: string, options?: RevalidateOptions): Promise<string[]>;
   revalidateTag(tag: string, options?: RevalidateOptions): Promise<string[]>;
@@ -211,6 +240,23 @@ export function createCacheEngine(options?: {
   cdn?: CDNAdapter;
   now?: () => number;
   logger?: Pick<Console, 'error' | 'warn' | 'log'>;
+  /** The public origin a default entry (a regeneration with no request and nothing stored) is rendered at. Default http://localhost. */
+  origin?: string;
+  /**
+   * The public origins the site serves ('https://shop.example'). Set, a
+   * request for any other origin is rendered for itself (not stored, not
+   * served from the store), and a regeneration with no request renders each
+   * of these origins' entries: a Host a sender plants never takes a place in
+   * the cache or in a scheduled tick. There is no default entry then.
+   */
+  origins?: string[];
+  /**
+   * The path the site is served below (`'/app'`, `'/app/'` or `'app'`), as
+   * the request handler's `basePath`, which `createRequestHandler` gives an
+   * engine without one: a CDN purge names a page's URL below it, and a
+   * regeneration with no request renders below it.
+   */
+  basePath?: string;
 }): CacheEngine;
 
 // --- Revalidation webhook ---

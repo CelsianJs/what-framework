@@ -1,1255 +1,586 @@
 /**
- * Extended MCP tool definitions for what-devtools-mcp.
- * 13 tools: component tree, dependency graph, eval, DOM inspect,
- * route info, diagnostics, diff snapshot, navigate, explain, signal trace,
- * visual inspect (what_look), page map (what_page_map), screenshot (what_screenshot).
- *
- * These supplement the 10 base tools in tools.js.
+ * Inspection, debugging, visual and navigation tools for what-devtools-mcp.
  */
 
 import { z } from 'zod';
+import { isNamed, createResponder, previewValue, pageText, sessionParam, UNTRUSTED_NOTE } from './respond.js';
+import { subscriberCounts, fetchState, actionEvents, causeLabels, parseStack, sourceFields, sourceSuffix, lintHint, asyncFields, stalledWork, registryCoverage } from './tools.js';
+import { SAFE_READ_PATHS, normalizeSafeRead } from './safe-read.js';
+
+const label = (map, id) => (map.get(id) ? `${map.get(id)}#${id}` : `#${id}`);
+
+// DOM text in a serialized tree is page text.
+function markTree(node) {
+  if (!node || typeof node !== 'object') return node;
+  const out = { ...node };
+  if (typeof out.text === 'string') out.text = pageText(out.text, 200);
+  if (Array.isArray(out.children)) out.children = out.children.map(markTree);
+  return out;
+}
+
+function repeatedComputeds(state) {
+  const groups = new Map();
+  const components = new Map(state.components.map((c) => [c.id, c.name]));
+  const signals = new Map(state.signals.map((s) => [s.id, s.name]));
+  for (const e of state.effects) {
+    const owner = components.get(e.componentId);
+    if (e.kind !== 'computed' || !e.loc || !owner || !e.depSignalIds?.length) continue;
+    const deps = [...e.depSignalIds].sort((a, b) => a - b);
+    const upstream = [...(e.depComputedIds || [])].sort((a, b) => a - b);
+    const key = JSON.stringify([owner, e.loc, deps, upstream]);
+    let group = groups.get(key);
+    if (!group) {
+      group = { owner: `<${owner}>`, loc: e.loc, count: 0, runs: 0, signals: deps.slice(0, 8).map((id) => label(signals, id)) };
+      groups.set(key, group);
+    }
+    group.count++;
+    group.runs += e.runCount || 0;
+  }
+  return [...groups.values()].filter((g) => g.count >= 3).sort((a, b) => b.runs - a.runs).slice(0, 5);
+}
+
+function unreadPriority(signal) {
+  if (signal.name.startsWith('what-router:')) return 0;
+  if (signal.loc && !/\/(?:node_modules|packages\/(?:core|router|server)\/src)\//.test(signal.loc)) return 3;
+  return isNamed(signal.name) ? 2 : 1;
+}
 
 export function registerExtendedTools(server, bridge) {
+  const { ok, fail, target } = createResponder(bridge);
 
-  // ---------------------------------------------------------------------------
-  // Helper responses (local copies — tools.js owns the originals)
-  // ---------------------------------------------------------------------------
-
-  function noConnection(tool) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: 'No browser connected',
-          summary: `Cannot reach browser for ${tool}.`,
-          nextSteps: [
-            'Ensure your What Framework app is running with the devtools-mcp Vite plugin enabled.',
-            'Or call connectDevToolsMCP() manually in the browser console.',
-            'Check that the bridge server is started (default port 9229).',
-          ],
-        }, null, 2),
-      }],
-      isError: true,
-    };
-  }
-
-  function noSnapshot(_tool) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: 'No snapshot available',
-          summary: 'Browser is connected but no state snapshot has been received yet.',
-          nextSteps: [
-            'Try refreshing the page in the browser.',
-            'Ensure __WHAT_DEVTOOLS__ is initialized before connectDevToolsMCP().',
-          ],
-        }, null, 2),
-      }],
-      isError: true,
-    };
-  }
-
-  function errorResponse(message, nextSteps) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: message,
-          summary: message,
-          nextSteps: nextSteps || ['Check the arguments and try again.'],
-        }, null, 2),
-      }],
-      isError: true,
-    };
-  }
-
-  function ok(data) {
-    return {
-      content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper: framework-wide signal value preview policy.
-  //
-  // Goal: agents see the SAME shape across every tool that surfaces a signal
-  // value (what_signals, what_dependency_graph, what_signal_trace, …).
-  //
-  // Policy:
-  //   - Primitives (number/boolean/null/undefined): return as-is.
-  //   - Strings: full when small, truncated with ellipsis when long.
-  //   - Arrays/objects: full structure when its JSON stringification fits
-  //     under PREVIEW_LIMIT chars; otherwise return a truncated JSON string.
-  //
-  // Threshold chosen to fit "small list of small items" while protecting
-  // dep-graph topology output from token blow-ups on huge structures.
-  // ---------------------------------------------------------------------------
-  const PREVIEW_LIMIT = 100;
-  function previewSignalValue(raw) {
-    if (raw == null) return raw;
-    const t = typeof raw;
-    if (t === 'number' || t === 'boolean') return raw;
-    if (t === 'string') return raw.length > PREVIEW_LIMIT ? raw.slice(0, PREVIEW_LIMIT) + '…' : raw;
-    if (t === 'object') {
-      let json;
-      try { json = JSON.stringify(raw); } catch { return String(raw); }
-      if (json == null) return String(raw);
-      if (json.length <= PREVIEW_LIMIT) return raw;
-      return json.slice(0, PREVIEW_LIMIT) + '…';
-    }
-    return String(raw);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper: get a fresh or cached snapshot
-  // ---------------------------------------------------------------------------
-
-  async function freshSnapshot(toolName) {
-    if (!bridge.isConnected()) return { err: noConnection(toolName) };
-    let snapshot;
+  async function withState(id, run) {
+    const { session, err } = target(id);
+    if (err) return err;
     try {
-      snapshot = bridge.getOrRefreshSnapshot
-        ? await bridge.getOrRefreshSnapshot()
-        : await bridge.refreshSnapshot();
-    } catch {
-      snapshot = bridge.getSnapshot();
+      const { state, seq } = await fetchState(bridge, session);
+      return await run({ session, state, seq });
+    } catch (e) {
+      return fail(e.message);
     }
-    if (!snapshot) return { err: noSnapshot(toolName) };
-    return { snapshot };
+  }
+
+  async function ask(id, command, args, shape, timeout) {
+    const { session, err } = target(id);
+    if (err) return err;
+    try {
+      const answer = await bridge.request(session, command, args, timeout ? { timeout } : undefined);
+      if (answer.data?.error) return fail(answer.data.error, shape.hint?.(answer.data));
+      return await shape.ok(answer, session);
+    } catch (e) {
+      return fail(e.message, shape.failHint);
+    }
   }
 
   // ---------------------------------------------------------------------------
-  // Tool 1 — what_component_tree
-  // ---------------------------------------------------------------------------
-
-  server.tool(
-    'what_component_tree',
-    'Get the component hierarchy as a tree structure. Shows parent-child relationships, signal/effect counts per component.',
-    {
-      rootId: z.number().optional().describe('Start from this component ID (default: full tree)'),
-      depth: z.number().optional().default(10).describe('Max depth to traverse (default: 10)'),
-      filter: z.string().optional().describe('Only include subtrees containing components matching this regex'),
-    },
-    async ({ rootId, depth, filter }) => {
-      const { snapshot, err } = await freshSnapshot('what_component_tree');
-      if (err) return err;
-
-      const components = snapshot.components || [];
-      if (components.length === 0) {
-        return ok({ tree: null, summary: '0 components mounted.' });
-      }
-
-      // Index by id
-      const byId = new Map();
-      for (const c of components) {
-        byId.set(c.id, { ...c, children: [] });
-      }
-
-      // Check if parentIds are available (framework may not track them)
-      const hasParentInfo = components.some(c => c.parentId != null);
-
-      if (!hasParentInfo && components.length > 1) {
-        // Framework doesn't track parent-child relationships.
-        // Infer: lowest-ID component is the root, all others are its children.
-        // This gives a 1-level tree which is better than a flat list.
-        const sorted = [...byId.values()].sort((a, b) => a.id - b.id);
-        const root = sorted[0];
-        for (let i = 1; i < sorted.length; i++) {
-          sorted[i].parentId = root.id;
-          root.children.push(sorted[i]);
-        }
-      }
-
-      // Build parent-child links
-      const roots = [];
-      for (const node of byId.values()) {
-        if (node.parentId != null && byId.has(node.parentId)) {
-          byId.get(node.parentId).children.push(node);
-        } else {
-          roots.push(node);
-        }
-      }
-      // Deduplicate children (inferred path may have already added them)
-      for (const node of byId.values()) {
-        const seen = new Set();
-        node.children = node.children.filter(c => {
-          if (seen.has(c.id)) return false;
-          seen.add(c.id);
-          return true;
-        });
-      }
-
-      // Attach signal/effect counts per component
-      const signals = snapshot.signals || [];
-      const effects = snapshot.effects || [];
-      for (const node of byId.values()) {
-        node.signalCount = signals.filter(s => s.componentId === node.id).length;
-        node.effectCount = effects.filter(e => e.componentId === node.id).length;
-      }
-
-      // Optional filter — keep subtrees that contain a matching node
-      /** @type {RegExp | null} */
-      let filterRe = null;
-      if (filter) {
-        try {
-          filterRe = new RegExp(filter, 'i');
-        } catch {
-          return errorResponse(`Invalid regex: ${filter}`, ['Provide a valid JavaScript regex pattern.']);
-        }
-      }
-
-      function matchesFilter(node) {
-        if (!filterRe) return true;
-        if (filterRe.test(node.name)) return true;
-        return node.children.some(c => matchesFilter(c));
-      }
-
-      // Prune to requested depth and serialize
-      function toTree(node, currentDepth) {
-        if (currentDepth > depth) return null;
-        if (filterRe && !matchesFilter(node)) return null;
-        const result = {
-          id: node.id,
-          name: node.name,
-          parentId: node.parentId ?? null,
-          signalCount: node.signalCount,
-          effectCount: node.effectCount,
-        };
-        const kids = [];
-        for (const child of node.children) {
-          const serialized = toTree(child, currentDepth + 1);
-          if (serialized) kids.push(serialized);
-        }
-        if (kids.length) result.children = kids;
-        return result;
-      }
-
-      let tree;
-      if (rootId != null) {
-        const startNode = byId.get(rootId);
-        if (!startNode) {
-          return errorResponse(`Component with id ${rootId} not found.`, [
-            'Use what_components to list available component IDs.',
-          ]);
-        }
-        tree = toTree(startNode, 0);
-      } else {
-        tree = roots.map(r => toTree(r, 0)).filter(Boolean);
-      }
-
-      // Compute max depth and flat label summary
-      let maxDepth = 0;
-      let totalNodes = 0;
-      function measureDepth(node, d) {
-        if (!node) return;
-        totalNodes++;
-        if (d > maxDepth) maxDepth = d;
-        for (const c of (node.children || [])) measureDepth(c, d + 1);
-      }
-      const treeArray = Array.isArray(tree) ? tree : [tree];
-      for (const t of treeArray) measureDepth(t, 0);
-
-      // Build concise label: Root > [Child1, Child2 > [Grandchild]]
-      function label(node, d) {
-        if (!node) return '';
-        let s = node.name || `#${node.id}`;
-        const kids = (node.children || []);
-        if (kids.length && d < 3) {
-          s += ' > [' + kids.map(k => label(k, d + 1)).join(', ') + ']';
-        } else if (kids.length) {
-          s += ` > [... ${kids.length} children]`;
-        }
-        return s;
-      }
-      const labelStr = treeArray.map(t => label(t, 0)).join(', ');
-
-      const summary = `${totalNodes} component${totalNodes !== 1 ? 's' : ''}, max depth ${maxDepth}. ${labelStr}`;
-
-      return ok({ tree, summary });
-    }
-  );
-
-  // ---------------------------------------------------------------------------
-  // Tool 2 — what_dependency_graph
+  // what_dependency_graph
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_dependency_graph',
-    'Get the reactive dependency graph showing which signals feed which effects. The unique debugging superpower of What Framework.',
+    'Who reads what: edges are "reads" relations, signal -> computed -> effect (writes are not edges; see what_signal_trace). Focus on one signal (everything that reacts to it, through computeds) or one effect (everything it depends on).',
     {
-      signalId: z.number().optional().describe('Show graph starting from this signal'),
-      effectId: z.number().optional().describe('Show graph starting from this effect'),
+      signalId: z.number().optional().describe('Focus on this signal'),
+      effectId: z.number().optional().describe('Focus on this effect or computed'),
       direction: z.enum(['downstream', 'upstream', 'both']).optional().default('both')
-        .describe('downstream = who depends on this; upstream = what does this depend on (default: both)'),
+        .describe('downstream = what reacts to the signal; upstream = what the effect reads (default both)'),
+      session: sessionParam(z),
     },
-    async ({ signalId, effectId, direction }) => {
-      const { snapshot, err } = await freshSnapshot('what_dependency_graph');
-      if (err) return err;
-
-      const signals = snapshot.signals || [];
-      const effects = snapshot.effects || [];
-
-      // Build lookup maps
-      const signalMap = new Map(signals.map(s => [s.id, s]));
-      const effectMap = new Map(effects.map(e => [e.id, e]));
-
-      // Build edges: effect depends on signal  =>  signal --triggers--> effect
-      const allEdges = [];
-      for (const eff of effects) {
-        const deps = eff.depSignalIds || eff.deps || [];
-        for (const sid of deps) {
-          allEdges.push({
-            from: { type: 'signal', id: sid },
-            to: { type: 'effect', id: eff.id },
-            relation: 'triggers',
-          });
-        }
+    async ({ signalId, effectId, direction, session: sid }) => withState(sid, async ({ state, seq }) => {
+      const signals = new Map(state.signals.map((s) => [s.id, s]));
+      const effects = new Map(state.effects.map((e) => [e.id, e]));
+      const kind = (id) => (effects.get(id)?.kind === 'computed' ? 'computed' : 'effect');
+      /** @type {Array<[string, string]>} */
+      let edges = [];
+      for (const e of effects.values()) {
+        for (const sigId of e.depSignalIds || []) edges.push([`signal#${sigId}`, `${kind(e.id)}#${e.id}`]);
+        for (const cId of e.depComputedIds || []) edges.push([`computed#${cId}`, `${kind(e.id)}#${e.id}`]);
       }
 
-      // If a specific signal or effect is requested, filter the graph
-      let filteredEdges = allEdges;
-      // `any` rather than `Set | null`: the set is read inside filter
-      // callbacks, and TS 7 does not narrow a closed-over nullable.
-      /** @type {any} */
-      let nodeIds = null; // Set of "type:id" strings we want to include
+      const walk = (start, step) => {
+        const seen = new Set([start]);
+        const kept = [];
+        const queue = [start];
+        while (queue.length) {
+          const node = queue.shift();
+          for (const edge of edges) {
+            const [from, to] = step(edge);
+            if (from !== node) continue;
+            kept.push(edge);
+            if (!seen.has(to)) { seen.add(to); queue.push(to); }
+          }
+        }
+        return kept;
+      };
 
       if (signalId != null) {
-        if (!signalMap.has(signalId)) {
-          return errorResponse(`Signal ${signalId} not found.`, [
-            'Use what_signals to list available signal IDs.',
-          ]);
-        }
-        nodeIds = new Set();
-        nodeIds.add(`signal:${signalId}`);
-
-        if (direction === 'downstream' || direction === 'both') {
-          // Signals that this signal triggers (effects that read it)
-          for (const e of allEdges) {
-            if (e.from.type === 'signal' && e.from.id === signalId) {
-              nodeIds.add(`effect:${e.to.id}`);
-            }
-          }
-        }
-        if (direction === 'upstream' || direction === 'both') {
-          // Nothing upstream of a signal in the basic model
-          // (signals are the roots), but include for completeness
-        }
-
-        filteredEdges = allEdges.filter(e => {
-          return nodeIds.has(`${e.from.type}:${e.from.id}`) || nodeIds.has(`${e.to.type}:${e.to.id}`);
-        });
-        // Expand node set from filtered edges
-        for (const e of filteredEdges) {
-          nodeIds.add(`${e.from.type}:${e.from.id}`);
-          nodeIds.add(`${e.to.type}:${e.to.id}`);
-        }
+        if (!signals.has(signalId)) return fail(`Signal ${signalId} not found`, 'List ids with what_signals.');
+        edges = direction === 'upstream' ? [] : walk(`signal#${signalId}`, (e) => e);
+      } else if (effectId != null) {
+        if (!effects.has(effectId)) return fail(`Effect ${effectId} not found`, 'List ids with what_effects.');
+        const start = `${kind(effectId)}#${effectId}`;
+        const up = direction === 'downstream' ? [] : walk(start, ([from, to]) => [to, from]);
+        const down = direction === 'upstream' ? [] : walk(start, (e) => e);
+        edges = [...up, ...down];
       }
 
-      if (effectId != null) {
-        if (!effectMap.has(effectId)) {
-          return errorResponse(`Effect ${effectId} not found.`, [
-            'Use what_effects to list available effect IDs.',
-          ]);
-        }
-        nodeIds = nodeIds || new Set();
-        nodeIds.add(`effect:${effectId}`);
+      const focused = signalId != null || effectId != null;
+      const used = new Set(edges.flat());
+      if (signalId != null) used.add(`signal#${signalId}`);
+      if (effectId != null) used.add(`${kind(effectId)}#${effectId}`);
+      const sigIds = focused ? [...used].filter((n) => n.startsWith('signal#')).map((n) => Number(n.slice(7))) : [...signals.keys()];
+      const effIds = focused ? [...used].filter((n) => !n.startsWith('signal#')).map((n) => Number(n.split('#')[1])) : [...effects.keys()];
 
-        if (direction === 'upstream' || direction === 'both') {
-          // Signals that this effect depends on
-          const eff = effectMap.get(effectId);
-          const deps = eff.depSignalIds || eff.deps || [];
-          for (const sid of deps) {
-            nodeIds.add(`signal:${sid}`);
-          }
-        }
-        if (direction === 'downstream' || direction === 'both') {
-          // Effects don't directly trigger other things in the basic model
-        }
-
-        filteredEdges = allEdges.filter(e => {
-          return nodeIds.has(`${e.from.type}:${e.from.id}`) || nodeIds.has(`${e.to.type}:${e.to.id}`);
-        });
-        for (const e of filteredEdges) {
-          nodeIds.add(`${e.from.type}:${e.from.id}`);
-          nodeIds.add(`${e.to.type}:${e.to.id}`);
-        }
-      }
-
-      // Build nodes
-      const nodeSet = nodeIds || new Set([
-        ...signals.map(s => `signal:${s.id}`),
-        ...effects.map(e => `effect:${e.id}`),
-      ]);
-
-      const nodes = [];
-      for (const key of nodeSet) {
-        const [type, idStr] = key.split(':');
-        const id = Number(idStr);
-        if (type === 'signal') {
-          const s = signalMap.get(id);
-          // Use the framework-wide value-preview policy — full values when
-          // small, truncated JSON when large. Keeps output consistent with
-          // what_signals so agents see the same shape across tools.
-          const value = previewSignalValue(s?.value);
-          nodes.push({ type: 'signal', id, name: s?.name || `signal_${id}`, value });
-        } else {
-          const e = effectMap.get(id);
-          nodes.push({ type: 'effect', id, name: e?.name || `effect_${id}`, runCount: e?.runCount });
-        }
-      }
-
-      const signalNodes = nodes.filter(n => n.type === 'signal');
-      const effectNodes = nodes.filter(n => n.type === 'effect');
-      const summary = `${signalNodes.length} signal${signalNodes.length !== 1 ? 's' : ''}, ` +
-        `${effectNodes.length} effect${effectNodes.length !== 1 ? 's' : ''}, ` +
-        `${filteredEdges.length} edge${filteredEdges.length !== 1 ? 's' : ''}. ` +
-        (signalId != null ? `Focused on signal #${signalId}. ` : '') +
-        (effectId != null ? `Focused on effect #${effectId}. ` : '') +
-        `Direction: ${direction}.`;
-
-      return ok({ nodes, edges: filteredEdges, summary });
-    }
+      return ok({
+        signals: sigIds.map((id) => ({ id, name: signals.get(id)?.name || `signal_${id}`, ...sourceFields(signals.get(id) || {}), value: previewValue(signals.get(id)?.value) })),
+        effects: effIds.map((id) => ({ id, name: effects.get(id)?.name || `effect_${id}`, ...sourceFields(effects.get(id) || {}), ...(kind(id) === 'computed' ? { kind: 'computed' } : {}), runs: effects.get(id)?.runCount || 0 })),
+        reads: edges.map(([from, to]) => `${from} -> ${to}`),
+      }, seq);
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 3 — what_eval
+  // what_eval
   // ---------------------------------------------------------------------------
 
-  // Guard: eval only works when explicitly enabled via --unsafe-eval flag or
-  // WHAT_UNSAFE_EVAL=1 environment variable. Disabled by default.
+  // Arbitrary code runs only when the server was started with --unsafe-eval or
+  // WHAT_UNSAFE_EVAL=1 (and the page set window.__WHAT_UNSAFE_EVAL__). The
+  // fixed reads in safe-read.js work without either and evaluate nothing.
   const unsafeEvalEnabled = process.argv.includes('--unsafe-eval') ||
     process.env.WHAT_UNSAFE_EVAL === '1' ||
     process.env.WHAT_UNSAFE_EVAL === 'true';
 
   server.tool(
     'what_eval',
-    'WARNING: Executes ARBITRARY JavaScript in the browser context. This is a security-sensitive tool that can run any code with full access to window, document, __WHAT_DEVTOOLS__, and __WHAT_CORE__. Disabled by default — must be explicitly enabled with --unsafe-eval flag or WHAT_UNSAFE_EVAL=1 env var. Use for debugging scenarios not covered by other tools. Dev-only.',
+    `Read a page value, or run JavaScript in the page. Without --unsafe-eval it answers only these exact reads (no code runs, no page getter is called): ${SAFE_READ_PATHS.join(', ')}. With --unsafe-eval (and window.__WHAT_UNSAFE_EVAL__ in the page) an expression returns its value; statements need return. Prefer the structured tools.`,
     {
-      code: z.string().describe('JavaScript code to execute in the browser. Return a value to see it in the response.'),
-      timeout: z.number().optional().default(5000).describe('Max execution time in ms (default: 5000, max: 30000)'),
+      code: z.string().describe('A safe read like "document.title", or (with --unsafe-eval) JavaScript to run'),
+      timeout: z.number().optional().default(5000).describe('Max ms (default 5000, max 30000)'),
+      session: sessionParam(z),
     },
-    async ({ code, timeout }) => {
-      // Allow safe read-only property access without the unsafe flag
-      const trimmed = (code || '').trim();
-      // Strict safe-read: only allow dotted property access on known safe globals.
-      // Each segment must be a simple identifier (no brackets, quotes, or calls).
-      const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
-      const segments = trimmed.split('.');
-      const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
-      const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
-      // Sensitive property paths: reads that exfiltrate secrets/state must
-      // require the explicit unsafe flag (document.cookie, window.localStorage,
-      // navigator.credentials...). Mirror of SENSITIVE_PATHS in client-commands.js.
-      const SENSITIVE_PATHS = new Set([
-        'cookie', 'localStorage', 'sessionStorage', 'indexedDB', 'credentials',
-        'geolocation', 'clipboard', 'serviceWorker', 'caches', 'opener',
-      ]);
-      const isSafeRead = segments.length >= 2 &&
-        SAFE_GLOBALS.has(segments[0]) &&
-        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s) && !SENSITIVE_PATHS.has(s));
-
-      if (!unsafeEvalEnabled && !isSafeRead) {
-        return errorResponse(
-          'what_eval is disabled for arbitrary code. Safe read-only expressions (document.title, window.innerWidth, etc.) work without the flag.',
-          [
-            'Safe expressions: document.title, window.innerWidth, navigator.userAgent, location.href, screen.width',
-            'For full eval, start the MCP server with --unsafe-eval or WHAT_UNSAFE_EVAL=1',
-          ]
-        );
+    async ({ code, timeout, session: sid }) => {
+      const path = normalizeSafeRead(code);
+      if (!path && !unsafeEvalEnabled) {
+        return fail('what_eval is disabled for arbitrary code', `Without --unsafe-eval only these reads work: ${SAFE_READ_PATHS.join(', ')}.`);
       }
-
-      if (!bridge.isConnected()) return noConnection('what_eval');
-
-      const clampedTimeout = Math.min(Math.max(timeout || 5000, 100), 30000);
-
+      const { session, err } = target(sid);
+      if (err) return err;
       try {
-        const result = await bridge.sendCommand('eval', { code }, clampedTimeout);
-        if (result.error) {
-          return errorResponse(result.error, [
-            'Check your JavaScript code for syntax or runtime errors.',
-            result.stack ? `Stack trace: ${result.stack}` : null,
-          ].filter(Boolean));
+        if (path) {
+          const { data, seq } = await bridge.request(session, 'read', { path });
+          if (data?.error) return fail(data.error);
+          const value = data.value;
+          return ok({ path, type: Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value, result: typeof value === 'string' ? pageText(value) : value }, seq);
         }
-        const summary = `Executed in ${result.executionTime ?? '?'}ms. ` +
-          `Result type: ${result.type}. ` +
-          (typeof result.result === 'string'
-            ? `Value: "${result.result.substring(0, 100)}${result.result.length > 100 ? '...' : ''}"`
-            : `Value: ${JSON.stringify(result.result)?.substring(0, 120) ?? 'undefined'}`);
-        return ok({ ...result, summary });
+        const { data, seq, since } = await bridge.request(session, 'eval', { code }, { timeout: Math.min(Math.max(timeout || 5000, 100), 30000) });
+        if (data?.error) return fail(pageText(data.error, 500), data.stack ? pageText(data.stack, 1500) : undefined);
+        return ok({ type: data.type, result: typeof data.result === 'string' ? pageText(data.result) : data.result, ms: data.executionTime, note: UNTRUSTED_NOTE, ...(await actionEvents(bridge, session, since, seq)) }, seq);
       } catch (e) {
-        return errorResponse(e.message, [
-          'The browser may have disconnected or the code timed out.',
-          'Try a simpler expression or increase the timeout.',
-        ]);
+        return fail(e.message);
       }
     }
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 4 — what_dom_inspect
+  // what_dom_inspect
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_dom_inspect',
-    'Get the rendered DOM output of a component. Returns both structured tree and raw HTML.',
+    'The rendered DOM of one component: structured tree and HTML (page text, in «»).',
     {
-      componentId: z.number().describe('Component ID to inspect (from what_components)'),
-      depth: z.number().optional().default(3).describe('Max DOM depth (default: 3)'),
+      componentId: z.number().describe('Component id (from what_components)'),
+      depth: z.number().optional().default(3).describe('Max DOM depth (default 3)'),
+      session: sessionParam(z),
     },
-    async ({ componentId, depth }) => {
-      if (!bridge.isConnected()) return noConnection('what_dom_inspect');
-
-      try {
-        const result = await bridge.sendCommand('dom-inspect', { componentId, depth: depth ?? 3 });
-        if (result.error) {
-          return errorResponse(result.error, [
-            'Use what_components to verify the component ID exists.',
-            'The component may not have a DOM element (e.g., a context provider).',
-          ]);
-        }
-        const htmlPreview = (result.html || '').substring(0, 200);
-        const summary = `Component "${result.componentName || '?'}". ` +
-          `HTML (${(result.html || '').length} chars): ${htmlPreview}${(result.html || '').length > 200 ? '...' : ''}`;
-        return ok({ ...result, summary });
-      } catch (e) {
-        return errorResponse(e.message, [
-          'The browser may have disconnected.',
-          'Try what_components first to get valid component IDs.',
-        ]);
-      }
-    }
+    async ({ componentId, depth, session: sid }) => ask(sid, 'dom-inspect', { componentId, depth: depth ?? 3 }, {
+      hint: () => 'Ids change on remount; call what_components again. A provider-only component has no DOM.',
+      ok: ({ data, seq }) => ok({ componentName: data.componentName, componentId, ...sourceFields(data), html: pageText(data.html, 5000), structure: markTree(data.structure), note: UNTRUSTED_NOTE }, seq),
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 5 — what_route
+  // what_route
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_route',
-    'Get current route information (path, params, query, matched route pattern)',
-    {},
-    async () => {
-      if (!bridge.isConnected()) return noConnection('what_route');
+    'Where the page is: browser (the address bar: path, query, hash) and router (what-router\'s own state: path, params, query, matched pattern, navigating, error), reported separately because a guard can hold the router behind the URL. settled:true means they agree and no navigation is running.',
+    { session: sessionParam(z) },
+    async ({ session: sid }) => ask(sid, 'route', {}, {
+      ok: ({ data, seq }) => ok({
+        browser: data.browser,
+        router: data.router,
+        settled: data.settled,
+        ...(data.router ? {} : { note: 'No what-router state on this page: the app does not use what-router.' }),
+      }, seq),
+    })
+  );
 
-      try {
-        const result = await bridge.sendCommand('get-route', {});
-        if (result.error) {
-          return errorResponse(result.error, [
-            'Route info may not be available if the app does not use What Router.',
-          ]);
-        }
-        const params = result.params ? Object.entries(result.params).map(([k, v]) => `${k}=${v}`).join(', ') : '';
-        const query = result.query ? Object.entries(result.query).map(([k, v]) => `${k}=${v}`).join(', ') : '';
-        const summary = `Path: ${result.path || '/'}` +
-          (result.matchedRoute ? ` (pattern: ${result.matchedRoute})` : '') +
-          (params ? ` | Params: ${params}` : '') +
-          (query ? ` | Query: ${query}` : '') +
-          (result.hash ? ` | Hash: ${result.hash}` : '');
-        return ok({ ...result, summary });
-      } catch (e) {
-        return errorResponse(e.message, [
-          'The browser may have disconnected.',
-          'Route information falls back to window.location if What Router is not used.',
-        ]);
+  // ---------------------------------------------------------------------------
+  // what_why
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'what_why',
+    'Explain the last observed run or skip for one effect, binding, component, or DOM element. Pass exactly one target. Returns reads and a bounded graph linking changes to their origin. Recording starts when the browser connects.',
+    {
+      effectId: z.number().int().optional().describe('Effect or computed id from what_effects'),
+      bindingId: z.number().int().optional().describe('Binding effect id from what_effects or what_explain'),
+      componentId: z.number().int().optional().describe('Component id from what_components'),
+      selector: z.string().min(1).max(500).optional().describe('CSS selector for the element with the binding'),
+      session: sessionParam(z),
+    },
+    async ({ session: sid, ...query }) => {
+      if (Object.values(query).filter((v) => v !== undefined).length !== 1) {
+        return fail('Pass exactly one of effectId, bindingId, componentId or selector.');
       }
+      return ask(sid, 'why', query, {
+        ok: ({ data, seq }) => {
+          for (const step of data.graph || []) {
+            if (step.origin?.targetId) step.origin.targetId = pageText(step.origin.targetId, 120);
+          }
+          const hint = data.reason === 'no-live-bindings-or-effects-for-target'
+            ? 'Nothing on this target reads state reactively, so no write can update it. A value computed in the component body, outside JSX (`const valid = name().length > 0`), or a return decided there (`if (loading()) return …`), is read once: write it in the JSX, or derive it with computed()/useMemo and call it there. what_errors lists ERR_STATE_READ_ONCE or ERR_PROP_READ_ONCE where the build found one.'
+            : null;
+          return ok({ ...data, ...(hint ? { hint } : {}), note: UNTRUSTED_NOTE }, seq);
+        },
+      });
     }
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 6 — what_diagnose
+  // what_diagnose
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_diagnose',
-    'Run a comprehensive diagnostic check on the app. Identifies errors, performance issues, and reactivity problems in one call.',
+    'Health check in one call: long-running async work, diagnostic codes the app reported, errors, hot effects ranked by runs, the most-subscribed signals, signals nothing reads and effects that read nothing.',
     {
-      focus: z.enum(['errors', 'performance', 'reactivity', 'all']).optional().default('all')
-        .describe('What to focus on (default: all)'),
+      focus: z.enum(['errors', 'performance', 'reactivity', 'async', 'all']).optional().default('all').describe('Limit the checks (default all)'),
+      threshold: z.number().optional().default(5).describe('Runs above which an effect counts as hot (default 5)'),
+      pendingMs: z.number().nonnegative().optional().default(5000).describe('Age in ms above which async, transition or Suspense work is flagged'),
+      session: sessionParam(z),
     },
-    async ({ focus }) => {
-      const { snapshot, err } = await freshSnapshot('what_diagnose');
-      if (err) return err;
-
-      const signals = snapshot.signals || [];
-      const effects = snapshot.effects || [];
-      const components = snapshot.components || [];
-      const errors = bridge.getErrors();
-      const recentEvents = bridge.getEvents(Date.now() - 60_000); // last 60s
-
+    async ({ focus, threshold, pendingMs, session: sid }) => withState(sid, async ({ session, state, seq }) => {
+      const signals = state.signals;
+      const effects = state.effects;
+      const out = { counts: { signals: signals.length, effects: effects.length, components: state.components.length } };
       const issues = [];
-      const healthy = [];
+      Object.assign(out, registryCoverage(state));
+      if (state.droppedBeforeInstall) issues.push('registryTruncated');
 
-      // --- Error checks ---
       if (focus === 'errors' || focus === 'all') {
-        if (errors.length > 0) {
-          issues.push({
-            severity: 'error',
-            category: 'errors',
-            message: `${errors.length} runtime error${errors.length !== 1 ? 's' : ''} captured.`,
-            details: errors.slice(-5).map(e => e.message || e.error || JSON.stringify(e)),
-          });
-        } else {
-          healthy.push({ category: 'errors', message: 'No runtime errors captured.' });
+        const diagnostics = {};
+        for (const d of bridge.getDiagnostics(session)) diagnostics[d.code] = (diagnostics[d.code] || 0) + (d.count || 1);
+        const errors = bridge.getErrors(session);
+        if (Object.keys(diagnostics).length) {
+          out.diagnostics = diagnostics;
+          issues.push('diagnostics');
+        }
+        if (errors.length) {
+          out.errors = errors.slice(-5).map((e) => `${e.code || 'ERR_RUNTIME'} ${e.type || 'error'}: ${pageText(e.message, 160)}`);
+          issues.push('errors');
         }
       }
 
-      // --- Performance checks ---
       if (focus === 'performance' || focus === 'all') {
-        const hotEffects = effects.filter(e => (e.runCount || 0) > 50);
-        if (hotEffects.length > 0) {
-          issues.push({
-            severity: 'warning',
-            category: 'performance',
-            message: `${hotEffects.length} effect${hotEffects.length !== 1 ? 's' : ''} with runCount > 50 (potential hot paths).`,
-            details: hotEffects.map(e => ({
-              id: e.id,
-              name: e.name,
-              runCount: e.runCount,
-              componentId: e.componentId,
-            })),
-          });
-        } else {
-          healthy.push({ category: 'performance', message: 'No hot effects detected (all runCount <= 50).' });
+        const groups = repeatedComputeds(state);
+        if (groups.length) {
+          out.repeatedComputeds = groups;
+          issues.push('repeatedComputeds');
         }
-
-        // Check for excessive recent events (>500 in 60s)
-        if (recentEvents.length > 500) {
-          issues.push({
-            severity: 'warning',
-            category: 'performance',
-            message: `High event volume: ${recentEvents.length} events in the last 60 seconds.`,
-            details: null,
-          });
-        } else {
-          healthy.push({ category: 'performance', message: `Event volume normal: ${recentEvents.length} events in last 60s.` });
+        const hot = effects
+          .filter((e) => (e.runCount || 0) > threshold)
+          .sort((a, b) => b.runCount - a.runCount)
+          .slice(0, 5)
+          .map((e) => `${e.name}#${e.id} ×${e.runCount}${sourceSuffix(e)}`);
+        if (hot.length) {
+          out.hotEffects = hot;
+          issues.push('hotEffects');
         }
+        const subs = subscriberCounts(effects);
+        const names = new Map(signals.map((s) => [s.id, s.name]));
+        const top = [...subs].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([id, n]) => `${names.get(id) || 'signal'}#${id} ×${n}`);
+        if (top.length) out.mostSubscribed = top;
       }
 
-      // --- Reactivity checks ---
       if (focus === 'reactivity' || focus === 'all') {
-        // Signals with no subscribers (no effect depends on them)
-        const subscribedSignalIds = new Set();
-        for (const eff of effects) {
-          for (const sid of (eff.depSignalIds || eff.deps || [])) {
-            subscribedSignalIds.add(sid);
-          }
-        }
-        const orphanSignals = signals.filter(s => !subscribedSignalIds.has(s.id));
-        if (orphanSignals.length > 0) {
-          issues.push({
-            severity: 'info',
-            category: 'reactivity',
-            message: `${orphanSignals.length} signal${orphanSignals.length !== 1 ? 's' : ''} with no effect subscribers.`,
-            details: orphanSignals.slice(0, 10).map(s => ({ id: s.id, name: s.name, value: s.value })),
-          });
-        } else if (signals.length > 0) {
-          healthy.push({ category: 'reactivity', message: 'All signals have at least one subscriber.' });
-        }
+        const read = new Set(effects.flatMap((e) => e.depSignalIds || []));
+        const unread = signals.filter((s) => !read.has(s.id))
+          .sort((a, b) => unreadPriority(b) - unreadPriority(a) || (b.rev || 0) - (a.rev || 0) || a.id - b.id);
+        const noDeps = effects.filter((e) => e.kind !== 'computed' && !(e.depSignalIds || []).length && !(e.depComputedIds || []).length);
+        const written = unread.filter((s) => s.rev > 0 && unreadPriority(s) >= 2);
+        if (unread.length) out.unreadSignals = {
+          count: unread.length, written: written.length,
+          sample: unread.slice(0, 5).map((s) => ({ id: s.id, name: s.name, ...(s.rev ? sourceFields(s) : {}), writes: s.rev || 0 })),
+          ...(written.length ? { hint: 'A written signal with no reactive readers may have been read once during setup.' } : {}),
+        };
+        if (written.length) issues.push('unreadSignals');
+        if (noDeps.length) out.effectsWithoutDeps = { count: noDeps.length, sample: noDeps.slice(0, 8).map((e) => `${e.name}#${e.id}`) };
+      }
 
-        // Effects with no dependencies (may be intentional, but worth flagging)
-        const noDepsEffects = effects.filter(e => {
-          const deps = e.depSignalIds || e.deps || [];
-          return deps.length === 0;
-        });
-        if (noDepsEffects.length > 0) {
-          issues.push({
-            severity: 'info',
-            category: 'reactivity',
-            message: `${noDepsEffects.length} effect${noDepsEffects.length !== 1 ? 's' : ''} with no signal dependencies (may be intentional).`,
-            details: noDepsEffects.slice(0, 10).map(e => ({ id: e.id, name: e.name, runCount: e.runCount })),
-          });
-        } else if (effects.length > 0) {
-          healthy.push({ category: 'reactivity', message: 'All effects have signal dependencies.' });
+      if (focus === 'async' || focus === 'all') {
+        const stalled = stalledWork(state, pendingMs);
+        if (stalled) {
+          out.stalled = stalled;
+          issues.push('stalled');
         }
       }
 
-      const severity = issues.some(i => i.severity === 'error') ? 'error'
-        : issues.some(i => i.severity === 'warning') ? 'warning'
-        : issues.length > 0 ? 'info'
-        : 'healthy';
+      // The files the issues point into, for what_lint.
+      const named = [];
+      if (out.hotEffects) named.push(...effects.filter((e) => (e.runCount || 0) > threshold));
+      if (out.unreadSignals && out.unreadSignals.written) named.push(...signals.filter((s) => s.rev > 0 && s.loc));
+      if (out.errors || out.diagnostics) named.push(...bridge.getDiagnostics(session), ...bridge.getErrors(session));
+      const lint = issues.length ? lintHint(named) : null;
+      if (lint) out.lint = lint;
 
-      const summary = severity === 'healthy'
-        ? `All checks passed. ${signals.length} signals, ${effects.length} effects, ${components.length} components.`
-        : `${issues.length} issue${issues.length !== 1 ? 's' : ''} found (${severity}). ` +
-          `${healthy.length} check${healthy.length !== 1 ? 's' : ''} passed. ` +
-          `${signals.length} signals, ${effects.length} effects, ${components.length} components.`;
-
-      return ok({
-        focus,
-        severity,
-        issues,
-        healthy,
-        counts: {
-          signals: signals.length,
-          effects: effects.length,
-          components: components.length,
-          errors: errors.length,
-          recentEvents: recentEvents.length,
-        },
-        summary,
-      });
-    }
+      out.status = issues.length ? `issues: ${issues.join(', ')}` : 'healthy';
+      if (issues.includes('diagnostics') || issues.includes('errors')) {
+        out.hint = 'what_errors lists each with owner, location and fix; what_fix({error}) gives the worked example.';
+        if (issues.includes('errors')) out.note = UNTRUSTED_NOTE;
+      }
+      return ok(out, seq);
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 7 — what_diff_snapshot
-  // ---------------------------------------------------------------------------
-
-  server.tool(
-    'what_diff_snapshot',
-    'Compare app state between two points in time. Call with action="save" to store a baseline, then action="diff" to see what changed.',
-    {
-      action: z.enum(['save', 'diff']).describe('save = store current state as baseline; diff = compare current state to saved baseline'),
-    },
-    async ({ action }) => {
-      if (!bridge.isConnected()) return noConnection('what_diff_snapshot');
-
-      if (action === 'save') {
-        // Refresh before saving so baseline is current
-        try {
-          await bridge.refreshSnapshot();
-        } catch {
-          // Use whatever we have
-        }
-        const saved = bridge.saveBaseline();
-        if (!saved) {
-          return errorResponse('No snapshot available to save as baseline.', [
-            'Make sure the app has sent at least one snapshot.',
-            'Try refreshing the page and calling save again.',
-          ]);
-        }
-        const snap = bridge.getBaseline();
-        const summary = `Baseline saved. ${(snap.signals || []).length} signals, ` +
-          `${(snap.effects || []).length} effects, ` +
-          `${(snap.components || []).length} components at ${new Date().toISOString()}.`;
-        return ok({
-          action: 'save',
-          savedAt: Date.now(),
-          signalCount: (snap.signals || []).length,
-          effectCount: (snap.effects || []).length,
-          componentCount: (snap.components || []).length,
-          summary,
-        });
-      }
-
-      // action === 'diff'
-      const baseline = bridge.getBaseline();
-      if (!baseline) {
-        return errorResponse('No baseline saved. Call with action="save" first.', [
-          'Use what_diff_snapshot with action="save" to store a baseline.',
-          'Then interact with the app and call action="diff" to see changes.',
-        ]);
-      }
-
-      // Get fresh current state
-      let current;
-      try {
-        current = await bridge.refreshSnapshot();
-      } catch {
-        current = bridge.getSnapshot();
-      }
-      if (!current) return noSnapshot('what_diff_snapshot');
-
-      // --- Diff signals ---
-      const baseSignals = new Map((baseline.signals || []).map(s => [s.id, s]));
-      const currSignals = new Map((current.signals || []).map(s => [s.id, s]));
-
-      const signalsChanged = [];
-      const signalsAdded = [];
-      const signalsRemoved = [];
-
-      for (const [id, curr] of currSignals) {
-        const base = baseSignals.get(id);
-        if (!base) {
-          signalsAdded.push({ id, name: curr.name, value: curr.value });
-        } else if (JSON.stringify(base.value) !== JSON.stringify(curr.value)) {
-          signalsChanged.push({
-            id,
-            name: curr.name,
-            previousValue: base.value,
-            currentValue: curr.value,
-          });
-        }
-      }
-      for (const [id, base] of baseSignals) {
-        if (!currSignals.has(id)) {
-          signalsRemoved.push({ id, name: base.name, lastValue: base.value });
-        }
-      }
-
-      // --- Diff effects ---
-      const baseEffects = new Map((baseline.effects || []).map(e => [e.id, e]));
-      const currEffects = new Map((current.effects || []).map(e => [e.id, e]));
-
-      const effectsTriggered = [];
-      const effectsAdded = [];
-      const effectsRemoved = [];
-
-      for (const [id, curr] of currEffects) {
-        const base = baseEffects.get(id);
-        if (!base) {
-          effectsAdded.push({ id, name: curr.name, runCount: curr.runCount });
-        } else if ((curr.runCount || 0) > (base.runCount || 0)) {
-          effectsTriggered.push({
-            id,
-            name: curr.name,
-            previousRunCount: base.runCount || 0,
-            currentRunCount: curr.runCount || 0,
-            delta: (curr.runCount || 0) - (base.runCount || 0),
-          });
-        }
-      }
-      for (const [id, base] of baseEffects) {
-        if (!currEffects.has(id)) {
-          effectsRemoved.push({ id, name: base.name });
-        }
-      }
-
-      // --- Diff components ---
-      const baseComps = new Set((baseline.components || []).map(c => c.id));
-      const currComps = new Set((current.components || []).map(c => c.id));
-      const componentsAdded = (current.components || []).filter(c => !baseComps.has(c.id)).map(c => ({ id: c.id, name: c.name }));
-      const componentsRemoved = (baseline.components || []).filter(c => !currComps.has(c.id)).map(c => ({ id: c.id, name: c.name }));
-
-      // --- Errors since baseline ---
-      const errorsNew = bridge.getErrors(baseline._savedAt || 0);
-
-      const totalChanges = signalsChanged.length + signalsAdded.length + signalsRemoved.length +
-        effectsTriggered.length + effectsAdded.length + effectsRemoved.length +
-        componentsAdded.length + componentsRemoved.length;
-
-      const parts = [];
-      if (signalsChanged.length) parts.push(`${signalsChanged.length} signal${signalsChanged.length !== 1 ? 's' : ''} changed`);
-      if (signalsAdded.length) parts.push(`${signalsAdded.length} signal${signalsAdded.length !== 1 ? 's' : ''} added`);
-      if (signalsRemoved.length) parts.push(`${signalsRemoved.length} signal${signalsRemoved.length !== 1 ? 's' : ''} removed`);
-      if (effectsTriggered.length) parts.push(`${effectsTriggered.length} effect${effectsTriggered.length !== 1 ? 's' : ''} re-ran`);
-      if (effectsAdded.length) parts.push(`${effectsAdded.length} effect${effectsAdded.length !== 1 ? 's' : ''} added`);
-      if (effectsRemoved.length) parts.push(`${effectsRemoved.length} effect${effectsRemoved.length !== 1 ? 's' : ''} removed`);
-      if (componentsAdded.length) parts.push(`${componentsAdded.length} component${componentsAdded.length !== 1 ? 's' : ''} mounted`);
-      if (componentsRemoved.length) parts.push(`${componentsRemoved.length} component${componentsRemoved.length !== 1 ? 's' : ''} unmounted`);
-      if (errorsNew.length) parts.push(`${errorsNew.length} new error${errorsNew.length !== 1 ? 's' : ''}`);
-
-      const summary = totalChanges === 0 && errorsNew.length === 0
-        ? 'No changes detected since baseline.'
-        : parts.join(', ') + '.';
-
-      // Cap large lists to save tokens — show count + sample
-      const cap = (arr, limit = 10) => arr.length <= limit ? arr : {
-        count: arr.length,
-        sample: arr.slice(0, limit),
-        truncated: arr.length - limit,
-      };
-
-      return ok({
-        action: 'diff',
-        signalsChanged,
-        signalsAdded: cap(signalsAdded),
-        signalsRemoved: cap(signalsRemoved),
-        effectsTriggered,
-        effectsAdded: cap(effectsAdded),
-        effectsRemoved: cap(effectsRemoved),
-        componentsAdded: cap(componentsAdded),
-        componentsRemoved: cap(componentsRemoved),
-        errorsNew: errorsNew.length,
-        totalChanges,
-        summary,
-      });
-    }
-  );
-
-  // ---------------------------------------------------------------------------
-  // Tool 8 — what_navigate
+  // what_navigate
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_navigate',
-    'Navigate to a different route in the app',
+    'Navigate the app to a path (relative paths and http(s) URLs only) the way back/forward does, so what-router runs its guards, and wait until it has settled (or timeout). Returns browser and router state like what_route, cancelled:true when a guard refused, and since for what_events. A page with no client router loads the URL instead (document:true); the page that loads connects as a new session.',
     {
-      path: z.string().describe('Path to navigate to (e.g. "/dashboard")'),
-      replace: z.boolean().optional().default(false).describe('Use replaceState instead of pushState (default: false)'),
+      path: z.string().describe('Path to navigate to, e.g. "/dashboard"'),
+      replace: z.boolean().optional().default(false).describe('replaceState instead of pushState'),
+      timeout: z.number().optional().default(3000).describe('Max ms to wait for the router to settle (default 3000, max 10000)'),
+      session: sessionParam(z),
     },
-    async ({ path, replace }) => {
-      if (!bridge.isConnected()) return noConnection('what_navigate');
-
-      // Validate URL — reject dangerous protocols
+    async ({ path, replace, timeout, session: sid }) => {
       const trimmedPath = path.trim();
       const normalized = trimmedPath.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
       const isRelative = /^[/.#?]/.test(trimmedPath) || !trimmedPath.includes(':');
       if (!isRelative && !/^https?:/.test(normalized)) {
-        return errorResponse(`Blocked navigation to unsafe URL: "${path}"`, [
-          'Only relative paths (/foo, ./bar, #hash, ?query) and http(s) URLs are allowed.',
-          'javascript:, data:, and vbscript: URLs are rejected for security.',
-        ]);
+        return fail(`Blocked navigation to unsafe URL: "${path}"`, 'Only relative paths and http(s) URLs are allowed; javascript:, data: and vbscript: are rejected.');
       }
-
-      try {
-        const result = await bridge.sendCommand('navigate', { path: trimmedPath, replace });
-        if (result.error) {
-          return errorResponse(result.error, [
-            'Check that the path is valid.',
-            'Ensure the app is using What Router or has history API access.',
-          ]);
-        }
-        const summary = `Navigated to "${result.navigatedTo || path}". ` +
-          `Current path: ${result.currentPath || '?'}. ` +
-          `Method: ${replace ? 'replaceState' : 'pushState'}.`;
-        return ok({ ...result, summary });
-      } catch (e) {
-        return errorResponse(e.message, [
-          'The browser may have disconnected.',
-          'Try what_connection_status to check connectivity.',
-        ]);
-      }
+      const wait = Math.min(Math.max(timeout ?? 3000, 0), 10000);
+      return ask(sid, 'navigate', { path: trimmedPath, replace, timeout: wait }, {
+        ok: async ({ data, seq, since }, session) => ok({
+          requested: data.requested,
+          browser: data.browser,
+          router: data.router,
+          settled: data.settled,
+          ...(data.cancelled ? { cancelled: true } : {}),
+          ...(data.document ? { document: true, hint: data.note } : {}),
+          ...(data.settled ? {} : { hint: `The router had not settled after ${wait} ms; call what_route again.` }),
+          ...(await actionEvents(bridge, session, since, seq)),
+        }, seq),
+      }, wait + 2000);
     }
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 9 — what_explain
+  // what_explain
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_explain',
-    'Get a complete picture of a component: its signals with values, effects with deps and run counts, rendered DOM, and any errors. The "tell me everything about this component" tool. Component IDs are ephemeral — they change on mount/unmount, so re-query what_components after any signal write that may have remounted the tree.',
+    'Everything about one component: its signals with values, async status, its effects with what they read, run counts and last cause, its rendered DOM, and diagnostics or errors that name it. Ids change on remount; re-query what_components after writes that may remount.',
     {
-      componentId: z.number().describe('Component ID to explain (from what_components)'),
-      includeDOM: z.boolean().optional().default(true).describe('Include rendered DOM output (default: true)'),
-      domDepth: z.number().optional().default(2).describe('Max DOM depth if includeDOM is true (default: 2)'),
+      componentId: z.number().describe('Component id (from what_components)'),
+      includeDOM: z.boolean().optional().default(true).describe('Include rendered HTML (default true)'),
+      domDepth: z.number().optional().default(2).describe('DOM depth if included (default 2)'),
+      session: sessionParam(z),
     },
-    async ({ componentId, includeDOM, domDepth }) => {
-      const { snapshot, err } = await freshSnapshot('what_explain');
-      if (err) return err;
+    async ({ componentId, includeDOM, domDepth, session: sid }) => withState(sid, async ({ session, state, seq }) => {
+      const comp = state.components.find((c) => c.id === componentId);
+      if (!comp) return fail(`Component ${componentId} not found`, 'Ids change on remount; call what_components again.');
 
-      const components = snapshot.components || [];
-      const comp = components.find(c => c.id === componentId);
-      if (!comp) {
-        return errorResponse(`Component ${componentId} not found.`, ['Use what_components to list available IDs.']);
-      }
+      const names = session.names;
+      const signals = state.signals.filter((s) => s.componentId === componentId)
+        .map((s) => ({ id: s.id, name: s.name, ...sourceFields(s), value: previewValue(s.value, 200) }));
+      const effects = state.effects.filter((e) => e.componentId === componentId)
+        .map((e) => {
+          const cause = causeLabels(e, names);
+          return {
+            id: e.id,
+            name: e.name,
+            ...sourceFields(e),
+            ...asyncFields(e),
+            ...(e.binding ? { kind: 'binding' } : e.kind === 'computed' ? { kind: 'computed' } : {}),
+            runs: e.runCount || 0,
+            deps: [...(e.depSignalIds || []).map((d) => label(names.signals, d)), ...(e.depComputedIds || []).map((d) => label(names.effects, d))],
+            ...(cause?.length ? { lastCause: cause } : {}),
+          };
+        });
 
-      // Signals belonging to this component
-      const signals = (snapshot.signals || []).filter(s => s.componentId === componentId);
-
-      // Effects belonging to this component
-      const signalMap = new Map((snapshot.signals || []).map(s => [s.id, s]));
-      const effects = (snapshot.effects || []).filter(e => e.componentId === componentId).map(e => ({
-        ...e,
-        depSignalNames: (e.depSignalIds || []).map(sid => signalMap.get(sid)?.name || `signal_${sid}`),
-      }));
-
-      // DOM output (if requested and bridge connected)
-      /** @type {{ html: any, structure: any } | null} */
-      let dom = null;
+      /** @type {string | null} */
+      let html = null;
       if (includeDOM) {
         try {
-          const domResult = await bridge.sendCommand('dom-inspect', { componentId, depth: domDepth || 2 });
-          if (!domResult.error) dom = { html: (domResult.html || '').substring(0, 2000), structure: domResult.structure };
-        } catch {}
+          const { data } = await bridge.request(session, 'dom-inspect', { componentId, depth: domDepth || 2 });
+          if (!data.error) html = pageText(data.html || '', 2000);
+        } catch {
+          html = null;
+        }
       }
 
-      // Errors associated with this component
-      const errors = bridge.getErrors().filter(e => e.componentId === componentId || e.component === comp.name);
+      const ownName = `<${comp.name}>`;
+      const diagnostics = bridge.getDiagnostics(session)
+        .filter((d) => d.owner?.includes(ownName) || (d.subject?.kind === 'component' && d.subject.name === comp.name))
+        .map((d) => `${d.code}${d.count > 1 ? ` ×${d.count}` : ''} ${pageText(d.message, 200)}`);
+      const errors = bridge.getErrors(session)
+        .filter((e) => parseStack(e.stack, names.components).component === comp.name)
+        .map((e) => `${e.code || 'ERR_RUNTIME'} ${e.type || 'error'}: ${pageText(e.message, 200)}`);
 
-      // Build summary
-      const sigPreview = signals.slice(0, 5).map(s => {
-        const val = JSON.stringify(s.value);
-        return `${s.name}=${val && val.length > 30 ? val.slice(0, 27) + '...' : val}`;
-      }).join(', ');
-      const effPreview = effects.slice(0, 3).map(e => `${e.name || 'effect_' + e.id} (ran ${e.runCount || 0}x)`).join(', ');
-
-      // Add source file hint based on component name
-      const sourceHint = `Component source files are typically in the same directory as the app entry point. Use file search to find: ${comp.name}`;
-
-      const summary = `${comp.name}: ${signals.length} signals (${sigPreview || 'none'}), ` +
-        `${effects.length} effects (${effPreview || 'none'})` +
-        (errors.length ? `, ${errors.length} errors` : '') +
-        (dom ? `, DOM: ${(dom.html || '').substring(0, 80)}...` : '') +
-        `. ${sourceHint}`;
-
-      return ok({
-        summary,
-        component: { id: comp.id, name: comp.name, parentId: comp.parentId },
-        sourceHint,
-        signals,
-        effects,
-        dom,
-        errors: errors.length > 0 ? errors : [],
-        counts: { signals: signals.length, effects: effects.length, errors: errors.length },
-      });
-    }
+      const out = { component: { id: comp.id, name: comp.name, ...sourceFields(comp), parentId: comp.parentId ?? null }, signals, effects };
+      if (html !== null) out.html = html;
+      if (diagnostics.length) out.diagnostics = diagnostics;
+      if (errors.length) out.errors = errors;
+      if (html !== null || diagnostics.length || errors.length) out.note = UNTRUSTED_NOTE;
+      if (!signals.length && !effects.length) {
+        out.ownership = 'Signals and effects belong to the component that created them; state created at module scope or in a parent shows up there, not here.';
+      }
+      return ok(out, seq);
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 10 — what_signal_trace
+  // what_signal_trace
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_signal_trace',
-    'Trace why a signal changed. Shows which effects wrote to this signal and the causal chain of signal dependencies. The debugging question every developer asks: "why did this value change?"',
+    'Recent writes to one signal, oldest first: value before and after, the effect that wrote it (by; absent for a write from an event handler or what_set_signal), and the effects that re-ran because of it (ran). Plus every reader with its run count. From the session\'s event log.',
     {
-      signalId: z.number().describe('Signal ID to trace (from what_signals)'),
-      depth: z.number().optional().default(2).describe('Causal chain depth — how many levels of effect->signal->effect to trace (default: 2)'),
-      auto_watch_ms: z.number().optional().default(500).describe('If no recent writes were captured, briefly listen for events for this many ms before returning (default: 500, set to 0 to disable).'),
+      signalId: z.number().describe('Signal id (from what_signals)'),
+      limit: z.number().optional().default(5).describe('Writes to show (default 5, max 20)'),
+      session: sessionParam(z),
     },
-    async ({ signalId, depth, auto_watch_ms }) => {
-      const { snapshot, err } = await freshSnapshot('what_signal_trace');
-      if (err) return err;
+    async ({ signalId, limit, session: sid }) => withState(sid, async ({ session, state, seq }) => {
+      const sig = state.signals.find((s) => s.id === signalId);
+      if (!sig) return fail(`Signal ${signalId} not found`, 'Ids change when the page reloads; call what_signals again.');
+      const names = session.names;
+      const log = session.events;
 
-      const signals = snapshot.signals || [];
-      const effects = snapshot.effects || [];
-      const signalMap = new Map(signals.map(s => [s.id, s]));
-      const effectMap = new Map(effects.map(e => [e.id, e]));
-
-      const sig = signalMap.get(signalId);
-      if (!sig) {
-        return errorResponse(`Signal ${signalId} not found.`, ['Use what_signals to list available signal IDs.']);
+      const writeIndexes = [];
+      for (let i = 0; i < log.length; i++) {
+        if (log[i].event === 'signal:updated' && log[i].data?.id === signalId) writeIndexes.push(i);
       }
-
-      // Get writer info from browser
-      /** @type {Record<string, any>} */
-      let writers = { recentWrites: [], totalWrites: 0 };
-      try {
-        writers = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
-        if (writers.error) writers = { recentWrites: [], totalWrites: 0, note: writers.error };
-      } catch {}
-
-      // Auto-arm what_watch when no writes have been captured yet. The
-      // signal-writer ring buffer is populated by initEventTracking, which
-      // runs on first extended command. If the caller hits what_signal_trace
-      // first, the buffer is empty even though the browser is producing
-      // events. Listen briefly so the user gets a result on the first try
-      // instead of having to manually chain what_watch -> what_signal_trace.
-      const watchMs = Math.min(Math.max(Number(auto_watch_ms) || 0, 0), 5000);
-      if (watchMs > 0 && (!writers.recentWrites || writers.recentWrites.length === 0)) {
-        await new Promise(r => setTimeout(r, watchMs));
-        try {
-          const refetched = await bridge.sendCommand('get-signal-writers', { signalId }, 5000);
-          if (refetched && !refetched.error) writers = refetched;
-        } catch {}
-      }
-
-      // Build causal chain
-      // For each writer effect, find what signals it depends on
-      const chain = [];
-      const visited = new Set();
-
-      function traceEffect(effectId, currentDepth) {
-        if (currentDepth > (depth || 2) || visited.has(`effect:${effectId}`)) return null;
-        visited.add(`effect:${effectId}`);
-
-        const eff = effectMap.get(effectId);
-        if (!eff) return null;
-
-        const deps = (eff.depSignalIds || []).map(sid => {
-          const depSig = signalMap.get(sid);
-          return { id: sid, name: depSig?.name || `signal_${sid}`, value: depSig?.value };
-        });
-
-        return {
-          effectId: eff.id,
-          effectName: eff.name || `effect_${eff.id}`,
-          runCount: eff.runCount,
-          dependsOn: deps,
-        };
-      }
-
-      // Trace from recent writes
-      for (const write of (writers.recentWrites || []).slice(-5)) {
-        /** @type {Record<string, any>} */
-        const entry = {
-          timestamp: write.timestamp,
-          previousValue: write.previousValue,
-          newValue: write.newValue,
-        };
-        if (write.writerEffect) {
-          entry.causedBy = traceEffect(write.writerEffect.id, 1);
+      const shown = writeIndexes.slice(-Math.min(Math.max(limit || 5, 1), 20));
+      const writes = shown.map((i) => {
+        const w = log[i];
+        const nextWrite = writeIndexes.find((j) => j > i) ?? log.length;
+        const ran = [];
+        for (let j = i + 1; j < nextWrite && ran.length < 8; j++) {
+          const e = log[j];
+          if (e.event === 'effect:run' && e.data?.causeSignalIds?.includes(signalId)) ran.push(e.data.name ? `${e.data.name}#${e.data.id}` : label(names.effects, e.data.id));
         }
-        chain.push(entry);
-      }
-
-      // Also show which effects READ this signal (downstream)
-      const downstream = effects
-        .filter(e => (e.depSignalIds || []).includes(signalId))
-        .map(e => ({ id: e.id, name: e.name || `effect_${e.id}`, runCount: e.runCount }));
-
-      // Build summary
-      const writerNames = chain
-        .filter(c => c.causedBy)
-        .map(c => c.causedBy.effectName)
-        .filter((v, i, a) => a.indexOf(v) === i); // unique
-
-      const summary = writerNames.length > 0
-        ? `Signal "${sig.name}" (current: ${JSON.stringify(sig.value)}) was written by: ${writerNames.join(', ')}. ` +
-          `${downstream.length} effect${downstream.length !== 1 ? 's' : ''} read this signal.`
-        : `Signal "${sig.name}" (current: ${JSON.stringify(sig.value)}). No recent write events captured. ` +
-          `${downstream.length} effect${downstream.length !== 1 ? 's' : ''} read this signal.`;
-
-      return ok({
-        summary,
-        signalId,
-        signalName: sig.name,
-        currentValue: sig.value,
-        recentWrites: chain,
-        downstream,
-        totalWritesCaptured: writers.totalWrites || 0,
-        nextSteps: [
-          chain.length === 0 ? 'Use what_watch to capture events, then call what_signal_trace again.' : null,
-          downstream.length > 0 ? `Use what_dependency_graph with signalId=${signalId} to see the full reactive graph.` : null,
-          'Use what_set_signal to test what happens when this signal changes.',
-        ].filter(Boolean),
+        return {
+          seq: w.seq,
+          from: previewValue(w.data.prev),
+          to: previewValue(w.data.value),
+          ...(w.data.writerEffectId != null ? { by: label(names.effects, w.data.writerEffectId) } : {}),
+          ...(ran.length ? { ran } : {}),
+        };
       });
-    }
+      const readers = state.effects
+        .filter((e) => (e.depSignalIds || []).includes(signalId))
+        .map((e) => `${e.name}#${e.id} ×${e.runCount || 0}`);
+
+      const out = { signal: { id: sig.id, name: sig.name, ...sourceFields(sig), value: previewValue(sig.value, 200), writes: sig.rev }, writes, readers };
+      if (session.lostThrough && writeIndexes.length < sig.rev) out.lostThrough = session.lostThrough;
+      if (!writes.length) out.note = 'No writes recorded since the page connected. Act (what_set_signal, or in the page), then call again.';
+      return ok(out, seq);
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 11 — what_look (visual inspection without image)
+  // what_look
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_look',
-    'Get computed visual info about a component WITHOUT an image: bounding rect, key CSS styles, text content, child element types, accessibility info, and layout classification. Much cheaper than a screenshot (~300-500 tokens). Use this first before what_screenshot.',
+    'A component\'s visual facts without an image: bounding box, layout, key computed styles, text, child element counts, accessibility. About 300-500 tokens; use before what_screenshot.',
     {
-      componentId: z.number().describe('Component ID (from what_components)'),
+      componentId: z.number().describe('Component id (from what_components)'),
+      session: sessionParam(z),
     },
-    async ({ componentId }) => {
-      if (!bridge.isConnected()) return noConnection('what_look');
-
-      try {
-        const result = await bridge.sendCommand('visual-inspect', { componentId }, 5000);
-        if (result.error) {
-          return errorResponse(result.error, ['Use what_components to list available IDs.']);
-        }
-
-        const { componentName, boundingRect, styles, textContent, childElements, totalChildren, layout, viewport, accessibility } = result;
-
-        const childDesc = Object.entries(childElements || {}).map(([k, v]) => `${v} ${k}${v > 1 ? 's' : ''}`).join(', ');
-
-        const summary = `${componentName}: ${boundingRect.width}×${boundingRect.height}px at (${boundingRect.x},${boundingRect.y}). ` +
-          `Layout: ${layout}. ` +
-          (childDesc ? `Contains: ${childDesc}. ` : '') +
-          (textContent && textContent !== '(empty)' ? `Text: "${textContent.substring(0, 80)}${textContent.length > 80 ? '...' : ''}"` : 'No text content.');
-
+    async ({ componentId, session: sid }) => ask(sid, 'visual-inspect', { componentId }, {
+      hint: () => 'Ids change on remount; call what_components again.',
+      ok: ({ data, seq }) => {
+        const { componentName, boundingRect, styles, textContent, childElements, totalChildren, layout, viewport, accessibility } = data;
         return ok({
-          summary,
           component: componentName,
+          ...sourceFields(data),
           boundingRect,
           layout,
           styles,
-          textContent,
+          textContent: pageText(textContent, 200),
           childElements,
           totalChildren,
-          accessibility,
+          ...(accessibility ? { accessibility: { ...accessibility, ...(accessibility.ariaLabel ? { ariaLabel: pageText(accessibility.ariaLabel, 120) } : {}) } } : {}),
           viewport,
-        });
-      } catch (e) {
-        return errorResponse(`Failed: ${e.message}`, ['Check what_connection_status']);
-      }
-    }
+          note: UNTRUSTED_NOTE,
+        }, seq);
+      },
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 12 — what_page_map (full page layout skeleton)
+  // what_page_map
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_page_map',
-    'Get a structured map of the entire visible page: landmarks, interactive elements, headings, and WhatFW component boundaries with positions. No image — pure structured text (~500-1000 tokens). Use this to understand the full page layout.',
+    'Map of the visible page without an image: landmarks, interactive elements, headings and What component boundaries with positions.',
     {
-      maxElements: z.number().optional().default(200).describe('Max elements to include (default: 200)'),
+      maxElements: z.number().optional().default(200).describe('Max elements (default 200)'),
+      session: sessionParam(z),
     },
-    async ({ maxElements }) => {
-      if (!bridge.isConnected()) return noConnection('what_page_map');
-
-      try {
-        const result = await bridge.sendCommand('page-map', { maxElements: maxElements || 200 }, 5000);
-        if (result.error) {
-          return errorResponse(result.error);
-        }
-
-        const { viewport, landmarks, interactives, headings, components, totalElements } = result;
-
-        const summary = `Page map: ${viewport.width}×${viewport.height} viewport. ` +
-          `${landmarks?.length || 0} landmarks, ` +
-          `${interactives?.length || 0} interactive elements, ` +
-          `${headings?.length || 0} headings, ` +
-          `${components?.length || 0} WhatFW components. ` +
-          `${totalElements} total elements mapped.`;
-
-        return ok({
-          summary,
-          viewport,
-          landmarks: landmarks || [],
-          interactives: interactives || [],
-          headings: headings || [],
-          components: components || [],
-          totalElements,
-        });
-      } catch (e) {
-        return errorResponse(`Failed: ${e.message}`, ['Check what_connection_status']);
-      }
-    }
+    async ({ maxElements, session: sid }) => ask(sid, 'page-map', { maxElements: maxElements || 200 }, {
+      ok: ({ data, seq }) => ok({
+        viewport: data.viewport,
+        landmarks: (data.landmarks || []).map((l) => ({ ...l, text: pageText(l.text, 50) })),
+        interactives: (data.interactives || []).map((i) => ({ ...i, label: pageText(i.label, 40) })),
+        headings: (data.headings || []).map((h) => ({ ...h, text: pageText(h.text, 80) })),
+        components: data.components || [],
+        totalElements: data.totalElements,
+        note: UNTRUSTED_NOTE,
+      }, seq),
+    })
   );
 
   // ---------------------------------------------------------------------------
-  // Tool 13 — what_screenshot (component-level screenshot via foreignObject SVG)
+  // what_screenshot
   // ---------------------------------------------------------------------------
 
   server.tool(
     'what_screenshot',
-    'Capture a component-level screenshot. Returns a base64-encoded image cropped to JUST the component bounding box (5-20KB, not a full page screenshot). Use what_look first for cheaper text-based inspection.',
+    'Image of one component, cropped to its bounding box (5-20 KB). Use what_look first; it is cheaper and usually enough.',
     {
-      componentId: z.number().describe('Component ID (from what_components)'),
-      maxWidth: z.number().optional().default(400).describe('Max image width in px — smaller = faster + cheaper (default: 400)'),
-      quality: z.number().optional().default(0.7).describe('JPEG quality 0.1-1.0 (default: 0.7)'),
-      format: z.enum(['jpeg', 'png']).optional().default('jpeg').describe('Image format — jpeg is smaller (default: jpeg)'),
+      componentId: z.number().describe('Component id (from what_components)'),
+      maxWidth: z.number().optional().default(400).describe('Max width in px (default 400)'),
+      quality: z.number().optional().default(0.7).describe('JPEG quality 0.1-1.0 (default 0.7)'),
+      format: z.enum(['jpeg', 'png']).optional().default('jpeg').describe('Image format (default jpeg)'),
+      session: sessionParam(z),
     },
-    async ({ componentId, maxWidth, quality, format }) => {
-      if (!bridge.isConnected()) return noConnection('what_screenshot');
-
-      try {
-        const result = await bridge.sendCommand('component-screenshot', {
-          componentId,
-          maxWidth: maxWidth || 400,
-          quality: quality || 0.7,
-          format: format || 'jpeg',
-        }, 10000); // 10s timeout for rendering
-
-        if (result.error) {
-          return errorResponse(result.error, [
-            result.fallback || 'Use what_look for text-based visual info.',
-            'Use what_dom_inspect for HTML structure.',
-          ]);
-        }
-
-        const sizeKB = Math.round(result.sizeBytes / 1024);
-        const summary = `Screenshot of "${result.componentName}": ${result.width}x${result.height}px, ${sizeKB}KB ${result.format.toUpperCase()}`;
-
-        // Return MCP image content block + metadata text
-        return {
-          content: [
-            {
-              type: 'image',
-              data: result.base64,
-              mimeType: result.mimeType || (result.format === 'png' ? 'image/png' : 'image/jpeg'),
-            },
-            {
-              type: 'text',
-              text: JSON.stringify({
-                summary,
-                componentName: result.componentName,
-                width: result.width,
-                height: result.height,
-                sizeKB,
-                format: result.format,
-              }, null, 2),
-            },
-          ],
-        };
-      } catch (e) {
-        return errorResponse(`Screenshot failed: ${e.message}`, [
-          'Use what_look for text-based visual info without an image.',
-          'Use what_dom_inspect for HTML structure.',
-        ]);
-      }
-    }
+    async ({ componentId, maxWidth, quality, format, session: sid }) => ask(sid, 'component-screenshot', {
+      componentId,
+      maxWidth: maxWidth || 400,
+      quality: quality || 0.7,
+      format: format || 'jpeg',
+    }, {
+      hint: (data) => data.fallback || 'what_look gives the same facts as text.',
+      failHint: 'what_look gives the same facts as text.',
+      ok: ({ data, seq }) => ({
+        content: [
+          { type: 'image', data: data.base64, mimeType: data.mimeType || (data.format === 'png' ? 'image/png' : 'image/jpeg') },
+          { type: 'text', text: JSON.stringify({ component: data.componentName, ...sourceFields(data), width: data.width, height: data.height, kb: Math.round(data.sizeBytes / 1024), seq }) },
+        ],
+      }),
+    }, 10000)
   );
 }

@@ -3,20 +3,45 @@
 // so TypeScript consumers need these; the package shipped without any types
 // until 0.13.1.
 
+export interface DevToolsSource {
+  owner?: string;
+  loc?: string;
+}
+
+export interface DevToolsAsyncState {
+  status: 'unresolved' | 'pending' | 'ready' | 'errored';
+  inFlight?: { run: number; startedAt: number };
+  lastError?: string;
+}
+
+export interface DevToolsHydration {
+  hydrated: true;
+  adopted: number;
+  created: number;
+}
+
 /** A tracked signal, as returned by {@link getSnapshot}. */
-export interface DevToolsSignal {
+export interface DevToolsSignal extends DevToolsSource {
   id: number;
   name: string;
   /** Read with `peek()`, so taking a snapshot never creates a subscription. */
   value: unknown;
+  /** Writes since registration: two snapshots differ exactly when this does. */
+  rev: number;
   componentId: number | null;
 }
 
-/** A tracked effect, as returned by {@link getSnapshot}. */
-export interface DevToolsEffect {
+/** A tracked effect or computed, as returned by {@link getSnapshot}. */
+export interface DevToolsEffect extends DevToolsSource {
   id: number;
   name: string;
+  kind: 'effect' | 'computed';
+  binding?: true;
+  async?: DevToolsAsyncState;
+  /** Signals it read in its latest run. */
   depSignalIds: number[];
+  /** Computeds (by their effect id) it read in its latest run. */
+  depComputedIds: number[];
   runCount: number;
   /** `Date.now()` of the last run, or null if it has not run yet. */
   lastRunAt: number | null;
@@ -24,19 +49,22 @@ export interface DevToolsEffect {
 }
 
 /** A mounted component, as returned by {@link getSnapshot}. */
-export interface DevToolsComponent {
+export interface DevToolsComponent extends DevToolsSource {
   id: number;
   name: string;
   parentId: number | null;
 }
 
 /** A captured error. The buffer holds the most recent 100. */
-export interface DevToolsError {
+export interface DevToolsError extends DevToolsSource {
+  name?: string;
   message: string;
   stack: string | null;
-  /** Where it came from, e.g. 'effect' or 'unknown'. */
+  /** Where it came from: 'effect', 'effect-cleanup', 'cleanup' (an onCleanup callback), 'uncaught' or 'unhandled-rejection'. */
   type: string;
   effectId: number | null;
+  /** The ERR_* code the thrown error carried, when it had one. */
+  code?: string;
   timestamp: number;
 }
 
@@ -56,7 +84,14 @@ export type DevToolsEvent =
   | 'effect:disposed'
   | 'component:mounted'
   | 'component:unmounted'
-  | 'error:captured';
+  | 'error:captured'
+  /** A coded what-core diagnostic; the payload is a what-core DiagnosticEvent. */
+  | 'diagnostic'
+  | 'async:start' | 'async:land' | 'async:unresolved' | 'async:ready' | 'async:errored'
+  | 'transition:open' | 'transition:merged' | 'transition:commit'
+  | 'optimistic:add' | 'optimistic:drop'
+  | 'suspense:waiting' | 'suspense:revealed' | 'suspense:disposed'
+  | 'hydration:complete';
 
 /** Minimal shape of a what-core signal accessor, as devtools sees it. */
 export interface TrackedSignal<T = unknown> {
@@ -71,13 +106,35 @@ export interface TrackedSignal<T = unknown> {
 export function _suppressDevtools<T>(fn: () => T): T;
 
 /**
- * Convert a value to something structured-cloneable and depth-limited, for
- * sending over the MCP bridge.
+ * A JSON-safe preview of any value, about `budget` characters of JSON at most
+ * (default 300). Long strings, collections and objects end with an explicit
+ * marker; circular references, DOM nodes, functions and throwing getters
+ * become descriptive strings. Never throws.
  */
-export function safeSerialize(value: unknown, depth?: number, seen?: WeakSet<object>): unknown;
+export function preview(value: unknown, budget?: number): unknown;
+
+/** A larger-budget {@link preview} (default 2000), for sending over the MCP bridge. */
+export function safeSerialize(value: unknown, budget?: number): unknown;
+
+/** The registry as the MCP bridge reads it: every entry, with only signal values previewed. */
+export interface DevToolsState {
+  signals: DevToolsSignal[];
+  effects: Array<Omit<DevToolsEffect, 'lastRunAt'> & {
+    /** The dependencies whose change caused the latest re-run (absent after a first run). */
+    causeSignalIds?: number[];
+    causeComputedIds?: number[];
+  }>;
+  components: DevToolsComponent[];
+  hydration: DevToolsHydration | null;
+  work: Array<DevToolsSource & { id: number; kind: 'transition' | 'suspense'; name: string; startedAt: number }>;
+}
+
+/** The whole registry, JSON-safe, with each signal value previewed within `budget`. */
+export function getState(opts?: { budget?: number }): DevToolsState;
 
 export function registerSignal(sig: TrackedSignal, name?: string): number;
-export function notifySignalUpdate(sig: TrackedSignal): void;
+/** Called by the engine after a write, with the new and the previous value. */
+export function notifySignalUpdate(sig: TrackedSignal, next?: unknown, prev?: unknown): void;
 export function unregisterSignal(sig: TrackedSignal): void;
 
 export function registerEffect(e: object, name?: string): number;
@@ -87,6 +144,7 @@ export function registerComponent(
   name: string,
   element: Node | null,
   parentDevId?: number | null,
+  owner?: object,
 ): number;
 export function unregisterComponent(id: number): void;
 
@@ -101,6 +159,17 @@ export function getSnapshot(opts?: { includeInternal?: boolean }): DevToolsSnaps
 export function getErrors(opts?: { since?: number }): DevToolsError[];
 
 /**
+ * Coded diagnostics what-core reported after `since`, oldest first. Pass the
+ * returned `seq` back as the next `since`. Empty until installDevTools has
+ * wired a what-core that has the diagnostics channel.
+ */
+export function getDiagnostics(opts?: { since?: number }): {
+  events: import('what-core').DiagnosticEvent[];
+  seq: number;
+  dropped: number;
+};
+
+/**
  * Install devtools. Call once at app startup. Wires into what-core's `__DEV__`
  * hooks and exposes `window.__WHAT_DEVTOOLS__`. Idempotent.
  *
@@ -108,7 +177,7 @@ export function getErrors(opts?: { since?: number }): DevToolsError[];
  */
 export function installDevTools(core?: object): void;
 
-export const signals: Map<number, { name: string; ref: TrackedSignal; createdAt: number; internal?: boolean }>;
-export const effects: Map<number, { name: string; createdAt: number; depSignalIds: number[]; runCount: number; lastRunAt: number | null }>;
+export const signals: Map<number, { name: string; ref: TrackedSignal; rev: number; createdAt: number; internal?: boolean }>;
+export const effects: Map<number, { name: string; kind: 'effect' | 'computed'; createdAt: number; depSignalIds: number[]; depComputedIds: number[]; runCount: number; lastRunAt: number | null }>;
 export const components: Map<number, { name: string; element: Node | null; mountedAt: number; parentId: number | null }>;
 export const errors: DevToolsError[];

@@ -1,17 +1,8 @@
 // What Framework - Animation Primitives
 // Springs, tweens, gestures, and transition helpers
 
-import { signal, effect, untrack, batch } from './reactive.js';
-import { getCurrentComponent } from './dom.js';
+import { signal, effect, batch, onCleanup, createRoot, untrack, _userEffect } from './reactive.js';
 import { scheduleRead, scheduleWrite } from './scheduler.js';
-
-// Create an effect scoped to the current component's lifecycle
-function scopedEffect(fn) {
-  const ctx = getCurrentComponent?.();
-  const dispose = effect(fn);
-  if (ctx) ctx.effects.push(dispose);
-  return dispose;
-}
 
 // --- Spring Animation ---
 // Physics-based animation with natural feel
@@ -106,12 +97,8 @@ export function spring(initialValue, options = {}) {
     });
   }
 
-  // Register stop() as cleanup if inside a component
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(stop);
-  }
+  // Stop when the owner (the component using the spring) goes away.
+  onCleanup(stop);
 
   return {
     current: () => current(),
@@ -150,7 +137,8 @@ export function tween(from, to, options = {}) {
     const t0 = /** @type {number} */ (startTime);
 
     const elapsed = time - t0;
-    const t = Math.min(elapsed / duration, 1);
+    // A zero duration ends on the first frame (0 / 0 would be NaN).
+    const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
     const easedT = easing(t);
     const currentValue = from + (to - from) * easedT;
 
@@ -171,14 +159,19 @@ export function tween(from, to, options = {}) {
 
   rafId = requestAnimationFrame(tick);
 
+  function cancel() {
+    if (rafId) cancelAnimationFrame(rafId);
+    isAnimating.set(false);
+  }
+  // Stop when the owner (the component using the tween) goes away, as a
+  // spring does.
+  onCleanup(cancel);
+
   return {
     progress: () => progress(),
     value: () => value(),
     isAnimating: () => isAnimating(),
-    cancel: () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      isAnimating.set(false);
-    },
+    cancel,
     subscribe: value.subscribe,
   };
 }
@@ -205,37 +198,55 @@ export const easings = {
   },
 };
 
-// --- useTransition Hook ---
-// Animate between states
+// --- useTween ---
+// Progress from 0 to 1 over `duration`, eased, as a signal. One run at a
+// time: start() stops the run in flight (its promise resolves, its callback
+// does not run), and the owner going away stops it.
 
-export function useTransition(options = {}) {
+export function useTween(options = {}) {
   const { duration = 300, easing = easings.easeOutQuad } = options;
 
   const isTransitioning = signal(false);
   const progress = signal(0);
+  /** @type {{ frame: number, resolve: () => void } | null} */
+  let run = null;
+
+  const stopRun = () => {
+    const stopped = run;
+    if (stopped === null) return;
+    run = null;
+    cancelAnimationFrame(stopped.frame);
+    stopped.resolve();
+  };
+  onCleanup(stopRun);
 
   async function start(callback) {
+    stopRun();
     isTransitioning.set(true);
     progress.set(0);
 
     return /** @type {Promise<void>} */ (new Promise((resolve) => {
       const startTime = performance.now();
+      const own = { frame: 0, resolve };
+      run = own;
 
       function tick(time) {
+        if (run !== own) return;
         const elapsed = time - startTime;
         const t = Math.min(elapsed / duration, 1);
         progress.set(easing(t));
 
         if (t < 1) {
-          requestAnimationFrame(tick);
+          own.frame = requestAnimationFrame(tick);
         } else {
+          run = null;
           isTransitioning.set(false);
           if (callback) callback();
           resolve();
         }
       }
 
-      requestAnimationFrame(tick);
+      own.frame = requestAnimationFrame(tick);
     }));
   }
 
@@ -276,6 +287,9 @@ export function useGesture(element, handlers = {}) {
   let lastY = 0;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let longPressTimer = null;
+  // Whether this gesture was reported as a long press, which is then not
+  // also a tap.
+  let longPressed = false;
 
   function handleStart(e) {
     const touch = e.touches ? e.touches[0] : e;
@@ -284,14 +298,26 @@ export function useGesture(element, handlers = {}) {
     lastX = touch.clientX;
     lastY = touch.clientY;
     lastTime = performance.now();
+    // A new gesture starts from rest: the last one's travel and velocity
+    // would read as this one's (a tap after a swipe, swiping again).
+    batch(() => {
+      state.currentX.set(touch.clientX);
+      state.currentY.set(touch.clientY);
+      state.deltaX.set(0);
+      state.deltaY.set(0);
+      state.velocity.set({ x: 0, y: 0 });
+    });
 
     state.isDragging.set(true);
     if (onDragStart) onDragStart({ x: state.startX, y: state.startY });
 
     // Long press detection
+    longPressed = false;
     if (onLongPress) {
       longPressTimer = setTimeout(() => {
+        longPressTimer = null;
         if (state.isDragging.peek()) {
+          longPressed = true;
           onLongPress({ x: lastX, y: lastY });
         }
       }, 500);
@@ -359,7 +385,7 @@ export function useGesture(element, handlers = {}) {
     const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
 
     // Tap detection
-    if (distance < 10 && onTap) {
+    if (distance < 10 && onTap && !longPressed) {
       onTap({ x: state.startX, y: state.startY });
     }
 
@@ -411,23 +437,18 @@ export function useGesture(element, handlers = {}) {
     initialPinchDistance = null;
   }
 
-  // Attach listeners
-  if (typeof element === 'function') {
-    // Ref function
-    scopedEffect(() => {
-      const el = untrack(element);
-      if (!el) return;
-      return attachListeners(el);
-    });
-  } else if (element?.current !== undefined) {
-    // Ref object
-    scopedEffect(() => {
-      const el = element.current;
+  // Attach listeners. A ref (an object's `current`, or a function that
+  // returns the element) is read once the component's output is in place, as
+  // useEffect runs: the component body runs before its element exists. A
+  // function that reads a signal attaches again when the signal changes.
+  if (typeof element === 'function' || element?.current !== undefined) {
+    _userEffect(() => {
+      const el = typeof element === 'function' ? element() : element.current;
       if (!el) return;
       return attachListeners(el);
     });
   } else if (element) {
-    attachListeners(element);
+    onCleanup(attachListeners(element));
   }
 
   function attachListeners(el) {
@@ -456,10 +477,37 @@ export function useGesture(element, handlers = {}) {
 }
 
 // --- useAnimatedValue Hook ---
-// Like React Native's Animated.Value
+// Like React Native's Animated.Value. One animation is in flight at a time:
+// spring() and timing() stop the one before, so the value ends on the newest
+// target, and the owner going away stops it. Each animation lives in a root
+// of its own, which a spring disposes once it has settled.
 
 export function useAnimatedValue(initialValue) {
   const value = signal(initialValue);
+  /** @type {(() => void) | null} */
+  let running = null;
+  const stopRunning = () => {
+    const stop = running;
+    running = null;
+    if (stop !== null) stop();
+  };
+  onCleanup(stopRunning);
+
+  // Runs `start` in a root that stopping the animation disposes; `start`
+  // gets the function that ends it.
+  const animate = (start) => {
+    stopRunning();
+    const stop = createRoot((dispose) => {
+      const end = () => {
+        if (running === end) running = null;
+        dispose();
+      };
+      untrack(() => start(end));
+      return end;
+    });
+    running = stop;
+    return { stop: () => { if (running === stop) stopRunning(); } };
+  };
 
   return {
     value: () => value(),
@@ -467,28 +515,28 @@ export function useAnimatedValue(initialValue) {
 
     // Spring to target
     spring(toValue, config = {}) {
-      const s = spring(value.peek(), config);
-      s.set(toValue);
-
-      const dispose = effect(() => {
-        value.set(s.current());
+      return animate((end) => {
+        const s = spring(value.peek(), config);
+        s.set(toValue);
+        effect(() => {
+          value.set(s.current());
+          if (!s.isAnimating()) end();
+        });
       });
-
-      return {
-        stop: () => { s.stop(); dispose(); },
-      };
     },
 
     // Tween to target
     timing(toValue, config = {}) {
-      const t = tween(value.peek(), toValue, {
-        ...config,
-        onUpdate: (v) => value.set(v),
+      return animate((end) => {
+        tween(value.peek(), toValue, {
+          ...config,
+          onUpdate: (v) => value.set(v),
+          onComplete: () => {
+            end();
+            if (config.onComplete) config.onComplete();
+          },
+        });
       });
-
-      return {
-        stop: () => t.cancel(),
-      };
     },
 
     // Interpolate value

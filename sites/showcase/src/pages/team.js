@@ -1,6 +1,7 @@
 // Team — showcases: useSWR, search with signals, skeleton loaders, For, Show, effects, useRef
-import { h, useState, useEffect, useRef, useMemo, useSWR, announce } from 'what-framework';
-import { useAppStore } from '../app.js';
+import { h, useState, useEffect, useRef, useMemo } from 'what-framework';
+import { useSWR } from 'what-framework/data';
+import { announce } from 'what-framework/a11y';
 import { fetchPeople } from '../data.js';
 
 // ─── Team Member Card ───
@@ -37,12 +38,13 @@ function MemberSkeleton() {
 }
 
 // ─── Stats Bar ───
+// `people` is an accessor; each count is a function child that follows it.
 function TeamStats({ people }) {
-  const list = people || [];
-  const online = list.filter(p => p.status === 'online').length;
-  const away = list.filter(p => p.status === 'away').length;
-  const offline = list.filter(p => p.status === 'offline').length;
-  const total = list.length;
+  const list = () => people() || [];
+  const total = () => list().length;
+  const online = () => list().filter(p => p.status === 'online').length;
+  const away = () => list().filter(p => p.status === 'away').length;
+  const offline = () => list().filter(p => p.status === 'offline').length;
 
   return h('div', { class: 'flex gap-4 mb-4', style: 'flex-wrap: wrap;' },
     h('span', { class: 'text-sm' },
@@ -69,40 +71,32 @@ function TeamStats({ people }) {
 
 // ─── Team Page ───
 export function Team() {
-  useAppStore(); // subscribes this page to the store
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const inputRef = useRef(null);
 
-  // SWR-cached people fetch — re-fetches when query changes
+  // SWR-cached people fetch. The key is a function of the query, so a new
+  // query fetches its own entry and a query seen before is served from cache.
   const { data, isLoading, error, mutate } = useSWR(
-    `people-${query}`,
-    () => fetchPeople(query),
+    () => ['people', query()],
+    () => fetchPeople(query()),
     { revalidateOnFocus: false },
   );
 
-  // Re-fetch when query changes (debounced by SWR deduping)
-  useEffect(() => {
-    mutate();
-  }, [query]);
-
   // Filter by status client-side
-  const dataVal = data();
   const filtered = useMemo(() => {
-    const people = dataVal || [];
-    if (statusFilter === 'all') return people;
-    return people.filter(p => p.status === statusFilter);
-  }, [dataVal, statusFilter]);
+    const people = data() || [];
+    if (statusFilter() === 'all') return people;
+    return people.filter(p => p.status === statusFilter());
+  });
 
   // Focus search on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const loading = isLoading();
-  const hasError = error();
-  const noResults = !loading && !hasError && filtered.length === 0;
-  const hasResults = !loading && !hasError && filtered.length > 0;
+  const noResults = () => !isLoading() && !error() && filtered().length === 0;
+  const hasResults = () => !isLoading() && !error() && filtered().length > 0;
 
   return h('div', null,
     // Search bar
@@ -123,23 +117,23 @@ export function Team() {
       h('div', { class: 'flex gap-2' },
         ...['all', 'online', 'away', 'offline'].map(s =>
           h('button', {
-            class: `btn btn-sm${statusFilter === s ? ' btn-primary' : ''}`,
+            class: () => `btn btn-sm${statusFilter() === s ? ' btn-primary' : ''}`,
             onClick: () => { setStatusFilter(s); announce(`Filtering: ${s}`); },
           }, s.charAt(0).toUpperCase() + s.slice(1)),
         ),
       ),
-      h(TeamStats, { people: data() || [] }),
+      h(TeamStats, { people: data }),
     ),
 
     // Loading skeleton
-    loading
+    () => isLoading()
       ? h('div', { class: 'team-grid' },
           ...[1,2,3,4,5,6].map(() => h(MemberSkeleton)),
         )
       : null,
 
     // Error state
-    hasError
+    () => error()
       ? h('div', { class: 'empty-state' },
           h('div', { class: 'empty-state-title' }, 'Failed to load team'),
           h('button', { class: 'btn btn-primary mt-4', onClick: () => mutate() }, 'Retry'),
@@ -147,18 +141,18 @@ export function Team() {
       : null,
 
     // Empty state
-    noResults
+    () => noResults()
       ? h('div', { class: 'empty-state' },
           h('div', { class: 'empty-state-icon' }, '🔍'),
           h('div', { class: 'empty-state-title' }, 'No results'),
-          h('div', { class: 'empty-state-desc' }, `No team members match "${query}"`),
+          h('div', { class: 'empty-state-desc' }, `No team members match "${query()}"`),
         )
       : null,
 
     // Results grid
-    hasResults
+    () => hasResults()
       ? h('div', { class: 'team-grid' },
-          ...filtered.map(person =>
+          ...filtered().map(person =>
             h(MemberCard, { key: person.id, person }),
           ),
         )

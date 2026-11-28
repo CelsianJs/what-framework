@@ -189,19 +189,6 @@ describe('CSRF token generation', () => {
 });
 
 // =========================================================================
-// 1g. template() internal — _template alias exists
-// =========================================================================
-
-describe('template internal', () => {
-  it('should export _template as an alias', async () => {
-    const render = await import('../src/render.js');
-    assert.equal(typeof render.template, 'function');
-    assert.equal(typeof render._template, 'function');
-    assert.equal(render.template, render._template);
-  });
-});
-
-// =========================================================================
 // 1h. Object.create(null) for EMPTY_OBJ in h.js
 // =========================================================================
 
@@ -219,30 +206,26 @@ describe('h() prototype-safe props', () => {
 });
 
 // =========================================================================
-// 2. Props Proxy — __proto__ / constructor / prototype guard
+// 2. Props — __proto__ / constructor / prototype guard
 // =========================================================================
 
 describe('props proxy prototype-chain guard', () => {
-  it('props.__proto__ returns undefined', async () => {
+  // Props are plain objects, as React's are (dom.js _newProps): their
+  // prototype is Object.prototype. What protects is that no copy of them sets
+  // a prototype with a key named `__proto__` (props-plain-object.test.js).
+  it('props are a plain object: Object.prototype, and a prop named __proto__ sets no prototype', async () => {
     let captured = 'NOT_SET';
     function TestComp(props) {
-      captured = props.__proto__;
+      captured = props;
       return h('div', {}, 'test');
     }
-    mount(h(TestComp, { normalProp: 42 }), getContainer());
+    mount(h(TestComp, JSON.parse('{"normalProp": 42, "__proto__": {"polluted": true}}')), getContainer());
     await flush();
-    assert.equal(captured, undefined);
-  });
-
-  it('props.constructor returns undefined', async () => {
-    let captured = 'NOT_SET';
-    function TestComp(props) {
-      captured = props.constructor;
-      return h('div', {}, 'test');
-    }
-    mount(h(TestComp, { normalProp: 42 }), getContainer());
-    await flush();
-    assert.equal(captured, undefined);
+    assert.equal(Object.getPrototypeOf(captured), Object.prototype);
+    assert.equal(captured.constructor, Object);
+    assert.equal(captured.polluted, undefined);
+    assert.equal(Object.hasOwn(captured, '__proto__'), true);
+    assert.equal(({}).polluted, undefined);
   });
 
   it('props.prototype returns undefined', async () => {

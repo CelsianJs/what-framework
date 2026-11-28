@@ -15,6 +15,7 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 
 import { installDOM } from '../../../test-utils/dom.js';
+import { islandServerRender } from '../../../scripts/lib/hydration-markup.mjs';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const createWhat = resolve(repoRoot, 'packages/create-what/index.js');
@@ -78,6 +79,7 @@ before(async () => {
     const dev = { script: '/src/entry-client.js', stylesheet: '/src/styles.css' };
     console.log(JSON.stringify({
       pages,
+      devHome: await renderRoute('/', dev),
       trailingSlash: await renderRoute('/about/', dev),
       unknown: await renderRoute('/nope', dev),
     }));
@@ -114,6 +116,22 @@ test('the home page is complete HTML with the island server-rendered inside its 
 
   assert.ok(doc.querySelector(`script[type="module"][src="${ASSETS.script}"]`), 'loads the hashed client entry');
   assert.ok(doc.querySelector(`link[rel="stylesheet"][href="${ASSETS.stylesheet}"]`), 'links the hashed stylesheet');
+});
+
+// scripts/smoke-scaffold.mjs makes this check over the real dev server and
+// build, with the same helper. The HTML carries the hydration protocol (data-hk
+// keys, <!--$--> around the reactive count), so a check for the counter's markup
+// reads it without the protocol; matching the raw HTML would fail on correct
+// output, as the 0.15 scaffold smoke did.
+test('the island\'s server render is inside its marker, in the dev render and the built page', () => {
+  const counter = '<output aria-live="polite">3</output>';
+  for (const [label, html] of [['dev', rendered.devHome], ['built', homeHtml]]) {
+    assert.match(html, /<output aria-live="polite"><!--\$-->3<!--\/\$--><\/output>/, `${label}: the reactive count is a hydration region`);
+    const inner = islandServerRender(html, 'counter');
+    assert.ok(inner, `${label}: the page has the counter island`);
+    assert.ok(inner.startsWith('<div class="counter">') && inner.includes(counter), `${label}: the counter renders inside the island (got ${inner})`);
+  }
+  assert.equal(islandServerRender(aboutHtml, 'counter'), null);
 });
 
 test('a page without islands is static HTML with no island marker', () => {

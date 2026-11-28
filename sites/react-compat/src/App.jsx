@@ -122,6 +122,7 @@ function FilterBar({ active, onSelect }) {
         const count = cat === 'All' ? pkgs.length : pkgs.filter(p => p.c === cat).length;
         return (
           <button
+            key={cat}
             class={() => `filter-btn ${cat === active() ? 'active' : ''}`}
             onclick={() => onSelect(cat)}
           >
@@ -425,13 +426,15 @@ function Benchmarks() {
     return () => obs.disconnect();
   }, []);
 
-  // Honest, internal relative measurement from benchmark/krausest/RESULTS.md.
-  // geometric mean vs vanilla JS in a krausest-style keyed harness (lower is better).
+  // Honest, internal relative measurement from benchmark/krausest/RESULTS.md
+  // (git 0560c4e6): the "no CPU throttling, script only" table, geometric mean
+  // of the nine operations vs vanilla JS (lower is better).
   const benchmarks = [
-    { x: '1.00x', lib: 'Vanilla JS', met: 'Baseline (geomean vs vanilla)' },
-    { x: '1.06x', lib: 'What', met: 'Geomean vs vanilla' },
-    { x: '1.13x', lib: 'React', met: 'Geomean vs vanilla' },
-    { x: '1.15x', lib: 'Solid', met: 'Geomean vs vanilla' },
+    { x: '1.00x', lib: 'Vanilla JS', met: 'Baseline (script time)' },
+    { x: '1.42x', lib: 'What', met: 'Script time vs vanilla' },
+    { x: '1.61x', lib: 'Solid 1.9', met: 'Script time vs vanilla' },
+    { x: '1.62x', lib: 'Solid 2.0', met: 'Script time vs vanilla' },
+    { x: '5.68x', lib: 'React 19', met: 'Script time vs vanilla' },
   ];
 
   return (
@@ -440,11 +443,11 @@ function Benchmarks() {
         <div class="reveal" ref={headerRef}>
           <div class="section-label">Performance</div>
           <h2 class="section-title">Signals, Not Diffing.</h2>
-          <p class="section-desc" style="margin: 0 auto;">In our own krausest-style keyed benchmark, What's engine geomeans 1.06x vanilla JS — ahead of React (1.13x) and Solid (1.15x) in the same harness. This is an internal relative measurement, not the official js-framework-benchmark: no CPU throttling, fewer samples, in-page timing. Use it for relative ordering only.</p>
+          <p class="section-desc" style="margin: 0 auto;">In our own krausest-style keyed benchmark, What's script time is 1.42x vanilla JS's (geometric mean of nine operations, no CPU throttling, median of 10 samples in headless Chromium), against Solid 1.9 at 1.61x, Solid 2.0 at 1.62x and React 19 at 5.68x in the same harness. Counted to the next frame, with style and layout, all five land between 0.97x and 1.03x of vanilla. This is an internal relative measurement, not the official js-framework-benchmark: fewer samples, in-page timing. Use it for relative ordering only.</p>
         </div>
         <div class="bench-cards stagger" ref={cardsRef}>
           {benchmarks.map(b => (
-            <div class="bench-card">
+            <div key={b.lib} class="bench-card">
               <div class="bench-x">{b.x}</div>
               <div class="bench-lib">{b.lib}</div>
               <div class="bench-met">{b.met}</div>

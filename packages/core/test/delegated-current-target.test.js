@@ -1,4 +1,4 @@
-// SPRINT v0.11 C9 — e.currentTarget shim in the delegated event walk.
+// The e.currentTarget shim in the delegated event walk.
 // Document-level delegation walks event.target upward looking for $$event
 // handlers. Without a shim, handlers see e.currentTarget === document (the
 // real listener), breaking the `self` event modifier and any handler relying

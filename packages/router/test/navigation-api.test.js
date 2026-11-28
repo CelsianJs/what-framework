@@ -140,6 +140,9 @@ describe('redirect()', () => {
       assert.fail('redirect should have thrown');
     } catch (e) {
       assert.equal(e.code, 'ERR_UNSAFE_REDIRECT');
+      // In development it reads as a diagnostic prints: the code after
+      // [what], the message, then the line naming its fix.
+      assert.match(e.message, /^\[what\] ERR_UNSAFE_REDIRECT redirect\(\) refused an unsafe target: \/\/evil\.com\/x\n {2}fix: what_fix\(\{ error: "ERR_UNSAFE_REDIRECT" \}\)/);
       assert.ok(e.suggestion && e.suggestion.length > 0, 'error should carry a fix');
       assert.ok(e.codeExample && e.codeExample.includes('redirect('), 'error should carry an example');
     }
@@ -163,7 +166,7 @@ describe('redirect()', () => {
 
     assert.equal(signal.to, '/login', 'the signal names its target');
     assert.equal(signal.name, 'RouterRedirect');
-    assert.ok(signal[Symbol.for('what.router.redirect')], 'the signal is branded');
+    assert.ok(signal[Symbol.for('what.router.redirect.v1')], 'the signal is branded');
     assert.equal(route.path, '/login', 'the redirect should have navigated to /login');
     assert.ok(!container.querySelector('#private'), 'the private page must not render');
   });
@@ -303,7 +306,7 @@ describe('redirect loop detection', () => {
       container = await mountAt('/loop-a', cyclic);
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
     assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
   });
@@ -319,7 +322,7 @@ describe('redirect loop detection', () => {
       container = await mountAt('/sig-a', cyclic);
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
     assert.ok(container.querySelector('.what-redirect-loop'), 'the loop screen should render');
   });
@@ -338,7 +341,7 @@ describe('redirect loop detection', () => {
       for (let i = 0; i < 40; i++) await flush();
     });
 
-    assert.ok(errors.some(e => /Redirect (cycle|loop) detected/.test(e)),
+    assert.ok(errors.some(e => /ERR_REDIRECT_CYCLE [^\n]*Redirect loop/.test(e)),
       `expected a loop diagnostic, got ${JSON.stringify(errors)}`);
   });
 });

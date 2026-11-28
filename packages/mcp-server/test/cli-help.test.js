@@ -1,7 +1,6 @@
-// T3-03 (sprint/audit-fixes-2026-06-09): `what-mcp --help` used to ignore the
-// flag and block on the MCP stdio transport. It must print usage and exit 0
-// before connecting, and the Server init must report the real package version
-// (was hardcoded '0.1.0').
+// `what-mcp --help` must print usage and exit 0 before connecting to the MCP
+// stdio transport, and the Server init must report the real package version,
+// not a hardcoded one.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,7 +1,7 @@
 /**
  * Template Hardening Tests — SVG Namespace & Table Element Wrapping
  *
- * Tests for Sprint 2 runtime fixes:
+ * Covers:
  * 1. SVG elements created in correct namespace via template()
  * 2. Table child elements (tr, td, th, etc.) parsed with proper parent context
  */
@@ -40,24 +40,27 @@ describe('SVG namespace support in template()', () => {
     assert.equal(el.getAttribute('r'), '10');
   });
 
-  it('auto-detects SVG path element in template()', () => {
-    const factory = template('<path d="M0 0L10 10"></path>');
+  // template() takes the markup as given; an SVG element that is not an <svg>
+  // root goes through svgTemplate(), as the compiler's own templates are
+  // flagged at compile time instead of sniffed at runtime.
+  it('creates an inner SVG path via svgTemplate()', () => {
+    const factory = svgTemplate('<path d="M0 0L10 10"></path>');
     const el = factory();
 
     assert.equal(el.tagName.toLowerCase(), 'path');
     assert.equal(el.namespaceURI, 'http://www.w3.org/2000/svg');
   });
 
-  it('auto-detects SVG rect element in template()', () => {
-    const factory = template('<rect x="0" y="0" width="100" height="100"></rect>');
+  it('creates an inner SVG rect via svgTemplate()', () => {
+    const factory = svgTemplate('<rect x="0" y="0" width="100" height="100"></rect>');
     const el = factory();
 
     assert.equal(el.tagName.toLowerCase(), 'rect');
     assert.equal(el.namespaceURI, 'http://www.w3.org/2000/svg');
   });
 
-  it('auto-detects SVG g element in template()', () => {
-    const factory = template('<g><rect x="0" y="0" width="50" height="50"></rect></g>');
+  it('creates an inner SVG g via svgTemplate()', () => {
+    const factory = svgTemplate('<g><rect x="0" y="0" width="50" height="50"></rect></g>');
     const el = factory();
 
     assert.equal(el.tagName.toLowerCase(), 'g');

@@ -1,4 +1,4 @@
-// Client hydration payload reader (Phase 5). Single source of truth for
+// Client hydration payload reader. Single source of truth for
 // useLoaderData + createResource on the client.
 
 import { describe, it, before, after } from 'node:test';

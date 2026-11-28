@@ -13,6 +13,34 @@ Three waves, in this order.
   hand-written and uncompiled; the admin dashboard is a compiled Vite SPA, and
   putting the compiler in the loop exposed a whole second set. Three of these
   five exist only on the compiled path, which is the recommended one.
+- **23** came from the load apps (data-grid, live-feed, workspace).
+- **24 to 27** came from running every app in WebKit and from the two
+  server-rendered load apps, `newsroom` and `workspace-ssr`. One (24) exists
+  only in Safari, and one (26) only showed because a hydrated page compared
+  the two compile targets.
+- **30 to 34** came from three apps with loads the suite lacked: `explorer`
+  (a 10,000-entry recursive tree beside a 300-field form), `chat` (a capped
+  keyed log fed by a server stream that drops) and `board` (cards dragged
+  between keyed lists). Four are in `useForm`, which no app had used at more
+  than a handful of fields; one is the cost of every update to a capped log.
+- **35 to 37** came from two apps with loads the suite lacked: `handbook`
+  (code-split routes whose chunks the check delays, fails and overtakes) and
+  `pulse` (something moving every frame, with the frame loops counted), and
+  from running every app in Firefox.
+- **38 to 42** came from `wizard`, an eight-step insurance quote: one route
+  per step under a shared layout, a step an earlier answer adds, nested
+  field arrays, four kinds of validation, a draft saved as the visitor types
+  and a submit the server validates again. Two are a file input in a form;
+  one is a keyed row moved while a field in it is being typed; two are a
+  form filled from fetched data with `reset()`.
+- **43 to 45** came from `mixed-desk`, the first app that loads React
+  libraries: a native What shell (router, layout, signals store) hosting
+  components from fifteen React packages, with data flowing both ways under
+  load. All three are in what-react: an event a React handler should not
+  hear, a context a React component could not reach, and console noise in
+  Firefox.
+- **46** is the gap `wizard` had worked around by hand (reported as J):
+  `useForm` could not forget a field, so its field arrays could not use it.
 
 Each entry says what broke, why nothing caught it, and where the regression test
 now lives.
@@ -510,7 +538,439 @@ for a navigation that actually succeeded.
 
 ---
 
+### 23. A route layout was built again on every navigation
+`packages/router/src/index.js`, `Router` (`renderMatch`)
+
+Found by the `workspace` app. The wizard's three steps share one layout through
+`nestedRoutes('/new', [...], { layout: WizardLayout })`. Moving from one step to
+the next disposed the layout and built a new one: its state (a tips panel the
+visitor closed) was back to its default, its DOM nodes were new, and anything
+typed into it was gone. The router README's own nested-layout example did the same:
+
+```jsx
+function DashboardLayout({ children }) {
+  const [clicks, setClicks] = useState(0);
+  return <div><button onClick={() => setClicks((c) => c + 1)}>clicks {clicks()}</button><main>{children}</main></div>;
+}
+const routes = nestedRoutes('/dashboard', [
+  { path: '/', component: Home },
+  { path: '/settings', component: Settings },
+], { layout: DashboardLayout });
+// click twice, then follow the Settings link: the button says "clicks 0" again
+```
+
+React Router's `<Outlet>` layouts and Next.js layouts stay mounted while the
+child route changes, so code ported from either loses state here. The
+`globalLayout` persisted by design; route layouts were wrapped around the page
+inside the reactive `content` region, so they rebuilt whenever the page did.
+
+Development made it harder to see: it reported `ERR_REBUILT_COMPONENT` against
+the code that renders the region, which was the router's internal `content` or
+the app's own `<main>{children}</main>` in its `globalLayout`, neither of which
+the developer could change to fix it.
+
+- The Router builds the layout chain in a region of its own, which builds
+  again only when the chain of layouts, the params or the query change; the
+  page is the innermost layout's reactive child. A route with no layout, a
+  404 and a page its middleware declines render as before.
+- The route a URL matches is made once per URL, so the route state written
+  from it is the same objects on both reads and runs no middleware twice.
+- Test: `packages/router/test/nested-layout-persists.test.js`; the
+  `workspace` check "the wizard layout stays mounted, with its state, while the
+  steps change under it".
+
+### 24. FocusTrap let Tab carry focus out of the dialog in Safari
+`packages/core/src/a11y.js`
+
+The first WebKit run failed both focus-trap checks: ops-console
+`escaped=2`, workspace `inside=0010011`. The trap stepped in only at its
+first and last element and left every other Tab to the browser. Safari's
+default Tab reaches form fields only, not buttons or links, so from the last
+field the browser's next stop was outside the dialog. Chromium tabs through
+buttons, which is why every earlier run was green.
+
+- The trap now makes every Tab and Shift+Tab move itself, through its own
+  list in document order, wrapping at both ends.
+- Test: `packages/core/test/a11y.test.js`, "useFocusTrap makes every Tab move
+  itself…".
+
+### 25. A form post's `_redirect` dropped its fragment
+`packages/server/src/action-handler.js`
+
+newsroom's comment form posts without JavaScript with
+`_redirect=/article/<slug>#comments`, and the visitor landed at the top of the
+article. The README says `redirect()` keeps the fragment by the same rule as
+`_redirect`; `redirect()` kept it and `_redirect` did not. The fragment is now
+kept after the same safety check (it never reaches a server, so it cannot
+leave the origin).
+
+- Test: `packages/server/test/csrf-form-actions.test.js`, "keeps the fragment
+  of _redirect…".
+
+### 26. A valueless `aria-*` or `data-*` attribute differed between the two compile targets
+`packages/compiler/src/babel/dom.js`
+
+workspace-ssr's `<span data-user>` arrived from the server as
+`data-user="true"` and was `data-user=""` after hydration. The DOM target's
+template wrote a valueless attribute as empty; the SSR target and both runtimes
+write `aria-*` and `data-*` `true` as `"true"`, as React does. The serious
+half is `aria-hidden`: `aria-hidden=""` is no value in ARIA, so a compiled
+client render of `<span aria-hidden>` stayed visible to assistive technology.
+Hydration took the client's value without a report (G below), which is why
+nothing caught it.
+
+- The DOM template writes a valueless `aria-*`/`data-*` attribute as `"true"`.
+  A client-only app that compared `dataset.x === ''` now sees `'true'`;
+  `[data-x]` selectors match as before.
+- Test: `packages/compiler/test/valueless-enumerated-attr.test.js`.
+
+### 27. Following the README's ISR wiring turned streaming off
+`packages/server/README.md`
+
+The example passed `createRouteRenderer(document)` to `createRequestHandler`
+as well as to the ISR engine. A handler given any `render` renders
+`mode: 'server'` routes buffered: newsroom's first byte went from 26 ms to
+1,204 ms, the time of its slow query. The example now gives the renderer to
+the engine only and says why.
+
+### 28. A guard's re-check redirect replaced a navigation the app started after it
+`packages/router/src/index.js` (`prepare`)
+
+A route's middleware runs again when a signal it read changes. An app that
+wrote that signal and then navigated away in the same tick (reset the draft,
+then go to the created project; sign out, then go to sign-in) lost its
+navigation: the re-check of the page being left redirected, and the redirect
+superseded it. workspace-ssr's wizard landed on step one instead of the new
+project. The page being left now keeps its verdict while a navigation to
+another page is in flight, and decides again when that navigation ends, so a
+navigation that never commits still gets the guard's redirect.
+- Test: `packages/router/test/guard-recheck-supersedes-navigate.test.js`.
+
+### 29. Hydration took the client's attribute without a report
+`packages/core/src/render.js` (`watchAttrs`, `checkAttrs`)
+
+Where the server's attribute differed from the client's, hydration kept the
+client's, as SECURITY.md says, and nothing said so: 26 went unseen because
+of it. Development now reports each one as an `ERR_HYDRATION_MISMATCH` of
+kind `attribute` once the walk is done (onHydrationError hears the same
+records as before, in every build). Run over the five server-rendered apps
+in development, 18 pages: none.
+- Test: `packages/core/test/hydration-attribute-mismatch.test.js`.
+
+### 30. A summary above a form's fields never followed them
+`packages/core/src/form.js` (`fieldCount`)
+
+`formState.values`, `watch()`, `dirtyFields` and `formState.touched` read the
+field signals that existed when they ran. A summary rendered above its fields
+runs before any field is registered, so it subscribed to none of them and
+showed the defaults: explorer's total budget stayed at 5,285 KB through every
+edit, until the scope field (registered above it) changed. `touched` read
+before the first blur never updated at all. A field or touched signal that
+register, setValue or a blur makes now bumps a count those readers read.
+- Test: `packages/core/test/form-whole-form-readers.test.js` (5 of 6 fail
+  before).
+
+### 31. `rules.min` and `rules.max` never fired on a number field
+`packages/core/src/form.js` (`rules`)
+
+A registered `<input type="number">` hands the form a string, and both rules
+checked `typeof value === 'number'`. A budget of `"0"` against `rules.min(1)`
+passed. A numeric string is now compared as the number it spells; a blank or
+non-numeric one is still left to `required` and `pattern`.
+- Test: `packages/core/test/form-number-rules.test.js`.
+
+### 32. An async check's slow answer replaced the answer for what the field held
+`packages/core/src/form.js` (`validate`)
+
+`useForm` applied each resolver answer as it landed. Typing `core-ui` past
+`core` (taken, and slower to look up) showed "@core is taken" on `core-ui`,
+and the first answer to land cleared `isValidating` while three lookups were
+still out. Runs are numbered now: an answer lands only when no later run of
+its field, or of the whole form, started before it, and `isValidating` holds
+until the last one lands.
+- Test: `packages/core/test/form-async-validation-order.test.js` (4 of 5 fail
+  before).
+
+### 33. A keystroke ran every field's rules
+`packages/core/src/form.js` (`validate`, `simpleResolver`)
+
+In `mode: 'onChange'` each keystroke handed the resolver every value and kept
+one field's answer: explorer counted the rules of all 301 fields per
+keystroke, and the slow registry check on the scope delayed every field's
+error (54 ms for a version typo, against 1 ms after). A field's own
+validation now passes `{ names: [field] }`, React Hook Form's resolver
+option, and `simpleResolver` runs only those fields' rules.
+- Test: `packages/core/test/form-field-validation-scope.test.js`.
+
+### 34. Every update to a capped log rebuilt the reconciler's map of keys
+`packages/core/src/render.js` (`slideRows`)
+
+A log capped at N rows drops a row at the start as each message arrives at
+the end; a newest-first feed does the mirror. Both took the general path on
+every update: a single-move probe that scanned every key, a map of the old
+keys and a walk of every row. chat's bursts of 400 messages into 1,000 rows
+made a 73 ms task each (Chromium, profiled; reconcile 115 µs a message). A
+capped log that slid now has its dropped rows removed and its added items
+built, by item identity, inside the only-removals path, which declines
+whenever the general path would claim rows differently; the mirror keeps
+the general path, which costs it no rows. After: about 45 µs a message, no
+task over 50 ms, for 144 B gzip.
+- Test: `packages/core/test/reconcile-slide.test.js` (the key-read count fails
+  before: 3,020 reads for a slide of one row of 1,000).
+
+### 35. Hovering a link did not download its lazy route's chunk
+`packages/router/src/index.js` (`prefetch`)
+
+`<Link>` prefetches on hover by default, and `prefetch(href)` is documented
+as prefetching "a route's assets". It added `<link rel="prefetch" href>`
+for the URL, which in a client-routed app fetches the HTML page again, not
+the route's code, so the click still waited for the `lazy()` chunk.
+handbook hovered a chapter's link for a second, then clicked: 818 to 841 ms
+to the page, for a chunk the network took 800 ms to serve. prefetch now
+also starts the chunk of the route the outermost Router matches; a route
+behind middleware is left to the navigation, which downloads it only once
+admitted, so a guest hovering a guarded link downloads nothing. After: the
+chunk is requested on hover and the click shows the page in 5 to 23 ms
+(Chromium, WebKit, Firefox).
+- Test: `packages/router/test/lazy-route-prefetch.test.js` (3 of 4 fail
+  before).
+
+### 36. `useAnimatedValue` ran every animation it was asked for at once
+`packages/core/src/animation.js` (`useAnimatedValue`)
+
+Each `spring()` or `timing()` started a frame loop and left the one before
+running, so the loops took turns writing the value and the older target
+could win (a spring to 0 started while one to 100 moved ended at 100, in a
+unit test). The spring's effect was never disposed, and an animation started
+from an event handler had no owner, so a component that unmounted left its
+loop running. pulse re-aimed its gauge needle twice while it moved: 3
+spring loops ran at once. One animation is in flight now: starting one
+stops the one before, and each runs in a root of its own, disposed when it
+settles, completes or is stopped, or when the owner goes away. After: one
+loop while the needle moves, none once it rests on the last reading.
+- Test: `packages/core/test/animation-interrupt.test.js` (3 of 4 fail
+  before).
+
+### 37. `useTween().start()` ran on beside the run it replaced
+`packages/core/src/animation.js` (`useTween`)
+
+`start()` began a frame loop and left the one before running: both wrote
+the progress each frame, `isTransitioning` went false when the first loop
+ended while the second still ran, and the first start's callback ran
+although a newer start had replaced it. The loop also ran on after its
+component unmounted. pulse's refresh ring, pressed three times 200 ms
+apart, went backwards, stopped saying it was busy while it filled, and
+reported 3 refreshes for one fill. `start()` now stops the run in flight
+(its promise resolves, its callback does not run), and the owner going
+away stops it.
+- Test: `packages/core/test/tween-restart.test.js` (3 of 3 fail before).
+
+### 38. A registered file input held the browser's fake path, not the file
+`packages/core/src/form.js` (`register`)
+
+`register()` stored `target.value` for every input that is not a checkbox
+or radio, and a file input's value is a fake path
+(`C:\fakepath\license.png`) that carries no file. So `handleSubmit` and the
+resolver got a string: wizard's rule "the license is a File under 2 MB"
+refused every file chosen ("That is not a file"), and an app that sent
+`values.license[0]` sent the letter `C`. The field holds the input's
+`FileList` now, as React Hook Form registers one, and each choice is news
+(the duplicate-`change` check compared lists of files as `{}` and would have
+dropped a second choice of one file).
+- Test: `packages/core/test/form-file-input.test.js` (4 of 4 fail before).
+
+### 39. A file input whose value prop was not empty threw as it mounted
+`packages/core/src/dom.js` (`_setFieldProp`)
+
+A file input accepts only `''` as a value; anything else throws an
+`InvalidStateError`. `showControlled` already left a file field alone, but
+the first write of a `value` prop did not, so a registered file input whose
+field already held something failed to render: in wizard, going back to
+the Documents step after choosing the photo (the field held the files, or
+before 38 the fake path) logged "Uncaught error in component" and left the
+step blank, and the back/forward walk stopped there. A file input's `value`
+prop now only ever clears it (`''`, when it holds a file) and is otherwise
+not written.
+- Test: `packages/core/test/file-input-value.test.js` (3 of 3 fail before).
+
+### 40. A keyed row moved while a field in it was being typed lost the focus
+`packages/core/src/render.js` (`moveRow`)
+
+The reconciler moved rows with `insertBefore`, which takes a node out and
+puts it back: a focused field in the row loses the focus and its caret in
+every browser, and Chromium fires `blur` and `focusout` as it goes. wizard
+moves a vehicle or a driver with Alt+ArrowUp from inside its fields: the
+next keystroke went nowhere, and in a step validated on blur the half-typed
+licence number was judged as if the visitor had left it ("6 to 12 letters
+and digits" after typing `BK`). Rows now move with `moveBefore` where the
+browser has it (Chromium, Firefox), which keeps the focus, the caret and the
+selection and fires nothing; WebKit has no `moveBefore` yet and still blurs,
+so wizard puts the focus back after a move (it counts how often: only in
+WebKit). The vnode (`h()`) list path still moves with `insertBefore`.
+- Test: `packages/core/test/reconcile-move-keeps-focus.test.js` (5 of 5 fail
+  before): a swap, a far swap, a single move up and to the end, and a shuffle
+  each move their rows with `moveBefore` and take none out.
+
+### 41. A spread of a destructured `register()` never showed setValue or reset
+`packages/core/src/form.js` (`register`)
+
+`const { register } = useForm()` and `<select {...register('deductible')} />`
+is the idiom every form guide shows, and API.md says the spread follows the
+field. It did only when written `form.register(...)`, which the compiler
+reads again; a call of a destructured `register` is read once, and the
+spread binds a getter live only on a props object What marks as its own,
+which register's was not. So the spread wrote the value it had at mount and
+never again. wizard's "Start from my current policy" fetched the policy and
+called `reset()` with it: the radios (whose `checked` is a thunk) moved, the
+deductible's select kept showing $500 while the form held $1,000, and that
+is what the quote would have been sent with. register() marks its props
+object now, so a spread binds `value` and `checked` live however the call is
+written; an `h()` call's JavaScript spread still copies them, as documented.
+- Test: `packages/compiler/test/register-spread-follows-field.test.js` (2 of 3
+  fail before: a select, an input, a checkbox and a textarea through
+  setValue and reset).
+
+### 42. `reset(values)` left `dirtyFields` measuring from the first defaults
+`packages/core/src/form.js` (`reset`)
+
+`reset(values)` set every field and cleared `isDirty`, but `dirtyFields`
+kept comparing with the `defaultValues` useForm was created with, and a
+field registered later started from those. A form filled from fetched data
+then reported every field it filled as changed while `isDirty()` said
+nothing was: wizard showed "6 changes from your current policy" the moment
+the policy loaded. As in React Hook Form, the values a reset is given are
+the defaults from then on: `dirtyFields` measures from them, a later
+`reset()` returns to them, and a new field starts from them.
+- Test: `packages/core/test/form-reset-defaults.test.js` (3 of 4 fail before).
+
+### 43. A React `<form onChange>` heard a native field twice per edit
+`packages/react-compat/src/runtime.js` (`isReactChange`), `src/hydrate.js`
+
+mixed-desk's events screen puts a native What field inside a React
+`<form onChange>`, the shape of a React form being migrated field by field.
+Typing three characters and leaving the field fired the form's `onChange`
+four times: once per `input` event, and once more for the `change` the field
+sends when it loses focus (what-react tracks the value of the fields it
+renders, and a field it did not render looked changed every time). React
+fires none: its change plugin takes the nearest React node above the target,
+the form, and finds no field there. Measured on react-dom 19.3.1 (jsdom): 0
+for an input, a textarea and a select it did not render, one per keystroke
+for its own input. The release notes listed it as a known issue. what-react
+now marks the fields it renders (and the ones a hydrating island claims), and
+an `input` or `change` event from any other field is not React's change
+event.
+- Test: `packages/react-compat/test/onchange-native-field.test.js` (3 of 3
+  fail before: 4 calls where React makes 0, and a React field's blur adding
+  one).
+
+### 44. A React component that asked for a What context got its default
+`packages/react-compat/src/hooks.js` (`useContext`), `src/runtime.js`
+
+The desk's shell provides a What context (the desk and the trader). A native
+component a React component renders read it, as MIXED.md says; a React
+component calling `useContext(DeskContext)` silently got the context's
+default, with no error in any build, because what-react's `useContext` looked
+for React providers only. A team moving a React screen into a What shell
+writes exactly that. `useContext` now takes a context what-core's
+`createContext` made and reads it where the island stands in native code, as
+a native component there would, and the provider's value is a signal, so the
+component renders again when it changes (one render per change, counted).
+What's own `useContext` in a React component still finds no provider;
+MIXED.md, Context, says which to use.
+- Test: `packages/react-compat/test/mixed.test.js`, "a React component reads
+  What context with React's useContext" (fails before: `none:-` where the
+  provider gives `Rates:Ada`).
+
+### 45. Every React mouse handler put two deprecation warnings in Firefox's console
+`packages/react-compat/src/runtime.js` (`fieldsOf`)
+
+Running mixed-desk in Firefox, the console check failed on `MouseEvent.mozPressure
+is deprecated` and `MouseEvent.mozInputSource is deprecated`, on the desk and
+on the server-rendered quote page. A synthetic event copies the native
+event's fields, and the copy read every enumerable one, Firefox's two
+deprecated vendor fields included; Firefox warns the first time a page reads
+each. Any page with a React click handler had them. React's synthetic event
+has neither field, and the copy now leaves out `moz*` fields.
+- Test: `packages/react-compat/test/synthetic-event-fields.test.js` (fails
+  before: both fields read for one click).
+### 46. `useForm` could not forget a field, so a field array kept every item it ever had
+`packages/core/src/form.js` (`unregister`, `useFieldArray`, names as paths)
+
+A field array item the visitor removed stayed in the form for its lifetime:
+its value in `formState.values`, `watch()` and what `handleSubmit` handed
+over, its error in `formState.errors` (so `isValid` stayed false and a
+step's "3 things to fix" counted it until a whole-form validation), its
+touched state, and a validation of it still in flight landed after it was
+gone. Names were flat keys, so `register('vehicles.0.vin')` was no path and
+a zod schema over the arrays saw none of the values. wizard cleared a
+removed item's errors by hand and read only the live items' values. As in
+React Hook Form, a name is a path (`values.vehicles[0].vin`; errors stay
+keyed by the name), `unregister(name | names)` forgets a field, and
+`useFieldArray` keeps each item's values, errors and touched state under
+the item, so they move with it and go when it is removed. A row is built
+once, so a field registered in it keeps its item while rows move, and its
+name follows the item's place. wizard's vehicles and drivers (with their
+incidents) are `useFieldArray`s now, validated by zod schemas over the
+nested arrays, and its draft is the form's values as they are.
+- Tests: `packages/core/test/form-unregister.test.js`,
+  `form-paths.test.js`, `form-field-array.test.js` (each fails before).
+
 ## Reported, not fixed
+
+### K. In a mixed file, one `style` object means two things
+
+`<div style={{ height: 240 }}>` on a native element is What's rule: no `px`
+is added, the CSSOM refuses the number and drops it silently (documented in
+the components guide). The same object on a host element inside a React tag,
+a few lines down in the same file, is React's rule: `240px`. mixed-desk's
+React Flow container was written the first way and had no height, so React
+Flow drew its nodes outside the visible pane and no click reached them; it
+took a hit test to see why. MIXED.md, Limits, now says so. A development
+warning when a style number is dropped (for a property that is not
+unitless) would catch it on the first render; that is a what-core change
+with a size cost in development builds only, left for a decision.
+
+### L. A `client:*` island eats props named `name`, `mode`, `mediaQuery` and `component`
+
+The compiler lowers `<Card client:load name="Ada" mode="dark" />` to one
+props object for `_$Island` (what-core components.js), and the server target
+to one for `_$ssrIsland` (what-server ssr-runtime.js), holding the caller's
+props and the directive's keys (`component`, `mode`, `mediaQuery`) written
+last. `_$Island` destructures those and `name` out of it, so the component
+gets `name` and `mode` undefined: `name` becomes the island's name and the
+caller's `mode` is replaced by `'load'`. `name` and `mode` are among the
+commonest prop names there are. Found while giving mixed-desk's quote page a
+`client:load` ticket.
+
+The island's name is also the component function's runtime name, and a
+minified client build renames it: the server's `data-island="Ticket"` is
+`data-island="bb"` in the browser, an attribute mismatch on every compiled
+island (the hydration walk writes the client's value). The compiler knows
+the tag's source name and could pass it.
+
+- Failing test, not in the tree: `island-reserved-props.test.js` in the
+  round 7 mixed lane's `keep/` (3 of 3 fail: `undefined|undefined|undefined|t`
+  where the caller wrote `Ada|dark|fieldset|t`, on both targets, and
+  `data-island="bb"`).
+- Why not fixed: the fix changes the shape of what the compiler emits for an
+  island on both targets (the caller's props in an object of their own, beside
+  `component`, `mode`, `mediaQuery` and a `name` taken from the tag), the two
+  runtimes that read it, and the lowering-parity fuzz that builds the same
+  `h(Island, …)` trees; it is a change across three packages, left for a
+  decision.
+
+Fixed in round 8. Both targets compile an island to `{ component, name,
+mode, mediaQuery, props }`: the caller's props are an object of their own,
+so any name reaches the component, and `name` is the tag as written
+(`"Ticket"`, `"ui.Card"`), which the minified client build keeps. Called by
+hand without `props`, `_$Island` still takes every other key as a prop.
+mixed-desk's ticket takes a `mode` prop now, and its check reads the
+island's name before and after hydration: in Chromium, before the fix,
+`Ticket` became `Sb` (one attribute rewrite) and the ticket showed no mode
+on either side; after it, `Ticket` stays and both sides show `limit`.
+`packages/compiler/test/island-props.test.js` (both targets, and a client
+build whose function is renamed hydrating the server's island) and the
+islands arms of `lowering-parity-fuzz.test.js` fail before.
 
 ### A. The runtime path has no keyed reconciliation at all
 `packages/core/src/dom.js`
@@ -567,3 +1027,289 @@ SERVER console at render time, which is not where the developer is looking.
 The storefront works around it by putting the review form on `/review`, a
 `mode: 'server'` page. Worth either documenting loudly or having `<Form>` detect
 a cached render and say so.
+
+### F. ISR tags are per route
+
+`page.tags` is static and the built-in renderer stores it as is, so a loader
+cannot tag one entry (`article:<slug>`): a comment on one article revalidates
+every article. A per-entry tag needs a custom `render`, which turns off
+streaming for the handler's server routes (27).
+
+### G. A keyed component row whose body reads its item is rebuilt on every replacement
+
+Fixed. A row component is handed its item as a getter over the row's item
+cell with no field named (`get item() { return _$item(cell); }`), so a read
+in the component's body (`const id = item.id`, beside a hook or a cleanup)
+recorded the whole item, and any replacement of the item under its key
+rebuilt the row with its state. chat found it (a pending message replaced by
+the server's echo lost its element); in board, a column written `const id =
+column.id; onCleanup(...)` rebuilt both columns and all 400 of their cards on
+one move between them. A member read of a prop in a component's run
+(`props.item.id` or a destructured `item.id` in the body or in a function of
+it, `<Title text={item.title} />` handed to a child) now compiles to
+`_$propField(props, "item", "id")`, which records the field `id` when the
+getter returns the row's item itself, and the whole item when it returns
+something made from it. A read of the whole item (a method call, handing it
+to a function, destructuring it) still rebuilds the row on any replacement,
+as API.md says. `packages/compiler/test/row-component-item-reads.test.js`
+pins the cases.
+
+### H. Recursion depth: a recursive component overflows the stack near 300 levels in Chromium
+
+Each level of a recursive component holds its frames while the levels below
+it are built. A keyed file tree (a component that renders a keyed list of
+itself behind a condition) held 21 frames a level and overflowed near 210
+levels in Chromium; it now holds 17 (counted with `new Error().stack` in the
+production build): `insert()` starts a reactive child's effect itself, a
+row's callback runs straight from its item scope, and the row of an empty
+list stands on a small reconcileKeyed frame, the general path, with its
+dozens of locals, being a function of its own. Deepest tree that builds:
+Chromium 210 -> 302 levels, WebKit 1,801 -> 2,135, Firefox 350 -> 454. The
+branch that overflows renders nothing and logs `RangeError: Maximum call
+stack size exceeded`; the rest of the page keeps working. File trees and
+comment threads stay far below; a JSON viewer of a deeply nested document
+may not. What is left is a frame per function boundary that does work (the
+component's owner and run, the region's and the list's effects, the row's
+scope, the compiled callbacks). `packages/core/test/recursion-depth.test.js`
+counts frames per level, and explorer pins 101 levels.
+
+### I. A `lazy()` component whose download failed could never load again in that page
+
+`lazy()` kept the error of a failed download and threw it on every later
+render, as React's `lazy` does. So a route's error page could not recover in
+place: its `reset` ("Try again") built the page again and got the same
+error, and so did a later visit, until the page was loaded again. The
+browsers do not require that: after a failed `import()`, a second `import()`
+of the same URL in the same page downloads it again in Chromium, WebKit and
+Firefox (measured with page routing aborting the first request). A chunk
+lost to a network blip, or replaced by a deploy, is the common case of a
+failed download.
+
+Fixed in round 6. `lazy()` shows a failed download's error to the renders
+that waited on it, then downloads again on the next render (an error
+boundary's reset, the component rendered again later) and on the next
+navigation to its route or hover of a link to it, which keeps the page being
+left on screen as a first visit does. A route's error page's `reset`
+downloads the chunk while the error page stays, then shows the page, or the
+error page with the new error. A chunk that loaded is never downloaded
+again. handbook's "Try again" is that reset now: in Chromium and Firefox a
+later visit and the retry each download the chunk, and the chapter replaces
+the error page in the same document. In WebKit they ask for it and get the
+failure again, below. `packages/core/test/lazy-retry.test.js` and
+`packages/router/test/lazy-route-retry.test.js` pin it.
+
+## The load apps: what they measured
+
+`data-grid`, `live-feed` and `workspace` were added to find what only shows
+under volume and rate. Apart from 23, the framework met every bound they set, in
+headless Chromium on an M-series Mac:
+
+| measure | bound | measured (median) |
+|---|---|---|
+| sort 10,000 rows (virtualized) | 100 ms | 4 ms |
+| filter keystroke over 10,000 rows | 50 ms | 1 ms |
+| select-all / deselect-all, 10,000 rows | 100 ms | 1.4 ms |
+| bulk update of 1,000 rows | 100 ms | 2 to 3 ms |
+| scroll step | 50 ms | 2.5 ms |
+| longest main-thread task at 200 updates/s | 100 ms | none over 50 ms |
+| heap after GC over 15 s of streaming and mount churn | +1 MiB | +68 KB |
+
+Two things that looked like defects and were not:
+
+- **Sorting 10,000 fully rendered keyed rows takes 300 ms or more.** Measured
+  without virtualization in a separate probe. The reconciler makes 9,784
+  `insertBefore` calls (10,000 minus the longest increasing subsequence) taking
+  38 ms in total; the rest is Chromium restyling and laying out a 10,000-row
+  table, and a hand-written DOM permutation of the same table costs the same.
+  It is the reason to virtualize, not a framework cost.
+- **A store field read bare (`value={grid.query}`, `{f.n}`) stays live**,
+  though API.md says the compiler cannot tell a store field is reactive and a
+  bare read is evaluated once. what-compiler reads the imported module, sees
+  `createStore`, and wraps the read; only when it cannot see the module (a
+  store from a package it does not analyse) is the read once. The thunk form
+  the docs recommend works in both cases, so code written either way is right.
+
+### The server-rendered load apps
+
+`newsroom` and `workspace-ssr` (Chromium and WebKit, same results):
+
+| measure | bound | measured |
+|---|---|---|
+| first byte of the streamed front page | before the 1,200 ms query | 23–30 ms |
+| fast boundary (later in the page) vs slow boundary | fast first | 144 ms vs 1,223 ms |
+| 3,282-word article hydration | 0 nodes created, added or rewritten; 0 reports | 0 / 0 / 0; 0 |
+| the article and its five islands, woken and used | 0 nodes created | 0 |
+| 50 cold ISR articles + 50 streamed front pages at once | each only its own content | 100 / 100 |
+| 40 workspace visitors at once, own cookies | each only their own user, draft, step | 40 / 40 |
+| server heap after GC over 2,000 requests | under 4 MiB growth, not rising every sample | +320 KB (18.02 → 18.33 MB) |
+
+### Depth, size, streams and drags
+
+`explorer`, `chat` and `board` (Chromium / WebKit, M-series Mac):
+
+| measure | bound | measured |
+|---|---|---|
+| expand all: 10,000 components, 101 levels deep | 4,000 ms | 150 / 160 ms |
+| collapse all: dispose them | 2,000 ms | 22 / 33 ms |
+| filter keystroke over 10,000 entries | 1,500 ms | 3 / 3 ms (first: 27–75 ms) |
+| heap after GC over three expand/collapse cycles | +2 MiB | +63 to +108 KB |
+| an edit in a 300-field form (error and summary shown) | 50 ms | 0–1 ms |
+| messages received exactly once across ~12 dropped streams | exact | 11,000–20,000 / all |
+| 99th-percentile frame at 600 messages/s plus bursts of 400 | 400 ms | 33 / 98 ms |
+| heap after GC while 5,000 more messages pass the 1,000-row log | +1 MiB | +12 to +18 KB |
+| a drop (pointer release to the card in place) | 100 ms | 16 / 1 ms |
+| an undo or redo (key to the card in place) | 100 ms | 13 / 12 ms |
+
+### Code-split routes
+
+`handbook` (Chromium / WebKit / Firefox, M-series Mac), timed in the page
+from the click event to the mutation that shows the page:
+
+| measure | bound | measured |
+|---|---|---|
+| first visit, chunk delayed 700 ms: the page being left stays, marked busy | no empty or fallback frame | 729 / 713 / 699 ms, none |
+| revisit, chunk already here | 150 ms, no request | 14 / 15 / 4 ms |
+| hovered for a second, then clicked, chunk delayed 800 ms | 250 ms | 22 / 17 / 5 ms (818–841 ms before 35) |
+| a navigation overtaken by a newer one, 1,500 ms chunk | never shown; one history entry | 0 builds; +1 |
+| a chunk that fails: the route's error page, then the next link | no uncaught error | 32 / 17 / 11 ms; 52 / 15 / 17 ms |
+| back three, forward three through loaded chapters | 150 ms each, no request | 1–8 ms, 0 requests |
+| 24 navigations between loaded chapters | 150 ms (95th percentile) | 20 / 18 / 11 ms |
+
+### Motion
+
+`pulse` (Chromium / WebKit / Firefox), frames measured in the page:
+
+| measure | bound | measured |
+|---|---|---|
+| SVG chart redrawn every frame for 2 s: frames, nodes kept | every node kept, none created | 121 / 117 / 120 frames, 27 of 27 kept |
+| its 99th-percentile frame | 100 ms | 17 / 34 / 17 ms |
+| threshold dragged and let go | settles on the drop, no loop left | 170 ms of 170, 1 loop (the chart's) |
+| needle re-aimed twice mid-spring | ends on the last reading, one loop | 70 of 70; 2 loops while moving (3 springs before 36) |
+| ring restarted twice mid-fill | one fill from 0, one refresh | 1 / 1 (went back, 3 refreshes before 37) |
+| panel closed mid-spring 40 times; 150 alerts in and out | nothing left | 0 nodes, components, timers, extra loops |
+
+### Forms across steps
+
+`wizard` (Chromium / WebKit / Firefox, M-series Mac), timed in the page from
+the event to the DOM showing its result:
+
+| measure | bound | measured |
+|---|---|---|
+| a keystroke in a vehicle's VIN, its error shown or cleared | 50 ms | median 6 / 7–8 / 6 ms |
+| Next (a whole-step validation) or Back, to the other step shown | 250 ms | median 17–18 / 25–27 / 16–17 ms |
+| 200 characters at Playwright's fastest into an email checked on a server, a nested textarea, notes with a live count | exact, caret kept | exact in all three |
+| a slow "taken" answer landing after a free address was typed | never shown | never shown |
+| a reload right after a keystroke, mid-step (the save is debounced 300 ms) | every field, nested arrays in order | exact (`pagehide` saves) |
+| back through seven steps and forward again | each step exactly as left | exact |
+| an item removed from its own open menu | its component, effects and document listener gone | gone; its bindings never run again |
+| the server's error on a VIN, after submit; on the photo lost to a reload | on that field, that step, focused | yes; yes |
+| the current policy loaded with `reset()` | its values shown, 0 changes counted | yes (before 41 and 42: a stale select, "6 changes") |
+| a double click on submit | one request | one |
+
+### React libraries in a native app
+
+`mixed-desk` (Chromium / WebKit / Firefox, M-series Mac; ranges span runs
+alone and runs with the three browsers at once on a busy machine), each
+React package at the version its package.json pins:
+
+| measure | bound | measured |
+|---|---|---|
+| 100 store writes a second for 10 s into eight React quote islands, a React board of memo rows, React readers of the signals and native text | none stale, mid-run or at the end | none stale in all three |
+| renders of a quote island per write of its own symbol; of a quiet symbol | at most 1; 0 | 1 in Chromium and WebKit (1,027 renders for 1,027 writes); in Firefox 1,010 for 1,063, where a late timer put two writes of a symbol in one task; 0 |
+| React state lifted into the store 100 times a second for 10 s | every value once, in order, echoed back | exact (about 1,020 values) |
+| a write to one of 10,000 deals, to its react-window row | 25 ms (90th percentile) | median 0.3 / 1 / 1 ms |
+| the same with a TanStack table sorted over all 10,000 mounted beside it | 250 ms (90th percentile) | median 6.6–7.5 / 7 / 18–80 ms |
+| all 10,000 deals changing at once | 400 ms | 7–8 / 7–9 / 19–97 ms |
+| 35 route changes while the feed runs (dialogs, toasts, charts, lists, a flow diagram, drag and drop, carousels) | every component, listener, timer, observer and node released; no console noise | all released, 285 React mounts each run; console clean (after 45) |
+| the heap after a forced GC over two more rounds of 35 route changes (Chromium; the devtools protocol) | under 1 MiB | 330 KB, 4.7 KB per change (a navigation between two native pages leaves 3 to 5 KB) |
+| a react-hook-form island in a server-rendered page, typed into before it hydrates | no element created; text, focus and ids kept | 0 created; kept |
+| a `client:load` island (a native ticket hosting a React stepper) on that page, typed into before it hydrates | its nodes kept, React state and callback live | kept; live |
+
+Firefox's table numbers are TanStack Table's: with the table unmounted the
+same write costs 1 ms there, and with only the table on the page 30 to
+120 ms by the machine's load (Chromium 6 ms), so the time goes into deriving its sorted row model of
+10,000 rows on each write, not into what-react (measured by hand in a copy
+of the app, one run per browser; that the cost is SpiderMonkey running
+TanStack's code is a guess, not measured against real React).
+
+The heap check first measured 17 MB per round, all of it the check's own:
+Playwright's `page.waitForSelector()` returns an element handle, which keeps
+the element alive after the page drops it, and a React element keeps its
+handlers and through them its component's state (React's DOM nodes keep
+their fiber the same way), so every visit to the deals screen kept a whole
+TanStack table. With locators the growth is the router's few KB per
+navigation. A TanStack table's first ten or so mounts grow the heap by
+about 3 MB, then nothing; the same component on real React 19.3.1 (a
+`createRoot` page mounted and unmounted 20 times) grows the same, 173 KB per
+mount against what-react's 169.
+
+Every package worked in all three browsers, the ones outside
+REACT-COMPAT.md's matrix included: react-toastify 11, react-dropzone 20,
+React Flow (@xyflow/react 13), @hello-pangea/dnd 18, react-intl 12,
+@react-spring/web 10, valtio 2 and embla-carousel-react 8. Two things a
+migrating team will meet that are React's behaviour, not what-react's: a
+Radix dialog opened by a native button (no `Dialog.Trigger`) gives the focus
+to nothing when it closes, since Radix focuses its trigger, so the desk
+focuses its button in `onCloseAutoFocus`; and the router's view transition
+covers the page for its length after a navigation, so a pointer event sent
+at once hits the document (the check waits until a hit test finds the node).
+
+## Browsers
+
+`WHAT_SMOKE_BROWSER=webkit npm run smoke:apps` runs every app in WebKit. The
+heap check is Chromium's alone (it forces a GC through the devtools
+protocol) and is skipped elsewhere with that reason; the long-task check uses
+the Long Tasks API in Chromium and a timer's lateness elsewhere. Two real
+browser differences an app has to allow for showed up:
+
+- Safari's default Tab reaches form fields only, not buttons or links (24).
+- Safari does not focus a button when it is clicked, so a keydown handler on
+  a menu's container never hears Escape after a click. newsroom's share menu
+  listens on the document while it is open.
+
+### Firefox
+
+Every app passes in Firefox (`WHAT_SMOKE_BROWSER=firefox`), with the heap
+checks skipped as in WebKit: Firefox has no devtools protocol in Playwright
+to force a GC. Three things in the checks held only in Chromium and WebKit,
+and none is a framework defect:
+
+- Firefox waits at least 500 ms before reopening an `EventSource`, whatever
+  `retry:` the server sends (measured: `retry: 150` reopens after 150 to
+  165 ms in Chromium and WebKit, 504 to 539 ms in Firefox). chat's 12 s run
+  reconnected 8 times instead of the 10 it asks for; the run now goes on
+  until ten reconnects, up to 30 s.
+- A `Secure` cookie set by a plain-http page is refused by every browser;
+  Firefox also logs it as a console error. The workspace examples run in
+  production, whose CSRF cookie is `Secure`, and were served at
+  `http://workspace.test`: the cookie was silently dropped in Chromium and
+  WebKit, and failed three examples on the console error in Firefox. They
+  are served at `https://workspace.test` now, where it sets in all three.
+- With JavaScript off, opening an article again in the context that has just
+  posted a comment to it makes Firefox load it twice (the second request a
+  revalidation), and Playwright waits for the second load to commit until it
+  times out, in about half the runs. newsroom's refused post starts from a
+  fresh context.
+
+Firefox can drop a key pressed within a frame of a focused field's row
+moving with `moveBefore`: wizard's check typed into a vehicle's model right
+after Alt+ArrowUp and lost the next one or two keys in 4 of 12 runs under
+load (never with two frames between, and never in a plain page). A person is
+slower than that; the check waits two frames after a move.
+
+Moving a node with `insertBefore` blurs a focused field in every browser,
+and Chromium alone fires `blur` and `focusout` for it (40).
+
+And one in WebKit. Vite preloads a chunk that has imports of its own with
+`<link rel="modulepreload">` (its preload list holds the chunk itself), and
+once that preload failed, WebKit fails every `import()` of the chunk with no
+request, in the page and after a reload. Measured in a page of its own, with
+page routing aborting the first request: after a failed modulepreload,
+Chromium and Firefox request the module on the next `import()` and WebKit
+does not, in the page or after a reload; after a failed `import()` with no
+preload, all three request it again. So in WebKit `lazy()` asks for the
+chunk again and gets the same failure. handbook checks that it asks, and
+skips the download in WebKit with that reason. Built with
+`build: { modulePreload: false }`, handbook in WebKit requests the chunk on
+the later visit and on the retry, and the chapter shows.
+

@@ -1,24 +1,34 @@
 /**
  * What Framework Vite Plugin
  *
- * 1. Transforms JSX via the What babel plugin
- * 2. Provides file-based routing via virtual:what-routes
+ * 1. Transforms JSX via the What babel plugin (the server target for SSR transforms)
+ * 2. Provides file-based routing via virtual:what-routes (the browser's routes)
+ *    and virtual:what-routes/server (the same routes with each page's loader,
+ *    getStaticPaths and page config, for the server entry)
  * 3. Watches pages directory for route changes
  * 4. Component hot updates use an installed replacement hook or reload the
  *    page; signal/utility files trigger full reload
  */
 
 import path from 'path';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { transformSync } from '@babel/core';
 import whatBabelPlugin from './babel-plugin.js';
-import { generateRoutesModule } from './file-router.js';
-import { setupErrorOverlay } from './error-overlay.js';
+import { generateRoutesModule, generateServerRoutesModule } from './file-router.js';
+import { IMPORT_CHANGES, SUBPATH_ONLY } from './tables/import-changes.js';
+import { runtimeMismatch } from './release.js';
+import { isFrameworkFile } from './framework-files.js';
 
 const VIRTUAL_ROUTES_ID = 'virtual:what-routes';
 const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ROUTES_ID;
+const VIRTUAL_SERVER_ROUTES_ID = 'virtual:what-routes/server';
+const RESOLVED_VIRTUAL_SERVER_ID = '\0' + VIRTUAL_SERVER_ROUTES_ID;
 const SERVER_ACTION_MODULE_RE = /(?:from\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"]|import\s*['"](?:what-framework\/server|what-server(?:\/actions)?)['"])/;
 const SCRIPT_MODULE_RE = /\.[cm]?[jt]sx?$/;
+const JSX_MODULE_RE = /\.[jt]sx$/;
+// what-react's mixed JSX plugin ends a React file's output with this comment.
+const REACT_SOURCE_MARKER = '/* what-react: react source */';
 
 function patternMatches(pattern, value) {
   if (!pattern) return false;
@@ -75,72 +85,180 @@ const COMPONENT_EXPORT_RE = /export\s+(?:default\s+)?function\s+([A-Z]\w*)/;
 // Pattern: files that are likely signal/store/utility files
 const UTILITY_FILE_RE = /(?:store|signal|state|context|util|helper|lib|config)\b/i;
 
-// --- SSR guard --------------------------------------------------------------
+// --- Server builds ---
 //
-// A module that what-compiler lowers cannot run on a server, and the failures it
-// produces without this guard both name the wrong thing.
-//
-// The lowering emits a module-scope `const _tmpl$0 = _$template("<div>...")`,
-// and `_$template` calls `document.createElement('template')` EAGERLY. So the
-// module throws `ReferenceError: document is not defined` at IMPORT time, before
-// any render function runs, with a stack that points into what-core rather than
-// at the file the developer wrote. If a DOM shim happens to exist, the component
-// instead returns a cloned Element and what-server's assertSafeTag reports
-// ERR_COMPILED_JSX_IN_SSR.
-//
-// Both are runtime failures for something decidable at build time: if Vite is
-// transforming this module for the SSR environment and the transform emitted
-// DOM-building code, the resulting bundle cannot work. Fail here, name the file,
-// and name the two configurations that DO server-render, rather than emitting a
-// bundle whose only possible behaviour is to crash.
-//
-// This is a guard, not a feature. It does not make compiled JSX server-render;
-// what-compiler has no hydratable/SSR codegen target. See
-// docs/SSR-COMPILED-JSX-SCOPING.md for the seams and the staged plan.
+// When Vite transforms a module for the server (SSR or the 'ssr' environment),
+// JSX is compiled with what-compiler's server target (`generate: "ssr"`):
+// string templates rendered by what-server/ssr-runtime, which every
+// what-server renderer accepts. Two options change that:
+//   - `ssr: false` keeps compiled JSX out of server bundles: a server transform
+//     whose output would build DOM is refused with ERR_COMPILED_JSX_IN_SSR,
+//     naming the file, instead of shipping a module that throws "document is
+//     not defined" the first time it renders.
+//   - `ssrGuard: false` compiles every server transform for the DOM, with or
+//     without `ssr: false`, for a process that installs a DOM on purpose. The likeliest one is a test runner:
+//     Vitest applies an SSR transform under `environment: 'node'`, so a
+//     component test that mounts compiled JSX into a DOM shim needs it.
+// Whether output builds DOM is reported by the compiler itself
+// (`metadata.whatBuildsDom`: a template clone or a component call), so a
+// JSX-free server-action module and a hydrate()-only module still compile.
 
-// The two compiler-generated locals that make a module client-only.
+// --- Hydration ---
 //
-//   _$template        — hoisted to module scope and calls
-//                       document.createElement('template') EAGERLY, so the
-//                       module throws at import time on a server.
-//   _$createComponent — runs the component and builds its DOM at call time.
-//
-// Deliberately NOT in this list: _$componentVNode, which is _$createComponent
-// stopping one step short of createDOM (what-core render.js). A module whose
-// only JSX is the argument of a hydrate() call emits that and nothing else, and
-// it is import-safe, so flagging it would be wrong. The other helpers
-// (_$insert, _$spread, _$setProp, ...) are all reached only THROUGH a template,
-// so they add no cases and would only widen the blast radius.
-//
-// The `_$` prefix is compiler-generated and never written by hand, which is what
-// makes matching on the name safe.
-const DOM_BUILDING_LOCALS = /\b_\$(?:template|createComponent)\b/;
+// A page the server rendered is adopted by hydrate() only when the client's
+// JSX is compiled for it (what-compiler's `hydratable` option: templates that
+// claim the server's nodes instead of cloning). Its cost is client code that
+// steps through each template rather than walking it by path, so the plugin
+// compiles that way only for a project that renders on the server: one whose
+// Vite config says so (`appType: 'custom'`, the shape of every SSR setup in
+// Vite's guide; an SSR build; or a client build that writes an SSR manifest,
+// `vite build --ssrManifest`, as the guide's production client build does),
+// unless `hydratable` is set. A client build with none of these (a project
+// whose dev server passes `appType: 'custom'` inline but whose `vite build`
+// does not) needs `hydratable: true`. Hydrating
+// server markup with JSX compiled without it reports an ERR_HYDRATION_MISMATCH
+// of kind not-hydratable and renders the page again on the client.
 
-function buildsDom(outputCode) {
-  return DOM_BUILDING_LOCALS.test(outputCode);
+// --- What it compiles ---
+//
+// The app's own files: a JSX file `include` matches (.jsx and .tsx), and a
+// script module that declares server actions or, in development, imports
+// what-framework or what-core (its signal() and h() calls are named), unless
+// `exclude` matches it. Never a dependency's:
+//   - nothing under node_modules, whatever `include` and `exclude` say: an
+//     npm or pnpm install of a package, React's or What's;
+//   - no script file of one of What's own packages wherever it is, a
+//     workspace link included (framework-files.js): what-react, what-router,
+//     what-core in development are served from their source, which is not
+//     the app's. A JSX file What publishes (what-devtools/panel) is compiled
+//     for its JSX only, as babel-plugin.js compiles any file of What's.
+// `compileDependencies` (patterns, as `include` takes) opts a dependency's
+// files in, compiled as the app's are: a package that publishes What JSX as
+// source.
+
+// --- Development locations ---
+//
+// Vite transforms .jsx/.tsx with esbuild (oxc on Vite 8) before this plugin
+// runs, and that reprints the file: comments go, TypeScript is stripped, lines
+// move. A development location (a diagnostic's `at`, what devtools show) is
+// mapped back through the transforms' combined source map to the line and
+// column as written.
+let traceMapping;
+function loadTraceMapping() {
+  if (traceMapping !== undefined) return traceMapping;
+  const here = createRequire(import.meta.url);
+  const attempts = [
+    () => here('@jridgewell/trace-mapping'),
+    // @babel/core depends on it (through @jridgewell/remapping), reachable
+    // from there under a strict layout.
+    () => createRequire(createRequire(here.resolve('@babel/core')).resolve('@jridgewell/remapping'))('@jridgewell/trace-mapping'),
+  ];
+  traceMapping = null;
+  for (const attempt of attempts) {
+    try { traceMapping = attempt(); break; } catch { /* next */ }
+  }
+  return traceMapping;
+}
+
+function sourceLocFor(ctx) {
+  const tm = loadTraceMapping();
+  if (tm === null || typeof ctx?.getCombinedSourcemap !== 'function') return undefined;
+  let map;
+  try { map = ctx.getCombinedSourcemap(); } catch { return undefined; }
+  if (!map || !map.mappings) return undefined;
+  const traced = new tm.TraceMap(map);
+  return (line, column) => {
+    const at = tm.originalPositionFor(traced, { line, column });
+    return at && at.line != null ? { line: at.line, column: at.column } : null;
+  };
+}
+
+// In development a .tsx file is served as this plugin prints it too, its
+// lines where the source has them, when @babel/plugin-transform-typescript
+// (or @babel/preset-typescript, which depends on it) is installed: the types
+// are stripped in the same Babel pass as the JSX, so the bundler's
+// transformer, which would reprint the file first, skips .tsx as it skips
+// .jsx. Without it, .tsx goes through the bundler's transformer.
+function loadTypeScriptPlugin(root) {
+  const attempts = [
+    () => createRequire(path.resolve(root, 'package.json'))('@babel/plugin-transform-typescript'),
+    () => {
+      const fromApp = createRequire(path.resolve(root, 'package.json'));
+      return createRequire(fromApp.resolve('@babel/preset-typescript'))('@babel/plugin-transform-typescript');
+    },
+  ];
+  for (const attempt of attempts) {
+    try {
+      const mod = attempt();
+      return mod.default ?? mod;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
+function rendersOnServer(config) {
+  return config.appType === 'custom' || Boolean(config.build && (config.build.ssr || config.build.ssrManifest));
 }
 
 function ssrGuardError(id) {
   // ERROR_CODES.COMPILED_JSX_IN_SSR
   return Object.assign(
     new Error(
-      `[what-compiler] ${id} is being compiled for the server, but what-compiler's ` +
-      'JSX output is client-only. It lowers JSX to module-scope _$template() calls ' +
-      'that run document.createElement() at import time, so this module throws ' +
-      '"document is not defined" the moment a server imports it.\n\n' +
-      'Server-rendered views have two supported spellings:\n' +
-      '  1. Author them with h() from what-framework.\n' +
-      '  2. Compile them with the automatic JSX runtime instead of what-compiler ' +
-      '(jsxImportSource: "what-framework"), which emits h() calls that ' +
-      'renderToString and renderToHydratableString understand.\n\n' +
-      'If a DOM already exists in this process on purpose, set ssrGuard: false ' +
-      'on the plugin. The likeliest reason is a test runner: Vitest applies an ' +
-      "SSR transform under `environment: 'node'`, so a component test that " +
-      'shims a DOM itself lands here. Note that with the guard off the result ' +
-      'is a full client render, not SSR.'
+      `[what-compiler] ${id} is being compiled for the server with ssr: false, so ` +
+      "what-compiler emits its client output, which builds DOM: _$template() calls that " +
+      'parse their markup with document.createElement(), so this module throws ' +
+      '"document is not defined" the first time a server renders it.\n\n' +
+      'Remove ssr: false to compile server modules with what-compiler\'s server ' +
+      'target, which what-server renders directly. Or author server views with h() ' +
+      'from what-framework, or compile them with the automatic JSX runtime ' +
+      '(jsxImportSource: "what-framework").\n\n' +
+      'If a DOM already exists in this process on purpose (a test runner such as ' +
+      "Vitest applies an SSR transform under `environment: 'node'`), set " +
+      'ssrGuard: false to compile server transforms for the DOM.'
     ),
     { code: 'ERR_COMPILED_JSX_IN_SSR', id, plugin: 'vite-plugin-what' },
   );
+}
+
+// --- Vnode adoption ---
+//
+// Compiled JSX makes no vnode but the component one a hydrate() root lowers
+// to. Every other kind (an h() element, <Suspense>, <ErrorBoundary>, a
+// <Portal>) is made by what-core's vnode producers (h.js), and hydrate()
+// reaches their adoption (render.js _adoptVNodeKinds, and _adoptVNodeRows for
+// a region's keyed rows) through src/vnode-adoption.js, so every program that
+// hydrates carries it. So it does the carrying of what the user changed in a
+// form before hydration into the fields built before the walk reached them
+// (render.js _carryFields), which that file applies once a compiled module
+// whose JSX can build a field (`_$carryFields()`) or a vnode producer is in
+// the program. In a client build compiled for hydration, this stand-in takes
+// that file's place (in any copy of what-core, from its source or either
+// dist tier): installing the vnode renderer, which every producer does when
+// it is defined, installs the adoption and the carrying, and `_$carryFields()`
+// installs the carrying. A program whose code makes no such vnode and builds
+// no field bundles none of it, and one that does adopts its vnodes and
+// carries its fields as before. Both are vars: a producer installs them while
+// the import cycle this module is in may not have evaluated the module yet.
+const VNODE_ADOPTION_FILE = /[\\/](?:src|dist)[\\/]vnode-adoption(\.min)?\.js$/;
+
+function vnodeAdoptionStandIn(id) {
+  const file = id.replace(/[?#].*$/, '');
+  const match = VNODE_ADOPTION_FILE.exec(file);
+  if (match === null || !isFrameworkFile(file, fs, 'what-core')) return null;
+  const ext = match[1] ? '.min.js' : '.js';
+  return `import { _adoptVNodeKinds, _adoptVNodeRows, _carryFields } from './render${ext}';
+import { _installVNodeRuntime } from './vnode-renderer${ext}';
+export var adoptVNodeKinds, adoptVNodeRows, fieldCarry;
+export function installFieldCarry() {
+  fieldCarry = _carryFields;
+}
+export function installVNodeRuntime(render, keyedRows, setProp, refuses) {
+  adoptVNodeKinds = _adoptVNodeKinds;
+  adoptVNodeRows = _adoptVNodeRows;
+  fieldCarry = _carryFields;
+  _installVNodeRuntime(render, keyedRows, setProp, refuses);
+}
+`;
 }
 
 // Vite reports "this transform is for the server" in two ways depending on its
@@ -157,8 +275,12 @@ export default function whatVitePlugin(options = {}) {
   const {
     // File extensions to process
     include = /\.[jt]sx$/,
-    // Files to exclude
-    exclude = /node_modules/,
+    // Files to exclude: a node_modules directory, not a name that holds the
+    // word (`my_node_modules_backup/`)
+    exclude = /\/node_modules\//,
+    // A dependency's files to compile as the app's: under node_modules, or of
+    // one of What's own packages. See "What it compiles".
+    compileDependencies = null,
     // Enable source maps
     sourceMaps = true,
     // Production optimizations
@@ -172,15 +294,29 @@ export default function whatVitePlugin(options = {}) {
     // against package sources instead — needed e.g. in a monorepo where
     // workspace-linked dist/ output may be stale or absent. See config() below.
     prodBundles = true,
-    // Refuse to lower JSX for a module in the SSR graph. See ssrGuardError().
-    // Set to false only if you have installed a DOM in the server process and
-    // accept that the render is a full client render, not SSR.
+    // Compile server transforms with the server target. See "Server builds".
+    ssr = true,
+    // With ssr: false, refuse server transforms whose output builds DOM; false
+    // compiles them for the DOM instead (a process that installs a DOM).
     ssrGuard = true,
+    // Rewrite `selected() === row.id` in keyed .map() rows to a createSelector
+    // lookup. Set to false to keep every comparison as written.
+    autoSelector = true,
+    // Compile client JSX so that hydrate() adopts server-rendered markup.
+    // 'auto' does when the project renders on the server. See "Hydration".
+    hydratable = 'auto',
+    // Print the compiler's notes on correct code (what the auto-selector
+    // rewrote, that <For> and a keyed .map() compile alike). Warnings about
+    // code that misbehaves print either way.
+    verbose = false,
   } = options;
 
   let rootDir = '';
   let pagesDir = '';
   let isDevMode = false;
+  // @babel/plugin-transform-typescript, in development (loadTypeScriptPlugin).
+  let typeScriptPlugin = null;
+  let hydratableOutput = hydratable === true;
   const actionIdRegistry = new Map();
 
   function registerActionId(metadata) {
@@ -216,62 +352,118 @@ export default function whatVitePlugin(options = {}) {
     name: 'vite-plugin-what',
 
     configResolved(config) {
+      // What the app's compiled modules will import: the runtime of this
+      // compiler's release, or ERR_COMPILER_RUNTIME_MISMATCH before any build.
+      const mismatch = runtimeMismatch(config.root, fs);
+      if (mismatch) throw mismatch;
       rootDir = config.root;
       pagesDir = path.resolve(rootDir, pages);
       isDevMode = config.command === 'serve';
+      hydratableOutput = hydratable === 'auto' ? rendersOnServer(config) : hydratable === true;
     },
 
     configureServer(devServer) {
-      // Set up What-branded error overlay
-      setupErrorOverlay(devServer);
-
-      // Watch the pages directory for file additions/removals
-      devServer.watcher.on('add', (file) => {
-        if (file.startsWith(pagesDir)) {
-          // Invalidate the virtual routes module
-          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
+      // A page added or removed changes both routes modules.
+      const pagesChanged = () => {
+        let loaded = false;
+        for (const id of [RESOLVED_VIRTUAL_ID, RESOLVED_VIRTUAL_SERVER_ID]) {
+          const mod = devServer.moduleGraph.getModuleById(id);
           if (mod) {
             devServer.moduleGraph.invalidateModule(mod);
-            devServer.ws.send({ type: 'full-reload' });
+            loaded = true;
           }
         }
+        if (loaded) devServer.ws.send({ type: 'full-reload' });
+      };
+      // Watch the pages directory for file additions/removals
+      devServer.watcher.on('add', (file) => {
+        if (file.startsWith(pagesDir)) pagesChanged();
       });
 
       devServer.watcher.on('unlink', (file) => {
         // Vite will never transform an unlinked module again, so explicitly
         // release its IDs before handling the narrower pages refresh path.
         clearActionIdsForFile(actionFilenameForFile(file));
-        if (file.startsWith(pagesDir)) {
-          const mod = devServer.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
-          if (mod) {
-            devServer.moduleGraph.invalidateModule(mod);
-            devServer.ws.send({ type: 'full-reload' });
-          }
-        }
+        if (file.startsWith(pagesDir)) pagesChanged();
       });
     },
 
-    // Resolve virtual module
+    // Resolve the virtual routes modules
     resolveId(id) {
       if (id === VIRTUAL_ROUTES_ID) {
         return RESOLVED_VIRTUAL_ID;
       }
+      if (id === VIRTUAL_SERVER_ROUTES_ID) {
+        return RESOLVED_VIRTUAL_SERVER_ID;
+      }
     },
 
-    // Generate the routes module
-    load(id) {
+    // Generate the routes modules; in a client build compiled for hydration,
+    // what-core's vnode adoption stands in (see "Vnode adoption").
+    load(id, loadOptions) {
       if (id === RESOLVED_VIRTUAL_ID) {
         return generateRoutesModule(pagesDir, rootDir);
       }
+      if (id === RESOLVED_VIRTUAL_SERVER_ID) {
+        return generateServerRoutesModule(pagesDir, rootDir);
+      }
+      if (hydratableOutput && !isSsrTransform(loadOptions, this)) return vnodeAdoptionStandIn(id);
     },
 
     // Transform JSX files
     transform(code, id, transformOptions) {
       const cleanId = id.replace(/[?#].*$/, '');
+      // A dependency's file is not the app's (see "What it compiles").
+      const optedIn = compileDependencies !== null && patternMatches(compileDependencies, cleanId);
+      if (!optedIn && cleanId.includes('/node_modules/')) return null;
+      const frameworkFile = !optedIn && isFrameworkFile(cleanId, fs);
+      if (frameworkFile && !JSX_MODULE_RE.test(cleanId)) return null;
       const hasJsx = patternMatches(include, cleanId);
-      const isScriptModule = SCRIPT_MODULE_RE.test(cleanId);
+      const isScriptModule = !frameworkFile && SCRIPT_MODULE_RE.test(cleanId);
       const hasServerActions = isScriptModule && SERVER_ACTION_MODULE_RE.test(code);
-      if (exclude && patternMatches(exclude, cleanId)) return null;
+      if (!optedIn && exclude && patternMatches(exclude, cleanId)) return null;
+      // A React file of a mixed app (what-react's plugin, MIXED.md): its JSX
+      // is lowered to what-react already and follows React's rules.
+      if (code.includes(REACT_SOURCE_MARKER)) return null;
+
+      // A name the root entry (what-framework, what-core) no longer exports
+      // fails here with the answer IMPORT_CHANGES records for it
+      // (ERR_MOVED_IMPORT), not later with the bundler's "is not exported", and
+      // so does a name only a subpath exports (SUBPATH_ONLY: the router's). The
+      // regex only picks candidates and Babel's parse decides, so an import
+      // statement quoted in a string never fails a build.
+      const changeFor = (name) => IMPORT_CHANGES.find((c) => (c.name === name && !c.onRoot) || c.as === name)
+        || SUBPATH_ONLY.find((c) => c.name === name);
+      const rootClauses = isScriptModule ? [...code.matchAll(/\b(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]what-(?:framework|core)['"]/g)] : [];
+      if (rootClauses.some(([, names]) => names.split(',').some((n) => changeFor(n.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0])))) {
+        let body = [];
+        try {
+          body = transformSync(code, { ast: true, code: false, configFile: false, babelrc: false, parserOpts: { plugins: ['jsx', 'typescript'] } }).ast.program.body;
+        } catch {
+          // Unparseable here; the rest of the pipeline reports the syntax error.
+        }
+        const moved = [];
+        for (const node of body) {
+          const source = node.source && node.source.value;
+          if ((source !== 'what-framework' && source !== 'what-core') || node.importKind === 'type' || node.exportKind === 'type') continue;
+          for (const spec of node.specifiers || []) {
+            const remote = spec.type === 'ImportSpecifier' ? spec.imported : spec.type === 'ExportSpecifier' ? spec.local : null;
+            const name = remote && spec.importKind !== 'type' && spec.exportKind !== 'type' ? remote.name ?? remote.value : null;
+            const change = name && changeFor(name);
+            if (change) moved.push({ start: spec.loc.start, text: `"${name}" is not exported by ${source}. ${change.answer}`, changed: IMPORT_CHANGES.includes(change) });
+          }
+        }
+        if (moved.length) {
+          throw Object.assign(
+            new Error(
+              `[what-compiler] ERR_MOVED_IMPORT in ${path.relative(rootDir || process.cwd(), cleanId)}:\n` +
+              moved.map((m) => `  ${m.text}`).join('\n') +
+              (moved.some((m) => m.changed) ? "\neslint --fix with eslint-plugin-what's no-moved-imports rule rewrites the moved names; UPGRADING.md lists every change." : '')
+            ),
+            { code: 'ERR_MOVED_IMPORT', id, plugin: 'vite-plugin-what', loc: { file: cleanId, line: moved[0].start.line, column: moved[0].start.column } },
+          );
+        }
+      }
 
       // Clear before either transforming the replacement or returning early.
       // Otherwise a .ts/.js module that removes its final action import leaves
@@ -280,15 +472,20 @@ export default function whatVitePlugin(options = {}) {
       // Server action metadata is required in plain .js/.ts modules too, so
       // those modules pass through the same hermetic Babel transform even when
       // they contain no JSX.
-      if (!hasJsx && !hasServerActions) return null;
+      const hasDevMetadata = isScriptModule && isDevMode && !production && /['"]what-(?:core|framework)['"]/.test(code);
+      if (!hasJsx && !hasServerActions && !hasDevMetadata) return null;
 
-      const guardSsr = ssrGuard && isSsrTransform(transformOptions, this);
+      const serverTransform = isSsrTransform(transformOptions, this);
+      const generate = serverTransform && ssr !== false && ssrGuard !== false ? 'ssr' : 'dom';
+      const guardSsr = serverTransform && ssr === false && ssrGuard !== false;
 
       try {
         const result = transformSync(code, {
           filename: id,
           sourceMaps,
-          // Hermetic transform (SPRINT v0.11 C7): never load the project's
+          // Each statement on its source line in development (see config()).
+          retainLines: isDevMode && !production,
+          // Hermetic transform: never load the project's
           // babel.config.js/.babelrc. A user's React preset or unrelated
           // plugins corrupting What's JSX output is a debugging nightmare —
           // and scanning the disk for config files on every transform is
@@ -296,10 +493,18 @@ export default function whatVitePlugin(options = {}) {
           configFile: false,
           babelrc: false,
           plugins: [
+            ...(typeScriptPlugin !== null && cleanId.endsWith('.tsx') ? [[typeScriptPlugin, { isTSX: true, allowDeclareFields: true }]] : []),
             [whatBabelPlugin, {
+              generate,
+              hydratable: generate === 'dom' && hydratableOutput,
               production,
+              devMetadata: isDevMode && !production,
+              sourceLoc: isDevMode && !production ? sourceLocFor(this) : undefined,
+              autoSelector,
+              verbose,
               projectRoot: rootDir || process.cwd(),
               onActionId: registerActionId,
+              appSource: optedIn,
             }]
           ],
           parserOpts: {
@@ -313,18 +518,15 @@ export default function whatVitePlugin(options = {}) {
 
         let outputCode = result.code;
 
-        // Decided from the OUTPUT, not the filename. `.jsx` in the include
-        // pattern says the file MAY contain JSX, not that any was lowered, and a
-        // .js/.ts module compiled here purely for its server-action metadata
-        // emits nothing DOM-building at all. Both would be false positives.
-        // buildsDom() asks the only question that matters: did this transform
-        // emit code that constructs DOM?
-        if (guardSsr && buildsDom(outputCode)) {
+        // Decided from the OUTPUT, not the filename: `.jsx` in the include
+        // pattern says the file MAY contain JSX, not that any was lowered.
+        if (guardSsr && result.metadata && result.metadata.whatBuildsDom) {
           throw ssrGuardError(cleanId);
         }
 
-        // HMR: append hot boundary code for component files in dev mode
-        if (hot && isDevMode && !production) {
+        // HMR: append hot boundary code for component files in dev mode. The
+        // boundary drives the browser, so a server module never gets one.
+        if (hot && isDevMode && !production && !serverTransform) {
           const isComponentFile = isComponentModule(code, id);
 
           if (isComponentFile) {
@@ -375,7 +577,7 @@ export default function whatVitePlugin(options = {}) {
 
     // Configure for development
     async config(config, { mode, command }) {
-      // SPRINT v0.11 C7: make the `production` exports condition reachable.
+      // Make the `production` exports condition reachable.
       // what-framework/what-core ship pre-minified production bundles behind
       // the `production` condition in their exports maps, but Vite's default
       // resolve conditions never include `production` — so production builds
@@ -393,6 +595,11 @@ export default function whatVitePlugin(options = {}) {
       //    of the defaults), so import/browser/default resolution for other
       //    packages is unaffected.
       const useProdCondition = command === 'build' && mode === 'production' && prodBundles;
+      // Every build except `--mode development` is What's production tier,
+      // whichever files it resolves: defining __WHAT_DEV__ folds the
+      // development flag (what-core/src/env.js) to false, so source builds and
+      // aliased checkouts lose their dev branches exactly as dist/*.min.js does.
+      const productionBuild = command === 'build' && mode !== 'development';
       // Preserve JSX so our babel plugin handles it — don't let the bundler's
       // built-in transformer (esbuild on Vite ≤7, oxc on Vite 8+) touch it.
       // jsxPreserveConfig picks the right option key for the running version.
@@ -400,10 +607,32 @@ export default function whatVitePlugin(options = {}) {
         rolldownVersion: this?.meta?.rolldownVersion,
         viteVersion: await detectViteVersion(config.root),
       });
+      // The dev server serves a .jsx file as this plugin prints it, lines
+      // kept where the source has them (retainLines in transform): a stack
+      // trace, and a location the runtime reads from one (ERR_MISSING_SIGNAL_READ,
+      // an effect's call site), then names the line written. The bundler's
+      // transformer would reprint the file first, without its blank lines,
+      // and it has nothing else to do for one (no types, JSX preserved), so
+      // it skips .jsx here, unless the app sets what it skips. A .tsx file
+      // skips it too when this plugin strips its types (loadTypeScriptPlugin).
+      const transformer = jsxPreserve.oxc ? 'oxc' : 'esbuild';
+      if (command === 'serve' && !production) {
+        typeScriptPlugin = loadTypeScriptPlugin(config.root || process.cwd());
+        if (!(config[transformer] && 'exclude' in config[transformer])) {
+          /** @type {any} */ (jsxPreserve)[transformer].exclude = typeScriptPlugin !== null ? /\.(?:jsx?|tsx)$/ : /\.jsx?$/;
+        } else {
+          typeScriptPlugin = null;
+        }
+      }
       return {
         ...(useProdCondition ? { resolve: { conditions: ['production'] } } : {}),
+        ...(productionBuild ? { define: { __WHAT_DEV__: 'false' } } : {}),
         ...jsxPreserve,
         optimizeDeps: {
+          // Vite 8's dependency scan transforms .jsx with these options, not
+          // `oxc`, and defaults to React's automatic runtime: it would look for
+          // react/jsx-dev-runtime and print "Failed to run dependency scan".
+          ...(jsxPreserve.oxc ? { rolldownOptions: { transform: { jsx: 'preserve' } } } : {}),
           // Exclude framework packages from Vite's dependency pre-bundling.
           //
           // Bug class this prevents — "dual module instance":
@@ -413,7 +642,7 @@ export default function whatVitePlugin(options = {}) {
           //   pre-bundles `'what-framework'` into an esbuild chunk under
           //   node_modules/.vite, those two import paths resolve to two
           //   *different* module instances. Module-scoped state — the
-          //   `componentStack` used by createComponent, effect ownership,
+          //   current owner that components and hooks resolve through,
           //   the signal subscriber registry — is duplicated, so a signal
           //   created in user code never notifies effects created via the
           //   compiler-emitted path, and `getCurrentComponent()` returns

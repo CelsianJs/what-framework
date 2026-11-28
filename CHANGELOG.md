@@ -2,6 +2,2969 @@
 
 All notable changes to What Framework will be documented in this file.
 
+## [0.15.0] - Unreleased
+
+Minor release with breaking changes. All 13 maintained packages move to 0.15.0
+together; deprecated `what-mcp` stays frozen at 0.12.4. React's familiar names
+and call shapes now run on a new engine: push-pull signals with an owner tree,
+async values in the graph, a compiled server target with out-of-order
+streaming, hydration that adopts the server's DOM, data and actions built on
+transitions, a router whose navigations are transitions, and one coded
+diagnostics channel behind 25 MCP tools.
+
+[docs/UPGRADING.md](docs/UPGRADING.md) is the upgrade guide. It lists every
+moved, renamed and removed name, and each behaviour change below with its
+migration. `npx eslint --fix .` with eslint-plugin-what 0.15 rewrites the
+moved imports. `docs/releases/v0.15.0.md` has the release summary.
+
+### Breaking: upgrading and imports
+
+- **Upgrade every What package together, then recompile.** what-compiler 0.15
+  output runs only on what-core 0.15, and the reverse: a page fails with
+  `does not provide an export named '_$mapKeyed'`, and a 0.14-compiled SVG
+  template root throws `ERR_TEMPLATE_NAMESPACE`. what-text 0.14 installs
+  beside what-core 0.15 and fails at import. The server and the client must
+  run the same release, because the hydration protocol changed.
+  *Migration:* move every What package to 0.15.0 in one install, and publish
+  libraries compiled with what-compiler 0.15.
+- **what-compiler is a peer dependency of what-framework**, and what-framework
+  an optional peer of what-compiler, so npm refuses to upgrade either alone
+  (`ERESOLVE`); before, both installed beside each other and the build failed
+  with `"_$own" is not exported`, or built and drew some SVG as HTML.
+  what-compiler/vite and the Babel plugin also stop a build whose
+  what-framework or what-core is another release
+  (`ERR_COMPILER_RUNTIME_MISMATCH`, naming both versions). *Migration:* list
+  what-compiler in devDependencies if your build imports it (Yarn does not
+  install it for you, and pnpm does not expose it). An app upgraded with a
+  package manager other than npm, with only what-framework moved to 0.15, is
+  not caught: upgrade every What package together.
+- **The root entry has 58 names instead of 177.** The kits moved to
+  `what-framework/a11y`, `/ui`, `/motion`, `/dom`, `/form`, `/data` and
+  `/render`, each with a `what-core/<kit>` twin, and internals moved to
+  `what-core/internal`. No name is kept behind as an alias.
+  *Migration:* run `npx eslint --fix .` (`what/no-moved-imports`). A moved
+  import that remains fails a `what-compiler/vite` build with
+  `ERR_MOVED_IMPORT` and the import to write.
+- **Removed names:** `each`, `atom`, `storeComputed`, `onRootCleanup`,
+  `signalMemo`, `getLoaderData`, `getResource`, `_template`, `collectError`,
+  `getCollectedErrors`, `clearCollectedErrors`, `installAgentContext`, the
+  component and signal registry helpers, `getHealth`, `checkComponentName`
+  and `installSignalReadGuardrail`. *Migration:* UPGRADING's Removed table
+  gives the replacement for each, such as `signal`, `derived`, `onCleanup`,
+  `computed`, `useLoaderData`, `createResource(fetcher, { key })`,
+  `getDiagnostics()` or what-devtools.
+- **`useTransition` and `startTransition` on the root entry are React's
+  transition API.** *Migration:* the animation helper is `useTween` and the
+  class helper is `transitionClass`, both from `what-framework/motion`.
+- **The root `Island` export is removed.** *Migration:* import `Island` from
+  `what-framework/server` (`{ name, props, mode }`). `client:*` JSX needs no
+  change. Code that called `h(Island, …)` imports `_$Island` from
+  `what-framework/render`.
+- **`memo` is no longer exported from `what-framework/render`.** That was the
+  compiler's eager memo, now `_$memo`. The root `memo` is React's component
+  memo, unchanged. *Migration:* use `computed()` or `useMemo`.
+- **Buildless pages that load What through a hand-written import map** must
+  map what the framework's own modules import: `what-framework/<kit>` imports
+  `what-core/<kit>`, `what-framework/render` imports `what-core/render`, and
+  `what-server/islands` and `what-router` import `what-core/internal`.
+  what-core reads its development flag through its own `#env` import.
+  *Migration:* add the entries, and
+  `"scopes": { "/node_modules/what-core/": { "#env": "/node_modules/what-core/src/env.js" } }`.
+  The create-what full-stack template builds its map from the packages'
+  `exports` and `imports`.
+- **Packages export three tiers.** Each export of what-core, what-router and
+  what-server resolves `production` to `dist/*.min.js` (development code
+  removed), `module` to `dist/*.js` (development checks read
+  `process.env.NODE_ENV`), and `development`, `node` and the defaults to
+  `src/`. A bundle that resolves `module` ignores `globalThis.__WHAT_DEV__`,
+  and an unminified esbuild or rolldown build with no `NODE_ENV` of its own is
+  a development build. *Migration:* minify, or define `process.env.NODE_ENV`
+  as `"production"`. A tool that passes custom conditions adds `production`.
+  Custom tooling that externalizes every bare specifier bundles `#` imports
+  with their package.
+
+### Breaking: reactivity, effects and hooks
+
+- **Effect order.** Render-phase effects, which include every DOM binding,
+  run before user-phase effects (`{ phase: 'user' }`, `useEffect`,
+  `onMount`). An effect runs before the effects created during its run, and
+  otherwise in the order the write reached them. 0.14 sorted by graph depth.
+  *Migration:* an effect that reads DOM a binding writes uses
+  `{ phase: 'user' }`. A value another effect computes belongs in a signal or
+  a `computed()`.
+- **`useEffect` and `onMount` run in React's order.** On mount a
+  component's effects run after its children's (0.14 ran the parent's
+  first). When state changes, the effects due run every cleanup first, then
+  every run, children first (0.14 ran each effect's cleanup right before its
+  own run, parent first). On unmount a component's `useEffect` cleanups run
+  before its children's, siblings first to last (0.14 ran children first).
+  Within a component, effects keep the order they are written in, in every
+  phase. `onCleanup` and `effect()` keep the owner's order (children first,
+  newest first). A component inside a reactive child
+  (`{open() ? <Panel /> : null}`) is built after the components written
+  beside it, and its effects follow that build order (GOTCHAS 22). An app
+  with no `useEffect` and no `onMount` carries none of the ordering code.
+  *Migration:* code that relied on a parent's effect running before its
+  children's (to set up something its children's effects read) moves that
+  setup into the parent's body, which runs before every child.
+- **A field whose `value` or `checked` is bound to state shows the state.**
+  After each `input` or `change` event of an `<input>`, `<textarea>` or
+  `<select>` whose `value` or `checked` compiled JSX binds to state
+  (`value={name()}`, a live prop, a signal given as it is, or one of those
+  through a spread in a wrapper), once its handlers and the updates they
+  caused are done, the field is put back to the bound value where it shows
+  something else: an edit the handler did not write to the state is undone, a
+  radio group goes back as a whole, a `<select multiple>` selects what its
+  array names, and such a field with no handler cannot be changed, as in
+  React. 0.14 left the edit in the field. The field is put back once every
+  event of the user's action has been handled: a click or Space on a
+  checkbox or radio and a pick in a `<select>` fire `input` and then
+  `change`, and the field is checked after the `change`, so
+  `onChange={(e) => setOn(e.target.checked)}` reads the new state. A text
+  field is put back after each `input` its handlers did not take, `onChange`
+  ones included (it fires on each edit, see "`onChange` is React's change
+  event"). The handlers counted are the ones
+  there now: a listener `on()` added and then removed (by its function or
+  with its owner) no longer counts, and an `h()` element's `onChange` or
+  `onInput` (either phase) over a compiled field counts as a compiled one
+  does. After a form's reset (`form.reset()` or its reset button) such a
+  field shows the bound value again, as React's does; WebKit showed the
+  field's default. A field that already shows the
+  value is not written (the caret stays), nothing is written while an input
+  method composes, and a field with `defaultValue` or `defaultChecked` and no
+  `value` is left to the user. A value that reads no state is still only
+  where the field starts: a constant, what a spread reads once (the forms
+  kit's `{...register('title')}`), and any field made with `h()`. Nothing is
+  added per field: the window hears the events once a binding controls one,
+  and an app with no compiled field binding does not carry the code. A page
+  with two copies of what-core (a library bundled with its own) puts back
+  the fields of both, a `<select>` of the other copy included, with no
+  select code in the copy that listens.
+  *Migration:* a field bound to state only to start with something in it
+  takes `defaultValue`; a handler writes the state itself, not after an
+  `await` or in a timer.
+- **A context provider follows its `value`.** `<Theme value={theme()}>` in
+  compiled JSX hands the readers each new value (0.14 read it once), and an
+  object written there is one object for every reader until what it read
+  changes. A value that cannot change costs no effect. *Migration:* none for
+  `value={theme}` with readers that call the accessor; an `h()` call still
+  evaluates its argument once.
+- **`batch()` returns the callback's value.** A batch that ends inside an
+  effect's run or a computed's evaluation leaves its effects to the flush
+  already running. *Migration:* read the signals you wrote, rather than
+  relying on their effects having run.
+- **`onCleanup()` follows the owner.** Inside an effect it belongs to that
+  run. With no owner it does nothing and reports `ERR_CLEANUP_WITHOUT_OWNER`
+  in development. *Migration:* replace `onRootCleanup` with `onCleanup`.
+- **An effect owns what its run creates** and disposes it before the next
+  run. A component is an owner too: everything it creates, a bare `effect()`
+  included, is disposed with it, whether it was built from compiled JSX or
+  `h()`. *Migration:* delete hand-written disposal of nested effects. Create
+  an effect that must outlive the run outside it.
+- **`useEffect` and `onMount` run after their flush's DOM bindings**, in that
+  flush, and an error they throw reaches the nearest `<ErrorBoundary>`.
+  *Migration:* code that called `flushSync()` after mounting should expect
+  them to have run.
+- **`<ErrorBoundary>` catches errors thrown after mount**: effect re-runs,
+  bindings, list rows, `useEffect` and `onMount`. *Migration:* none, unless an
+  error was meant to pass the boundary.
+- **`useId()` returns a string**, as do the ids from `useDescribedBy` and
+  `useLabelledBy`. *Migration:* write `id` where you wrote `id()`.
+- **Async functions are reported in development.** An `async` effect reports
+  `ERR_ASYNC_EFFECT`. An `async` component renders its promise as text and
+  reports `ERR_ASYNC_COMPONENT`. A `useMemo` that returns a promise reports
+  `ERR_ASYNC_MEMO`. *Migration:* fetch with an async `computed()`.
+- **Development warnings are coded `[what] ERR_…` lines.** A looping effect
+  is stopped after 100 flush rounds (0.14: 25) as `ERR_INFINITE_EFFECT`.
+  `useContext()` of a context with no default and no provider reports
+  `ERR_CONTEXT_NOT_PROVIDED`. A signal converted to a string or a number
+  reports `ERR_MISSING_SIGNAL_READ` and converts as in production, to the
+  function's source. *Migration:* assert on the code, not the text, and call
+  the signal.
+
+### Breaking: async values
+
+- **A computed whose function returns a promise, a thenable or an async
+  iterable is an async value.** Its readers wait for it to land, and under a
+  `<Suspense>` the fallback shows. *Migration:* to keep a promise as the
+  value, wrap it, `computed(() => ({ promise }))`, or use `useMemo`.
+- **A `computed`/`useComputed` function that declares a parameter receives
+  `{ signal }`** and starts when it is created. *Migration:* drop the
+  parameter, or pass the signal to `fetch`.
+- **`createResource`'s `data` is an async value.** It has no `.set`. A read
+  before the first value waits or suspends instead of returning `null`.
+  `loading` and `error` are accessors, and `refetch` returns a promise that
+  never rejects. *Migration:* put a `<Suspense fallback>` around it (or read
+  `loading()` and `data.peek()`), and write with `mutate(value)`.
+- **`<Suspense>` shows its fallback on first load only.** A later refresh
+  keeps the content mounted (read `c.pending()` to show staleness). A later
+  suspension brings the fallback back and keeps the children mounted. Effects
+  under a boundary that has not revealed its content run at the reveal.
+- **what-server's `useOptimistic(initial, reducer)` object is gone.**
+  `useOptimistic(state, update)` returns `[optimistic, addOptimistic]`, as in
+  React 19, from the root entry (what-server re-exports it). *Migration:*
+  `startTransition(async () => { add(x); serverState(await action()); })`. A
+  rejection rolls the overlay back.
+
+### Breaking: rendering, lists and hydration
+
+- **`hydrate()` returns the unmount function**, as `mount()` does. It takes a
+  selector and `{ onHydrationError }`. Mounting or hydrating into a container
+  that holds a root disposes that root first. *Migration:*
+  `const unmount = hydrate(<App />, el)`, and query the container for nodes.
+- **`hydrate()` adopts the server's DOM** where the markup matches, and
+  renders only the differing part on the client. Compiled JSX adopts only
+  when compiled with what-compiler's `hydratable` option. `what-compiler/vite`
+  turns it on (`'auto'`) for a project that renders on the server.
+  *Migration:* for a client build the plugin cannot detect, pass
+  `what({ hydratable: true })`. JSX compiled without it renders on the client
+  and reports `ERR_HYDRATION_MISMATCH` of kind `not-hydratable`.
+- **Vnodes are recognised by a private brand.** An object shaped
+  `{ tag, props, children }` (from JSON, a store or a literal) renders as
+  text on the client, on the server and in islands. `vnode._vnode` and
+  `el._vnode` are gone. An island's vnode prop is revived only where the
+  server recorded one. *Migration:* make elements with `h()` or JSX. A
+  library checks with `isVNode` from `what-core/internal`.
+- **A function `key` on a component is a prop**, not the vnode key, unless it
+  is a signal. So `<For key={(item) => item.id}>` works under `h()` and the
+  JSX runtime. *Migration:* none for a `key` that is a row's key value.
+- **A keyed `.map()` row follows an item replaced under its key.** Compiled
+  rows read the new item in place and keep their nodes and focus. A row that
+  handed the item to a component is built again from it. *Migration:* none,
+  unless code relied on a row ignoring the new item.
+- **A reactive text child compares its text with the text it wrote last**,
+  not with its node's: text that something outside What wrote into the node
+  stays until the value changes, as in Solid. Hydration starts from the text
+  it claimed, so a client value that differs from the server's is still
+  written. A keyed row's plain field (`{row.label}`, written with no
+  effect) does the same when the row is handed a new item: it keeps the text
+  it wrote last, and touches its node only when the value differs.
+  *Migration:* render text from state rather than writing into a node What
+  renders. `packages/core/test/text-last-written.test.js`,
+  `packages/compiler/test/row-field-last-text.test.js`.
+- **A component that returns one element is that element in the DOM.** No
+  `<!--c:start-->` and `<!--c:end-->` comments are put around it, so a list
+  row that is a component is one node, as a row written inline is. A
+  component that returns anything else (a fragment, text, an array, a
+  reactive child, nothing), one built from vnodes (`h()`, the JSX runtime),
+  and one that threw or suspended keep the comments. *Migration:* a test or a
+  script that looks for the comments around a compiled component, or counts
+  the nodes beside it, queries the element instead.
+- **`on(el, event, handler)` removes its listener when the current owner is
+  disposed.** *Migration:* attach long-lived listeners outside a component.
+- **A style object after a style string replaces the string's declarations**
+  on compiled and spread paths, as `h()` already did and Solid does. `null`,
+  `undefined` and `false` clear the inline style on every path.
+- **A compiled component that destructures `children` and only places it runs
+  its body before its children are built**, as `props.children` and `h()`
+  already did, so its `onMount` runs before its children's and a component
+  that never places its children no longer builds them. *Migration:* code that
+  needs its children built while its own body runs reads `props.children` at
+  that point. A component that inspects its children is unchanged.
+- **`ERR_HYDRATION_MISMATCH` carries a record**,
+  `{ kind, component, ownerPath, path, expected, found, recovery }`, in
+  development and through `onHydrationError` in every build. The "already
+  built DOM" warning is kind `not-hydratable`, and `shadow-root` is a new
+  kind. *Migration:* read the record, and handle the new kinds where you
+  switch over `kind`.
+- **Hydration's trust baseline.** After `hydrate()` the page holds what a
+  client render of the same tree and data holds. A server attribute survives
+  only where a prop renders exactly its value. A refused URL removes the
+  attribute. A style object replaces the inline style. An element the client
+  leaves empty is emptied, and a declarative shadow root is replaced, each
+  with a report. SECURITY.md has a Hydration section. *Migration:* markup a
+  server adds outside the rendered tree no longer survives hydration.
+- **Hydratable server output changed.** `renderToStream`,
+  `renderToStringAsync`, `renderDocument`, `renderDocumentStream` and
+  `renderToHydratableString` write one protocol:
+  - owner-path `data-hk` keys (`0`, `00`, …), comment markers around reactive
+    children and arrays, and `<!--b-->…<!--/b-->` boundaries;
+  - a keyed list's `<!--k:SALT:DIGESTS-->` comment, a per-render salt and a
+    64-bit digest per key, or `<!--k!-->` when a key cannot be compared, which
+    the client rebuilds;
+  - `<textarea>` and `<title>` content as text only, and a newline after
+    `<pre>`, `<textarea>` and `<listing>`;
+  - compiled keyed-row fields with no `<!--$-->` markers.
+
+  *Migration:* tests that match exact HTML strip the protocol, or render with
+  `renderToString`. Code that parsed the keyed-list comment should stop.
+- **what-react:** `cloneElement(nonElement)` returns its argument, and
+  `isValidElement` accepts only real elements. *Migration:* pass a real
+  element, or call `createElement(obj.type, obj.props)` on purpose.
+- **what-react:** a host element's `props` keep `className` and `htmlFor`
+  (they were renamed to `class` and `for`), `Fragment` is React's symbol
+  (it was what-core's function), a controlled field whose `value` or
+  `checked` becomes `null` or `undefined` keeps what it shows (it was
+  emptied), a reducer or updater that throws does so while its component
+  renders (it threw from `dispatch`), passive cleanups of a removed
+  component run after the commit's layout effects, and unmount cleanups run
+  parents first. *Migration:* read `element.props.className`; compare a
+  fragment's type with `Fragment` from `react`; clear a controlled field
+  with `''`; catch a reducer's error in an error boundary.
+- **what-react roots follow React's lifetime rules.** `root.render()` after
+  `root.unmount()` throws React's error 409, "Cannot update an unmounted
+  root.", also while the unmount waits for a commit to finish; 0.14 mounted
+  a new tree into the container. `root.unmount()` called from a callback of
+  the root's own commit (a removed row's cleanup, a ref, an effect, the
+  first commit's included) waits until that commit is done and its passive
+  effects have run, then runs every cleanup of what the root held; before,
+  it unmounted in the middle of the commit, the incoming rows were set up
+  on nodes out of the page, and their cleanups never ran, so their
+  listeners kept firing. `root.render()` on a mounted root, called while a
+  render, a commit or its effects run (a layout effect, a removed row's
+  cleanup, another root's commit), renders once that commit is done, and
+  the renders asked for until then are one, the last element's, as React
+  batches them. A root's first `render()` still renders at once. A
+  controlled field's `value` is written with the commit's removals, after
+  them, as React writes it: a `<select>` whose option for the value came
+  back under another key selects the new one, and a class's
+  `getSnapshotBeforeUpdate` reads the old value. *Migration:* call
+  `createRoot(container)` again to render into a container you unmounted;
+  code that read a root's DOM straight after calling its `render()` from an
+  effect reads it in a later effect, or after the outer `flushSync()`
+  returns.
+- **JSX passed in any prop is built where the component places it**, inside
+  the component's run, as `children` are: its components run after the
+  receiving component's body, are owned by it and see its context, and while
+  hydrating it claims the server's nodes there. A destructured prop that is
+  only placed compiles to a read where it stands, and a prop handed on reaches
+  the next component unbuilt. *Migration:* code that relied on a JSX prop's
+  components having run before the receiving component reads the prop where
+  the JSX is wanted; pass data, not JSX, to a component that inspects it.
+- **The same JSX placed twice in one run is built twice**, as `h()` and the
+  server render it; before, one set of nodes moved to the last place.
+  *Migration:* a component that relied on one set of nodes places it once.
+- **`<ErrorBoundary>` and `<Suspense>` read `fallback` when they show it**, so
+  a JSX fallback is built afresh each time it is shown.
+- **JSX built before it is placed is reported while hydrating.** JSX in a
+  variable, an argument or an object, a prop a component inspects, and a prop
+  given to an `h()` component are built before the walk reaches their place.
+  Hydration puts them in the server's place, reports `ERR_HYDRATION_MISMATCH`
+  of kind `prebuilt` with the owner, and moves what the user typed or chose in
+  a form control there to the new control.
+- **`hydrate()`, `mount()` and what-react's roots throw
+  `ERR_MOUNT_TARGET_MISSING`** for a `null` container or a selector that
+  matches nothing, instead of a WeakMap `TypeError`.
+- **Action keys and hydration keys are structural.** A component's place
+  among keyed rows is its place in its parent's output and its JSX's source
+  position, never a count of the components before it, on the server, the
+  stream and hydration alike. A form served by the previous version and
+  posted to this one finds no state for its key and re-renders as on a first
+  visit. `Fragment` takes no step in owner paths. *Migration:* none; it
+  happens once per open page across the deploy.
+- **A `<Show>` or `<Switch>` arm's reactive expression is a reactive child of
+  its own**: `<Show when={x}>{count()}</Show>` updates the text without
+  rebuilding the arm. *Migration:* code that relied on the arm rebuilding
+  reads the value in a component the arm renders.
+- **Server markup:** a fragment among an element's children is written in
+  place with no array markers, and a keyed `.map()` is written with its list
+  markers and keys wherever it stands. *Migration:* build client and server
+  with this compiler and runtime together.
+- **After a component's run, a read of a JSX prop that does not place it
+  gives a placeable**: an opaque value, the same every time, built where it
+  is placed, under that place's owner, context and error boundary. The same
+  holds during the run once the prop is placed. A presence test in `onMount`
+  or `useEffect` is true without running the prop's components, and a
+  handler that shows it in a dialog builds it there. *Migration:* inspect a
+  JSX prop during the run, or alias it there (`const panels = props.panels`);
+  pass data, not JSX, to a component that inspects it.
+- **A JSX prop is built untracked**: a `<Show>` or condition around its place
+  no longer depends on the signals its JSX read when built, so it is not
+  rebuilt when they change. Its own reactive reads update in place.
+- **An array literal of JSX, or a `.map()` returning JSX, passed in a prop is
+  lazy** like any JSX prop. *Migration:* none for a component that places it;
+  one that inspects it inspects it during its run.
+
+### Breaking: server rendering
+
+- **`renderToStream()` returns a `RenderStream`**,
+  `{ shellReady, allReady, response, pipe, readable, abort }`, which is also
+  async-iterable. It takes options (`loaderData`, `request`, `response`,
+  `signal`, `nonce`, `noScripts`, `onError`, `idPrefix`) instead of a render
+  context. *Migration:* `for await` works as before. `.next()` now throws.
+  Pass loader data and the request as options.
+- **`renderToStringAsync(vnode, init?, options?)` renders on the streaming
+  engine.** `init` is `{ loaderData, signal, request, response }`, and any
+  other field rejects with a `TypeError`. A resource with no `key` is
+  returned in `owned`, not under `resources.__r0`. *Migration:* send `owned`
+  along with `resources`, or let `renderDocument()` write the payload.
+- **A `mode: 'server'` route streams shell-first.** Status and headers are
+  final when the shell is ready. *Migration:* decide them in the loader, or
+  set `page: { stream: false }`.
+- **what-isr stores only public renders.** A render is private, and never
+  stored or shared, when it sets a cookie, sets `Cache-Control` with
+  `private`, `no-store` or `no-cache`, sets `Vary`, or reads a request header
+  or cookie that the route's `vary` does not name. In a render the cache may
+  share, `request` is a real `Request` that carries only the headers and
+  cookies the route's `vary` names, so `fetch(request)` and
+  `new Request(request)` forward nothing the cache key does not vary on. On
+  cacheable routes the loader no longer sees `utm_*` and the other ignored
+  parameters.
+  *Migration:* name what the page varies on (`page: { vary: ['cookie:session'] }`).
+  To forward a visitor's credentials upstream from a cached route, read them
+  through `request.headers` (which makes that render private), name them in
+  `vary`, or use `mode: 'server'`. Read tracking parameters on the client.
+- **Error details stay on the server.** `<!-- SSR Error -->` comments and
+  resource error records carry the message only when `NODE_ENV` is exactly
+  `development`. *Migration:* read errors from `onError`.
+- **The Node adapter answers 400 to a request target that is not a path.**
+  `toNodeListener` and `whatMiddleware` refuse `*`, absolute-form and
+  authority-form targets, and any target whose URL cannot be built.
+  `whatMiddleware` passes a handler's error to `next(err)` instead of
+  rejecting. *Migration:* behind a forward proxy that sends absolute-form
+  targets, rewrite them to origin-form at the proxy.
+- **what-isr keys on the request's origin as well as its path.** On upgrade
+  every cached entry misses once, and a deployment that serves one app on
+  several hosts keeps one entry per host. *Migration:* to share entries, have
+  the proxy send one canonical Host. A custom `cacheKey()` caller can pass
+  `origin`. A regeneration with no request (`createScheduler`,
+  `revalidatePath`/`revalidateTag` with `regenerate`) refreshes the entry of
+  each origin stored for the path, up to 16, or renders a default entry at
+  `createCacheEngine({ origin })` (default `http://localhost`), which a
+  request whose origin has no entry is served. `engine.regenerate(match)`
+  resolves `CacheEntry | null`. `createCacheEngine({ origins })` names the
+  public origins to cache: a request for any other host renders uncached, and
+  a regeneration renders exactly those. The full-stack starter reads them from
+  `PUBLIC_ORIGIN`. Without it, a regeneration prefers the origins visitors
+  read most recently. `createCacheEngine` throws on an origin without a scheme
+  and on an empty `origins`, naming the value, and the starter stops on a
+  `PUBLIC_ORIGIN` that names no origin. *Migration:* write full origins
+  (`'https://shop.example'`), or leave `origins` out.
+- **A Host header that is not a host gets 400** from `toNodeListener`,
+  `whatMiddleware`, `nodeActionMiddleware` and the Vura handler. *Migration:*
+  fix a proxy that forwards a malformed Host.
+- **A second copy of what-core bundled into a library throws
+  `ERR_FOREIGN_ENGINE_IN_SSR`** when it makes an async value during a server
+  render, instead of fetching twice. *Migration:* mark what-framework as a
+  peer dependency of the library.
+- **Full-stack apps scaffolded from an earlier create-what** render routes
+  with their own function, which ignores redirects and headers. *Migration:*
+  in `server.js`, use
+  `const renderPage = createRouteRenderer(documentOptions)` from
+  `what-framework/server`.
+- **A request target whose path has a dot segment (`.`, `..`, `%2e`) or a
+  backslash gets 400** from `toNodeListener`, `whatMiddleware`,
+  `nodeActionMiddleware` and `what dev`/`what preview`, so a path guard in
+  front (an Express `app.use('/admin', …)`) routes the same path What renders.
+  Browsers never send one. *Migration:* none for browser traffic. A client
+  that sends such paths must resolve them first.
+- **`exportStatic()` resolves `{ pages, redirects, skipped }`.** A page that
+  redirects is written as a redirect stub, and a page with another status is
+  skipped with a warning.
+- **SSR style objects follow a conservative value grammar.** A value with a
+  CSS comment, an escape outside a string, or an unquoted `url(` that is not a
+  valid url token is dropped. *Migration:* write the value without it.
+
+### Breaking: data, actions, forms and routing
+
+- **`useAction`, `useFormAction`, `useMutation` and `formAction` (what-server)
+  are removed.** *Migration:*
+  `const [result, run, isPending] = useActionState((prev, args) => save(args), null)`,
+  the action inside `startTransition`, or `<Form action={save}>`.
+  `ERR_FORM_ACTION_NOT_REGISTERED` is gone: a plain function is a valid
+  `action`.
+- **The query hooks read one cache of async values.** `useQuery`, `useSWR`,
+  `useInfiniteQuery` and `useFetch` keep their shapes. *Migration:*
+  - `invalidateQueries` returns a promise of the refetches; code that ignored
+    it is unchanged.
+  - Callbacks fire once per landing, for the reader that started the fetch.
+    To react in every component, read `data()` in an effect.
+  - Unmounting a key's last reader cancels its fetch in flight, and a remount
+    refetches. `setQueryData` drops a fetch in flight for its key; call
+    `invalidateQueries` afterwards for a fresh copy.
+  - `prefetchQuery`'s fetcher gets the key as written plus `{ signal }`, not
+    the normalized string. Read the array, or `String(key)`.
+  - `setQueryData`'s updater gets `undefined` for a key with nothing cached.
+    Write `(prev = []) => …`.
+  - A key may be a function of signals (`queryKey: () => ['search', term()]`).
+    Move a signal read inside `queryFn` into the key.
+  - The hooks render their first state on the server and while hydrating:
+    loading, or their own `initialData`/`fallbackData`. To server-render data,
+    read it with `query()`.
+- **`onRevalidate` and `invalidatePath` come from `what-framework/data`**;
+  what-server re-exports them. `invalidatePath` also refetches the queries
+  read on the path.
+- **The action endpoint refuses cross-site posts** (`Sec-Fetch-Site:
+  cross-site` or `same-site`, or a foreign or `null` `Origin`) with 403, even
+  with a valid token, and accepts same-origin posts without one. The
+  server's own origin takes its scheme from the connection (a TLS socket, or
+  the platform's URL), or from `X-Forwarded-Proto` when the request carries
+  it. *Migration:* name another origin of the app with
+  `createRequestHandler({ csrf: { trustedOrigins: ['https://…'] } })`. Behind
+  a TLS proxy that sends no `X-Forwarded-Proto`, make it send one, or list the
+  app's https origin in `trustedOrigins`.
+- **`<Form>`** omits the empty token field and no longer warns about a missing
+  token. It resets at its submission's commit, only after the action
+  succeeds: uncontrolled fields clear, and a controlled field keeps what its
+  prop holds, as in React 19. `useFormStatus().action` is the action function
+  or `null`. *Migration:* reset by hand in the action's success path if you
+  relied on an immediate reset, and compare `action` against your function,
+  not its id.
+- **`_state` and `_actionKey` are reserved `<Form>` field names**, with
+  `_action`, `_redirect` and the CSRF field. *Migration:* rename a field with
+  one of these names. A server action's own `<Form>` posts back to the page it
+  is on without relying on the Referer, and `redirect` applies to that form
+  only.
+- **A form's reset after an action runs after the commit**, so a
+  `defaultValue` read from `useActionState`'s new state applies. A `<Form>`
+  with no `csrfToken` prop no longer adds the page's token while hydrating,
+  which the server never wrote. The enhanced submit still sends it in
+  `X-CSRF-Token`.
+- **`<Form>`'s JavaScript submit follows the form's `enctype`.** A file field
+  in a form without `multipart/form-data` sends the file's name, as the
+  browser's native submit does. A `File` in what an action returns is `null`
+  in its state, with and without JavaScript. *Migration:* add
+  `enctype="multipart/form-data"` to forms with file inputs, and return what
+  you show about a file (its name, its size), not the file.
+- **`enhanceForms()` submits a same-origin form without a token**, as the
+  native submit would, and leaves the decision to the endpoint.
+  `data-no-csrf` is gone. *Migration:* remove `data-no-csrf`, and check the
+  response where you relied on the client-side "Missing CSRF token" refusal.
+- **Navigations are transitions.** `navigate()` and `<Link>` load a lazy
+  route's chunk and run its `preload` while the old page stays. A lazy
+  route's fallback no longer flashes on navigation; it still shows on first
+  load. A newer navigation supersedes one still preparing. `navigate()`
+  resolves, and `route.isNavigating` turns false, once the new page's first
+  data has landed. *Migration:* return what the page needs at once from
+  `preload`. Use `navigate(to, { flushSync: true })` for an immediate commit.
+- **Route middleware runs once per navigation**, before the route's `preload`,
+  and again only when a signal it read changes. A declined route is never
+  prepared. A middleware that navigates supersedes its own navigation.
+  *Migration:* keep middleware free of side effects that expected a second
+  call at render.
+- **The router commits the URL the address bar commits**, with dot segments
+  resolved, and splits it as `URL` does (`?q=a?b` is `{ q: 'a?b' }`). A
+  path that starts `//` is that path, not another host. A nested `<Router>`
+  has route state of its own.
+- **`isSafeUrl` refuses an absolute URL the URL parser rejects**, so
+  `<Link href="http://[">` renders `href="about:blank"`.
+- **A navigation that changes only the hash keeps the page.**
+  `navigate('#teams')`, `navigate('/settings#teams')` on `/settings`, a
+  `<Link>` to either, and the browser moving the hash (back/forward,
+  `location.hash`) are fragment navigations, as in the browser: the page
+  stays mounted with its state, the URL and `route.hash` move, and the
+  element with that id scrolls into view. No guard, middleware, `preload` or
+  View Transition runs, and `beforeNavigate` and `afterNavigate` are not
+  called. A `'#hash'` target replaces the history entry; a path with a hash
+  adds one unless `replace: true`. Before, a path with a hash rebuilt the
+  page, losing its local state (found dogfooding Vura: `ERR_REBUILT_COMPONENT`
+  fired for its Settings and Deployment Detail pages).
+  *Migration:* code that ran in `afterNavigate` or a middleware for a hash
+  change reads `route.hash` in an effect instead.
+- **Parsed queries are typed `RouteQuery`**
+  (`Record<string, string | string[]>`, exported by what-router and
+  `what-framework/router`): `route.query`, `useSearch()`, `useRoute().query`,
+  `parseQuery()`, and the `query` a route component, a layout, `preload` and
+  middleware receive, what-server's `RouteMatchContext` and what-isr's
+  `cacheKey()` and `RouteMatch`. A key the URL repeats was already an array at
+  runtime (`?tag=a&tag=b` is `{ tag: ['a', 'b'] }`). Middleware is typed
+  `(context: RouteMiddlewareContext)`, `{ path, url, params, query, route }`.
+  *Migration:* code that typed a query as `Record<string, string>` may now
+  see `string | string[]`: narrow the value (`Array.isArray(v) ? v[0] : v`),
+  or name the shape you expect (`useSearch<{ page?: string }>()`).
+- **A server never navigates.** During a server render, route state is the
+  request's own, and a `<Router url>` keeps route state of its own, which
+  readers outside it do not see. `navigate()`, a middleware redirect,
+  `<Redirect>`, a `guard()` path fallback and a `redirect()` thrown from a
+  component body under a `<Router>` redirect the response (a same-origin
+  path). A
+  `beforeNavigate` or `afterNavigate` subscribed during a server render is not
+  kept. *Migration:* read the redirect from the response you passed in
+  (`createResponse()`); the deploy adapters answer with the 3xx. Read the URL
+  a `<Router url>` was given inside that Router.
+- **A refused action call rejects with a coded error and `status`:**
+  `ERR_PAYLOAD_TOO_LARGE` with `limit` for a 413, `ERR_ACTION_FAILED`
+  otherwise. The 413 JSON body is `{ message, code, limit }`. *Migration:*
+  branch on `error.code`, and wrap the component that calls `useActionState`
+  in an `<ErrorBoundary>` to show it. The upload recipe checks the file's size
+  in the browser first, and names the limit in its boundary.
+- **An action body that does not parse is answered 400 and runs no action**,
+  on every entry point: JSON for an action call, HTML for a form post. Before,
+  a malformed multipart call ran the action with no fields.
+- **Every form POST to a page is read under `bodyLimit`** on every platform,
+  including a page whose loader reads its own upload: over the limit it gets
+  the 413 page.
+- **A request body whose stream fails while it is read is a 400** on every
+  entry point and runs no action, including a no-JS post that names its
+  action in the query on the Node adapter (it ran the action with `{}`).
+
+### Breaking: compiler
+
+- **Rest props stay live everywhere, and a spread's children render.** Every
+  rest element of destructured props is the props without the names it
+  leaves out, getters kept (`_$omit`): before, the compiler rewrote one only
+  when the pattern also had a prop read where it was used, so
+  `({ as: Tag, ...rest }) => <Tag {...rest} />` showed the first `href` and
+  `className` forever. A rest element destructured again, read by key, used
+  in a nested function or a `.map()` row, declared in the body or beside a ref
+  parameter (`({ ...rest }, ref)`), a nested pattern (`{ style: { color } }`)
+  and a default that reads nothing of the component (`items = []`, made once
+  per component) are live too, and a spread binds a prop handed on to it
+  (`<Tag href={rest.href} />`) as it binds a live one. An element with a
+  spread and no JSX children renders the spread's `children` on both targets,
+  as React does: the client wrote them as a `children` attribute and the
+  server dropped them. A destructured `.map()` row (`({ id, label }) => …`)
+  reads its item where it is used, so it shows an item replaced under its
+  key. Compared shape by shape with React 19.3.0 in a browser
+  (packages/compiler/test/rest-props-react-parity.test.js).
+  *Migration:* none for code written as React writes it; tests that match
+  compiled output of rest elements, spreads or destructured defaults change.
+
+- **The Vite plugin compiles the app's files, never a dependency's.** No
+  script file of one of What's own packages is compiled, wherever it sits,
+  and nothing under `node_modules` is, whatever `include` and `exclude` say.
+  A workspace link (npm, pnpm or Yarn workspaces, `file:`, `npm link`)
+  resolves outside `node_modules`, so the dev server compiled what-react's,
+  what-router's and what-core's source there as the app's: what-react's
+  `forwardRef()` handed Headless UI's `<Dialog>` a rest object it could not
+  call `hasOwnProperty` on, in a mixed app, in development only. A package is
+  What's when the nearest `package.json` with a name says so and the file is
+  one it publishes (`packages/compiler/src/framework-files.js`); a JSX file
+  What publishes (`what-devtools/panel`) is still compiled for its JSX. The
+  Babel plugin applies the same rule: in What's own files it adds no
+  development names or server action ids. A test compiles all of
+  `packages/*/src` in every mode the plugin uses and finds it unchanged
+  (packages/compiler/test/framework-source-untouched.test.js).
+  *Migration:* name a dependency that publishes What JSX as source in the new
+  `compileDependencies` option; a custom `exclude` no longer lets
+  `node_modules` in.
+
+- **Only components have their props read where they are used.** A function
+  is a component when it renders JSX, or, with no JSX, when it is named as
+  one and calls What's `h()` or returns a prop as it is
+  (`(props) => props.children`): `function Box({ as, ...rest }) { return h(as,
+  rest) }` keeps `rest` live. A helper that destructures its argument
+  (`function Point({ x, y, ...rest })`), a reducer, a class's method, a
+  higher-order component that calls what it wraps and a hand-written
+  `forwardRef()` come out as written; the rest rewrite had reached every
+  function with one parameter, `_$place` every one that returned a field of
+  its parameter. Tested both ways in .jsx, .js and .ts files
+  (packages/compiler/test/component-rule.test.js).
+  *Migration:* none; tests that match compiled output of plain functions
+  change.
+
+- **Component props are live.** A prop whose value reads a signal is passed
+  as a getter over the expression: `<Badge on={count() > 0} />` updates the
+  child's `{props.on}`, and a destructured `({ on })`, where it renders, and
+  the child still runs once and keeps its state. Before, the value was read
+  once and the prop froze with no warning. The compiler reads a destructured
+  prop as `props.<key>` where it is used (unless it is reassigned, has a
+  computed key, or has a default that reads the component or calls something,
+  each reported as `ERR_PROP_READ_ONCE`), a read of props in JSX is a
+  binding, and `{...props}` spreads and rest elements keep the getters
+  (what-core `_$merge`, `_$omit`). Props objects What builds with a getter
+  are marked as What's (next bullet); `_$createComponent` takes one as the component's
+  own, and h() keeps the getters of one. Code that relied on a prop staying at its first
+  value reads it once in the body instead (`const first = props.value`).
+- **Props objects are plain objects.** A component's props, a rest element
+  of them (`_$omit`) and a spread's merge (`_$merge`) have Object.prototype
+  as their prototype, as React's props do: `props.hasOwnProperty(k)`,
+  `String(props)`, `props.valueOf()`, classnames and lodash's
+  `isPlainObject` work, where they threw or answered false on 0.14's objects
+  with no prototype. What tells a props object that holds a getter (a live
+  prop, or the lazy getter of children or of JSX passed in a prop) apart,
+  and keeps its getters live through every copy and merge, by a
+  `Symbol.for('what-core.props.v1')` property, which another copy of
+  what-core on the page reads too. It is not enumerable, so `Object.keys`, a
+  spread, `Object.assign`, `structuredClone` and JSON leave it out;
+  `Reflect.ownKeys` and `Object.getOwnPropertySymbols` list it. A props
+  object with no getter carries no mark: a copy of it is the same either
+  way. Compiled JSX marks a props object with a live prop as it builds it
+  (`_$marked({ get on() { … } })`) where it wrote one with no prototype, and
+  the component gets the object as it is: setting
+  a prototype in place would give each object a hidden class of its own in
+  V8, and make prop reads about 13 times slower. What's copies and spreads
+  take own keys only (a key written onto Object.prototype is never a prop or
+  an attribute), a key named `__proto__` is defined as a property and never
+  sets a prototype, and no element is written a `__proto__`.
+  *Migration:* code that tests `Object.getPrototypeOf(props) === null`, or
+  relied on `props.constructor` or `props.__proto__` being undefined.
+- **Props forwarded the React way stay live.** Each shape has a test
+  (packages/core/test/forwarded-props-react-habits.test.js), and five new
+  rest-prop shapes are compared with React
+  (packages/compiler/test/rest-props-react-parity.test.js).
+  - An attribute written after a spread wins over it, as source order says:
+    `<a {...rest} href="/override" />` keeps `/override` when `rest.href`
+    changes. The compiler passes the names written after each spread
+    (`_$spread(el, rest, ["href"])`); `class` and `className` count as one
+    name.
+  - A handler that comes through a spread follows the parent's current one;
+    the old listener is removed. A handler written directly
+    (`onClick={props.onClick}`) is still bound once.
+  - `children` written as an attribute is live, so children forwarded
+    through several rests, and into a React island, update.
+  - `const merged = { ...rest, className: 'x' }` spread onto JSX, or only
+    read by key, stays live (`_$merge`). Handed elsewhere, written to or
+    given a method, it is a plain object as before.
+  - A function handed to a component (`read={() => props.project}`) is a
+    callback: calling it returns the prop, not an internal forwarding
+    function.
+  - Components written with `h()` (named, `memo(function …)`, an anonymous
+    default export, one a factory returns, a `use*` hook handed props) and a
+    class `render()` that destructures `this.props` read props live.
+
+  A render callback in a keyed row (`{renderCell(item)}`) is handed the raw
+  item, as in React, so identity, arrays, `Map`, `Date` and private fields
+  behave as React code expects; to keep a cell's nodes across a refetch,
+  hand it `live(() => item)` or render a component (`<Cell item={item} />`).
+  *Migration:* code that relied on a spread overwriting an attribute written
+  after it writes the attribute before the spread; tests that match compiled
+  output of spreads change.
+- **A key that reads the index keys the list, as React keys it.** `key={i}`
+  and `` key={`${t.term}-${i}`} `` compile to a keyed list keyed by item and
+  position, with no warning; the key function receives the index, on the
+  server (`ssrList`) too. A row stays while its key does, so a refetch that
+  hands the same places new objects keeps the rows and their state, and a
+  list keyed by the index hydrates the server's rows in place. Before, such a
+  key fell back to an unkeyed list built again on every update (with a
+  warning, except for a bare `key={i}`). A key built from a name the map
+  callback declares still falls back, with the warning.
+- **`<Row item={item} />` in a keyed `.map()` follows an item replaced under
+  its key.** An attribute named like the row's variable was taken as a read
+  of it, so the row kept the item it was built with.
+
+- **Server transforms compile for the server.** The Vite plugin's `ssr`
+  option, on by default, compiles a module Vite transforms for the server
+  with the server target, which every what-server renderer accepts.
+  *Migration:* test runners that set `ssrGuard: false` to get DOM output from
+  server transforms set `ssr: false, ssrGuard: false`. With the Babel plugin,
+  the server target is `generate: 'ssr'`.
+- **A call in JSX is static only when the compiler proves it.** A call is
+  left unwrapped only when nothing it reaches can read a signal. A call it
+  cannot prove (a parameter, a method of a value it did not see made, a
+  getter, a class instance, a callback handed on, a generator, an unknown
+  global) is a reactive child. *Migration:* none for correctness; snapshot
+  tests of compiled output or server markup may show new thunks or markers.
+- **`autoSelector`, on by default, rewrites `selected() === row.id`** in a
+  keyed `.map()` row into a `createSelector` lookup. *Migration:* opt out
+  with `/* @what-no-selector */` or `autoSelector: false`.
+- **Markup the HTML parser would move fails the build** with
+  `ERR_INVALID_HTML_NESTING`, and the server target refuses unsafe static
+  values with `ERR_UNSAFE_STATIC_MARKUP`. *Migration:* write markup the parser
+  keeps, such as a `<tbody>` around rows.
+- **Development output carries names and locations** (`devMetadata`, on in
+  the Vite dev server, never in `vite build`). *Migration:* update snapshots
+  of development output.
+- **`onChange` is React's change event.** On a text `<input>` or a
+  `<textarea>` it fires on each edit: keys, paste, undo, each step of an
+  input method's composition, autofill. It does not fire again on blur or
+  Enter, and an edit that leaves the value as it was fires nothing. On a
+  checkbox, radio, select or file field it fires when the value changes. An
+  ancestor's `onChange` (a `<form>`) hears its fields, and `onInput` on the
+  same field fires first. This holds in compiled JSX (delegated, through a
+  spread, forwarded, with modifiers), in `h()` props and in `register()`.
+  0.14 fired it at the DOM's `change`, when the user committed an edit.
+  A text field's `register()` puts its handler under `onchange`; `oninput`
+  still holds it for 0.14 code (`oninput: register('x').oninput`), but not
+  enumerable, so `{...register('x')}` attaches one handler. `on(el, 'change',
+  fn)` is still the DOM's change event. A module with no
+  `onChange` carries none of this code. Handlers get the native event, so
+  `e.type` is `'input'` while the user types.
+  *Migration:* work that ran when the user committed an edit (validation,
+  saving, formatting) now runs on every key: move it to `onBlur`, or listen
+  for the DOM's change event on a field the user owns
+  (`<input defaultValue={x} ref={(el) => on(el, 'change', commit)} />`, `on`
+  from `what-framework/render`). New code wires `register('x').onchange`.
+
+### Breaking: tools
+
+- **eslint-plugin-what:** `what/no-signal-in-effect-deps` is now
+  `what/no-signal-read-in-effect-deps` and reports the opposite case
+  (`[count()]`, fixed to `[count]`). `what/no-destructured-props` is retired.
+  `what/no-moved-imports` and `what/no-effect-self-write` are errors in
+  `recommended`. *Migration:* rename or delete the rules in a config that
+  lists them, then run `eslint --fix`.
+- **what-devtools:** `subscribe()` events carry ids instead of registry
+  entries, and `safeSerialize(value, depth)` is `safeSerialize(value, budget)`.
+  *Migration:* look entries up by id in the exported `signals`, `effects` or
+  `components` map.
+- **what-devtools-mcp:** 0.14's 29 tools are now 25.
+  - `what_component_tree`, `what_diff_snapshot`, `what_watch`,
+    `what_record_window`, `what_validate` and `what_perf` are gone. *Migration:*
+    UPGRADING's MCP table gives the call for each.
+  - Every answer is compact JSON with a `seq` cursor; the prose `summary` is
+    gone.
+  - The Vite plugin pairs the page, and another dev server serves the same
+    endpoint with `createDiscoveryHandler({ root })`.
+  - `what_signals` counts include async computed rows (writable rows have
+    `id`, async rows `effectId`).
+  - Causal recording starts on connection. *Migration:* reproduce the action
+    after connecting.
+  - `what_diagnose`'s hot-effect cutoff defaults to 5 runs. *Migration:* pass
+    `threshold: 50` for 0.14's cutoff.
+  - `what_errors` returns hydration guidance in `mismatchFixes[kind]`.
+- **`what dev` answers 403 to a Host it does not serve**, so a DNS-rebinding
+  page cannot read the dev sources. It serves localhost, `*.localhost`, IP
+  literals and `--host`. *Migration:* for a tunnel or a LAN name, add it to
+  `allowedHosts` in the config or pass `--allowed-hosts a,b` (`true` allows
+  any). `what preview` checks the same list, the Host is read as a host before
+  any name test, and the HMR socket accepts the same origins.
+
+### Added
+
+- **`ERR_PROP_READ_ONCE`**, a compile-time warning in development builds for
+  a destructured prop the compiler reads once, when the component runs (one
+  assigned again, a computed key, one destructured twice, a default that
+  reads another prop or calls something, a nested rest or array pattern, a
+  `var` pattern), a component that picks what it returns from a prop
+  (`return on ? <A /> : <B />`, `if (!open) return null`), one that hands
+  its props to a JSX helper as a value (`return mk({ value })`), and a value
+  computed from a prop in the body and shown in JSX
+  (`const label = name.toUpperCase()`, then `{label}`; a route page's
+  `params` and `query`, a hook's seed and a handle called or spread are not
+  reported): it names the prop, the component, `file:line:column` and the
+  fix, so a prop never keeps its first value in silence. Compiling the
+  repo's 184 app files reports one new case, a real one.
+  `packages/compiler/test/derived-prop-read-once.test.js`.
+- **`ERR_STATE_READ_ONCE`**, the same compile-time warning for state: a
+  component that picks what it returns from its own state
+  (`if (loading()) return <p>Loading…</p>`, which showed "Loading…" forever)
+  and a value derived from state in the body and shown in JSX
+  (`const valid = name().length > 0; … disabled={!valid}`, a button that
+  never enabled). State is an accessor a What hook or primitive returns and
+  the component declares; a read inside a function (a handler,
+  `untrack(() => x())`) is not reported, and the suggested fix quotes the
+  condition. Compiling the 188 What JSX, TSX and `h()` files in examples/,
+  sites/, demo/, docs-site/, benchmark/ and smoke/ reports nothing.
+  `packages/compiler/test/state-read-once.test.js`.
+- **`ERR_CLEANUP_READS_LIVE`**, a compile-time warning in development
+  builds for a `useEffect` cleanup that reads a prop or calls a state
+  accessor its run also reads, in an effect that can run again (no `[]`):
+  `return () => leave(roomId)` leaves the new room, since a component runs
+  once and the cleanup reads the prop when it runs. It is matched in the
+  source, so it costs nothing at run time; a value reached through a helper
+  or an object is not seen (GOTCHAS.md, section 27). The same 188 files
+  report nothing. `packages/compiler/test/cleanup-reads-live.test.js`.
+- **The page reports what the compiler found.** `ERR_PROP_READ_ONCE`,
+  `ERR_STATE_READ_ONCE` and `ERR_CLEANUP_READS_LIVE` reached only the dev
+  server's terminal. A development DOM build now ends such a module with
+  `_$buildDiagnostics([...])` (what-framework/render), which reports each
+  finding on the diagnostics channel when the module loads, with its source
+  location as written and its component as the subject: the browser
+  console, `getDiagnostics()`, `what_connection_status`, `what_errors` and
+  `what_explain` show them. Production builds and builds without
+  development metadata emit nothing. `what_why` on a target nothing reactive
+  reads (a `disabled` computed in the body) adds a hint that the value was
+  read once and that `what_errors` names the build's finding, where it
+  answered only `reason: "no-live-bindings-or-effects-for-target"`.
+  `packages/compiler/test/state-read-once.test.js`,
+  `packages/devtools-mcp/test/tools.test.js`.
+- **`useState` and `useSignal` state is named after its variable in
+  development**: `const [count, setCount] = useState(0)` is `count`, at the
+  `useState` call, as `signal()` is named, where the devtools showed
+  `signal_12` at the JSX that rendered the component. `what_signals({ filter:
+  "count" })`, the first step of the MCP "UI not updating" workflow, finds
+  it. A production build is byte-identical.
+  `packages/compiler/test/dev-metadata.test.js`.
+- **`no-uncalled-signals` reports What state stored or sent as data**
+  (eslint-plugin-what): an object or array literal given to a setter
+  (`setSubmitted({ name, age })`), an argument of a function that reads
+  values (`JSON.stringify`, `String`, `Number`, `console.*`,
+  `localStorage.setItem` and the like) and anything nested in one
+  (`fetch(url, { body: JSON.stringify({ name }) })`), and an array literal
+  joined (`[a, b].join()`). Every report of the rule carries a suggestion
+  that adds the call (`{ name }` to `{ name: name() }`), and a name is
+  reported only where it resolves, through the scope, to state a What hook
+  or primitive made: a local that shares a signal's name elsewhere in the
+  file, and React's `useState` in a what-react file, are not. A prop, a
+  dependency array, `untrack(name)` and `computed(name)` are not reported.
+  Over the 142 What source files in examples/, sites/, demo/, docs-site/,
+  smoke/ and benchmark/, the data shapes report nothing, and the repo's own
+  lint has 9 fewer false reports. `what_lint` reports them too.
+  `packages/eslint-plugin/test/accessor-as-data.test.js`.
+- **`no-prop-read-once`, `no-state-read-once` and `no-cleanup-reads-live`**
+  (eslint-plugin-what), the compiler's `ERR_PROP_READ_ONCE`,
+  `ERR_STATE_READ_ONCE` and `ERR_CLEANUP_READS_LIVE` for code what-compiler
+  does not build (the islands template, `h()`), with the catalogue's codes:
+  on in `recommended` (warn) and `strict` (error), off in `compiler`, which
+  reports them at build time. A React file is skipped. Over the 352 source
+  files of those directories they report one shape, which what-compiler
+  reports too. `packages/eslint-plugin/test/read-once-rules.test.js`.
+- **`RouteComponentProps<TData>` types a page's `data`** (what-router), what
+  its route's `preload` returned, as `TData | undefined`; plain
+  `RouteComponentProps` keeps `any`. TYPESCRIPT.md's example is type-checked
+  as written. `packages/router/test/types.test.js`.
+- **create-what's `npm run lint` parses `.ts` and `.tsx`** (typescript-eslint
+  in every template's `eslint.config.js`) and reports unused variables and
+  imports; the scaffold moves to ESLint 10. It found an unused import in the
+  full-stack template, now removed. `npm run smoke:scaffold` lints a
+  TypeScript file in each template and checks that an unused local is
+  reported. `packages/create-what/test/scaffold-eslint.test.js`.
+- **Hydration reports an attribute it corrects, in development.** Where a
+  claimed element's attribute differs between the server's markup and the
+  client's first write, the client's value is written, as before, and is now
+  reported once the walk is done as an `ERR_HYDRATION_MISMATCH` of kind
+  `attribute`, with the attribute's name, both values, the element's path
+  and the owner (`recovery: 'client-value'`). Compared: a template's static
+  attributes and the ones its bindings own, an `h()` element's props, and any
+  other attribute the server wrote that the client writes again, as written
+  (class tokens in another order, or a URL written otherwise, differ); a
+  boolean attribute present on both sides, the same style declarations, and
+  an empty text-field value against none are equal. An attribute
+  the client does not write (`data-hk`, a stale one), a custom element's own
+  and what the user changed in a form field are not compared.
+  `onHydrationError` hears the same records as before, in every build, and
+  production carries none of it. `what_fix` takes kind `attribute`. The five
+  server-rendered smoke apps, hydrated in development (18 pages), report
+  nothing. `packages/core/test/hydration-attribute-mismatch.test.js`.
+- **`ERR_SYMBOL_CHILD` (development).** A Symbol given as a child renders
+  nothing, and development now says so (React warns), with the Symbol, the
+  component and the path it was dropped on (`client`, `server` or
+  `hydration`), once for each component and Symbol on each path: compiled
+  JSX (a plain child, a reactive one, a keyed row's field), `h()` children
+  and function children, what-server's string and compiled renderers, and
+  the hydration walk. Production builds carry none of it.
+  `packages/core/test/symbol-child-diagnostic.test.js`.
+
+- **`live(source)`**, a read-only live view of the object an accessor returns:
+  `view.name` reads the current value's `name`, through getters What reads as
+  live props. A table hands its column render functions `live(() => row)`, and
+  each cell is built once per row and keeps its state while its bindings follow
+  a replaced item (docs/API.md, live views). Found dogfooding Vura, which wrote
+  one for its Table.
+- **A keyed row is built again only for a field its building code read.** A
+  read of one field of the row's item while the row is built (`row.kind` in
+  the row's own code, a `kind={row.kind}` prop a row component reads in its
+  body, `props.item.kind` or a destructured `item.kind` in the body of a row
+  component handed the whole item, which what-compiler writes as
+  `_$propField`, `view.kind` through a live view) records that field; a replaced item that leaves every
+  recorded field the same (`Object.is`) keeps the row, and its bindings follow
+  the new item. A read of the whole item (handed to a function, a method
+  called on it) still rebuilds the row on any replacement. Before, any read
+  rebuilt it: a Vura row component that named its signal after `ev.id` lost its
+  state on every refetch.
+- **`ERR_REBUILT_COMPONENT` (development).** A reactive region that runs
+  again and rebuilds a component holding state (it created a signal, or it is
+  a React island) reports it once per region, with the rewrite that keeps the
+  component: a JSX ternary or `<Show>`, with the changing value read in the
+  props. Found dogfooding Vura, whose data-driven tabs rebuilt their charts and
+  menus on every refetch.
+- **Structural sharing in `useQuery` and `useSWR`** (TanStack Query's
+  default, `structuralSharing`, default `true`): a refetch that answers data
+  equal to the cache keeps the cached references, and a changed list keeps
+  every row it did not change. Keyed rows follow an item replaced under their
+  key, so without it every background refetch of an unchanged list rebuilt
+  each row's rendered cells and lost their state (found dogfooding Vura's
+  dashboard: a revealed secret re-masked, an open row menu closed).
+- **`useQuery`/`useSWR` accessors are computeds**: a fetch that starts or
+  lands without changing what `data()`, `isLoading()` or `error()` return
+  re-runs nothing that reads them, so a region that reads them keeps what it
+  rendered across a background refetch; `select` is memoized on the cached
+  value, as in TanStack Query.
+- **`staleTime: 0` data is stale at once**, as in TanStack Query: a reader
+  mounted in the same millisecond as a `setQueryData` fetched nothing and never
+  followed the signals its `queryFn` reads.
+- **A forwarded live prop reaches the child as its value**
+  (`<Leaf counts={props.data} />` with `data` a live prop): the child read the
+  slot's read function, and now reads the value, live, wherever it reads it.
+- **Route middleware gets `url`**, the destination's whole URL (path, search
+  and hash: `/private?a=1#top`), on the client and the server, so a login
+  redirect can carry it (`` `/login?next=${encodeURIComponent(url)}` ``).
+  During a navigation `route` still reads the page being left. Found
+  dogfooding Vura.
+- **An element's event handlers type `e.currentTarget` as that element**
+  (`HTMLInputElement` for an `<input>`, `HTMLFormElement` for a `<form>`, the
+  SVG element types), as React's types do, so `e.currentTarget.value` needs
+  no cast. `e.target` stays `Element`. Found dogfooding Vura.
+- **`what-react/class`** installs class components for a program whose
+  classes do not extend `Component` (a class marked `isReactComponent` by
+  hand, as React accepts, or by a library). `reactCompat()` imports it into
+  every module whose code has the name `isReactComponent` in it (any
+  spelling of the marker; the name in a string or a comment counts too,
+  which costs only the class code); a build without the plugin imports it
+  once. `ERR_CLASS_COMPONENT_NOT_INSTALLED` names the fix when
+  neither did.
+- **what-devtools-mcp/vite looks for `what-devtools` where Vite resolves the
+  bootstrap's import** (a node_modules at or above the root), not through
+  `NODE_PATH`: under pnpm, whose bin shims set `NODE_PATH` to the hidden store,
+  a copy there passed the check and the dev server then failed on the import.
+- **vnodes render when what-core runs from source under Vite 5's SSR
+  transform** (Vitest 2 inlining a linked or monorepo copy): h.js installs the
+  vnode renderer through closures, so an import cycle that transform does not
+  hoist no longer leaves it undefined ("vnodeRows is not a function").
+
+- **React packages inside native What components, with plain JSX**
+  (what-react, `packages/react-compat/MIXED.md`). With what-compiler's
+  `what()` next to `reactCompat()`, files stay native What and a React
+  component used as a tag (`<BarChart data={sales()} />` from recharts) renders
+  as a React island: React's rules inside it, its props built again when a
+  signal they read changes, its React state kept. A file that imports `react`,
+  calls a React hook (from a React package, a store a React package builds, or
+  a custom hook calling one) or carries `@jsxImportSource react` is a React
+  file; a native component it renders runs once, keeps its state and reads its
+  props live. React components are found through re-export barrels; React
+  context and What context cross the boundary both ways; a React component in a
+  native keyed list keeps its row. Islands render on the server with React's
+  server rules (initial state, no effects, server snapshots, `<Suspense>`
+  fallbacks), native components inside them included; hydration hands each
+  island its server HTML and replaces it with the client render before the
+  next paint, with no mismatch. A Vite server build bundles the app's React
+  packages (`ssr.noExternal`) so they reach what-react. A signal read while a
+  React component renders re-renders it. TypeScript: `what-react/mixed` in `compilerOptions.types` makes React
+  components valid tags in native files; native-only apps keep What's stricter
+  component types. `reactCompat()` returns its plugins as an array.
+- **`create-what`'s React option scaffolds a native app with a React file in
+  it** (`what()` and `reactCompat()`, a native `main.jsx`, zustand in
+  `BearCounter.jsx`), instead of an app whose JSX all ran through what-react.
+- **React islands hydrate by adopting the server's HTML** (what-react,
+  `packages/react-compat/MIXED.md`, "Server rendering"). An island's elements
+  and text nodes are the server's after hydration: nothing is created, moved
+  or removed where the browser renders what the server did, so focus, text
+  typed before the page hydrated, scroll positions, a playing video and a
+  loaded image stay, as with React. Measured on the package matrix's 31
+  server-rendered fixtures: every server node kept and no more nodes created
+  than React's hydration creates (before: every island element built again),
+  and in the 11 with a text field the focus kept in all 11 and the text in
+  the 5 where React keeps it (before: lost in all 11); the matrix's `ssr` run
+  now checks both against React. React's rules are followed where they can
+  be seen: attributes the server wrote are kept as they are, `useId` gives
+  the server's ids, `useSyncExternalStore` reads the server snapshot while
+  hydrating, `suppressHydrationWarning` keeps the server's text, a form
+  field keeps what the user did before hydration, a portal renders in the
+  browser, a `<Suspense>` that suspends while hydrating keeps the server's
+  HTML until it can hydrate. A text or an attribute that differs is mended
+  where it is, children that differ in structure are rendered again for
+  their element (React renders the nearest `<Suspense>` again), and each is
+  reported as `ERR_HYDRATION_MISMATCH`, kind `attribute` for an attribute. The server writes a separator between two texts in a row
+  and brackets a `<Suspense>` and native What content inside an island. The
+  Vite plugin installs it in the JSX files what-compiler compiles for
+  hydration (`_hydrateIslands()` from `what-react/mixed`; off with
+  `reactCompat({ hydrateIslands: false })`): a client-only build does not
+  carry it (`react-counter` grows 40 B for the hooks the runtime keeps for
+  it, and an empty string child that renders no node). Not adopted yet: what native What
+  renders inside an island, which is built again in place of its server
+  nodes.
+- **A browser matrix of 47 popular React packages** (`npm run
+  test:browser:matrix`, `REACT-COMPAT.md`): Radix, MUI with Emotion, Ant
+  Design, react-aria-components, Headless UI, react-router, Redux Toolkit,
+  zustand, jotai, TanStack Query, Table and Virtual, SWR, react-hook-form,
+  formik, Floating UI, cmdk, sonner, vaul, dnd-kit, react-select,
+  react-day-picker, framer-motion, recharts, styled-components and others.
+  Each fixture is driven in Chromium through a production Vite build, on real
+  React 19 as the control, on what-react alone, as a React file inside a
+  native What app, and (19 of them) rewritten as a native What file. All pass.
+- **what-react has React 19's API**: `useOptimistic`, `useActionState`,
+  `useEffectEvent`, `useFormStatus`, a function as a form's `action`, async
+  transitions (`isPending` while the action runs, its updates committed
+  together), `<Context value>` as a provider, callback refs that return a
+  cleanup, `Profiler`, `Activity`, `cache`, and `react/compiler-runtime` for
+  packages built with React Compiler.
+
+- **`ERR_COMPILER_RUNTIME_MISMATCH`**: what-compiler/vite and the Babel plugin
+  stop a build whose what-framework or what-core is a different release.
+- **Engine.** A push-pull signal engine with an owner tree, equality cut-off
+  and evaluation on a bounded stack, and the new `createSelector`.
+  Development code sits behind a build-time `__DEV__` and is absent from
+  production builds.
+- **Async values.** `computed()` over a promise, a thenable or an async
+  iterable, with `{ signal }`, supersede and abort, `.pending()` and
+  `.peek()`. `refresh()`, `isPending()`, `startTransition()`/`useTransition()`,
+  `useOptimistic()`, `use()` and `settled()`. `<Suspense>` catches async reads
+  anywhere under it and reveals once dependent values have landed.
+  `ErrorBoundary`'s `reset()` retries only the sources of the errors it
+  caught. A rejected `useTransition` action shows in the nearest
+  `<ErrorBoundary>`, as in React 19. `settled` is exported from
+  `what-framework/testing`, and `act()` resolves after it.
+- **Server rendering.** A compiled server target. Buffered and out-of-order
+  streaming, with `applyStreamedBoundaries()` for `noScripts` pages. The
+  request context survives `await`. Async values render on the server, are
+  serialized and are adopted on hydrate. A render sets its status, headers and
+  redirect: loaders get `response`, components call `getResponse()`,
+  `response.redirect(path)` takes a same-origin path, and
+  `response.redirectExternal(url)` leaves the site.
+  `renderToString(vnode, { response })`, and `renderToStringAsync` returns
+  `response`. `createRouteRenderer(documentOptions)` is the route renderer
+  `createRequestHandler` uses, for a custom server. The create-what full-stack
+  template uses it, so route middleware redirects, `response.redirect()`,
+  status and headers work there. `createCacheEngine({ origin, origins })`
+  names the origin a request-less regeneration renders at and the public
+  origins to cache.
+- **Hydration by adoption.** Matching markup creates no nodes, each reactive
+  child runs once, and nothing the server sent is fetched again. Keyless
+  server values are found by owner identity. A component that suspends while
+  hydrating keeps the server's content. A streamed boundary hydrates when its
+  content arrives. `onHydrationError` works in production, and
+  `hydrateIslands`/`autoIslands` take it too.
+- **Data.** `query(key, fetcher, options?)` in `what-framework/data`:
+  reactive keys, one request per key, the last value with `pending()` while
+  refetching, abort of keys nothing reads, `gcTime`, `refresh(q)`, and server
+  rendering with adoption on hydrate. One cache under `query` and the hooks,
+  with function keys, `keepPreviousData`, function `placeholderData`,
+  `isPlaceholderData`, `dataUpdatedAt`, `refetchOnReconnect` and
+  `initialData`. `invalidatePath(path)`.
+- **Actions and forms.** `useActionState` and `useFormStatus` (React 19) on
+  the root entry. Server actions are transitions on the client, with an
+  `invalidates` option, and their revalidation commits with them. Actions run
+  in their request's context, with `getRequest()` and a query cache of their
+  own. `<Form>` accepts client actions. CSRF by Fetch Metadata and `Origin`,
+  so forms on cached and streamed pages post without a token, with
+  `trustedOrigins` for other origins. Server validation with and without
+  JavaScript: `useActionState(serverAction, initial)` with
+  `<Form action={dispatch}>` calls the action with `(previousState, fields)`.
+  Without JavaScript the form posts to its own page, and
+  `createRequestHandler` runs the action and renders that page with the
+  result, `private, no-store` and outside the cache, for the form that posted
+  only: a long draft comes back whole, two editors of one action keep their
+  own results, and no Referer is needed. Reloading that page re-posts, as with
+  any form POST. `getResponse().redirect(path)` inside an action redirects a
+  no-JS post with 303 and a fetch call once its revalidation has landed, so a
+  successful save can go to the record. A custom server uses
+  `createFormPostHandler()` ([docs/DATA.md](docs/DATA.md), "An edit form with
+  server validation"). The full-stack starter's `/edit/:slug` page uses it.
+  Inside a keyed list (`<For key>`, `.map()` with `key`) a posted result
+  follows its row's key, so it comes back to its own record when rows were
+  added, removed or reordered in between; unkeyed repeated forms are matched
+  by position. Row keys never appear in the page: the form posts a digest
+  under the render's salt. `bodyLimit` (default 1 MB) on
+  `createRequestHandler`, `nodeActionMiddleware` and the action endpoint sets
+  the largest body read; a page post over it gets an HTML 413. A server-action
+  form takes files: a multipart post reaches the action with each file as a
+  Web `File`, with and without JavaScript, parsed by the platform under
+  `bodyLimit`. A keyed list's identity is where it is written, so an earlier
+  list that is empty in one render no longer moves the result.
+  `toNodeListener(handler, { bodyLimit })` serves a wrapped handler, and
+  `createFormPostHandler` takes `bodyLimit`.
+- **Router.** Route `preload` with a `data` prop, `navigate(to,
+  { flushSync })`, and `route.isNavigating` from the moment a navigation
+  starts, including one started inside a transition.
+- **Components and the compiler.** `<For>` takes an array or an accessor, and
+  `<For key>` keeps rows per key on the runtime path. Compiled JSX makes
+  `each={items().filter(f)}`, optional chains and calls given a reactive
+  callback reactive. what-compiler's `hydratable` option, and
+  `what-compiler/vite`'s `hydratable: 'auto' | true | false`. Compiled keyed
+  rows write a plain item field (`{row.label}`) as a text node with no effect.
+- **An app served below a base path routes below it** (what-router). Vite's
+  `base` is the router's base: with `base: '/app/'`, `<Link href="/x">`
+  renders and goes to `/app/x`, `navigate`, `redirect` and middleware go to
+  `/app/x`, routes are written without the base, and `route.url`,
+  `route.path`, params, `useRoute()`, active links, middleware, `preload` and
+  the navigation hooks see the URL without it. A server render below the base
+  renders the same page, hydrates without a mismatch and redirects below the
+  base. A URL outside the base is not routed (the catch-all included), and
+  `navigate()` and `<Link>` hand it to the browser. `setBase(base)` sets it
+  without Vite (another bundler, or a server build that keeps what-router
+  external), and `createRequestHandler({ basePath })` and
+  `exportStatic({ basePath })` take the same path, written `'/app'` or
+  `'/app/'`: server actions post to `<base>/__what_action`, `<Form>` writes
+  its action, redirect and permalink below the base, a form posted without
+  JavaScript is redirected below it, and a static export renders each page at
+  its URL below it. An app with no base pays about 140 B gzip.
+  `packages/router/test/base-path.test.js`, `base-path-server.test.js`,
+  `base-path-vite.test.js`.
+- **Field arrays, paths and `unregister` in `useForm`** (what-framework/form),
+  with React Hook Form's names: a field's name is a path
+  (`register('vehicles.0.vin')` is `values.vehicles[0].vin`), so values,
+  `watch()`, `handleSubmit`'s values and a resolver's input are nested and a
+  zod schema validates arrays, while errors, touched and `dirtyFields` stay
+  keyed by the name. `unregister(name | names, options?)` forgets a field
+  (value, default, error, touched, with RHF's keep options) and drops a
+  validation still in flight for it; `shouldUnregister` on `useForm` or
+  `register` forgets a field when its component goes. `useFieldArray({ form,
+  name })` gives `fields()` with an `id` per item, `append`, `prepend`,
+  `insert`, `remove`, `move`, `swap`, `update` and `replace`: an item's
+  values, errors and touched state move with it and go when it is removed,
+  and rows keyed by `field.id` keep their elements and focus. It is left out
+  of a bundle that does not import it; paths and `unregister` cost a
+  `useForm` app about 880 B gzip. `packages/core/test/form-field-array.test.js`,
+  `form-paths.test.js`, `form-unregister.test.js`.
+- **A React component's `useContext` reads a What context** (what-react)
+  from the What providers around its island, and renders again when the
+  value changes. It got the context's default.
+  `packages/react-compat/test/mixed.test.js`.
+- **what-compiler: a `verbose` option.** Notes on correct code (an
+  auto-selector rewrite, `<For>` where `.map()` would do) print only with
+  `what({ verbose: true })`; they printed on every build.
+- **eslint-plugin-what: `no-moved-imports` reports router names imported
+  from `what-framework`** (`Router`, `Link`, `navigate`, …) and `--fix` moves
+  them to `what-framework/router`.
+- **eslint-plugin-what: `reactive-jsx-children` reports any JSX child or
+  element attribute that reads a signal once** without the compiler
+  (`{count() * 2}`, `{items().map(...)}`, `{user().name}`, a template
+  literal, `class={on() ? 'a' : 'b'}`), not only a bare `{count()}`. It
+  leaves component props, handlers, refs, keys and JSX made inside a function
+  alone. `packages/eslint-plugin/test/reactive-jsx-expressions.test.js`.
+- **create-what:** the fullstack template's README says where a new page
+  goes (its route and its `matchPage()` row), and every template recommends
+  VS Code's ESLint extension.
+- **Diagnostics.** One coded channel: `getDiagnostics()`,
+  `subscribeDiagnostics()`, `clearDiagnostics()`, `getErrorDefinition()` and
+  `WhatError` on the root entry, `captureDiagnostics()` in
+  `what-framework/testing`. A catalogue of 79 codes, each with a fix and an
+  example, rendered as [docs/ERRORS.md](docs/ERRORS.md), the site's errors
+  page, and the `diagnostics.json` and generated `skills/` that ship in
+  what-framework. New development codes include `ERR_ASYNC_COMPONENT`,
+  `ERR_ASYNC_MEMO`, `ERR_SUSPEND_IN_TRANSITION`, `ERR_WRITE_AFTER_AWAIT`,
+  `ERR_QUERY_OUTSIDE_RENDER` and `ERR_EFFECT_DEP_NOT_SIGNAL` (a function in a
+  `useEffect` dependency array that is not a signal or a computed, such as
+  `[() => props.count]`: it is never called, so the effect ran once, and
+  until now nothing said so). The production build's catalogue keeps each
+  code's severity and message and leaves the fix and example to `what_fix` and
+  docs/ERRORS.md (5.3 KB gzip instead of 22.1 KB).
+- **MCP tools.** `what_events` (a cursor over lifecycle, async, transition,
+  Suspense and action events) and `what_why` (why a run, a skipped effect or a
+  mount happened, back to the write or landing). Async flight details and
+  stalled-work diagnosis (`what_diagnose({ focus: "async" })`), unread written
+  signals with creation sites, repeated computeds, hydration adoption counts
+  and kind-specific mismatch fixes. `what_cache` shows each key's status,
+  readers, age and last fetch. `what_invalidate_cache` takes array prefixes.
+  `what_lint` compiles the snippet with the project's ESLint config
+  (`filePath`), and `what_scaffold` detects the project's template. The server
+  exits on stdin EOF and frees its port. `what_navigate` loads the URL on a
+  page with no client router. `what_connection_status` and `what_diagnose`
+  name the files to pass to `what_lint`, and `what_events` folds repeated
+  timer runs.
+- **eslint-plugin-what.** `no-moved-imports` (with autofix),
+  `no-signal-read-in-effect-deps`, `no-effect-self-write`, `effect-cleanup`,
+  `no-unsafe-innerhtml`, `no-async-component`, `no-promise-in-usememo`,
+  `no-optimistic-snapshot` and `prefer-async-computed` in `recommended`;
+  `prefer-computed` and `signal-debug-name` in `strict`. `no-uncalled-signals`
+  knows `pending()`, `useTransition()[0]` and `useOptimistic()[0]`.
+- **Types.** `useOptimistic` accepts a signal or a computed. `<For>` has
+  keyed and unkeyed signatures. An `async` component is a type error in JSX.
+  `action()` accepts a synchronous function. `what-framework/router`
+  re-exports what-router's declarations.
+- **Benchmarks and gates.** Reactivity, SSR, size and krausest harnesses
+  against Solid 1.9, Solid 2.0 and React 19 (`benchmark/`),
+  `npm run bench:hydrate` in `benchmark/ssr`, `node page.mjs` there for an
+  ordinary page against another checkout, size ceilings in
+  `.size-budgets.json` with the cause of each change, and
+  `npm run check:snippets`, which runs every code block shipped in the docs,
+  READMEs, skills and MCP resources. `npm run check:node-floor` keeps APIs
+  newer than Node 20 out of the shipped code and the tests, and CI runs the
+  suite on Node 20, 22, 24 and 26. `npm run bench:gate` measures core and DX
+  against a reference build (`benchmark/reference.json`) in interleaved runs
+  of one session. The gate judges each operation by its throughput, median
+  call and 95th-percentile call (`WHAT_BENCH_TOLERANCE_TAIL`, default 0.25),
+  so a change that slows one call in twenty fails it. Every package declares
+  `engines.node: ">=20"`. The gate re-runs once and fails only an operation
+  that missed on both attempts, and each benchmark runs its queued effects
+  after it is measured, so its warm-up measures that operation alone. The
+  SSR benchmark has a page of 200 small components beside the 1,000-row
+  table, measures each hydration against a client render of the same page
+  from the same bundle, and puts the hydration tables of the same commit in
+  its RESULTS.md. `npm run smoke:apps` runs sixteen apps in Chromium, or in
+  WebKit or Firefox with `WHAT_SMOKE_BROWSER=webkit|firefox` (a check its
+  browser cannot run is skipped with its reason; an app whose checks hang
+  fails after five minutes and the run goes on), twelve of them under load:
+  a native What shell hosting fifteen React packages (recharts, TanStack
+  Table, react-window, react-hook-form, Radix, React Flow and more) with a
+  signal store written 100 times a second into React and back, 35 route
+  changes that release every React mount, a Radix dialog's focus over a What
+  page, and a hydrated island typed into before it hydrates, an eight-step quote with a conditional step, dependent fields, nested field
+  arrays moved from the keyboard, four kinds of validation, a draft saved as
+  you type and errors the server maps back to their step, twelve code-split chapters whose chunks are delayed, failed, overtaken,
+  prefetched on hover and guarded, a wall redrawn every frame with springs,
+  tweens and enter/leave churn whose frame loops are counted, a 10,000-entry file
+  tree drawn by one recursive component beside a 300-field form with an
+  async check, a chat fed by a server stream that drops and reconnects
+  (every message exactly once, a capped log, a composer that keeps every
+  character during bursts), a 1,000-card board dragged between keyed lists
+  with undo and redo, a 10,000-row grid with
+  virtual scroll and time budgets, a feed of 200 updates a second checked
+  for loss, unmount cleanup, heap growth and long tasks, a workspace whose
+  chained workflows cross back/forward and a reload, the same workspace
+  rendered on the server with server-side guards and 40 concurrent visitors,
+  and a streamed news site with ISR articles, five islands, 100 concurrent
+  requests and the server's heap across 2,000 requests. CI runs it in all
+  three browsers, and its buildless apps run What's development build, so a
+  development diagnostic fails their console checks. `npm run lint` fails on `no-uncalled-signals` and the three
+  read-once rules in the example apps and sites, and
+  `npm run smoke:workspace-apps` serves sites/showcase through its
+  `serve.js` and drives it.
+- **`ERR_ISLAND_WITHOUT_NAME`** (development only): a hand-written
+  `h(_$Island, { component })` without `name` is named after the
+  component's runtime name, which a minified build renames, so the server's
+  `data-island` and the browser's differ. Compiled `client:*` islands always
+  carry one.
+- **`createCacheEngine({ basePath })`** (what-isr), the base a CDN purge and
+  a regeneration with no request render below; `createRequestHandler` hands
+  its `basePath` to an engine with none. Cloudflare's purge adapter takes
+  `baseUrl`.
+- **`WHAT_SMOKE_MODE=dev`** runs the Vite smoke apps' checks on their Vite
+  dev servers, and CI's `app-smoke-dev` job runs it in Chromium: an app's
+  console warnings from `[what]` and `[vite]` fail it unless it lists them,
+  and admin-dashboard saves an edit and waits for the reload. workspace-ssr,
+  mixed-desk and chat gain `npm run dev`.
+- **Layouts nest** (what-router, what-compiler): a `nestedRoutes` or
+  `routeGroup` layout goes around a route's own layout, a route's `layout`
+  may be a list (outermost first), and the file router gives each page every
+  enclosing `_layout`. In development, a read of the query in the body of a
+  page kept across a query change is reported as `ERR_PROP_READ_ONCE`, with
+  the fix (not for a component the change disposes: one under a key the
+  query changes, or in a branch it closes), and the compiler reports a value
+  derived from a route's `query` in the body.
+- **`virtual:what-routes/server`** (what-compiler's Vite plugin): the file
+  router's routes with each page's `loader`, `getStaticPaths` and `page`
+  config, for a server entry. The plugin served only the browser's module, so
+  a server entry wrote its routes by hand.
+- **A file-router page's `preload` and `middleware` exports are its
+  route's** (what-compiler, what-router), in the browser's routes module and
+  the server's: a navigation to the page waits for what `preload` returns,
+  and `middleware` decides whether it shows. A `loader` stays out of the
+  browser's module.
+- **smoke/apps/saas**, a multi-tenant console of file-router pages with a
+  `_layout` per section nested three deep, server-rendered below a base path
+  and hydrated: URL-driven filters and editor, loaders, one query cache, an
+  optimistic action that redirects, a sign-in guard and a 2,000-row table,
+  in every browser and in dev mode.
+
+### Fixed
+
+- **A route layout stays mounted while the visitor moves between the routes
+  that share it** (what-router), with its state, its DOM and what was typed
+  into it, as React Router's `<Outlet>` layouts and Next.js layouts do. The
+  router built every `layout` of `nestedRoutes(..., { layout })` again on
+  each navigation, the router README's own `DashboardLayout` example
+  included, and development blamed the router's region or the app's
+  `{children}` with `ERR_REBUILT_COMPONENT`. The layout chain is a region of
+  its own now, built again only when the chain of layouts changes: a change
+  of query string or params (`?tab=2`, `/projects/1` to `/projects/2`) keeps
+  the layout too. Its `params` and `query` props are live, so JSX in it that
+  reads `params.id` or `query.tab` updates in place, and params or a query
+  equal to the ones shown keep their object. A route with no layout, a 404
+  and a page its middleware declines render as before, and pages are built
+  again for each URL. `packages/router/test/nested-layout-persists.test.js`,
+  and the smoke suite's workspace app.
+- **A `<Suspense>` or `<ErrorBoundary>` that is a region's whole value leaves
+  with it.** A route page whose root is `<Suspense>` over a query or a
+  `lazy()` child (or a ternary branch that is one) stayed in the DOM beside
+  the next page after a navigation, and so did an `<ErrorBoundary>` showing
+  its fallback, with no diagnostic: the region removed only the nodes it had
+  recorded, not the children the boundary inserted later.
+  `packages/core/test/boundary-in-region.test.js`.
+- **A controlled number field keeps what the user typed.** With
+  `value={n()}` and `onChange={(e) => setN(Number(e.target.value))}`, typing
+  `04` showed `4`; the field now keeps `04` while the state holds the same
+  number, as React does. `packages/compiler/test/react-habits.test.js`.
+- **`onChange` hears the next edit after a script wrote the field.** A chat
+  box that clears its field on Enter (`e.target.value = ''`) while it keeps
+  the focus missed onChange when the next keystrokes made the text the field
+  held before the clear. The first time onChange hears a text field, What
+  wraps the field's `value` setter, as React's value tracker does, so a
+  script's write makes it forget what onChange saw; What's own writes keep
+  it, and a field that already has its own `value` is left alone.
+  `packages/core/test/onchange-script-write.test.js`, and
+  `packages/compiler/test/onchange-real-input.test.js` in Chromium and
+  WebKit.
+- **`h('button', { ...props })` renders `props.children`**, as
+  `createElement` does: an element given its children as a prop (a wrapper
+  that spreads its props onto an element) rendered empty, on the client and
+  the server. Children passed as arguments still win; a component's props are
+  unchanged. `packages/core/test/h-children-prop.test.js`.
+- **`ERR_EFFECT_DEP_NOT_FUNCTION` and `ERR_EFFECT_DEP_NOT_SIGNAL` are
+  reported once per component.** They folded by their message, so the same
+  mistake in two components was one diagnostic that named only the component
+  reported last. The component is now the report's subject.
+  `packages/core/test/dev-warnings.test.js`.
+- **`ERR_EFFECT_DEP_NOT_FUNCTION` and `ERR_EFFECT_DEP_NOT_SIGNAL` point at
+  the `useEffect` line.** A development build gives `useEffect` its call's
+  location, as it gives `useState`'s, so the report and `what_explain`'s
+  `loc` name `src/List.jsx:3:3` where they named the JSX that rendered the
+  component. Code the compiler did not see is located from the stack,
+  project relative, without the dev server's origin or `?t=` stamp. A
+  production build is byte-identical.
+  `packages/compiler/test/effect-location.test.js`.
+- **`FocusTrap` keeps Tab inside the dialog in Safari.** Safari's default
+  Tab skips buttons and links, and the trap stepped in only at its first and
+  last element, so from the last field focus left the dialog. The trap now
+  moves focus itself on every Tab and Shift+Tab, through its own list,
+  wrapping. Found by the smoke suite's first WebKit run.
+  `packages/core/test/a11y.test.js`.
+- **A valueless `aria-*` or `data-*` attribute is `"true"` in client
+  templates** (what-compiler), as on the server and in the runtime:
+  `<span aria-hidden>` wrote `aria-hidden=""`, which leaves the element
+  visible to assistive technology, and hydration rewrote the server's value
+  with no report. A client-only app's `dataset.x` is now `'true'` where it
+  was `''`. `packages/compiler/test/valueless-enumerated-attr.test.js`.
+- **A form post's `_redirect` keeps its `#fragment`**, as
+  `response.redirect()` does; the path is checked as before.
+  `packages/server/test/csrf-form-actions.test.js`.
+- **The `html` tagged template always ends.** It looped forever on a `<`
+  that starts no tag (`a < b`), a comment, a stray or mismatched closing
+  tag, a void element written without `/>` and `<${Component}>`. It keeps
+  JSX's whitespace (`Hello ${name}` rendered `HelloAlice`), reads an
+  unquoted attribute value (`class=foo` was a boolean `foo`), keeps a signal
+  live inside a quoted attribute, spreads `...${props}`, and closes an
+  interpolated component with `</${Component}>` or `<//>`. Interpolated
+  values are never parsed as markup. Each shape is checked against the
+  `h()` call JSX compiles to, on the server and the client.
+  `packages/core/test/html-template.test.js`.
+- **A Symbol child renders nothing**, as `null` and booleans do, on the
+  server, the client and in hydration, where every path wrote `Symbol(x)`.
+  `packages/server/test/odd-children.test.js`.
+- **A keyed `.map()` row the compiler cannot follow shows an item replaced
+  under its key.** A row whose item the row analysis gives up on (a field
+  bound again by a nested function, assigned, incremented or used as a tag,
+  a destructuring it cannot read the same way) kept the item it was built
+  from after an immutable update; it is now built again for the new item. A
+  row that reads only its key is unchanged.
+  `packages/compiler/test/row-unsafe-shapes.test.js`.
+- **`action(fn, { id })` with no binding is registered** (what-compiler),
+  and checked for duplicates, without the "Could not derive a stable server
+  action ID" warning that told the developer to pass `{ id }`.
+  `packages/compiler/test/server-action-id.test.js`.
+- **A page config's template literal reads a CRLF line break as `\n`**, as
+  JavaScript does. `packages/compiler/test/file-router-page-config-scanner.test.js`.
+- **The forms kit's `Input`, `Textarea`, `Select` and `Checkbox` follow
+  their field after render**: `setValue()` and `reset()` changed the form
+  state and not the screen. `Checkbox` registers as a checkbox, so a native
+  submit sends `on`, and an unregistered one keeps its own `checked`.
+  `packages/core/test/form-fields-components.test.js`.
+- **DOM helpers.** `cls(['a', 'b'])` is `'a b'` (it was `'0 1'`);
+  `style({ '--mainColor': 'red' })` keeps the custom property's name, as the
+  style prop does; `useClickOutside({ current: null })` waits for its ref
+  instead of throwing on every press; a second `onResize` on an element
+  keeps the first callback, and either stop function stops only its own.
+  `packages/core/test/helpers-public.test.js`,
+  `packages/core/test/scheduler.test.js`.
+- **Motion.** `tween(0, 100, { duration: 0 })` ends on its target (it ended
+  on `NaN`) and a tween stops with its owner, as a spring does; `useGesture`
+  starts each gesture from rest, so a tap after a swipe is a tap, and
+  removes its window listeners with its owner.
+  `packages/core/test/animation-loops.test.js`.
+- **`useSkeleton` shows its latest run**, where a request that settled last
+  overwrote newer data, keeps a function the call resolves to as its data,
+  and the skeleton components render with no props, as ui.d.ts allows.
+  **`useFocus().current()`** is `null` once focus has left for nothing.
+  `packages/core/test/skeleton-focus-revalidate.test.js`.
+- **`what-framework/testing`'s `expect`**: `toBeInTheDocument` fails for a
+  detached tree, `toBeVisible` checks the element's ancestors, and
+  `toBeDisabled` passes for a control in a disabled `<fieldset>`.
+  `packages/core/test/testing-helpers.test.js`.
+- **`boostIslandPriority` raises every waiting instance of an island and
+  never lowers one** (what-server): it changed only the first, and its
+  default of 100 lowered a `load` island.
+  `packages/server/test/island-scheduling.test.js`.
+- **`draggable`, `spellcheck` and `contenteditable` write `"true"` and
+  `"false"`** on every path (`h()`, compiled JSX, the server).
+  `draggable={true}` wrote `draggable=""`, which HTML reads as `auto`, so a
+  `<div>` could not be dragged, and `false` removed the attribute, so an
+  inherited spellcheck or contenteditable stayed on.
+  `packages/server/test/markup-rules-parity.test.js`.
+- **`useScheduledEffect(readFn, writeFn)` runs again when a signal `readFn`
+  read changes.** `readFn` ran outside tracking, so the effect never ran a
+  second time. Any number of changes before the next frame make one read, in
+  the frame's read phase, and one write, in its write phase; disposing it,
+  or its owner, cancels a frame still to come. It reads in the first frame,
+  where it took two, and its type carries `readFn`'s result to `writeFn`.
+  `packages/core/test/scheduled-effect.test.js`.
+- **A route guard's re-check no longer replaces a navigation the app started
+  after it** (what-router). Writing a signal the current route's middleware
+  reads and then calling `navigate()` in the same tick (reset a wizard's
+  draft, then go to the project it created; sign out, then go to sign-in)
+  ended on the guard's redirect. The page being left keeps its verdict while
+  a navigation to another page is in flight: a navigation that is cancelled,
+  or that its destination's guard sends back, still gets the redirect, and
+  a guard that re-runs with no navigation in flight redirects at once.
+  `packages/router/test/guard-recheck-supersedes-navigate.test.js`.
+- **`no-uncalled-signals` and `signal-call-in-jsx` leave React state alone**
+  (eslint-plugin-what): `const [open] = useState(false)` imported from
+  `'react'`, Preact or what-react holds a value, and the rules went by the
+  hook's name. Each now reports only a name a What hook or signal declaration
+  made. `packages/eslint-plugin/test/accessor-as-data.test.js`,
+  `packages/eslint-plugin/test/flat-config.test.js`.
+- **`what_lint` answers `{ error, hint }` when the project's ESLint config
+  fails to load** (a config that throws, or names a plugin that is not
+  installed), where it answered the bare error text.
+  `packages/devtools-mcp/test/tools-agent.test.js`.
+- **Examples and sites.** sites/showcase boots (its `serve.js` resolves the
+  framework's imports through the packages' `exports` and `imports` maps,
+  where `#env` failed to resolve) and reads its state the What way, where
+  its clock threw on each tick; what-starter's
+  empty state branches where it renders; react-compat's filter buttons and
+  benchmark cards have keys; the playground's Effects example stops its
+  interval in the effect's cleanup.
+- **Docs.** what-server's ISR wiring example no longer passes `render` to
+  `createRequestHandler`, which made `mode: 'server'` routes wait for the
+  whole page (first chunk 1,204 ms where it is 26 ms, on a page with a
+  1,200 ms query). A bare store read in JSX (`{todos.remaining}`) may be
+  evaluated once, as it is when the store is imported from another file; the
+  function form always updates (API.md, GOTCHAS.md).
+- **Capture-phase handlers in compiled JSX fire.** `onClickCapture`,
+  `onKeyDownCapture` and the rest listen for their event in the capture
+  phase, with modifiers too (`onClickCapture__once`), as `h()` and spreads
+  already did; the compiler lowered them to a listener for an event named
+  `clickcapture`, which never fires. `onGotPointerCapture` and
+  `onLostPointerCapture` are events of their own, in compiled JSX and in
+  `h()` (which heard `gotpointer`). `packages/compiler/test/capture-events.test.js`.
+- **`onDoubleClick` fires.** React's name for the DOM's `dblclick` listened
+  for an event named `doubleclick`, which no browser sends, in compiled JSX
+  (`onDoubleClickCapture` too), in `h()` props and through a spread, with no
+  warning; only `onDblClick` worked. Both names are the same event now.
+  `packages/compiler/test/double-click.test.js`.
+- **The Vite plugin's default `exclude` is a `node_modules` directory**
+  (`/\/node_modules\//`), not a path that holds the word: an app's own
+  `my_node_modules_backup/Card.jsx` was skipped, and its build failed with the
+  bundler's "Unexpected JSX expression".
+- **what-react: island hydration, as a verification in real browsers found
+  it.** Each item has a test that fails at 90c91c40, with React 19.3.1's
+  result beside it.
+  - An entry that defines its page and calls `hydrate()` at its top level, in
+    the same module, now hydrates its islands by adopting the server's HTML.
+    The plugin's install was a call it added at the end of the module, which
+    ran after that `hydrate()`: the island was replaced, and a focused input
+    the user had typed in lost its node, its text and its focus (React keeps
+    all three). The plugin adds `import 'what-react/hydrate-islands'` instead,
+    which runs before the module's code, in development, in a build and in
+    the client build of a server-rendered app
+    (`test/island-install.test.js`, production builds; the matrix's server
+    mode checks the shape against React).
+  - A `<Suspense>` whose content suspends while it hydrates is not live until
+    it hydrates, as React's is not: the claim had already attached the
+    handlers of the elements before the one that suspended (a click counted)
+    and the putting back of a controlled field (what the user typed was
+    replaced).
+  - A `<template>` hydrates with its children as its own and an empty
+    content fragment, as a client render makes it; the server's content
+    stayed beside them, still showing the server's values.
+  - Elements inside `<math>` are MathML elements, in a client render and
+    where hydration renders part of an island again; they were made in the
+    HTML namespace. Mounting, patching and claiming carry the namespace (HTML,
+    SVG or MathML), not an SVG flag.
+  - The matrix: the typing probe compares the field with what it held right
+    after typing (react-markdown's editor puts the caret inside the text, and
+    real React puts the controlled value back there), and each run builds in
+    a folder of its own, so a run no longer deletes another's builds.
+  The rest of what the verification listed is as React at 90c91c40 already:
+  raw HTML the HTML parser repaired (`<p>` holding a `<div>`) shows, `useId`
+  keeps the server's ids across a Suspense retry, a `<noscript>` runs no
+  effects, and a mismatch is reported per element.
+
+- **what-react: one React island that throws while it hydrates no longer
+  takes the page down.** Before, `hydrate()` threw, every island's server
+  HTML was removed and the native page stopped updating. Now what that
+  island's render did is dropped (no ref or effect of it runs), it renders
+  again in the browser, as React renders a root again, and if that throws
+  too it is left empty, as React unmounts the root; the error is logged and
+  handed to `onHydrationError` (kind `error`). The other islands and the
+  native page hydrate.
+- **what-react: children that differ from the server's in structure are
+  rendered again, not mended by position.** A node the client does not
+  render, one it renders that the server did not, or another tag made the
+  claim skip or replace one node, so text typed into one list item could end
+  up in another's field. The element's children are now rendered again by
+  the client (React renders the nearest `<Suspense>` again); texts and
+  attributes that differ are still mended in place. Mismatch reports are one
+  per element and kind (before: one per region), and those of a region that
+  is rendered again are dropped.
+- **what-react: `useId` keeps the server's ids around `<Suspense>`.** A
+  boundary whose content the server gave up on, or that suspends while it
+  hydrates and hydrates later, shifted the ids after it (and its own), with
+  a spurious attribute mismatch. A `<Suspense>` now takes one id and numbers
+  its content behind it, on both sides; a portal's and a `<noscript>`'s
+  content are numbered apart.
+- **what-react: a form whose `action` is a function, submitted before its
+  island hydrates, no longer navigates with its fields in the URL.** The
+  server writes React's guard (`action="javascript:throw …"`) and a small
+  capture script; once the island hydrates the action runs with what was
+  submitted, as React 19 replays it into `useActionState`. what-server lets
+  that one guard URL through its URL check.
+- **what-react: attributes on the server and at hydration.** An attribute
+  only the server wrote (an extension's `data-gramm`, a password manager's
+  `autocomplete`) is kept and reported instead of removed. `draggable`,
+  `spellCheck` and `contentEditable` set to `false` are written as `"false"`
+  on the server (before: nothing, so an `<img draggable={false}>` stayed
+  draggable after hydration). The server follows react-dom 19.3's rules
+  where the browser sees them: an object, an array or `false` on a custom
+  element writes nothing (before: `[object Object]`), a boolean on an
+  attribute that is not a boolean one writes nothing, `selected` only on an
+  `<option>`, `xlink:href` and `xml:lang` for `xlinkHref` and `xmlLang`,
+  React's unitless CSS properties (`strokeWidth`, `aspectRatio`, `scale`,
+  `columns`) and trimmed values.
+- **what-react: hydration and server render, smaller items.** Nothing inside
+  a `<noscript>` renders in the browser or runs an effect (hydrating or
+  mounting); a differing `dangerouslySetInnerHTML` is reported in
+  development; a controlled `<textarea>` shows its value after hydration;
+  `useSyncExternalStore` without `getServerSnapshot` throws React's error on
+  the server (the island renders in the browser), and while an island
+  hydrates everything it renders, a portal's content included, reads the
+  server snapshot; full-compat `hydrateRoot` honours `identifierPrefix` and
+  `onRecoverableError`.
+- **what-react: refs attach in the layout phase, beside their components'
+  layout effects, children first,** on mount, on update (a ref that
+  changed) and while an island hydrates, as React 18 and 19 order them
+  (before: every ref of a commit, then every layout effect).
+- **what-react: an Ant Design island renders in a dev-server render.** Its
+  `@ant-design/cssinjs` imports `@emotion/hash` 0.8, whose CommonJS main
+  Node loads with the whole exports object as the default
+  (`(0 , __vite_ssr_import_0__.default) is not a function`): the plugin now
+  bundles such a dependency of a React package in the dev server too, as a
+  production build does.
+- **what-react: a client build no longer carries the island server
+  renderer.** The plugin leaves `server.js` out of a client production
+  build; a client-only mixed app is 1.5 KB gzip smaller.
+
+- **what-react: a class marked `isReactComponent` without extending
+  `Component` renders in production.** It rendered nothing (`Class
+  constructor … cannot be invoked without 'new'`): the class wrapper came
+  with `Component`'s definition, which the bundler drops when nothing
+  references `Component`. `Component` still installs it, so an app without
+  classes carries none of it; `what-react/class` installs it on its own, and
+  `reactCompat()` imports it into any module whose code has the name
+  `isReactComponent` in it (`node_modules` included, the framework's own
+  files excepted; the name in a string or a comment counts too, which costs
+  only the class code). A build without the plugin that reaches such a class throws
+  `ERR_CLASS_COMPONENT_NOT_INSTALLED` instead of rendering nothing. Tested in
+  esbuild and Vite production builds (`packages/react-compat/test/bundle.test.js`).
+- **what-react: a keyed list of React elements placed by native What code
+  keeps its rows, and commits as React does.** A row was built again when an
+  item was inserted ahead of it, losing its node, its React state, the text
+  typed in it and the focus. In a mixed app with no vnode renderer of
+  what-core's, what-react installs its own (what-core's
+  `_installVNodeRuntime`, now exported from `what-core/render`; a
+  native-only app carries none of it), and a hole whose value holds React
+  elements becomes a React container that what-react's reconciler renders,
+  as a component renders what it returns. A row is kept by its key within
+  its own array and its type, as React keeps it. Two arrays of one hole
+  never take each other's rows, a key that moves to another array mounts
+  again, and a top-level unkeyed fragment stands for its children
+  (`[<Row key="a" />]` and `<><Row key="a" /></>` keep one row). Each run of
+  the hole is one commit in React's order: a leaving row's ref and layout
+  cleanups run while its nodes are still in the page, then nodes are
+  placed, then a new row's ref, layout effect and `autoFocus` run on nodes
+  in the page (before, its ref saw `isConnected` false and `autoFocus`
+  focused nothing), and passive effects run on the microtask after it.
+  Rows inside an `<svg>` are SVG. A controlled native `<select>` follows
+  options placed as keyed React elements. An error boundary's or Suspense's
+  fallback is in the page when `flushSync()` returns. An error no boundary
+  catches unmounts the hole's rows and is reported, as React unmounts a
+  root. A moved row that had the focus gets it back unless something else
+  took it (MIXED.md, Limits;
+  `packages/react-compat/test/native-keyed-list.test.js`,
+  `native-keyed-scenes.test.js`, `native-keyed-commit.test.js`).
+- **what-react: every root removes what leaves as React does.** A commit's
+  removals (cleanups, ref detaches, nodes taken out of the page) run once
+  its whole render is done, a list's leavers first, and before any ref that
+  stays is detached or any layout effect runs, so a class's
+  `getSnapshotBeforeUpdate` still sees the rows being removed. A list whose
+  render throws or suspends after it began (a `memo` comparison that
+  throws) unmounts what it showed with those removals: every ref, layout
+  and passive cleanup runs once, and the rows the failed render built are
+  never set up. A cleanup that a ref or an effect returns after its own
+  callback unmounted the root runs at once (it was lost, and its listener
+  kept firing), `root.unmount()` from a ref of the first render releases
+  everything the root mounted, and a callback ref that a render from inside
+  a commit changes and changes back attaches once. A keyed move gives the
+  focus back, with its selection, to the field that had it, before layout
+  effects, as React does: React Hook Form's `useFieldArray().swap()` keeps
+  the edited field focused (it lost the focus). MIXED.md, Limits, lists
+  what still differs (`packages/react-compat/test/commit-order.test.js`).
+- **what-react: a `createRoot()` handle owns one root for its whole life.**
+  `render()` and `unmount()` are scheduled as React's `updateContainer`
+  schedules them, whether or not the root has mounted: at once when nothing
+  is committing, otherwise once the running commit and its passive effects
+  are done, with the calls made meanwhile merged into the last one. A
+  layout effect that re-renders its root during the first commit no longer
+  mounts a second tree that `unmount()` could not release (its cleanups
+  never ran and its listeners kept firing). An `unmount()` cancels a render
+  still waiting, so nothing that render would set up runs. A second
+  `unmount()` on a handle does nothing, and an unmount removes only that
+  root's nodes: an old handle's cleanup no longer empties a new root mounted
+  in the same container. The first render into another root from inside an
+  effect waits for the commit, as React's does. A controlled `value` the
+  browser refuses (a non-empty value on a `type="file"` input) reaches the
+  nearest error boundary instead of being logged, and a custom element's
+  `connectedCallback` reads its sibling fields' new values
+  (`packages/react-compat/test/root-lifecycle.test.js`,
+  `commit-order.test.js`).
+- **Spreads on one element resolve as React's props do.** Across any number
+  of spreads and attributes each name has one writer, the last in source
+  order, and it stays live:
+  `<button {...rest} {...{ title: 'last', onClick: b }} />` shows `last` and
+  fires only `b`, where 0.14 wrote each spread's keys in turn and both
+  handlers fired. Names compare as React spells them:
+  an event name in any case (`onClick`, `onclick`), `class` and
+  `className`, `for` and `htmlFor`, `innerHTML` and
+  `dangerouslySetInnerHTML`, `xlinkHref` and `xlink:href`, and `xmlLang`
+  and `xml:lang` are one name each, an HTML attribute is one name in any
+  case, and on SVG any other name keeps its case (`viewBox` and `viewbox`
+  are two attributes). A spread whose object can come out different
+  (`{...attrs()}`, `{...props.attrs}`, a keyed row's item, a literal that
+  reads state, a call whose function or arguments read state such as
+  `{...pick(props.kind)}`) is read again when it changes: a changed name is
+  written, a new one added and one that went away removed, so an attribute
+  written before the spread comes back
+  (`<div title="fallback" {...attrs()} />` shows `fallback` once `attrs()`
+  drops `title`), and dropping `dangerouslySetInnerHTML` clears the markup. A call with constant
+  arguments (`{...register('title')}`) is read once, as before. Only a name
+  whose writer or value changed is written again, and a getter is read once
+  each time the spread runs. `value` and `checked` from such a spread are
+  controlled as `value={v()}` is, a ref in it is released when its writer
+  changes or the element goes, and on SVG `xlinkHref` and `xmlLang` are
+  written in the XLink and XML namespaces
+  (`packages/core/test/forwarded-props-react-habits.test.js`,
+  `spread-svg-case-and-retype.test.js`).
+- **An input whose `type`, or a `<select>` whose `multiple`, changes keeps
+  its bound value**, however it changes (`type={t()}`, `multiple={m()}`, or
+  through a spread): an input switched from `date` to `text` shows its value
+  again, a controlled `0` survives `date` to `number`, and a select toggled
+  between single and multiple keeps every option it had selected. Before,
+  the browser's clean-up of the old kind emptied the field, or left the
+  select one option, and the value was not written again. `TYPE` in capitals
+  counts on HTML elements, and the held value is never written into a file
+  field. Elements made with `h()` do not do this yet
+  (`packages/compiler/test/field-kind-attributes.test.js`).
+- **`useQuery`'s `queryFn` gets the reader's own key** (`['q', 'alpha']`),
+  as in TanStack Query, not the spelling that created the cache entry they
+  share (`'q:alpha'`), and a reactive key that changes only its spelling
+  hands over the new one. `useSWR`, `query()`, `useInfiniteQuery` and
+  `prefetchQuery` hand their fetchers the key the same way, and `onSuccess`
+  and `onError` receive it. A fetch the cache starts itself (an
+  invalidation) fetches as the active reader that attached last, with its
+  fetcher, key and callbacks, as TanStack Query uses its last observer's
+  options (it used the first reader); `prefetchQuery` fetches with its own
+  fetcher and key even while readers are attached (it used a reader's), or
+  joins a fetch already in flight, and runs to completion when the last
+  reader unmounts (it was aborted and resolved `undefined`). An invalidation
+  issued before a reader's key change has flushed goes to the readers whose
+  current key still names the entry. Found dogfooding Vura.
+- **A tag held in a binding is created in the namespace it stands in.**
+  `as="circle"` in an `<svg>` and `as="mi"` were created as unknown HTML
+  elements and did not draw: a name only SVG or MathML has is created in that
+  namespace, and one SVG shares with HTML (`a`, `title`) in the namespace of
+  the place its component is called in (`_$inNs`). The vnode renderer uses
+  the same table of SVG names, which also has `desc`, `switch`, `view` and
+  every filter primitive.
+- **A tag held in a binding hydrates in place.** It was built on the client
+  with a `not-hydratable` mismatch report; it claims the server's element as
+  compiled `<a {...props}>` does, and the server renders its children.
+- **Two copies of what-core:** `<option>`s one copy renders into the other
+  copy's controlled `<select>` are selected as its value says (the select
+  stayed on its first option), and an `h()` component of one copy renders in
+  a copy that has no vnode renderer (it threw `ERR_NO_VNODE_RENDERER` in
+  development and showed `[object Object]` in production): the select and
+  the vnode carry the code that handles them.
+- **An `<ErrorBoundary>` whose `fallback` is a class component** renders it
+  with `{ error, reset }`; it called the class as a function and threw.
+
+- **A tag held in a binding renders the element it names**, as in React:
+  `const Tag = props.as || 'div'; <Tag {...rest}>…</Tag>` rendered nothing in
+  production and threw `… is not a function`. A tag in a constant
+  (`const Tag = 'select'`) compiles to the element itself on both targets;
+  any other is rendered as its element at run time, its props spread on it
+  (a field's `value` and `checked` bound as compiled JSX binds them, a
+  `<select>`'s with the select code), in HTML.
+- **`memo()` of a class component** runs it through the class component
+  bridge; it threw `Class constructor … cannot be invoked without 'new'`.
+- **The forms kit's `register()` on a `<select multiple>`** holds the array
+  of the options picked: picking with the keyboard left the form's value as
+  it was (a listbox fires only `change` for a key typed), and a pick a script
+  dispatched `input` for stored one option's value as a string. The text and
+  select registration now also returns `onchange`, taken only when it brings
+  a value the form does not hold, and `<Input>`, `<Textarea>` and `<Select>`
+  merge it with the caller's own `onChange` instead of replacing it.
+- **Development locations name the line you wrote.** Vite reprints a
+  .jsx/.tsx file with esbuild (oxc on Vite 8) before what-compiler's plugin
+  runs, so every `file:line:col` in a diagnostic and in the devtools could
+  point a line or more away (a leading comment was enough). The plugin maps
+  each one back through the combined source map, and what-react's mixed JSX
+  keeps every statement on its source line.
+- **`<Show>` and `<Match>` take any value as `when`** in their types
+  (`when={user()}`), as they do at run time.
+- **`what/no-signal-write-in-render` checks render code in JSX:** a write in
+  a JSX function child (`{() => { tab(0); ... }}`) or in a host element's
+  non-event attribute function runs whenever the region does. **`what/prefer-
+  computed` warns in every preset**: an effect that only writes one signal is
+  a `computed()`.
+
+- **`what/no-moved-imports` covers dynamic imports.** `const { useQuery } =
+  await import('what-framework')`, `(await import(...)).name` and
+  `import(...).then(({ name }) => ...)` are reported, and rewritten when every
+  name they read moved to one subpath.
+- **`lazy()` infers the props of the component its loader resolves to**,
+  through `import('./Chart').then((m) => ({ default: m.Chart }))` as well.
+- **what-router skips a scroll that would not move the page**, so a test DOM
+  (jsdom) no longer logs "Not implemented: window.scrollTo" on navigation.
+- **what-react writes `tabIndex` on SVG elements as `tabindex`**, the attribute
+  that makes them focusable (recharts' chart surface).
+- **what-react: four defects an independent verification found**
+  (2026-11-24, the same apps on real React 19.3.1). A lone keyed child
+  mounts again when its key changes: `return <Form key={user} />`, as a
+  component's whole output or a Fragment's only child, kept the old `Form`
+  with its state (a Recharts bar chart mounted 864 of its 2,068 elements).
+  An event forces no layout: the synthetic event read `offsetX`, `offsetY`,
+  `layerX` and `layerY` from every native event (300 clicks, 300 forced
+  layouts; React 3), and now reads them when a handler asks; a copy of the
+  event leaves the four out, as React's event has none. The update-loop
+  guard never leaves the screen behind the state: it counted renders per
+  component against the clock (250 in 200 ms) and skipped the rest, so 1,000
+  clicks in separate tasks showed 249. A loop inside one flush now ends
+  after 100 cycles by refusing the looping component's further updates until
+  the event loop has turned (the state stays what the screen shows); a chain
+  of updates through promises waits for the event loop after 1,000 flushes
+  and goes on, losing none; updates made in separate tasks are never counted.
+  react-virtuoso stopping short of the last row under heavy load also
+  happens on real React (2 of 30 runs under a 10x CPU throttle, the same row
+  and scroll position as on what-react); it stops when the library's 150 ms
+  retry timer after a scroll is made longer. (`REACT-COMPAT.md`, known
+  limitations, has the guard's rules.)
+- **what-react matches React in the places a second review found it did
+  not** (the same components run on real React 19.3 and 18.3;
+  `REACT-COMPAT.md`, "What the second review found"). State updates are
+  queued and applied by the render, so a reducer or an updater that throws
+  reaches the error boundary. A controlled field is put back when its event's
+  dispatch ends, a `<select multiple>` follows its array value, a refused
+  click in a radio group leaves the group as its props say, and a field that
+  stops being controlled keeps what it shows. An uncontrolled `<select>`
+  starts on its first option or its `defaultValue` (it showed its last
+  option). `onChange` fires only when the value changed, and on a form above
+  a text field per keystroke. A commit runs every cleanup of a phase before
+  its effects, insertion effects before refs and layout effects, and an
+  unmount cleans up parents first with refs still set. Host elements keep
+  `className` and `htmlFor` in their props (a Radix `Slot` lost the child's
+  classes). `defaultProps` of function components apply (Radix Dialog did
+  not lock the page's scroll). `Children.toArray` and `map` give React's
+  keys. `Fragment`, `Context.Provider`, `Context.Consumer` and `forwardRef`
+  have the shapes `react-is` 18 checks. Each React event type gets its own
+  synthetic event, with `currentTarget` null outside a handler. A form
+  action runs when `onSubmit` only stops propagation. `componentDidCatch`
+  gets a component stack, `useDeferredValue` its initial value,
+  `getSnapshotBeforeUpdate` runs after `render()`, and an effect whose deps
+  changed in a render that suspended runs when the component is back. In
+  mixed mode a hook called on a namespace import (`rhf.useForm()`) makes its
+  file a React file, and a native component is handed several React children
+  as an array it can count and index.
+- **what-react: a keyed child is no longer handed the state of a nested
+  list's child** whose place reads like its key: after
+  `[[<Row />], <Row key="0:0" />]` became `[<Row key="0:0" />, <b key="tail" />]`,
+  the keyed row kept the nested row's state and its own instance was dropped,
+  silently (a regression of the reconciler rewrite; React 19.3.1 keeps the
+  keyed row). A randomised differential run against React (30,015 states)
+  found 19 DOM or identity differences before and none after.
+- **what-react: `flushSync()` inside a render, a commit or an effect renders
+  with the flush already under way**, as React defers it, instead of starting
+  a flush of its own: a layout effect that called it to set state each time
+  ended in "Maximum call stack size exceeded" at about 1,193 levels, past the
+  update-loop guard; it now stops at the guard. From an event handler it
+  still renders before it returns.
+- **what-react: an empty string child renders no node**, as in React (it was
+  an empty text node among its siblings).
+- **what-react matches React in the five places a third review found it did
+  not** (real React 19.3 against the rewritten reconciler; `REACT-COMPAT.md`,
+  "What the third review found"). An element that goes from text to
+  `dangerouslySetInnerHTML` shows the HTML (it was empty for one commit), and
+  HTML is written only when its string changed (it replaced its nodes on
+  every render). `null`, `false`, `undefined` and a portal leave no comment
+  in the document, nor a text that became empty an empty text node, except at
+  the top of a React island, where one comment keeps the island's place
+  (code that walks `childNodes`, such as an editor's node views, saw them;
+  three stood inside a TipTap editor's DOM). What a component with no node in
+  the document renders next goes before the first node of what follows it,
+  as React places it (it went to the end of its parent when a library had
+  removed its comment), and a row inserted before a row a library moved
+  elsewhere goes before the next row still in the list. A `<textarea>`'s
+  children are its initial value only; later children no longer overwrite
+  what the user typed. A component that sets its state every time it
+  renders throws React's "Too many re-renders" to its error boundary instead
+  of committing a partial state. *Behaviour change:* a component that
+  renders nothing has no `<!--w:h-->` comment, and a portal no
+  `<!--w:portal-->`, outside an island's top. In a production build the
+  `ERR_HOOK_OUTSIDE_RENDER` error and the update-loop guard's two messages
+  keep only their first sentence (development shows the explanation), which
+  with an SVG attribute map built from its names keeps the `react-counter`
+  bundle at 22,170 B gzip (22,251 before). The package matrix gains a TipTap
+  fixture (typing, bold, undo and redo, React node views inside ProseMirror's
+  DOM).
+- **what-react works in `vite`, in a production server build and in a
+  dev-server render of an installed app**, where the package matrix (production
+  client builds from the workspace) could not see it fail. `vite dev` failed
+  for React libraries with a CommonJS-only dependency (react-router, antd,
+  react-markdown: `does not provide an export named ...`), because a list of
+  library names kept them out of pre-bundling; the scaffolded React template
+  broke as soon as react-router was added. A server render of an app installed
+  from npm rendered every React island empty, with no warning in production:
+  the bundle inlined what-react through the `react` alias and also imported
+  `what-react/mixed` from node_modules, two runtimes that never saw each
+  other's components. `reactCompat()` now aliases `react` to the package
+  `what-react` (deduped to the app's root), keeps only what it replaces out of
+  pre-bundling (no list of libraries), always bundles what-react into a server
+  render, bundles CommonJS-only React packages and what React packages depend
+  on into a production server build, converts a CommonJS file that a bundled
+  package imports by path (`@mui/material` and react-transition-group) for a
+  dev-server render, and refuses a server build that would hold two copies. A
+  server render says when it leaves an island to the browser, in production
+  too, and fails when a hook finds no component rendering. Also fixed: on Vite
+  6 and earlier what-compiler processed React files as its own (esbuild
+  dropped the comment that marks them), and on a hydrated page a native
+  conditional between two React islands (`{open() ? <X /> : <Menu />}`) kept
+  the first one on screen. The matrix now runs three ways, each a CI job:
+  a production client build, Vite's dev server, and a production server build
+  that the browser hydrates (`--serve=build|dev|ssr`), from a committed
+  lockfile. The React scaffold installs `@types/react`, and a React file in
+  TypeScript starts with `/** @jsxImportSource react */` (MIXED.md,
+  "TypeScript").
+- **what-react follows React where popular packages depend on it** (found by
+  the package matrix; `REACT-COMPAT.md` lists each cause). Children are
+  matched by key or by index inside their own list, so an input no longer
+  remounts when a keyed sibling leaves. A kept node is no longer re-inserted
+  among nodes its list does not own (two portals in `<body>` blurred each
+  other's focused field). Passive effects run before the next render, and a
+  descendant's effects before its ancestor's. An event inside a portal reaches
+  the portal's React parents. Handlers get a synthetic event object. A prop
+  that is `undefined` is left out instead of written as `''` (`maxLength`
+  became 0). `aria-*={false}` is written. `autoFocus` focuses. A controlled
+  field goes back to its prop when the handler refuses an edit. Class
+  components get context in the constructor, `shouldComponentUpdate` and
+  `PureComponent`, a ref to the instance, and `this.state` that changes at the
+  render. Content that suspends after it was shown keeps its state. An error
+  in an effect reaches the error boundary. A portal into a library's own
+  document (react-aria-components) works. `<motion.div>` and
+  `<table.FlexRender>` compile in mixed mode.
+  *Changed for code that relied on the old behaviour:* `Children.count()`
+  counts empty children and `Children.toArray()` keys its result, as React's
+  do; `unstable_batchedUpdates()` and `startTransition()` no longer render
+  before they return (`flushSync()` does); `componentDidMount` runs in the
+  commit, not after it.
+
+- **A `<Head>` title, meta or link whose hole reads a value goes to the head
+  on the server.** `<title>{name()}</title>` or `content={'about ' + name()}`
+  stayed in the body; the server now evaluates the hole once and moves the tag.
+
+- **Request isolation (security).** Loaders and actions run in their request's
+  server context, so `prefetchQuery` and the query cache never serve one
+  user's data to another, including on a server with a DOM global and no
+  AsyncLocalStorage. Outside any render the server cache is never shared. On
+  the server, route state (`route.url`, `route.query`, `useParams()`,
+  `useSearch()`, `useRoute()`) is the request's own, also for ISR-cached
+  pages. Process-wide registries are shared by every tier of the packages one
+  process loads, so `node --conditions=production` no longer splits
+  what-server's action registry (actions answered 404) or what-router's
+  matcher. Each process-wide key names a protocol version
+  (`Symbol.for('what.actions.v1')`, …), so a copy of another protocol keeps
+  its own. Work that a second copy of what-core bundled into a library creates
+  during a server render is released with the render, from its first
+  operation. An async value such a copy makes during a server render throws
+  `ERR_FOREIGN_ENGINE_IN_SSR`: bundle one copy of what-framework. One realm
+  serves one app's actions: two apps in one process that register the same
+  action id share it, and development reports `ERR_DUPLICATE_ACTION_ID`.
+- **Redirects and URLs (security).** `_redirect` and `response.redirect()`
+  refuse dot-segment targets such as `/.//evil`, and what-isr's path predicate
+  matches what-server's. SVG `values`, `to`, `from` and `by` with
+  `javascript:` are refused on every path. The Origin-only CSRF path compares
+  the full origin, and the Node adapter sees TLS as https.
+- **Request targets (security).** A target that is not a path (`GET //`, `*`,
+  absolute or authority form) gets a 400 or goes to `next()` in `what dev`,
+  `what preview`, the create-what full-stack server and its Vite middleware,
+  and what-server's Node adapter and middlewares, so one request cannot end
+  the process. The Host header must be a host (a DNS name, IPv4 address or
+  bracketed IPv6 literal, with an optional port): anything else, including a
+  path, a query, a backslash or userinfo, gets 400 from `toNodeListener`,
+  `whatMiddleware`, `nodeActionMiddleware` and the Vura handler, with nothing
+  logged. The path What routes on comes from the request target only.
+  `what dev` and `what preview` answer 500 to a request that throws, and a
+  module name such as `/@what/__proto__` no longer reaches what an object
+  inherits, so no single request ends them. `nodeActionMiddleware` never
+  rejects. The router's and the cache's URL parsing never throws on a
+  request's path. HTTP/2 requests render and route like HTTP/1: pseudo-headers
+  are skipped, and a validated `:authority` is the host when Host is absent.
+  An HTTP/2 request whose Host and `:authority` differ gets 400.
+  `ERR_REDIRECT_CYCLE` reports route patterns (`/verify/:token`), never the
+  visitor's paths, query or fragment. `what dev`'s HMR socket accepts only
+  loopback, `--host` and `allowedHosts` origins, not any IP address. Every
+  entry point answers a body over `bodyLimit` by one rule, an HTML page for a
+  browser's form post and JSON for an action call, and
+  `nodeActionMiddleware`'s 413 now reaches the client instead of a reset
+  connection.
+- **Form data (security).** No-JS and enhanced form fields such as
+  `constructor` and `__proto__` arrive as own fields. ISR loader `query`
+  objects are null-prototype. A malformed cookie no longer fails every page. A
+  cached ISR render sees exactly what its key is made of: the key holds the
+  request's origin (scheme and host) as well as its path, so two hosts keep
+  two entries and a Host one sender chose never reaches another host's
+  visitors; a repeated cookie name counts once, with its first value. A stored
+  ISR render sees the URL and params of its key: a trailing slash is dropped,
+  and HEAD renders as GET. A posted `_state` is read as plain values: no
+  member named `toString` or `valueOf` survives. ISR stores and serves only
+  GET and HEAD renders: a POST to a cached route renders `private, no-store`
+  and is never stored. A request for an origin outside `origins` is answered
+  `private, no-store`. Behind a TLS proxy, the request URL, the CSRF check and
+  the ISR origin all take the scheme from `X-Forwarded-Proto`.
+- **Keyed hydration.** A server row is adopted only as its own key's row;
+  rows in another order are moved and the rest rebuilt, with a report, so
+  what was typed into a row stays with its key. A differing text takes exactly
+  its share of the server's merged text.
+- **Hydration.** Arrays, fragments and providers before a boundary adopt
+  cleanly. Interaction islands hydrate on keyboard focus, and the click that
+  hydrates one reaches its handler. `<Show>`, `<For>`, `<Switch>` and
+  `<Match>` take no owner-path step, so mixed compiled and runtime JSX keeps
+  its keys. A compiled `<Portal>`'s children and an island's slot hydrate
+  where they render. Event handlers belong to their owner. A late streamed
+  boundary's mismatch reaches `onHydrationError`, and a mismatch is reported
+  once per region. Stale server attributes are removed from claimed elements.
+  A custom element's own property is written on hydration even when the
+  server's attribute matches. Hydration keeps what the user typed, checked or
+  selected before it ran, controlled or not, on every path, and dispatches no
+  event for it, as released React does, so a value the browser restored on
+  Back is not taken for an edit. A field counts as edited only when the
+  browser's own reset would change it (a range's midpoint, a color's default
+  and a disabled first option group are untouched). Handlers see the edits
+  made after hydration; a file chosen before it stays in the form and submits.
+  On the client a `<noscript>`'s content is neither rendered nor hydrated.
+  `onMount` and `useEffect` after hydration see the user's edits, so a
+  dependent field can be updated from them there. A form field named after a
+  form member (`reset`, `elements`, …) no longer breaks hydration or submit.
+  Hydrating a controlled select is linear in its options again, an untouched
+  field is not copied to decide whether it was edited, and the copies run no
+  element constructors and load no images. A compiled component hydrates its
+  children in place however it reads `children` (destructured, renamed, with a
+  literal default or a rest element, or as `props.children`) and wherever it
+  places them. A compiled array that mixes text, a reactive value, a list or a
+  conditional with elements adopts in document order
+  (`<Button>Save <Icon /></Button>`). `<Form>`, `<Link>`, `<NavLink>`,
+  `<Outlet>`, `<Head>`, the form kit's `<Select>` and the a11y components take
+  compiled children unbuilt, so they hydrate in place. A streamed `<Suspense>`
+  with a `lazy()` child hydrates whatever the order of its content, its code
+  and `hydrate()`. Hydration no longer copies a form-associated custom element
+  that reports `type === 'radio'`.
+- **Async values.** `settled()` waits for the reveal's effects and for
+  streams, and never spins on a synchronous refetch. `refresh()` settles when
+  the function answers at once or throws. Transitions that reach one binding
+  commit together, and an urgent write no longer releases a held region. A
+  second optimistic overlay shows while another action holds the view.
+  `createResource().mutate()` during a transition aborts the request. A
+  transition awaited inside an action no longer deadlocks.
+  `ERR_PENDING_READ_UNTRACKED` is no longer reported for a `pending()` read in
+  a binding during server rendering.
+- **Retention.** Unmounted components, abandoned promises, held effects,
+  dropped query flights, unmounted `useActionState` dispatches, rejected form
+  actions, superseded navigations and `<Suspense>` boundaries unmounted while
+  waiting retain nothing.
+- **Forms.** A control named `reset` or `elements` no longer breaks a reset,
+  and a reset that throws becomes the form's `form:error`. A multiple
+  `<select>` keeps its array value through a reset. Getter-only properties
+  such as an input's `form` and `list` are set as attributes, so
+  `h('input', { form })` no longer throws. Value and checked bindings no
+  longer rewrite the value they last wrote, so a refetch keeps what the user
+  typed. `useFormStatus().data()` is the latest submission still pending. A
+  value released to `null` or `undefined` makes the field uncontrolled, so a
+  form reset restores its default, in `h()` and compiled output. A field's
+  value, checkedness and selection are written as its state, and its defaults
+  as its markup, on every path (h(), compiled, spread, hydration, and every
+  server renderer), as React 19 does. A server-rendered field shows its value,
+  or its default when the value is nullish, in its one content attribute, and
+  a `<textarea>` carries it as its text. A multiple `<select>` given one value
+  marks only the first option with that value. Option values are matched after
+  HTML whitespace stripping, so a leading no-break space counts. A checkbox
+  the user clicked still follows its signal. A value released to `null` keeps
+  the field's default, and a select whose value starts `null` keeps its
+  options' defaults. Unselecting every option of a single select leaves none
+  selected. A radio's `defaultChecked` no longer unchecks a controlled
+  sibling. `register(name, { type: 'radio' }).checked()` is `undefined`, not
+  `false`, when the registration has no value. A server-rendered
+  `<select value>` marks the options it names `selected` (in a multiple
+  select, every one its array names), so a form posted before hydration
+  carries them. A later write to a select's value supersedes a deferred
+  earlier one, and `false` clears it. An action result whose `then` getter
+  throws reaches `form:error`. Server rendering decides each `<option>`'s
+  `selected` from the `<select>` it sits in, including options a `<Suspense>`
+  streams inside a select, and never rewrites emitted markup, so a value or
+  title containing `selected` is kept. A controlled `<select>` follows its
+  value when its options change: added, removed or re-valued by a region,
+  `<For>`, `<Show>` or `.map()`. A `style` going from an object to `null` no
+  longer throws. A controlled select also follows an option whose text is its
+  value, and an emptied keyed list of options; an uncontrolled select's
+  default follows options that arrive later, a streamed `<Suspense>` included,
+  until the user chooses. Style objects set CSS custom properties (`--accent`)
+  on every path. Changing an option's label no longer re-selects a controlled
+  select.
+- **Data.** A fetcher that throws reaches the `<ErrorBoundary>`. A fetch that
+  lands `undefined` is data. A superseded invalidation answers when its
+  replacement lands. The query hooks and a `query()` on one key no longer
+  report a hydration mismatch.
+- **Router.** A delayed View Transition cannot commit a superseded navigation.
+  A `preload` that throws renders the route's error boundary. `<Router>`
+  server-renders the request's URL with its `preload`. A relative `<Link>` is
+  active on the server as on the client, and a relative server `navigate()`
+  resolves against the page. A nested Router's middleware and `preload` read
+  its own route, and sibling server Routers keep their own URLs. A navigation
+  started from inside a guard is released when the Router unmounts. An async
+  page reads its nearest `<Router>`, its hooks and the context its parents
+  provide after an `await`, also in a nested or sibling Router and in
+  concurrent streams. A redirect loop reports `ERR_REDIRECT_CYCLE` with the
+  URLs it went through and the routes whose guards sent it on. A `<Router>`
+  that unmounts removes only its own action-redirect registration.
+- **Compiler.** The callee analysis is iterative, so a module of thousands of
+  chained helpers or aliases compiles. A getter read through a local alias is
+  reactive, and a member replaced through a destructuring or a `for…of` loop
+  is seen. An `Array.of()` or `Array.from()` array of primitives the compiler
+  can see is static. `x?.map((item) => <Row key=… />)` and lists nested in
+  keyed rows, ternaries and `&&` are keyed on the server as on the client. A
+  keyed `.map()` row in a template literal no longer crashes it. A getter
+  reached through property access, destructuring, a function's return or an
+  array is reactive in JSX. A module of very deep expressions or very long
+  chains of reassigned locals compiles, and its reads stay reactive. A
+  differential test compiles thousands of generated modules both as analysed
+  and fully reactive, and checks that both render the same. Tagged templates
+  (the `html` tag included) and array and object spreads in JSX expressions
+  are reactive unless the compiler proves them static.
+- **Server.** A component given one child receives the child itself, as on
+  the client. SSR style objects drop the declarations the client's CSSOM
+  would drop. A no-JS action sees `getRequest()` before its first `await`
+  without AsyncLocalStorage. what-server's bundler tier no longer writes SSR
+  error details into pages.
+- **Development builds report diagnostics in every bundler**: Vite's dev
+  server, webpack's development mode, Rollup with node-resolve and
+  `NODE_ENV=development`, and a default `bun build`. Markup that names a
+  global `process` (`<form id="process">`) no longer switches what-core into
+  development mode. An app's `Error.prepareStackTrace` that throws no longer
+  breaks signal creation in development.
+- **create-what full-stack.** A production build serves and publishes only the
+  packages' production files (`dist/*.min.js`: no development tier, no source
+  maps) whatever the host's `NODE_ENV`, `node server.js` names its mode on its
+  first line, and `npm run smoke:clean` stops only its own checkout's servers.
+  Its scheduled warm-up of the home page no longer throws, and the entry it
+  renders is the one visitors read. `<Portal>` with no `target` renders into
+  `document.body`, and a selector that matches nothing reports
+  `ERR_PORTAL_TARGET_MISSING`. `what build` no longer changes whitespace
+  inside attribute values, `<pre>` and `<textarea>`. `revalidatePath` and
+  `revalidateTag` with `regenerate` and no `routeResolver` render from the
+  route last rendered for the path instead of throwing.
+- **Hydration keeps what the server rendered in more shapes:** JSX in a
+  named prop (`<Layout header={<Search />}>`) and a `fallback` handed on
+  through a wrapper adopt the server's nodes and keep what the user typed;
+  a body child of `<Head>` hydrates in place; two components side by side
+  that each return a fragment starting with text or an expression, component
+  rows of an unkeyed `.map()`, several components in a `<Show>`, an array
+  literal of text and JSX, and a boundary first in an array are adopted in
+  order. A generated compiled-JSX hydration oracle checks hundreds of
+  component trees for adoption, kept edits and in-place updates.
+- **A form after a keyed list keeps its no-JS result** when rows were added
+  or removed between the page and the post: a component's place no longer
+  counts the components inside an earlier list's rows. A list in
+  `<Suspense>` after a conditional list keeps its rows' results.
+- **Form bodies parse in linear time on every Node version.** On Node 24, a
+  1 MB urlencoded body of key-only pairs (`a&a&…`) blocked the server for
+  about 5 seconds before any check.
+- **`what dev`'s refused-origin log** escapes every character outside
+  printable ASCII, says when it stops listing origins, and tells a page on
+  the dev server's host but another port that the port is wrong. With
+  `--host 0.0.0.0` or `::`, the machine's addresses are read at each check,
+  so an address it gave up is refused.
+- **Docs.** A file input with nothing chosen reaches the action as an empty
+  `File` (`size` 0), not `''`. The server README hydrates the built-in
+  document at `document.body`. SECURITY.md gives measured per-request memory
+  for form parsing in place of "about three times `bodyLimit`".
+- **No-JS form results land on the right row in more layouts:** a
+  conditional component before its list
+  (`{pinned.length > 0 && <Table rows={pinned} />}<Table rows={records} />`,
+  and the h() function child), one helper rendering two lists, and a list in
+  an h() `<Suspense>` or `<ErrorBoundary>`. An island's `useActionState`
+  outside a keyed list hydrates into the server's key.
+- **A field component that returns a fragment** (`<><label>…</label><input /></>`)
+  followed by other controls hydrates in place inside `<Form>`, a wrapper, a
+  `<Show>` or a provider: what the user typed or chose before the page's code
+  ran is kept, a chosen file included. Before, the controls after it were
+  built again and an upload field lost its file.
+- **A layout whose header returns a fragment starting with a component,
+  followed by `<Suspense>` or `<ErrorBoundary>`, hydrates in place.** Before,
+  hydrating threw while revealing the boundary and left its content dead.
+  Keyed rows of a fragment-returning component, a fragment among an element's
+  children, `<Show>`/`<For>` in an array literal and a reactive expression in
+  a `<Show>` arm are adopted in place too. The compiled-JSX hydration oracle
+  now finds no divergence in 14,300 generated trees over 8 seeds.
+- **JSX passed to a component and placed in a `<Show>` or a reactive
+  condition keeps what the user typed** when a signal its JSX read changes
+  (`<Modal body={<EditForm item={selected()} />} />`), as with `h()`.
+- **A JSX prop read after the component's run** (a test in `onMount`, a
+  handler that shows it in a dialog, a read after an `await`) is no longer
+  built with no owner: before, it got every context's default, its effects
+  outlived the page and its errors skipped the `<ErrorBoundary>`.
+- **`items={links.map((l) => <li>{l}</li>)}` and JSX array props hydrate in
+  place.** JSX a `.map()` builds into a variable is reported `prebuilt` with
+  form state kept. Form state moves only to the control that corresponds to
+  it (tag, type, name and `form` attribute), never into a `<noscript>`.
+- **Form bodies keep a leading U+FEFF**, as every WHATWG reader does, and a
+  refused action call rejects with its coded error whatever its body is (a
+  proxy's page, `null`). The upload recipe and the starter show the error's
+  message when a proxy's own 413 carries no `limit`.
+- **A compiled `client:load` island inside keyed rows keeps its no-JS
+  result** after hydration, under the server's keys.
+- **The full-stack starter's `/new` form shows why the server refused a
+  post** (a 413 with the limit, another refusal, a failed request), and
+  what-react's `hydrateRoot()` names itself in `ERR_MOUNT_TARGET_MISSING`.
+
+- **A `class` of `null`, `undefined` or `false` writes no attribute** on the
+  client (compiled JSX and `h()`), as the server writes none. Before, the
+  client wrote `class=""`, so a router `<Link>` with no active class differed
+  from its server markup. `0` is written as `"0"`, as on the server and in
+  React, and a `classList` composes over a class that wrote nothing as the
+  server folds them. `packages/server/test/ssr-classlist.test.js`.
+- **The server leaves out a style property whose value is `null`,
+  `undefined`, a boolean or empty**, as the client and React do. Before, it
+  wrote `color:null;padding:`. `style()` from `what-framework/dom` leaves out
+  the same declarations, through the guard the `style` prop uses.
+  `packages/server/test/ssr-security.test.js`,
+  `packages/core/test/helpers-public.test.js`.
+- **`<Link>` runs the caller's `onClick` first, and does not route a click it
+  prevents.** Before, a Link given an `onClick` lost its routing and the click
+  reloaded the page. A Link with a `target` other than `_self`, or with
+  `download`, or to another origin or scheme (`mailto:`), is left to the
+  browser, where it was routed inside the current tab or did nothing; hovering
+  one no longer prefetches it. A relative Link that stays mounted (in a
+  layout) is active for the page it resolves to now, and with scroll
+  restoration on, a same-page hash link scrolls smoothly instead of jumping.
+  `packages/router/test/link-clicks.test.js`,
+  `packages/router/test/link-relative-active.test.js`.
+- **Forms.** `formState.values`, `watch()`, `dirtyFields` and
+  `formState.touched` follow fields registered after they first ran, so a
+  summary rendered above a form's fields updates (it showed the defaults).
+  `rules.min` and `rules.max` compare a numeric string, which is what a
+  registered `<input type="number">` gives, as a number (they never fired on
+  a number field). With an async resolver, an answer that lands after a newer
+  validation of the same field or of the whole form started is dropped, so a
+  slow "taken" no longer lands on the newer value, and `isValidating` stays
+  true until the last validation lands.
+  `packages/core/test/form-whole-form-readers.test.js`,
+  `packages/core/test/form-number-rules.test.js`,
+  `packages/core/test/form-async-validation-order.test.js`.
+- **A refetch caused by a signal a query's fetcher reads runs `onSuccess` and
+  `onSettled`**, as a refetch after an invalidation does.
+  `packages/core/test/query-invalidation-lifecycle.test.js`.
+- **A function in a query key array is read as part of the key.**
+  `useQuery({ queryKey: ['search', term] })` with `term` a signal, or
+  `['search', () => term()]`, names the entry of `term`'s current value,
+  follows it to a new entry when it changes and hands the fetcher the values,
+  as a function key does; `setQueryData`, `getQueryData`, `prefetchQuery` and
+  `invalidateQueries` read it the same way, and in `useSWR` a part that throws
+  means no key yet. Before, the function's source text was hashed into the
+  key, so the key never changed, and the fetcher got the function.
+  `packages/core/test/query-key-function-parts.test.js`.
+- **`useGesture` attaches to a ref object, a ref function or a signal once the
+  element exists.** It read the ref while the component ran, before the
+  element existed, and attached nothing. A long press is no longer also a
+  tap. `packages/core/test/animation-loops.test.js`.
+- **The Node adapter neither logs nor passes on a request the client
+  aborted** (a cancelled upload): it printed `request error: Error: aborted`
+  with a stack, and `whatMiddleware` called `next(err)`.
+  `packages/server/test/adapter-abort-cookies.test.js`.
+- **`no-camelcase-events` leaves a file that imports from React, Preact or
+  what-react alone**, as `no-uncalled-signals` does: React's `onClick` is
+  correct there.
+- **A conditional region adopted around text the HTML parser merged with a
+  value removes all of that text when it shows something else.** A value
+  written since hydrating, or one that became an element, stayed on the page
+  beside the new content (`6none`). `packages/core/test/hydration-reuse.test.js`.
+- **A form field path through `__proto__` writes nothing**, as React Hook
+  Form's does: `setValue('__proto__.x', v)` or a registered
+  `account.__proto__.admin` wrote into `Object.prototype`.
+  `packages/core/test/form-paths.test.js`.
+- **A field array outlives the component that first called
+  `useFieldArray`**: a wizard step that went away left `formState.values`
+  throwing once an item was added. `packages/core/test/form-field-array.test.js`.
+- **A `client:*` island hands its component every prop**, `name`, `mode`,
+  `mediaQuery` and `component` included, on the server and in the browser:
+  the island's options and the component's props are separate objects. Its
+  `data-island` (and `island:hydrated`'s `detail.name`) is the tag as
+  written, where it was the component's runtime name, which a minified build
+  renamed, so hydration rewrote the attribute on every compiled island.
+  `packages/compiler/test/island-props.test.js`.
+- **`hydrate(<Tag />)` with a tag held in a binding claims the server's
+  element and its children**; it dropped them with a mismatch, and a
+  compiled-only Vite build threw `adoptVNodeKinds is not a function`.
+- **A regeneration with no request renders below `createRequestHandler`'s
+  `basePath`** (what-server, what-isr): `revalidatePath(path, { regenerate:
+  true })`, a scheduler tick or a stale entry's refresh rendered the path
+  without the base and stored the Router's fallback for every visitor. The
+  route match carries `base`. `packages/server/test/request-handler-base-path.test.js`.
+- **A custom server's action endpoint answers a no-JS post below
+  what-router's base** (`nodeActionMiddleware`, `fetchActionHandler`).
+- **Back and forward work in an app served from its own scheme**
+  (`capacitor://`, `tauri://`, `file:`): the unsafe-URL check refused the
+  document's own URL. `packages/router/test/popstate-app-scheme.test.js`.
+- **A catch-all below a param ranks before the root catch-all**
+  (`/users/:id/*`, `/blog/[cat]/[...slug]`, and `/docs/:section/*` before
+  `/docs/*`), and a route group no longer outranks an equal route listed
+  before it. `packages/router/test/match.test.js`.
+- **A React island rendered on the server reads a What context with
+  `useContext`**, so it hydrates without a mismatch, and `use(context)` reads
+  one too (what-react).
+- **A redirect path is the app's, answered below the base by the response
+  alone** (what-server, what-router): under `basePath: '/app'`, a loader's
+  `response.redirect('/login')` and a component's
+  `getResponse().redirect('/login')` answer `Location: /app/login`, as a
+  server action's and what-router's `redirect()` do. The response adds the
+  base once for every caller (a loader redirecting to `/app/x` answers
+  `/app/app/x`), an action's `X-What-Redirect` carries the URL below the
+  base as its 303 does, and a refused target goes to the app's root.
+  `packages/server/test/request-handler-base-path.test.js`.
+- **A server-rendered app below a base needs no `setBase` on the server**
+  (what-server, what-router): `createRequestHandler({ basePath })` and
+  `exportStatic({ basePath })` give what-router their base for each render
+  when the app set none of its own (Vite's, or `setBase`, `setBase('')`
+  included). Without it, a server build that kept what-router external
+  rendered the fallback and links without the base while the browser showed
+  the page. Two handlers with different bases in one process each render
+  their own. `packages/server/test/base-path-router-default.test.js`.
+- **A server render's redirect off the site follows the browser's rule**
+  (what-router, what-server): `redirect()`, `navigate()` and a middleware
+  verdict to an `http(s)`, `mailto:` or `tel:` URL of another origin answer a
+  `Location` there, as they leave the page in the browser; the server sent
+  the visitor to `/` instead. `response.redirectExternal()` takes `mailto:`
+  and `tel:`. An unsafe target is refused on both sides with its code, and
+  a URL with credentials (`https://trusted.example@evil.example`) is refused
+  in the browser as on the server. `packages/router/test/server-redirect-external.test.js`.
+- **A CDN purge names the page's URL below the base** (what-isr,
+  what-server): `revalidatePath('/x')` under `basePath: '/app'` purged `/x`.
+  `createCacheEngine({ basePath })` sets an engine's base, and
+  `createRequestHandler` hands its own to an engine with none. Fastly's
+  `baseUrl` keeps its path (`https://example.com/app`), and Cloudflare takes
+  a `baseUrl` for the absolute URLs its API needs. `packages/cache/test/cdn.test.js`.
+- **A base written `'app'`, `'app/'` or `'/app/'` is `/app`** in `setBase`,
+  `createRequestHandler` and `exportStatic`, and `''` or `'/'` is none.
+  Without the leading slash the server bypassed the cache for every request
+  and answered a relative 303 `Location`, and the router used no base.
+- **`exportStatic` renders a page at the URL its file is served at**:
+  `/about/` for `about/index.html`, as a static host serves it, so
+  `route.path` and relative links agree with hydration (the export rendered
+  `/about`, and hydration reported the difference).
+  `packages/server/test/static-export-trailing-slash.test.js`.
+- **A fragment or query navigation at the base itself keeps the path the
+  address bar shows** (what-router): at `/app`, `navigate('#x')`,
+  `navigate('?q=1')`, `<Link href="#x">` and `<Link href="?q=1">` wrote
+  `/app/#x` and `/app/?q=1`, so relative URLs resolved differently after.
+- **A percent escape matches a route in either case** (what-router): a URL
+  written `/caf%c3%a9` matches the route `/café`, on the client, on a server
+  and in a static export, and its param still reads `café`.
+  `packages/router/test/match.test.js`.
+- **A `lazy()` component whose hover prefetch failed downloads again on its
+  first render**, wherever it renders: a failure is kept only for a download
+  a render or a navigation waited on. `packages/router/test/lazy-route-retry.test.js`.
+- **`ERR_PROP_READ_ONCE` no longer reports a value a keyed row component
+  derives from a field of its item** (`const label = item.title.toUpperCase()`),
+  which the row rebuilds when the field changes. In Vite dev the page
+  reports that shape where the component renders outside such a row.
+- **In Vite dev, stack traces and the diagnostics located from them name the
+  line of the `.jsx` source**, and development locations name the column
+  written: the compiler keeps each statement on its source line, and Vite's
+  own transformer, which had nothing to do for a `.jsx` file, no longer
+  reprints it first (an app's own `oxc.exclude` or `esbuild.exclude` is
+  kept). Measured: a diagnostic at source line 14 read 23, a throw at line 6
+  read 14. A `.tsx` file still goes through the transformer for its types.
+  `packages/compiler/test/vite-dev-locations.test.js`.
+- **A value that renders nothing where the server's text starts no longer
+  reports a false `ERR_HYDRATION_MISMATCH`** or rebuilds the text after it
+  (`<p>{props.icon}{props.label}</p>` with no icon, `{props.prefix}static
+  text` with an empty prefix): what the next part reads decides whose text
+  it is. A value the server did render is still reported, with only its own
+  text, and removed. `packages/core/test/hydration-reuse.test.js`.
+- **A live prop that renders nothing no longer takes the markers of the
+  reactive child after it** (`<p>{props.icon}{count()}</p>`), which reported
+  extra and missing nodes and rebuilt the child.
+- **A keyed list rendered with `h()` moves its rows with `moveBefore`**
+  where the browser has it, as compiled lists do, so a field being edited in
+  a moved row keeps the focus and caret (Chromium, Firefox).
+  `packages/core/test/reconcile-move-keeps-focus.test.js`.
+- **`what-core/render`'s `_installVNodeRuntime` (what-react's mixed mode)
+  installs vnode adoption** in a client compiled for hydration, as `h()`
+  does.
+- **A form field named `constructor`, `toString` or `valueOf` registers,
+  edits, validates, resets and submits like any other name**: its first edit
+  threw `getFieldSignal(...).set is not a function`, its default read as
+  `Object`, and a zod or yup issue on it became a root error. The form's
+  maps have no prototype, and a path reads each segment as the object's own
+  entry. A field named `__proto__` still writes nothing.
+  `packages/core/test/form-prototype-names.test.js`.
+- **A server action that returns nothing resolves with `undefined` on the
+  client** (what-server): the call read the empty body as JSON and rejected
+  with "Unexpected end of JSON input", so `action(async (f) => { await
+  save(f) })` failed on every call made with JavaScript, `<Form>`
+  submissions included, and a redirect it made was never followed.
+  `packages/server/test/action-no-result-client.test.js`.
+- **A caught `redirect()` is not reported as an error** (what-server): a
+  component's `redirect()` in a server render went to the render's `onError`
+  (`console.error` by default) as `ERR_REDIRECT_NOT_CAUGHT` on every guarded
+  page, streamed, buffered or cached. `renderToString` and
+  `renderToHydratableString` redirect the response for a component outside
+  a `<Router>` too, as `renderToStringAsync` and the stream do, and
+  `ERR_REDIRECT_NOT_CAUGHT` says to pass `renderToString` a response.
+  `packages/server/test/redirect-signal-not-an-error.test.js`.
+- **what-router's `redirect()` in a server action redirects the call's
+  response** (`X-What-Redirect`, or a 303 without JavaScript), below the
+  base, as Next.js's does, and the action's revalidation still runs; it was
+  a 500. `packages/server/test/action-router-redirect.test.js`.
+- **A custom server's action endpoint below a base** (`nodeActionMiddleware`,
+  `fetchActionHandler`) answers an action's redirect below it with no
+  `setBase` on the server: the endpoint's own path names the base.
+- **A server render redirects to the URL the browser would go to**
+  (what-router): a relative target that climbs out of the base (`'../../x'`
+  at `/app/a/b`) answers `/x`, as the browser, `navigate()` and `<Link>` go,
+  where the server refused it; a path that would name another host is still
+  refused. A redirect to the page being rendered (a guard sending `/login`
+  to itself, `redirect('')`) is none, where it answered a 302 to itself that
+  the browser followed until it gave up. `ERR_SSR_UNSAFE_REDIRECT` names the
+  root it goes to. `packages/router/test/server-redirect-relative.test.js`.
+- **`revalidatePath` purges a page with and without its trailing slash**
+  (what-isr), as the request handler serves both, and the Cloudflare and
+  Fastly adapters skip a path when `baseUrl` is missing, with one warning:
+  Cloudflare's API refused the local paths and failed the whole purge.
+- **`<Link href="/café">` is active at `/caf%c3%a9`**, and only a real
+  percent escape (`%` and two hex digits) matches in either case: at
+  `/x%/about` the route `/x%/:page` read the param `About`. `prefetch()`
+  never asks another site for anything. (what-router)
+- **`ERR_PROP_READ_ONCE` is not reported for a prop whose getter reads
+  nothing reactive** (`<TreeNode node={nodes[0]} />` of a plain array), and
+  `ERR_REBUILT_COMPONENT` is not reported for the next route's
+  `ErrorBoundary` after a navigation to another route (development only).
+- **In Vite dev, a `.tsx` file names its source lines** in stack traces and
+  diagnostics when `@babel/plugin-transform-typescript` (or
+  `@babel/preset-typescript`) is installed: the plugin strips the types in
+  its own pass with each statement on its line ([TYPESCRIPT.md](docs/TYPESCRIPT.md)).
+- **A hydrated keyed row whose text a value holds survives hiding and
+  reordering** (`<For>` or a keyed `.map()` of `<Label text={on ? label :
+  null} />`, a `<Show>` per row, a component returning a function, rows from
+  `renderToString`): removed text came back on the page ("abd" for "ad"), or
+  a reorder threw NotFoundError and left the list in its old order, and a
+  matching filtered list reported a false `ERR_HYDRATION_MISMATCH`. A row's
+  walk claims its own markers, and a list the server rendered with other
+  keys builds its rows as a client render does. `packages/core/test/hydration-reuse.test.js`.
+- **An update to a value adopted inside merged server text shows**: a region
+  without markers that starts inside the server's text kept the parts its
+  children claimed there in a detached node (`h('p', null, 'st', () => [() =>
+  a(), ' ', b()])` from `renderToString`; `a('Q')` showed nothing).
+- **Two values side by side in `<title>`, `<textarea>`, `<style>` or
+  `<script>` render in order** (what-compiler): a client render showed a
+  literal `<!>` between them (`<Head><title>{a()}{b()}</title></Head>` set
+  the page title to "A<!>B"), and `{a()}{b()}{a()}` in a textarea threw.
+- **`unregister` after `reset()` leaves `dirtyFields` alone**: it put every
+  array- or object-valued field (a multiple select, a checkbox group) in
+  `dirtyFields`.
+- **Moving between routes keeps every layout the two chains share**
+  (what-router), from the outermost down to the first that differs, as React
+  Router's nested `<Outlet>`s and Next.js's nested layouts do: `/app/x`
+  (layouts App, X) to `/app/y` (App, Y) keeps App with its state and DOM and
+  builds only Y, where any difference in the chain built all of it again. A
+  layout whose own params change stays, with live `params`. A server-rendered
+  chain hydrates with no mismatch, and its shared layouts stay the server's
+  elements after a navigation. `packages/router/test/nested-layout-persists.test.js`,
+  `nested-layout-hydration.test.js`.
+- **A change of the query alone keeps the page mounted** (what-router), with
+  its state, as React Router keeps the route's element and Next.js keeps a
+  page on a search-param change: its `query` and `data` props are live, and
+  no `loading:` screen shows. Other params, or another route, still build
+  the page again. A route showing its error page builds it again.
+  `packages/router/test/page-query-persists.test.js`.
+- **A route group's `(auth)/_layout` wraps the group's pages** (what-compiler,
+  file router): layouts were matched by URL prefix, so the group's layout and
+  the root's shared one key and one replaced the other.
+- **A `<Link>` follows its live props** (what-router): in a layout kept
+  across navigations, `href={`/org/${params.orgId}/members`}`, a live
+  `class`, `replace`, `transition`, `prefetch`, the active classes and each
+  attribute it passes on (`aria-current`) follow their values, and a click
+  goes where the href says now. It read them once while
+  it was built, so a kept layout's links pointed at the params it was built
+  for, and a link on a page kept across a query change was reported as
+  reading the query once (`ERR_PROP_READ_ONCE`).
+  `packages/router/test/link-live-href.test.js`,
+  `page-query-read-once-diagnostic.test.js`.
+- **A `key` outside a list starts its component or element again when its
+  value changes** (what-compiler, what-core), as React's key does:
+  `{editing() ? <EditIssue key={editing().id} issue={editing()} /> : null}`
+  shows a fresh editor, with fresh state, for each record, and the old one's
+  cleanups run; the same value keeps the instance. It holds on the client,
+  on the server, through hydration and in a static export, and the server
+  writes what the unkeyed component renders. The compiler dropped the key,
+  so the editor kept the first record's state, with no warning. A key that
+  cannot change (`key="a"`) costs nothing. `packages/compiler/test/lone-key.test.js`.
+- **`useQuery` and `useSWR` render an entry the page's loader prefetched**
+  (what-core, what-server) on the server and in the hydration walk, as
+  TanStack Query renders a query prefetched on the server, and the client
+  fetches nothing: they rendered their loading state. The document names
+  those entries in its data channel. `packages/server/test/query-roundtrip.test.js`.
+- **what-router and what-server errors thrown with a catalogue code read
+  `[what] ERR_…` and the fix line in development**, as what-core's do;
+  production keeps the `[what-router]` and `[what-server]` text.
+- **`ERR_MISSING_SIGNAL_READ` names every coercion it reports** (a template
+  literal, `+`, arithmetic, a comparison, a property key; it said "converted
+  to a string" for `count > 0`) and is located where the signal was used, in
+  the component that used it; where it was created is `data.createdAt`.
+  `packages/core/test/signal-read-guard.test.js`.
+- **An error core or what-react throws with a catalogue code names the code
+  and its fix in development**: `[what] ERR_HOOK_OUTSIDE_COMPONENT …` and
+  the `fix:` line a logged diagnostic prints. Production text is unchanged,
+  and a reported `ERR_HOOK_OUTSIDE_COMPONENT` no longer prints `[what]`
+  twice.
+- **A React `onChange` above a native field hears only the fields
+  what-react rendered**, as React does. A native field inside a React
+  `<form onChange>` fired it on every keystroke and again on blur.
+  `packages/react-compat/test/onchange-native-field.test.js`.
+- **A React mouse handler no longer reads Firefox's deprecated
+  `mozPressure` and `mozInputSource`**, which put two warnings in the
+  console of every page with one.
+- **eslint-plugin-what:** `no-moved-imports` no longer rewrites an import
+  from what-core to a `what-core/<kit>` path that does not exist, and
+  `no-camelcase-events` is a `suggestion`.
+- **A spread of `register()` follows `setValue` and `reset` however
+  `register` is called.** `const { register } = useForm(); <select
+  {...register('x')} />`, the idiom the guides show, wrote the value the field
+  had at mount and never updated it, because only `form.register(...)` marked
+  its object as the framework's props: a form filled with `reset(fetched)`
+  showed stale values while it held the new ones.
+  `packages/compiler/test/register-spread-follows-field.test.js`.
+- **A registered file input holds its `FileList`** (`values.photo[0]` is the
+  `File`), as React Hook Form does; it held the browser's fake path
+  (`C:\fakepath\…`), so no file reached the resolver or `handleSubmit`. A
+  file input's `value` prop only ever clears it, where any other value threw
+  as it mounted, so a step with a registered file input went blank when
+  revisited. `packages/core/test/form-file-input.test.js`,
+  `file-input-value.test.js`.
+- **`reset(values)` makes the values the form's defaults**, as React Hook
+  Form does: `dirtyFields` measures from them, a later `reset()` returns to
+  them, and a field registered afterwards starts from them. `dirtyFields`
+  measured from the first defaults, so a form filled from a fetch showed every
+  field changed. `packages/core/test/form-reset-defaults.test.js`.
+- **A keyed row moved while a field in it is being edited keeps the focus,
+  caret and selection** in browsers with `Element.moveBefore` (Chromium,
+  Firefox), and Chromium no longer fires `blur` for the move, which a form
+  validating on blur took for the visitor leaving the field. WebKit, which
+  has no `moveBefore`, still blurs it, and a list in a parent outside the
+  document moves its rows as before.
+  `packages/core/test/reconcile-move-keeps-focus.test.js`.
+- **Hydration adopts text the HTML parser merged with a value** (`Card
+  {id} of {total}`, written with no markers) without splitting it: a value
+  that can change keeps its place in the server's text node until it first
+  changes, and a reactive child that reads nothing reactive keeps no node or
+  marker. The compiled 200-component page of `benchmark/ssr` created 600 text
+  nodes while hydrating; it creates none.
+  `packages/core/test/hydration-reuse.test.js`.
+- **A trailing slash is ignored when matching** (what-router, what-server):
+  `/about/` shows `/about`, a catch-all's param has no trailing slash, and
+  `<Link href="/docs/">` is active on `/docs` and below. `route.path` keeps
+  the slash as the address bar has it, and the request handler matches the
+  same way, so a static export served at `/about/` (GitHub Pages) hydrates
+  onto its page instead of the fallback.
+  `packages/router/test/trailing-slash.test.js`,
+  `packages/server/test/request-handler-trailing-slash.test.js`.
+- **A `lazy()` component whose download failed downloads again** on the next
+  attempt: an error boundary's reset, a later render, or the next navigation
+  or hover to its route, which keeps the old page on screen while it
+  downloads, as a first visit does. A route's error page's `reset` downloads
+  the chunk before rebuilding the page. A loaded component is never loaded
+  again. `packages/core/test/lazy-retry.test.js`,
+  `packages/router/test/lazy-route-retry.test.js`.
+- **`exportStatic` renders each page at its URL**, so a `<Router>` in an
+  exported page shows that page and its loader gets `request`; every file
+  held the root route.
+- **A request outside the request handler's `basePath` is never cached.**
+  `/about` and `/app/about` shared a cache key, so a request outside the base
+  could store the Router's fallback and serve it to every visitor of the page.
+- **Queries a page reads are filed under its path as the app writes it**
+  (no base, no trailing slash), so `invalidatePath()` and an action's
+  `revalidate` refetch them below a base, and a navigation waits for them.
+- **Router:** `navigate('/.//x')` goes to `//x` on this origin instead of
+  throwing in `pushState`; a relative `redirect()` or middleware verdict in a
+  server render resolves against the page's URL instead of going to `/`; a
+  relative middleware redirect to a route with a `loading` component no
+  longer reports a false `ERR_REDIRECT_CYCLE`; a `routeGroup` route without
+  middleware keeps its hover prefetch; and a relative href in a persistent
+  layout is prefetched on every page.
+- **Types:** a signal passed where an accessor is expected gives its value
+  type (`<For each={todos}>` types the item, and `untrack(count)`,
+  `use(count)` and `createSelector(sel)` were `void`);
+  `useRef<HTMLInputElement>(null)` and `useRef<T>()` type-check; and
+  `useForm<Values>()`, or a type inferred from `defaultValues`, types the
+  submit handler, `formState.values` and `reset()`.
+  `packages/core/test/signal-accessor-types.test.js`, `use-ref-types.test.js`,
+  `use-form-types.test.js`.
+- **what-compiler:** importing a router name from `what-framework` fails the
+  build with `ERR_MOVED_IMPORT` and the line to write
+  (`import { Router } from 'what-framework/router'`), where the page was
+  blank with only the browser's missing-export error; and on Vite 8 the first
+  `vite` run no longer prints "Failed to run dependency scan …
+  react/jsx-dev-runtime".
+- **eslint-plugin-what: no preset reports `onClick`.** `no-camelcase-events`
+  said it does not work without the compiler, which is false; the rule is off
+  in every preset and, turned on, asks for the lowercase name as a style.
+- **Docs on the new-user path say what the code does:** a prop that reads a
+  signal stays live, `<For each>` takes an array or a signal's array,
+  `<Show when={props.user}>` follows the prop, the tutorial loads its
+  stylesheet once and every `main.jsx` mounts, TYPESCRIPT.md covers refs,
+  lists and forms without a VS Code extension that does not exist, and the
+  migration guide says which read-once shapes the compiler reports.
+- **`navigate()` to another origin or scheme hands it to the browser**, as
+  `<Link>` does: `location.assign`, or `location.replace` with
+  `{ replace: true }`, and no guard runs. Middleware and `redirect()` to
+  another origin replace the entry. Before, `pushState` threw and the
+  navigation did nothing. `packages/router/test/navigate-other-origin.test.js`.
+- **A file-router catch-all page (`[...slug].jsx`) matches its URLs.** The
+  compiler writes it as `'/docs/*slug'`, which the router read as a literal
+  segment, so every catch-all page 404'd in `<FileRouter>` and the server's
+  `matchRoute`. `packages/router/test/file-routes-match.test.js`.
+- **Route ranking follows the params, whatever their syntax.** `[id]` and
+  `[...rest]` rank like `:id` and `*` (they ranked as static, so `/u/[id]`
+  took `/u/new`), and of two catch-alls the one under more static segments
+  wins (a `*` listed first took `/docs/a/b` from `/docs/*`, the order the
+  compiler lists file routes in). `packages/router/test/match.test.js`.
+- **A route whose path has a space or a non-ASCII character matches its
+  URL**, on the client and the server, and its Link is active: the browser's
+  path is percent-encoded (`/caf%C3%A9`), and static segments are now encoded
+  the way the URL parser encodes them. A hash link scrolls to an element
+  whose id has one, found by id and then by its decoded id, so `#a.b` is the
+  id `a.b`. `packages/router/test/url-parsing.test.js`,
+  `hash-navigation.test.js`.
+- **Back/forward restores scroll only once it has landed**: one a guard
+  cancels, or a newer navigation overtakes, scrolled the page on screen to
+  the other page's offset. With scroll restoration on, back/forward to a hash
+  URL goes to its saved offset without first jumping to the anchor.
+  `packages/router/test/popstate-scroll.test.js`.
+- **A guard that cancels a navigation started during a pending back/forward
+  puts the address bar back** on the page shown; it stayed on the URL of the
+  back/forward. `packages/router/test/popstate-pending.test.js`.
+- **A query with a repeated key keeps its object when it does not change**,
+  so a layout's `props.query` readers no longer run again on every
+  navigation under `?tag=a&tag=b`.
+- **Hovering a `<Link>` downloads its route's `lazy()` chunk**, as
+  `prefetch(href)` and `prefetchRoute(href)` now do, so the click shows the
+  page without waiting for the network (818–841 ms to 5–22 ms in the smoke
+  app with an 800 ms chunk). Prefetch added only `<link rel="prefetch">`,
+  which in a client-routed app fetches the HTML page again. A route behind
+  middleware is left for the navigation. `packages/router/test/lazy-route-prefetch.test.js`.
+- **`createRequestHandler({ basePath })` strips the base on a segment
+  boundary** (what-server): `'/app'` matched `/application` as `lication`,
+  and `'/app/'` turned `/app/x` into `x`.
+  `packages/server/test/request-handler-base-path.test.js`.
+- **`useAnimatedValue` runs one animation at a time** (what-framework/motion):
+  `spring()` or `timing()` stops the one in flight, and the owner going away
+  stops it. Each call ran beside the others, so an older target could win (a
+  spring to 0 started during one to 100 ended at 100), and an unmounted
+  component's frame loop kept running. `packages/core/test/animation-interrupt.test.js`.
+- **`useTween().start()` stops the run in flight** (its promise resolves, its
+  callback does not run), and unmounting stops it. Two runs wrote the
+  progress at once, `isTransitioning` went false while the newer one ran, and
+  the replaced run's callback still ran. `packages/core/test/tween-restart.test.js`.
+- **The docs site's copy buttons say "Copy failed"** when the clipboard
+  refuses the write, instead of leaving an unhandled rejection.
+- API.md says how `register()` behaves with `h()` (a spread copies the
+  value once; two forms that follow `setValue` are given), and GOTCHAS
+  explains that a `Date` child renders its local `toString()`, which differs
+  between a server and a browser in another time zone.
+
+### Performance
+
+- **Removing field-array items takes linear time**: removing every item of
+  a 5-field array went from 245 ms to 4-8 ms for 1,000 items, and with
+  errors on the items from seconds to a few milliseconds (Node, interleaved
+  runs). The removed items are forgotten, and their errors cleared, in one
+  pass.
+- **Apps that render with `h()` are about 390 B smaller** (gzip; the
+  counter 9654 B to 9266 B). A component the vnode renderer runs carries
+  compiled JSX's lazy children only when a compiled component vnode is
+  made; an element writes its props in the loop that creates it, a listener
+  works out its options once, and a dropped keyed row removes its own nodes.
+  The router names its state signals for devtools in development only (a
+  routed app 46 B smaller).
+- **A hydrating app whose compiled JSX builds no form field is about 1 KB
+  smaller** (gzip, 995 B; the compiled hydrating counter is 16264 B with
+  the hydration fixes of the same release). What
+  the visitor changed in a form before hydration is carried into fields
+  built before the walk reached them once something that can build a field
+  is in the program: a compiled module whose JSX has an `input`, `select`
+  or `textarea`, gives an element inner HTML or renders a tag held in a
+  binding (what-compiler emits `_$carryFields()` once in it), or a vnode
+  producer. An app that renders `h()`, a `<Router>`, `<Suspense>`,
+  `<ErrorBoundary>` or a `<Portal>` installs a vnode producer and carries it
+  as before.
+- **A function component used inside a branch's element and again
+  elsewhere in its module imports the plain-function component call**
+  (what-compiler), with no form-field carrying: which helper the module
+  imported depended on the order of its JSX.
+- **useForm is 166 B smaller with the same behaviour, and a field array's
+  values read about twice as fast.** The hooks app measured by
+  `check:size` went from 16,530 B to 16,401 B gzip, the fix for fields named
+  `constructor` included: field arrays install the lookups they need when
+  `useFieldArray` is called, one map holds every field signal, and a field's
+  ref uses render.js's. A keystroke plus a full values read with 1,000 items
+  of 5 fields went from about 3.3 ms to 1.7 ms (jsdom, interleaved runs): a
+  field's name in an array is kept until the array gets new items.
+- **what-react carries only what an app uses.** Measured by `npm run
+  check:size` (Node 22.13.1) against 90c91c40: a React counter on what-react
+  22,160 B to 16,175 B gzip (React 19.3.1 ships 67,599 B for it); a native
+  What page that draws a recharts chart, the chunk that holds what-core and
+  what-react, 29,074 B to 23,672 B (React and ReactDOM: 67,383 B); a
+  hydrating page with one island 44,964 B to 42,788 B; the krausest app on
+  what-react 23,109 B to 16,953 B. what-react's elements are made by
+  what-core's unbuilt component call instead of `h()`, which installed
+  what-core's vnode renderer in every React app; the class lifecycle comes
+  with `Component`, or with `what-react/class`, which the Vite plugin imports
+  into a module whose code has the name `isReactComponent` in it (without either, such a class
+  throws `ERR_CLASS_COMPONENT_NOT_INSTALLED`); `Suspense`, `StrictMode`, `Profiler` and `Activity` are
+  dropped when unused; how an island claims the server's region is installed
+  by the hydrating entry (`what-react/claim-islands`, which
+  `what-react/hydrate-islands` includes, imported by every module
+  what-compiler compiles for hydration), and an island's server branch lives
+  in the server renderer, which a client
+  build replaces; a portal that reaches native code renders as an island; the
+  mixed plugin's island tag is an arrow the native module defines, which
+  what-compiler calls as a plain function. Speed is unchanged: the krausest
+  app on what-react is 3.32 times hand-written JS in script thread time (3.41
+  before, React 5.71; 8 interleaved rounds), and a native list with a React
+  component per row 1.29 times an all-native one (1.27 before).
+  `npm run check:size` measures the recharts page (`mixed-recharts`, recharts
+  from the mixed browser fixture's install), builds `mixed-hydrate` with a
+  real island (its React file was compiled as a native component before), and
+  fails when a native app built with `reactCompat()` too is not the same bytes
+  as without it, or a client build carries island adoption or the island
+  server renderer. `benchmark/size/why.mjs` attributes the what-react
+  scenarios. REACT-COMPAT.md, "What an app carries".
+  *Migration:* a build without what-react's Vite plugin that hydrates React
+  islands imports `what-react/claim-islands` (or `what-react/hydrate-islands`,
+  which adopts the server's HTML) before `hydrate()`. A build without the
+  plugin whose classes are marked `isReactComponent` without extending
+  `Component` imports `what-react/class` once. In an app with no
+  native What code, a React element that reaches what-core (a function child
+  that returns one) renders as an island, by React's rules.
+  At the release, after the React commit-order fixes and the three React
+  habits in native What (plain-object props, React's effect order, `onChange`
+  per keystroke), the `onDoubleClick` fix, the field-writing fixes and the
+  one-pass row-key check after it, and the hill climb's second, third and
+  fourth rounds (props marked only with a getter, text compared with the
+  text written last, hydration leaving bound attributes to their bindings, a
+  Symbol child; `draggable`, `spellcheck` and `contenteditable` written as
+  `"true"` and `"false"`; a nullish class writing no attribute, owner
+  disposal that skips empty children, the sliding-list path), the three
+  measure 16,340 B, 24,322 B and 44,306 B.
+
+- **Smaller runtime with the rest-prop fixes in.** Measured by
+  `npm run check:size` against the previous commit (638e7c49): hooks-app
+  14,204 B to 14,079 B gzip, react-counter 22,203 to 22,153,
+  compiled-h-counter 9,789 to 9,725, core-counter 9,059 to 9,006,
+  scaffold-counter 9,107 to 9,058, error-boundary-counter 9,569 to 9,517,
+  data-app 29,211 to 29,146, async-app 20,293 to 20,230, compiled-counter
+  5,242 to 5,226; compiled-hydrate 20,224 to 20,231. A production hook error keeps its code and first sentence (the
+  catalogue has the rest), a spread writes through the same setter as a
+  prop, the vnode renderer shares the compiler-placed table of SVG names, and
+  the list and region code calls the select code through one function rather
+  than a null check at each of nine places.
+
+- **A compiled app carries only the runtime its JSX uses.** Built as the
+  scaffold builds it, the create-what counter is 5,242 B gzip (6,041 B
+  before this change; 0.14: 7,731 B), the counter with one `computed()`
+  9,172 B (9,873 B), and an app on hooks, a store and a form 14,131 B
+  (15,378 B); every app `npm run check:size` builds is smaller. At the
+  release, with plain-object props, React's effect order, `onChange` per
+  keystroke, the `onDoubleClick` fix, the field-writing fixes and the
+  cheaper effect order after it, and the hill climb's second, third and
+  fourth rounds (props marked only with a getter, text compared with the
+  text written last, a Symbol child; `draggable`, `spellcheck` and
+  `contenteditable` written as `"true"` and `"false"`; owner disposal that
+  skips empty children, the form fixes, the sliding-list path) in, the
+  three are 5,514 B, 9,470 B and 15,541 B. A compiled
+  module imports the component call it needs: with no component handed
+  children or JSX in a prop it leaves out the lazy getters, and when every
+  component is a function the module defines (or one of what-framework's or
+  its router's) it leaves out the class component bridge and the rendering of
+  a tag held in a binding, also when it hands children. A module whose every hole holds a
+  function written in it imports the reactive region instead of `insert()`.
+  The code that keeps a `<select>` and its `<option>`s in step with their
+  props comes with a module whose JSX writes one (`_$selects()`), with
+  `h()`, and with `spread()`, `setProp()` and `setValue()` written by hand;
+  an app of inputs leaves it out (about 690 B). `useEffect`, `onMount` and
+  the router read the server render store without making it, so a browser
+  bundle leaves the store out (about 100 B). Smaller cuts: the walk to the
+  nearest `<Suspense>` comes with what can suspend, a list rendered as a
+  value brings its own fragment, and only the vnode renderer asks whether a
+  parent is an SVG element. Nothing changes in what an app does: the krausest
+  benchmark makes the same DOM calls for every operation, and
+  `benchmark/size/why.mjs` says which declaration of a scenario's bundle
+  costs what and why the bundler keeps it.
+- **what-react does the DOM work React does, and an unmodified React app
+  now runs faster on it than on React.** The krausest keyed benchmark as a
+  React app writes it (memo rows, immutable updates), script time against
+  hand-written JavaScript, geometric mean of the nine operations: React
+  19.3.1 5.30, what-react 3.24 (it was 6.69); every operation is below
+  React's (renderer thread time, 8 interleaved rounds, 2026-11-24). Creating
+  1,000 rows inserts 8,000 nodes, as React does (23,000 before, each child
+  through a fragment of its own, with 2,000 comments and 2,000 text nodes of
+  the renderer's) and allocates 2.7 MB (6.3 MB; React 2.1 MB); swapping two
+  rows moves 997 nodes (2,991); clearing removes 1,000 (3,000). A new element is built whole
+  and inserted once; a list that kept its order is patched without a map, a
+  set, or a DOM read; an element whose only child is text holds it as its
+  text content; a component has no comment markers (one that renders nothing
+  holds its place with one comment); the JSX runtime no longer copies an
+  element's props to carry its key. A React component in a native list row
+  is 6 inserts and 2 comments (18 and 6). `perf-counts.test.js` pins the
+  counts, and `npm run check:size` now has a what-react scenario
+  (`react-counter`).
+- **A signal write that re-runs many `useEffect`s pays far less for React's
+  effect order.** A useEffect or onMount carries the number it was first
+  queued with on its node instead of in a WeakMap, and a round of re-runs in
+  sibling components or list rows, the usual round, is run in that order
+  with no Map, no tuples and no sort; only a round where a re-run's
+  component holds another effect of the round below it takes the keyed
+  sort. The order is unchanged. Measured in Chromium, interleaved builds,
+  click to microtasks drained: one write re-running the useEffect of 10,000
+  components 2.92 ms to 1.14 ms, 10,000 `onMount` components mount in 0.77
+  of the time. `packages/core/test/effect-order-react.test.js` pins the
+  order, including siblings written in the reverse of their order. Size:
+  hooks-app +148 B gzip.
+- **A component with a live prop is built faster.** Compiled JSX passes
+  `_$marked({ get on() { … } })` where it passed
+  `{ [_$props]: true, get on() { … } }`: V8 defined every property after the
+  computed key one at a time, and the runtime then hid the mark in place.
+  10,000 components with a live prop 16.9 ms to 15.8 ms in Chromium
+  (interleaved builds); a props object marked in the literal still works.
+  No size scenario changes. `packages/compiler/test/live-props.test.js`.
+- **`hydrate()` checks a keyed list's server row keys in one pass**: the
+  part of the hash every key of the list shares is computed once, each
+  digest is compared digit by digit with the server's text, and no string is
+  made per digest. Any other answer falls back to the comparison digest by
+  digest, so what is adopted, moved or rebuilt is unchanged. Hydrating a
+  compiled 1,000-row keyed table in Chromium 8.30 ms to 7.10 ms median (61
+  fresh pages per side, interleaved, production dist; the client render of
+  the same page 5.70 to 5.60). Size: compiled-hydrate +326 B gzip,
+  mixed-hydrate +276 B. `packages/core/test/row-keys-in-order.test.js`.
+- **Components with static props are built faster.** A props object is
+  marked as What's only when it holds a getter; one with none is handed on
+  as a plain copy. Measured in Chromium, interleaved builds, click to
+  microtasks drained: 10,000 static-props components 8.69 ms to 7.93 ms,
+  below the time before props were plain objects; 10,000 `onMount` or
+  `useEffect` components mount in 0.85 and 0.82 of the time. Size: -12 to
+  +25 B gzip per scenario. `packages/core/test/props-mark-when-needed.test.js`.
+- **A reactive text child that changes writes its node without reading it
+  back**, and only text in an `<option>`, an `<optgroup>` or a `<select>`
+  reaches the select code. krausest's update of every 10th row 0.240 ms to
+  0.185 ms of script (0.79 of the time, 12 interleaved rounds, every round
+  faster). Size: +39 to +71 B gzip in the compiled scenarios. A keyed row's
+  plain field compares with the text it wrote last too, so a row handed a new
+  item with the same label neither looks its text node up nor reads it: the
+  partial update of a krausest variant whose rows are immutable items (the
+  label a row field) 0.94 of the script time, 0.87 at 4x CPU throttling (20
+  interleaved rounds; the stock app's labels are regions, which do not take
+  this path). `packages/core/test/text-last-written.test.js`,
+  `packages/compiler/test/row-field-last-text.test.js`.
+- **A keyed list's swap and its removals update its row arrays in place**,
+  where every diff past the prefix and suffix scan allocated two arrays of
+  the list's length and copied the rows through them. krausest swap 0.91
+  and remove 0.89 of the script time (interleaved, every round faster);
+  -23 to +2 B gzip. `packages/core/test/reconcile-in-place.test.js`.
+- **Server components render faster.** Compiled server output calls a
+  component with no children and no spread through `ssrLeaf`, which hands
+  it its props literal instead of a copy; the string renderers call a
+  component in its frame without a closure; a server frame is made with the
+  fields every render gives it; keyed lists count repeated keys without a
+  string per key and enter a row without `splice`. The SSR benchmark's page
+  of 200 components renders in 0.89 of the time plain and 0.92 hydratable,
+  with 8 to 9% less heap per render (interleaved builds); against Solid 2.0 it
+  goes from 1.84x to 1.63x plain. The output is byte-identical.
+  `packages/server/test/ssr-leaf-props.test.js`.
+- **Hydration leaves a claimed element's bound attributes to their
+  bindings.** A `class`, `id`, `title`, `data-*` or `aria-*` attribute that
+  the element's bindings write in full is no longer removed and written
+  again; any other attribute the server wrote and the client does not render
+  is still removed. A warm hydration of the 1,000-row table in Chromium
+  2.80 ms to 2.60 ms median; a cold one does not move beyond noise. Size:
+  compiled-hydrate +67 B gzip, mixed-hydrate +73 B.
+  `packages/core/test/hydration-owned-attrs.test.js`.
+- **A list row that is a component costs close to the same row written
+  inline.** A component that returns one element adds no DOM node: 1,000
+  rows of `<Row key={item.id} item={item} />` leave 1,001 nodes in the list's
+  parent where they left 4,001 (three comments more per row, and two
+  fragments to carry them), and a moved or removed row is one node, not four.
+  A child that only reads (`{props.item.label}`, `{item.price * item.qty}`:
+  no call) makes no effect when what it reads is a plain value or the item of
+  the row being built: the same 1,000 rows, showing two fields and one
+  reactive class, keep 1,000 effects where they kept 3,000. The compiler
+  places such a child with `_$plain`; a value that is not text, or that comes
+  to depend on a signal, is the effect it always was. A field is the row's
+  only while what built it lives exactly as long as the row (the row's own
+  template, or a component with only components between it and the row):
+  text in a region of the row that runs again, in a row of an inner list or
+  in a component behind `<Show>` is an effect, so nothing of it is held or
+  written once it is gone, and the same rule now applies to an inline row's
+  `{row.label}`. Replacing a row's item creates nothing: 100 of 1,000
+  component rows replaced make and dispose no effect. The compiler writes
+  `fields: _$rowFields()` in the options of a list whose rows can hold such a
+  field, which is what brings the code in: an app with no such list does not
+  carry it.
+- The compiled create-what counter is smaller than 0.14's: compiled output
+  no longer carries the vnode reconciler, and an app with no computed leaves
+  out the engine's pull phase. Apps written with `h()`, and apps that use
+  async values or hydrate, are larger. UPGRADING's Bundle size section has
+  the measured numbers and their causes.
+- An app that makes no `computed()`, `useMemo()` or `createSelector()` does
+  not bundle the engine's pull phase (the lazy computeds' verification, the
+  deferral of deep chains, the release of unobserved computeds): about
+  1.1 KB gzip. The first computed installs it, which costs an app that makes
+  computeds about 70 B.
+- `<ErrorBoundary>` and `<Portal>` carry their client renderers on their
+  vnodes, as `<Suspense>` does, so an `h()` or runtime-JSX app that uses
+  neither leaves them out (about 380 B gzip).
+- Browser bundles leave out the server render's resource store: a server
+  render installs it, not `hydrate()` or `query()` (about 410 B gzip in a
+  hydrating app, 220 B in an app that uses the query cache).
+- A swap of two rows among 1,000 reads about 12 keys instead of about 2,000.
+- Development-tier signal writes, batches and effect runs take 0.72–0.93×
+  0.14's time, and a page without devtools takes no stack trace per signal.
+- `jsx()` no longer allocates an array per element (h() SSR heap −10% at 1k
+  rows).
+- The check that refuses an async value a second copy of what-core makes
+  during a server render (`ERR_FOREIGN_ENGINE_IN_SSR`) comes with the server
+  render, not with every async-capable value: about 120 B gzip off an app that
+  calls `computed()`.
+- A hydrating app that never sets a `<select>`'s value leaves out the option
+  marking hydration repeats for controlled selects (about 160 B gzip), and
+  browser bundles leave out the lookup a second copy adopts from a server
+  render.
+- In development, an effect flush no longer allocates a `Map` and a `Set` for
+  its infinite-loop report.
+- **Server rendering.** A keyed list (compiled and `h()`) enters keyed rows
+  only once the app defines a server action, the only reader of them;
+  compiled markup brand-checks a row or a deferred child once instead of up
+  to four times; and a render's response is a class instance told by its
+  private brand instead of an object literal kept in a `WeakSet`.
+  `benchmark/ssr`'s 200-component page renders in 0.73× the time plain and
+  0.75× hydratable, with 14–17% less heap: 1.19× and 1.06× Solid 2.0, from
+  1.63× and 1.42× (20 interleaved rounds against 5d5fbe15). The output is
+  byte for byte the same. `getResponse().committed` is a getter on the
+  response's class, so `{ ...response }` leaves it out.
+- **Server rendering of `h()` and automatic-JSX-runtime trees** is 30–40%
+  faster and allocates 11–21% less. An element whose tag needs no further
+  rule is written from a cached record of the tag name, a child is asked
+  whether it is a vnode before whether it is compiled markup, and a start
+  tag's last closing quote and `>` are written as one piece; renderToStream
+  writes h() elements the same way, with one end-tag marker per tag name.
+  `benchmark/ssr`'s 1,000-row table renders in 0.62× the time plain and 0.65×
+  hydratable, 10,000 rows in 0.55×, the 200-component page in 0.75×, and the
+  streams finish in 0.61–0.68× (7 interleaved rounds against 4d90477b).
+  Compiled markup asks a component's vnode for the vnode first too: the
+  compiled 200-component page renders in 0.87× plain and 0.93× hydratable.
+  The output is byte for byte the same.
+  `packages/server/test/element-tag-kinds.test.js`.
+- **A compiled app built for hydration carries the hydration of `h()`
+  elements, `<Suspense>`, `<ErrorBoundary>`, `<Portal>` and keyed `h()` rows
+  only when its code makes them.** what-compiler/vite serves a stand-in for
+  what-core's `vnode-adoption.js` in which the vnode producers install that
+  adoption with the vnode renderer, so a compiled-only client leaves it out:
+  `compiled-hydrate` is 3,426 B gzip smaller (17%), and its script loads and
+  evaluates 8% faster. A build without the plugin reaches it from `hydrate()`
+  as before. `packages/compiler/test/vnode-adoption.test.js`,
+  `packages/core/test/feature-reach.test.js`.
+- A hydrating app that creates no async value no longer carries async
+  adoption: `hydrate()` installs it with the first seed it hands out, so a
+  Vite build drops it. `compiled-hydrate` is 472 B gzip smaller and
+  `mixed-hydrate` 479 B. `packages/core/test/feature-reach.test.js`.
+- A recursive keyed component builds deeper before the stack runs out: a
+  tree level costs 17 frames instead of 21, so a file tree holds 302 levels
+  in Chromium instead of 210, 2,135 in WebKit instead of 1,801 and 454 in
+  Firefox instead of 350. `insert()` starts a reactive child's effect
+  itself, a keyed row's callback runs straight from its item scope, and the
+  keyed reconcile's general path is a function of its own.
+  `packages/core/test/recursion-depth.test.js`.
+- Disposing an owner marks a child that has nothing to dispose in place:
+  creating and disposing a root of 1,000 empty child roots takes 0.41× the
+  time. `escapeHtml` returns a string with nothing to escape after one
+  regex test.
+- A field's own validation passes `{ names: [field] }` to the resolver as
+  its third argument (React Hook Form's shape), and `simpleResolver` runs
+  only that field's rules: a keystroke in a 300-field form in `onChange`
+  mode ran every field's rules and every async check.
+  `packages/core/test/form-field-validation-scope.test.js`.
+- A keyed list that drops rows at its start and adds items at its end (a
+  capped log, a chat) updates without a map of every key: on a 1,000-row
+  log fed in bursts of 400, the reconcile takes about 45 µs per message
+  instead of 115, and no task of a burst is over 50 ms (Chromium). It falls
+  back to the general path whenever that would claim rows differently.
+  `packages/core/test/reconcile-slide.test.js`.
+
 ## [0.14.0] - 2026-10-13
 
 Minor release: all 13 maintained packages move to 0.14.0 together. It adds

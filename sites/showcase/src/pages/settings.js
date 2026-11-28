@@ -1,5 +1,7 @@
 // Settings — showcases: useForm, validation rules, stores, signals, theme toggle, accessibility, announce
-import { h, useState, useForm, rules, simpleResolver, announce } from 'what-framework';
+import { h, useState } from 'what-framework';
+import { useForm, rules, simpleResolver } from 'what-framework/form';
+import { announce } from 'what-framework/a11y';
 import { useAppStore } from '../app.js';
 
 // ─── Profile Form ───
@@ -30,10 +32,9 @@ function ProfileForm() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const errors = formState.errors;
-  const values = formState.values;
-  const isDirty = formState.isDirty();
-  const isSubmitting = formState.isSubmitting();
+  // formState.errors and formState.values are getters: read them inside a
+  // function so the markup follows the form.
+  const errorOf = (name) => formState.errors[name];
 
   return h('div', null,
     h('div', { class: 'settings-section' },
@@ -45,10 +46,10 @@ function ProfileForm() {
           h('label', { class: 'form-label' }, 'Full Name'),
           h('input', {
             ...register('name'),
-            class: `form-input${errors.name ? ' error' : ''}`,
+            class: () => `form-input${errorOf('name') ? ' error' : ''}`,
           }),
-          errors.name
-            ? h('div', { class: 'form-error', role: 'alert' }, errors.name?.message)
+          () => errorOf('name')
+            ? h('div', { class: 'form-error', role: 'alert' }, errorOf('name').message)
             : null,
         ),
 
@@ -57,10 +58,10 @@ function ProfileForm() {
           h('input', {
             ...register('email'),
             type: 'email',
-            class: `form-input${errors.email ? ' error' : ''}`,
+            class: () => `form-input${errorOf('email') ? ' error' : ''}`,
           }),
-          errors.email
-            ? h('div', { class: 'form-error', role: 'alert' }, errors.email?.message)
+          () => errorOf('email')
+            ? h('div', { class: 'form-error', role: 'alert' }, errorOf('email').message)
             : null,
         ),
 
@@ -68,10 +69,10 @@ function ProfileForm() {
           h('label', { class: 'form-label' }, 'Role'),
           h('input', {
             ...register('role'),
-            class: `form-input${errors.role ? ' error' : ''}`,
+            class: () => `form-input${errorOf('role') ? ' error' : ''}`,
           }),
-          errors.role
-            ? h('div', { class: 'form-error', role: 'alert' }, errors.role?.message)
+          () => errorOf('role')
+            ? h('div', { class: 'form-error', role: 'alert' }, errorOf('role').message)
             : null,
         ),
 
@@ -79,15 +80,15 @@ function ProfileForm() {
           h('label', { class: 'form-label' }, 'Bio'),
           h('textarea', {
             ...register('bio'),
-            class: `form-input${errors.bio ? ' error' : ''}`,
+            class: () => `form-input${errorOf('bio') ? ' error' : ''}`,
             rows: 3,
           }),
           h('div', { class: 'flex justify-between' },
-            errors.bio
-              ? h('div', { class: 'form-error', role: 'alert' }, errors.bio?.message)
+            () => errorOf('bio')
+              ? h('div', { class: 'form-error', role: 'alert' }, errorOf('bio').message)
               : null,
             h('div', { class: 'form-hint', style: 'margin-left: auto;' },
-              `${(values.bio || '').length}/200`,
+              () => `${(formState.values.bio || '').length}/200`,
             ),
           ),
         ),
@@ -96,9 +97,9 @@ function ProfileForm() {
           h('button', {
             type: 'submit',
             class: 'btn btn-primary',
-            disabled: !isDirty || isSubmitting,
+            disabled: () => !formState.isDirty() || formState.isSubmitting(),
           },
-            isSubmitting ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes',
+            () => formState.isSubmitting() ? 'Saving...' : saved() ? '✓ Saved' : 'Save Changes',
           ),
           h('button', {
             type: 'button',
@@ -123,10 +124,10 @@ function AppearanceSettings() {
       h('label', { class: 'form-label' }, 'Theme'),
       h('div', { class: 'theme-options' },
         h('div', {
-          class: `theme-option dark-theme${store.isDark ? ' active' : ''}`,
+          class: () => `theme-option dark-theme${store.isDark ? ' active' : ''}`,
           onClick: () => { store.setTheme('dark'); announce('Dark theme selected'); },
           role: 'radio',
-          'aria-checked': store.isDark ? 'true' : 'false',
+          'aria-checked': () => store.isDark ? 'true' : 'false',
           'aria-label': 'Dark theme',
           tabIndex: 0,
           onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); store.setTheme('dark'); } },
@@ -134,10 +135,10 @@ function AppearanceSettings() {
           h('span', { class: 'theme-label' }, 'Dark'),
         ),
         h('div', {
-          class: `theme-option light-theme${!store.isDark ? ' active' : ''}`,
+          class: () => `theme-option light-theme${!store.isDark ? ' active' : ''}`,
           onClick: () => { store.setTheme('light'); announce('Light theme selected'); },
           role: 'radio',
-          'aria-checked': !store.isDark ? 'true' : 'false',
+          'aria-checked': () => !store.isDark ? 'true' : 'false',
           'aria-label': 'Light theme',
           tabIndex: 0,
           onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); store.setTheme('light'); } },
@@ -158,7 +159,7 @@ function NotificationSettings() {
   const store = useAppStore();
 
   const toggleSetting = (name, getter, setter) => {
-    const newVal = !getter;
+    const newVal = !getter();
     setter(newVal);
     store.addNotification(`${name} ${newVal ? 'enabled' : 'disabled'}`, 'info');
   };
@@ -287,10 +288,10 @@ function FrameworkInfo() {
 
     h('div', { style: 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;' },
       ...[
-        { label: 'Framework', value: 'What Framework v0.10' },
-        { label: 'Core Size', value: '~6kB gzipped' },
+        { label: 'Framework', value: 'What Framework' },
+        { label: 'Rendering', value: 'Fine-grained, no virtual DOM' },
         { label: 'Dependencies', value: '0' },
-        { label: 'Modules Used', value: '14' },
+        { label: 'Components', value: 'Run once' },
       ].map(item =>
         h('div', {
           style: {
@@ -317,6 +318,14 @@ function FrameworkInfo() {
   );
 }
 
+const SECTIONS = {
+  profile: ProfileForm,
+  appearance: AppearanceSettings,
+  notifications: NotificationSettings,
+  shortcuts: ShortcutsInfo,
+  about: FrameworkInfo,
+};
+
 // ─── Settings Page ───
 export function Settings() {
   const [activeSection, setActiveSection] = useState('profile');
@@ -335,9 +344,9 @@ export function Settings() {
       h('ul', { class: 'settings-nav', role: 'tablist' },
         ...sections.map(s =>
           h('li', {
-            class: `settings-nav-item${activeSection === s.id ? ' active' : ''}`,
+            class: () => `settings-nav-item${activeSection() === s.id ? ' active' : ''}`,
             role: 'tab',
-            'aria-selected': activeSection === s.id ? 'true' : 'false',
+            'aria-selected': () => activeSection() === s.id ? 'true' : 'false',
             tabIndex: 0,
             onClick: () => setActiveSection(s.id),
             onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSection(s.id); } },
@@ -348,11 +357,7 @@ export function Settings() {
 
     // Settings content
     h('div', { role: 'tabpanel' },
-      activeSection === 'profile' ? h(ProfileForm) : null,
-      activeSection === 'appearance' ? h(AppearanceSettings) : null,
-      activeSection === 'notifications' ? h(NotificationSettings) : null,
-      activeSection === 'shortcuts' ? h(ShortcutsInfo) : null,
-      activeSection === 'about' ? h(FrameworkInfo) : null,
+      () => h(SECTIONS[activeSection()]),
     ),
   );
 }

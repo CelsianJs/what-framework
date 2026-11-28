@@ -1,6 +1,6 @@
-// file-router codegen rework (Phase 6): loaders/getStaticPaths ride as live
-// bindings on the SERVER routes module; the client module omits them (only a
-// hasLoader flag). SPA pages stay byte-identical (additive change).
+// file-router codegen: loaders/getStaticPaths ride as live bindings on the
+// SERVER routes module; the client module omits them (only a hasLoader flag).
+// SPA pages are unaffected.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -82,5 +82,50 @@ describe('codegen', () => {
     const imported = await import(pathToFileURL(outFile).href);
     assert.equal(typeof imported.routes[0].loader, 'function');
     assert.deepEqual(imported.routes[0].loader(), { hello: 'world' });
+  });
+});
+
+describe('codegen: nested _layout files', () => {
+  it('gives a page every layout above it, outermost first, in both modules', () => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+    write('_layout.jsx', 'export default function Root({ children }) { return children; }');
+    write('org/[orgId]/_layout.jsx', 'export default function Org({ children }) { return children; }');
+    write('org/[orgId]/projects/_layout.jsx', 'export default function Projects({ children }) { return children; }');
+    write('org/[orgId]/members.jsx', 'export default function Members() {}');
+    write('org/[orgId]/projects/[projectId]/issues.jsx', 'export default function Issues() {}');
+    write('about.jsx', 'export default function About() {}');
+    for (const mod of [generateRoutesModule(TMP, TMP), generateServerRoutesModule(TMP, TMP)]) {
+      const vars = {};
+      for (const [, name, file] of mod.matchAll(/import (_layout\d+) from '([^']+)'/g)) vars[file] = name;
+      const root = vars['/_layout.jsx'];
+      const org = vars['/org/[orgId]/_layout.jsx'];
+      const projects = vars['/org/[orgId]/projects/_layout.jsx'];
+      const line = (p) => mod.split('\n').find((l) => l.includes(`path: '${p}'`));
+      assert.ok(line('/org/:orgId/projects/:projectId/issues').includes(`layout: [${root}, ${org}, ${projects}]`), line('/org/:orgId/projects/:projectId/issues'));
+      assert.ok(line('/org/:orgId/members').includes(`layout: [${root}, ${org}]`), line('/org/:orgId/members'));
+      assert.ok(line('/about').includes(`layout: ${root} `), line('/about'));
+    }
+  });
+});
+
+describe("codegen: a page's preload and middleware", () => {
+  it("are its route's in the browser's module (named imports, no loader) and in the server's", () => {
+    fs.rmSync(TMP, { recursive: true, force: true });
+    write('org/[orgId]/issues.jsx',
+      'export const loader = () => ({});\n' +
+      'export const preload = ({ params }) => params.orgId;\n' +
+      'export const middleware = [() => undefined];\n' +
+      'export default function Issues() {}');
+    write('about.jsx', 'export default function About() {}');
+    const client = generateRoutesModule(TMP, TMP);
+    assert.match(client, /import (_page\d+), \{ preload as \1_preload, middleware as \1_middleware \} from '\/org\/\[orgId\]\/issues\.jsx';/);
+    const line = client.split('\n').find((l) => l.includes("path: '/org/:orgId/issues'"));
+    assert.match(line, /preload: _page\d+_preload, middleware: _page\d+_middleware/);
+    assert.doesNotMatch(client, /\.loader|loader as/, 'the loader stays out of the browser module');
+    assert.doesNotMatch(client.split('\n').find((l) => l.includes("path: '/about'")), /preload|middleware/);
+    const server = generateServerRoutesModule(TMP, TMP);
+    assert.match(server.split('\n').find((l) => l.includes("path: '/org/:orgId/issues'")), /preload: _page\d+_ns\.preload, middleware: _page\d+_ns\.middleware, loader: _page\d+_ns\.loader/);
+    assert.ok(detectPageExports('export async function preload() {}').hasPreload);
+    assert.ok(!detectPageExports('export const preloadAll = 1').hasPreload);
   });
 });

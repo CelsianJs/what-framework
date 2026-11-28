@@ -164,3 +164,73 @@ describe('stable server action IDs', () => {
     `, '/workspace/src/actions/two.ts'));
   });
 });
+
+describe('the binding a server action ID is derived from', () => {
+  const quiet = (fn) => {
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try { return { code: fn(), warnings }; } finally { console.warn = original; }
+  };
+  const ids = (code) => [...code.matchAll(/id:\s*["'](wa1_[a-z0-9]+)["']/g)].map((m) => m[1]);
+
+  it('an assignment names it as a declaration does', () => {
+    const assigned = generatedActionId(compile(`
+      import { action } from 'what-framework/server';
+      let saveUser;
+      saveUser = action(async () => true);
+    `));
+    const declared = generatedActionId(compile(`
+      import { action } from 'what-framework/server';
+      export const saveUser = action(async () => true);
+    `));
+    assert.equal(assigned, declared);
+  });
+
+  it('an object property names it by its key, an identifier or a string', () => {
+    const code = compile(`
+      import { action } from 'what-framework/server';
+      export const actions = { save: action(async () => 1), 'remove-user': action(async () => 2) };
+    `);
+    const [save, remove] = ids(code);
+    assert.ok(save && remove && save !== remove);
+    assert.equal(save, generatedActionId(compile(`
+      import { action } from 'what-framework/server';
+      export const save = action(async () => 1);
+    `)));
+  });
+
+  it('an action with no binding gets no ID and a warning that says how to give it one', () => {
+    const { code, warnings } = quiet(() => compile(`
+      import { action } from 'what-framework/server';
+      register(action(async () => true));
+    `));
+    assert.deepEqual(ids(code), []);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Could not derive a stable server action ID at src\/actions\/users\.ts:3\. .*pass \{ id \} explicitly/);
+  });
+
+  it('an action with no binding and an explicit ID is registered, without the warning', () => {
+    const { warnings } = quiet(() => compile(`
+      import { action } from 'what-framework/server';
+      register(action(async () => true, { id: 'registered' }));
+    `));
+    assert.deepEqual(warnings, []);
+    assert.throws(() => quiet(() => compile(`
+      import { action } from 'what-framework/server';
+      register(action(async () => 1, { id: 'twice' }));
+      register(action(async () => 2, { id: 'twice' }));
+    `)), /Duplicate server action ID "twice"/);
+  });
+
+  it('a namespace import\'s action() is one too', () => {
+    const code = compile(`
+      import * as server from 'what-framework/server';
+      export const saveUser = server.action(async () => true);
+    `);
+    assert.equal(generatedActionId(code), generatedActionId(compile(`
+      import { action } from 'what-framework/server';
+      export const saveUser = action(async () => true);
+    `)));
+  });
+});

@@ -13,7 +13,8 @@ import { routes } from './src/routes.js';
 
 const REVALIDATE_SECRET = process.env.WHAT_REVALIDATE_SECRET || 'dev-secret';
 
-const documentOptions = { clientEntry: '/src/entry-client.js' };
+// No client entry: every page is server-rendered HTML that ships no JavaScript,
+// so the document loads no script.
 
 // A scheduled regeneration has no incoming request to render from, so the engine
 // needs its own `render`. Without one, every tick throws `doRender is not a
@@ -26,7 +27,7 @@ async function renderRoute(routeMatch) {
   const reqCtx = { params, query, request };
   const pageModule = { default: route.component, loader: route.loader };
   return {
-    html: await renderDocument(pageModule, reqCtx, documentOptions),
+    html: await renderDocument(pageModule, reqCtx),
     status: 200,
     tags: (routeMatch.config && routeMatch.config.tags) || [],
     path: routeMatch.path,
@@ -47,7 +48,6 @@ export function createHandler() {
     routes,
     cache,
     revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
-    document: documentOptions,
   });
 }
 
@@ -57,7 +57,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     cache,
     scheduler,
     revalidateWebhook: createRevalidateWebhook(cache, { secret: REVALIDATE_SECRET }),
-    document: documentOptions,
   });
   const port = Number(process.env.PORT) || 3000;
   server.listen(port, () => console.log(`What Shop → http://localhost:${port}`));

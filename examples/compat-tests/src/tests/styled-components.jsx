@@ -33,7 +33,7 @@ function TestComponent() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <StyledButton $active={active} onclick={() => setActive(!active)}>
+        <StyledButton $active={active} onClick={() => setActive(!active)}>
           {active ? 'Active' : 'Inactive'}
         </StyledButton>
         <Badge>styled-components v6</Badge>

@@ -1,4 +1,4 @@
-// Async Suspense SSR (Phase 5): createResource suspends on the server, the
+// Async Suspense SSR: createResource suspends on the server, the
 // engine awaits + re-renders with resolved data; sync render shows the fallback;
 // streaming resolves the boundary content.
 

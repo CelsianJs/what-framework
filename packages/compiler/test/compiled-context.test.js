@@ -156,7 +156,7 @@ describe('compiled JSX: member-expression tags', () => {
 
   it('treats a dotted tag nested in a host element as a dynamic child', () => {
     const code = compileJSX('export const A = () => <div><Ctx.Provider value="d"><B /></Ctx.Provider></div>;');
-    assert.match(code, /_\$template\("<div><!--\$--><\/div>"\)/);
+    assert.match(code, /_\$template\("<div>"\)/);
     assert.match(code, /_\$insert\(_el\$0, _\$createComponent\(Ctx\.Provider/);
   });
 });
@@ -174,7 +174,7 @@ export function App() {
 }
 `);
     assert.equal(code, `import { _$template } from "what-framework/render";
-const _tmpl$0 = /* @__PURE__ */_$template("<div class=\\"card\\"><h1>Title</h1><p>Body</p></div>");
+const _tmpl$0 = /* @__PURE__ */_$template("<div class=card><h1>Title</h1><p>Body");
 export function App() {
   return _tmpl$0();
 }`);
@@ -197,6 +197,7 @@ export function App() {
   // which is what this test is actually about — is unchanged.
   it('wraps expression children of a component in a factory', () => {
     const code = compileJSX('export const A = ({ n }) => <Card>hello {n()}</Card>;');
-    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", \(\) => n\(\)\]\)/);
+    // `n` is read through props where it is used (common.js deferPlacedProps).
+    assert.match(code, /_\$createComponent\(Card, null, \(\) => \["hello ", \(\) => _props\.n\(\)\]\)/);
   });
 });

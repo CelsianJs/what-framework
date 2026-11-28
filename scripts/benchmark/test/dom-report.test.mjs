@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDomReport } from '../../../benchmark/dom-gate.mjs';
 import { OPS, captureBrowserProvenance } from '../../../benchmark/krausest/bench.mjs';
 
@@ -12,7 +15,11 @@ function round(offset = 0, samplesHeavy = 5) {
     browser: { version: '151.0.7922.34', revision: '@engine-revision', commandLine: ['chrome-headless-shell', '--headless'] },
     results: {
       what: Object.fromEntries(OPS.map((op) => [op.id, {
-        samples: Array.from({ length: op.heavy ? samplesHeavy : 10 }, (_, i) => offset + i + 1),
+        samples: [30],
+        script: {
+          samples: Array.from({ length: op.heavy ? samplesHeavy : 10 }, (_, i) => offset + i + 1.005),
+          stoppedByFrame: 1,
+        },
       }])),
     },
   };
@@ -22,18 +29,19 @@ test('report retains the gate names, pooled p25, spread and thresholds', () => {
   const report = createDomReport([round(), round(10)]);
   assert.deepEqual(report.results.map(({ name }) => name), names);
   for (const row of report.results) {
-    assert.equal(row.ms, row.name === 'create10k' ? 3 : 6);
+    assert.equal(row.ms, row.name === 'create10k' ? 3.005 : 6.005);
     assert.equal(row.spread, 10);
   }
   assert.equal(report.aggregate, 'p25 of pooled samples');
   assert.equal(report.metric, 'ms');
+  assert.equal(report.timing, 'click-to-microtasks');
   assert.equal(report.lowerIsBetter, true);
-  assert.equal(report.noiseFloorMs, 0.5);
+  assert.equal(report.noiseFloorMs, 0.005);
 });
 
 test('actual counts and raw samples distinguish heavy ops from ordinary ops', () => {
   const rounds = [round(), round(10)];
-  rounds[0].results.what.create1k.samples.reverse();
+  rounds[0].results.what.create1k.script.samples.reverse();
   const before = structuredClone(rounds);
   const report = createDomReport(rounds);
   assert.equal(report.rounds, 2);
@@ -41,9 +49,10 @@ test('actual counts and raw samples distinguish heavy ops from ordinary ops', ()
   assert.equal(report.samplesPerRound.create10k, 5);
   for (const row of report.results) {
     const op = OPS[names.indexOf(row.name)];
-    assert.deepEqual(row.samples, rounds.map((r) => r.results.what[op.id].samples));
+    assert.deepEqual(row.samples, rounds.map((r) => r.results.what[op.id].script.samples));
     assert.deepEqual(row.sampleCounts, op.heavy ? [5, 5] : [10, 10]);
     assert.equal(row.sampleCount, op.heavy ? 10 : 20);
+    assert.deepEqual(row.stoppedByFrame, [1, 1]);
   }
   assert.deepEqual(rounds, before, 'aggregation must not sort or mutate raw samples');
 });
@@ -54,7 +63,7 @@ test('reduced heavy sampling is counted from samples, not assumed to be five', (
   assert.equal(report.samplesPerRound.create10k, 2);
   assert.deepEqual(heavy.sampleCounts, [2, 2]);
   assert.equal(heavy.sampleCount, 4);
-  assert.equal(heavy.ms, 2);
+  assert.equal(heavy.ms, 2.005);
   assert.equal(heavy.spread, 10);
 });
 
@@ -82,11 +91,11 @@ test('every browser run and installed toolchain stay available after JSON serial
 test('missing and invalid samples fail report generation rather than hide data loss', () => {
   assert.throws(() => createDomReport([]), /at least one round/i);
   const missing = round();
-  delete missing.results.what.create1k;
+  delete missing.results.what.create1k.script;
   assert.throws(() => createDomReport([missing]), /create1k.*round 1/);
   for (const samples of [[], [NaN], [Infinity], [-1]]) {
     const run = round();
-    run.results.what.create1k.samples = samples;
+    run.results.what.create1k.script.samples = samples;
     assert.throws(() => createDomReport([run]), /create1k.*round 1/);
   }
 });
@@ -148,4 +157,34 @@ test('CLI validates options before loading Playwright or starting a benchmark', 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Invalid --rounds/);
   assert.doesNotMatch(result.stdout, /Building|round 1/);
+});
+
+
+test('regression gate rejects frame-based baselines before running benchmarks', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'what-dom-baseline-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const baseline = join(dir, 'frame-baseline.json');
+  writeFileSync(baseline, JSON.stringify({
+    metric: 'ms', noiseFloorMs: 0.5, results: names.map(name => ({ name, ms: 30 })),
+  }));
+  const script = fileURLToPath(new URL('../../../benchmark/check-regressions.js', import.meta.url));
+  const result = spawnSync(process.execPath, [script], {
+    cwd: fileURLToPath(new URL('../../../', import.meta.url)),
+    env: { ...process.env, WHAT_BENCH_DOM_BASELINE: baseline, WHAT_BENCH_SKIP_DOM: '0' },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Invalid script-only DOM baseline.*npm run bench:dom/);
+  assert.doesNotMatch(result.stdout, /Building|round 1/);
+});
+
+test('the gate calls a guarded op regressed only past its tolerance, one clock tick and half its recorded spread', async () => {
+  const { domThreshold } = await import('../../../benchmark/dom-gate.mjs');
+  // Round 6: selectRow recorded at 0.085 ms over rounds 0.06 ms apart, measured at 0.100 ms with nothing changed.
+  const selectRow = { ms: 0.085, spread: 0.06 };
+  assert.ok(0.1 <= domThreshold(selectRow, 0.1, 0.005), 'the same code, one session later, passes');
+  assert.ok(0.13 > domThreshold(selectRow, 0.1, 0.005), 'half as slow again fails');
+  // A millisecond op keeps its tolerance: its spread is small beside it.
+  assert.equal(+domThreshold({ ms: 3.5, spread: 0.37 }, 0.1, 0.005).toFixed(3), 3.85);
+  assert.equal(+domThreshold({ ms: 0.05 }, 0.1, 0.005).toFixed(3), 0.055, 'a baseline without a spread keeps the tick and the tolerance');
 });

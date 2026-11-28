@@ -54,6 +54,29 @@ describe('useQuery stays subscribed to invalidation across refetches', () => {
     assert.equal(fetches, 3, 'invalidateQueries must still reach a query that has refetched');
   });
 
+  it('a reactive refetch runs the reader\'s callbacks, as an invalidation\'s does', async () => {
+    const term = signal('');
+    const heard = [];
+
+    useQuery({
+      queryKey: ['products', 'callbacks'],
+      queryFn: async () => `results for "${term()}"`,
+      staleTime: 0,
+      onSuccess: (data) => heard.push(['success', data]),
+      onSettled: (data) => heard.push(['settled', data]),
+    });
+
+    await tick();
+    term('mug');
+    flushSync();
+    await tick();
+    await tick();
+    assert.deepEqual(heard, [
+      ['success', 'results for ""'], ['settled', 'results for ""'],
+      ['success', 'results for "mug"'], ['settled', 'results for "mug"'],
+    ]);
+  });
+
   it('keeps answering invalidation repeatedly', async () => {
     const term = signal('a');
     let fetches = 0;

@@ -61,10 +61,35 @@ Tests use Node's built-in test runner. No external test framework needed.
 | `npm run hygiene:publish` | Export maps resolve, tarballs are complete, packed types typecheck in a clean consumer |
 | `npm run check:error-codes` | Every thrown `ERR_*` is catalogued |
 | `npm run check:size` | Bundle budgets in `.size-budgets.json` |
-| `npm run test:prod` | The production build is not a blank screen |
+| `npm run test:prod` | The production build renders its smoke fixture |
+| `npm run test:prod:runtime` | After a build, compiled JSX behaves correctly using the production exports |
+| `npm run test:gc` | Disposed owners, rows and components are collectable |
+| `npm run --prefix benchmark/reactivity bench -- --check` | With the benchmark dependencies installed, What passes pinned graph workloads and callback-count checks |
 | `npm run bench:gate` | Performance has not regressed |
 | `npm run smoke:scaffold` | `create-what` produces something that runs |
 | `npm run smoke:apps` | Four real apps in a real browser, 84 checks |
+
+The default `npm test` suite includes the packed NodeNext SSR and bundler JSX consumer type checks. The runner discovers `*.gc.test.js` separately through `npm run test:gc` and supplies `--expose-gc`.
+
+### Browser round trips and app budgets
+
+`npm run test:browser:roundtrip` runs the same storefront used by the default
+jsdom suite in Chromium. It exercises the JSX runtime and compiled SSR across
+the string, buffered document, and stream entries.
+
+`npm run smoke:workspace-apps` builds the Vite examples and scaffolds against
+the installed workspace. It also checks the buildless blog and shop against
+their request handlers. Build the workspace with `npm run build` and install
+Chromium with `npx playwright install chromium` first. The smoke itself uses
+local files and in-process HTTP responses. examples/compat-tests declares
+dependencies the root install does not provide: install them with
+`npm install --prefix examples/compat-tests --no-package-lock` (the React
+compatibility playground has no lockfile), as CI does.
+
+`npm run smoke:app-budgets` builds the instrumented examples in development
+mode so `what-framework/testing` can capture diagnostics and effect runs during
+interactions. Both smoke commands accept case names after `--`, for example
+`npm run smoke:app-budgets -- todomvc`.
 
 ### Shared test helpers
 
@@ -298,11 +323,14 @@ Guardrail categories:
 When adding a guardrail:
 
 1. Add the check in the relevant source file (e.g. `reactive.js` for signal checks)
-2. Wrap it in `if (__DEV__) { ... }` — the shared flag from `reactive.js`, not a
-   raw `process.env` read. `__DEV__` resolves from `globalThis.__WHAT_DEV__`,
-   then `import.meta.env.DEV`, then `process.env`, so it works in a bundler, in
-   a browser and in Node; a raw `process.env` read works in none of them
-   reliably and does not get stripped from the production build.
+2. Wrap it in `if (__DEV__) { ... }` — the shared flag `reactive.js` reads
+   through what-core's `#env` import and re-exports, not a raw `process.env`
+   read. Production builds define it as `false`, which strips the branch; a
+   development build (the `development` condition) reads `true`, and other
+   unbuilt code resolves it from `globalThis.__WHAT_DEV__`, then
+   `import.meta.env.DEV`, then a server runtime's `process.env`, so it works in
+   a bundler, in a browser and in Node. A raw `process.env` read works in none
+   of them reliably and is not stripped.
 3. Give it a code from the catalogue above, so an agent can look up the fix
 4. Add an ESLint rule in `eslint-plugin-what` if it can be caught statically
 5. Document it in [docs/GOTCHAS.md](docs/GOTCHAS.md)

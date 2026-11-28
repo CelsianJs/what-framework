@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -119,14 +119,25 @@ console.log(name.peek());  <span class="comment">// "Alice" (no subscription)</s
 
           <p>In JSX, you can use signals directly or call them explicitly. When the compiler can see that the expression reads a signal, it auto-wraps it:</p>
 
-<pre><code><span class="comment">// Both stay live when the compiler recognizes `name` as a signal:</span>
-&lt;span&gt;{name()}&lt;/span&gt;    <span class="comment">// compiler auto-wraps → () =&gt; name()</span>
-&lt;span&gt;{() =&gt; name()}&lt;/span&gt;  <span class="comment">// explicit reactive wrapper, always works</span></code></pre>
+<pre><code><span class="keyword">import</span> { signal } <span class="keyword">from</span> <span class="string">'what-framework'</span>;
+
+<span class="keyword">function</span> <span class="function">Name</span>() {
+  <span class="keyword">const</span> name = <span class="function">signal</span>(<span class="string">'Alice'</span>);
+
+  <span class="comment">// All three stay live</span>
+  <span class="keyword">return</span> (
+    &lt;p&gt;
+      &lt;span&gt;{name()}&lt;/span&gt;        {<span class="comment">/* compiler auto-wraps → () =&gt; name() */</span>}
+      &lt;span&gt;{() =&gt; name()}&lt;/span&gt;  {<span class="comment">/* explicit reactive wrapper, always works */</span>}
+      &lt;span&gt;{name}&lt;/span&gt;          {<span class="comment">/* the accessor itself is a live binding too */</span>}
+    &lt;/p&gt;
+  );
+}</code></pre>
 
           <div class="callout callout-info">
             <p class="callout-title">Auto-wrapping needs the What compiler</p>
-            <p>The compiler wraps a JSX expression in a reactive arrow function when it can identify a signal read inside it: a <code>signal()</code> or <code>computed()</code> binding in scope, a destructured prop, or an accessor imported from another module. In those cases <code>{count()}</code> and <code>{() =&gt; count()}</code> compile to the same thing.</p>
-            <p>It cannot always tell. <code>{props.count()}</code> and a value read off a store are emitted as written, evaluated once, and never update. And with no compiler at all (the plain <code>what-framework/jsx-runtime</code> transform, or hand-written <code>h()</code>, which is what the <code>fullstack</code> scaffold uses) nothing is ever wrapped. The explicit <code>{() =&gt; count()}</code> form is correct on every path, so reach for it whenever you are not sure.</p>
+            <p>The compiler wraps a JSX expression in a reactive arrow function when it can see a signal read inside it: a <code>signal()</code>, <code>computed()</code> or hook binding in scope, an accessor imported from another module, or any call with no arguments, which has the shape of an accessor read (<code>{count()}</code>, <code>{props.count()}</code>). In those cases <code>{count()}</code> and <code>{() =&gt; count()}</code> compile to the same thing.</p>
+            <p>It cannot see a read behind a property of a value from another module. A store field read off the object a store hook returned (<code>const todos = useTodos()</code>, then <code>{todos.remaining}</code>) may be evaluated once: it updates when the store is made in the component's own module, and is emitted as written and read once when the store is imported from another file. Write <code>{() =&gt; todos.remaining}</code>, which always updates. And with no compiler at all (the plain <code>what-framework/jsx-runtime</code> transform, or hand-written <code>h()</code>, which is what the <code>fullstack</code> scaffold uses) nothing is ever wrapped. The explicit <code>{() =&gt; count()}</code> form is correct on every path, so reach for it whenever you are not sure.</p>
           </div>
 
           <div class="callout callout-note">
@@ -168,7 +179,7 @@ console.log(name.peek());  <span class="comment">// "Alice" (no subscription)</s
   count.set(<span class="number">1</span>);  <span class="comment">// same as signal(1)</span>
   <span class="keyword">return</span> &lt;p&gt;{count()}&lt;/p&gt;;
 }</code></pre>
-            <p>Use <code>onMount</code> if you need to set a value once after the component is in the DOM. Use <code>effect</code> if it should react to other signals. The write that genuinely loops is one inside an <code>effect</code> that also reads the same signal, and What detects that and warns.</p>
+            <p>Use <code>onMount</code> if you need to set a value once after the component is in the DOM. Use <code>effect</code> if it should react to other signals. The write that genuinely loops is one inside an <code>effect</code> that also reads the same signal, and What detects that and reports <code>ERR_INFINITE_EFFECT</code>.</p>
           </div>
 
           <h3 id="updating-objects">Updating Objects and Arrays</h3>
@@ -193,12 +204,15 @@ items.set(arr =&gt; arr.map(x =&gt; x === <span class="number">3</span> ? <span 
 
           <div class="callout callout-warning">
             <p class="callout-title">Don't Mutate</p>
-            <p>Never mutate signal values directly. Always create new references so What can detect changes:</p>
-<pre><code><span class="comment">// BAD - mutation won't trigger updates</span>
-user().name = <span class="string">'Bob'</span>;
+            <p>A write is skipped when the new value is the same object, so changing a signal's value in place notifies nobody:</p>
+<pre><code><span class="comment">// Changes the object, and no reader re-runs</span>
+user().name = <span class="string">'Bob'</span>;</code></pre>
+            <p>Create a new reference instead, or make the change through <code>mutate()</code>, which hands you the current value to change in place and then notifies every reader:</p>
+<pre><code><span class="comment">// A new reference</span>
+user.set(u =&gt; ({ ...u, name: <span class="string">'Bob'</span> }));
 
-<span class="comment">// GOOD - creates new reference</span>
-user.set(u =&gt; ({ ...u, name: <span class="string">'Bob'</span> }));</code></pre>
+<span class="comment">// In place, through mutate()</span>
+user.mutate(u =&gt; { u.name = <span class="string">'Bob'</span>; });</code></pre>
           </div>
 
           <h2 id="computed-values">Computed Values</h2>
@@ -296,9 +310,9 @@ lastName.set(<span class="string">'Smith'</span>);
 
           <h3>2. Prefer Computed Over Effects for Derived Values</h3>
 <pre><code><span class="comment">// GOOD - computed for derived values</span>
-<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt; <span class="string">`${first()} ${last()}`</span>);
+<span class="keyword">const</span> fullName = <span class="function">computed</span>(() =&gt; <span class="string">`${first()} ${last()}`</span>);</code></pre>
 
-<span class="comment">// AVOID - effect with manual state</span>
+<pre><code><span class="comment">// AVOID - effect with manual state</span>
 <span class="keyword">const</span> fullName = <span class="function">signal</span>(<span class="string">''</span>);
 <span class="function">effect</span>(() =&gt; {
   fullName.set(<span class="string">`${first()} ${last()}`</span>);  <span class="comment">// Don't do this</span>
@@ -310,7 +324,7 @@ count.set(c =&gt; c + <span class="number">1</span>);
 
 <span class="comment">// RISKY - the read subscribes whatever context you are in</span>
 count.set(count() + <span class="number">1</span>);</code></pre>
-          <p>Both forms see the same value, but <code>count()</code> also subscribes the surrounding reactive context. Inside an effect that makes the effect depend on the signal it writes, so it re-triggers itself until What's loop guard stops it and warns. The updater form reads the current value directly and creates no subscription.</p>
+          <p>Both forms see the same value, but <code>count()</code> also subscribes the surrounding reactive context. Inside an effect that makes the effect depend on the signal it writes, so it re-triggers itself until What's loop guard stops it and reports <code>ERR_INFINITE_EFFECT</code>. The updater form reads the current value directly and creates no subscription.</p>
 
           <div class="page-nav">
             <a href="./coming-from-react.html">

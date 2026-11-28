@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -129,13 +129,15 @@ mount(
 
           <p>Link automatically adds an <code>active</code> class when the current path is the href or one of its sub-paths (<code>/</code> is the exception: it is active only on <code>/</code>). When the path and the href are identical it also adds <code>exact-active</code>:</p>
 
-<pre><code><span class="comment">// Customize active class names</span>
-&lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
-  Blog
-&lt;/<span class="function">Link</span>&gt;
+<pre><code>&lt;nav&gt;
+  {<span class="comment">/* Customize active class names */</span>}
+  &lt;<span class="function">Link</span> href="/blog" activeClass="nav-active" exactActiveClass="nav-exact"&gt;
+    Blog
+  &lt;/<span class="function">Link</span>&gt;
 
-<span class="comment">// Replace history entry instead of pushing</span>
-&lt;<span class="function">Link</span> href="/login" replace&gt;Sign In&lt;/<span class="function">Link</span>&gt;</code></pre>
+  {<span class="comment">/* Replace history entry instead of pushing */</span>}
+  &lt;<span class="function">Link</span> href="/login" replace&gt;Sign In&lt;/<span class="function">Link</span>&gt;
+&lt;/nav&gt;</code></pre>
 
           <h2 id="programmatic">Programmatic Navigation</h2>
           <p>Use <code>navigate()</code> to change routes from event handlers or effects:</p>
@@ -155,7 +157,37 @@ mount(
 <span class="comment">// Options</span>
 <span class="function">navigate</span>(<span class="string">'/settings'</span>, { replace: <span class="keyword">true</span> });   <span class="comment">// Replace history entry</span>
 <span class="function">navigate</span>(<span class="string">'/profile'</span>, { state: { from: <span class="string">'nav'</span> } }); <span class="comment">// Pass state</span>
-<span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span></code></pre>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { transition: <span class="keyword">false</span> });     <span class="comment">// Skip view transition</span>
+<span class="function">navigate</span>(<span class="string">'/page'</span>, { flushSync: <span class="keyword">true</span> });      <span class="comment">// Commit at once</span>
+<span class="function">navigate</span>(<span class="string">'/settings#teams'</span>);                  <span class="comment">// On /settings: a fragment navigation</span>
+<span class="function">navigate</span>(<span class="string">'https://example.com/docs'</span>);         <span class="comment">// Another origin: the browser loads it</span></code></pre>
+
+          <p>A navigation is a transition. <code>navigate()</code> and <code>&lt;Link&gt;</code> run the <code>beforeNavigate</code> guards, then prepare the destination while the old page stays on screen: they load a <code>lazy()</code> route's chunk and run its <code>preload</code>, and wait for both. Then the URL commits inside <code>startTransition</code>, so the page and everything else the new URL reaches (a layout's data keyed on the params) commit in one flush. <code>navigate()</code> resolves once the new page is on screen and the data it reads first has landed, and a newer navigation supersedes one still preparing. <code>route.isNavigating</code> is true meanwhile, and <code>useTransition</code>'s <code>isPending</code> around a <code>navigate()</code> call is true until the commit.</p>
+
+          <p>A URL of another origin (another site, <code>mailto:</code>, <code>tel:</code>) is the browser's to load, as a click on a <code>&lt;Link&gt;</code> to it is: <code>navigate()</code> calls <code>location.assign()</code>, or <code>location.replace()</code> with <code>replace: true</code>, and runs no guard. A middleware or <code>redirect()</code> that sends a navigation to another origin replaces the entry the same way.</p>
+
+          <p>A navigation that changes only the hash (<code>navigate('#teams')</code>, or <code>navigate('/settings#teams')</code> while on <code>/settings</code>, a <code>&lt;Link&gt;</code> to either, the browser moving the hash with back/forward or <code>location.hash</code>) is a fragment navigation, as in the browser: the page stays mounted with its state, the URL and <code>route.hash</code> move, and the element with that id scrolls into view. No guard, middleware or <code>preload</code> runs, and <code>beforeNavigate</code> and <code>afterNavigate</code> are not called. A <code>'#hash'</code> target replaces the history entry; a path with a hash adds one unless <code>replace: true</code>.</p>
+
+          <h2 id="preload">Route Data: preload</h2>
+          <p>A route's <code>preload({ params, query, url })</code> starts the data the page needs. The navigation waits for what it returns (a <code>query()</code>, an async value, a promise, or an array or object of them), and the page receives it as its <code>data</code> prop:</p>
+
+<pre><code><span class="keyword">import</span> { Router } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+<span class="keyword">import</span> { query } <span class="keyword">from</span> <span class="string">'what-framework/data'</span>;
+
+<span class="keyword">const</span> user = (id) =&gt; <span class="function">query</span>([<span class="string">'user'</span>, id], (key, { signal }) =&gt; fetch(<span class="string">`/api/users/${key[1]}`</span>, { signal }).then((r) =&gt; r.json()), { staleTime: <span class="number">30_000</span> });
+
+<span class="keyword">const</span> routes = [
+  {
+    path: <span class="string">'/users/:id'</span>,
+    preload: ({ params }) =&gt; <span class="function">user</span>(params.id),
+    component: ({ data }) =&gt; &lt;h1&gt;{data().name}&lt;/h1&gt;,
+  },
+];
+
+<span class="keyword">export const</span> <span class="function">App</span> = () =&gt; &lt;Router routes={routes} /&gt;;</code></pre>
+
+          <p>A <code>query()</code> the page makes on the same key is answered from the cache. The queries a preload makes are read on the route's path, so <code>invalidatePath('/users/7')</code>, which a server action's <code>revalidate</code> calls, refetches them inside the action's transition.</p>
+          <p>Data the page reads that <code>preload</code> does not return is fetched after the URL commits: the page shows it pending (its bindings hold, or its <code>&lt;Suspense&gt;</code> shows its fallback), and the navigation goes on until it has landed. Only <code>preload</code> data keeps the old page on screen, so return what the page needs at once from it.</p>
 
           <h2 id="route-object">The route Object</h2>
           <p>Access the current route state from anywhere in your app using the reactive <code>route</code> object:</p>
@@ -165,16 +197,16 @@ mount(
 <span class="comment">// All properties are reactive getters</span>
 route.path     <span class="comment">// "/users/42"</span>
 route.params   <span class="comment">// { id: "42" }</span>
-route.query    <span class="comment">// { tab: "posts" }</span>
+route.query    <span class="comment">// { tab: "posts" }; ?tag=a&amp;tag=b gives { tag: ["a", "b"] }</span>
 route.hash     <span class="comment">// "#section"</span>
-route.isNavigating  <span class="comment">// true during navigation</span></code></pre>
+route.isNavigating  <span class="comment">// true from navigate() until the new page's first data has landed</span></code></pre>
 
           <div class="callout callout-note">
             <p class="callout-title">No Parentheses Needed</p>
-            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive and will trigger re-renders when they change.</p>
+            <p><code>route.path</code>, <code>route.params</code>, etc. are <strong>property getters</strong> that internally read signals. You access them like normal properties, with no <code>()</code> call needed. They are still reactive: JSX, an effect or a thunk that reads one updates when the route changes, with no re-render involved.</p>
           </div>
 
-          <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>.</p>
+          <p><code>route.query</code> is a null-prototype object, so a crafted query string cannot reach <code>Object.prototype</code>. Reading, destructuring, spreading, <code>Object.keys()</code> and <code>JSON.stringify()</code> all behave normally, but inherited members are gone: use <code>'tab' in route.query</code> or <code>Object.prototype.hasOwnProperty.call(route.query, 'tab')</code> rather than <code>route.query.hasOwnProperty('tab')</code>. A repeated key collects into an array, so <code>?tag=a&amp;tag=b</code> gives <code>{ tag: ["a", "b"] }</code>. Its TypeScript type is <code>RouteQuery</code>, <code>Record&lt;string, string | string[]&gt;</code> (exported by <code>what-framework/router</code>), so narrow a value before using it as a string.</p>
 
           <h2 id="dynamic-params">Dynamic Params</h2>
           <p>Use <code>:param</code> syntax in route paths to capture dynamic segments. The matched values are passed to your component as <code>params</code>:</p>
@@ -196,6 +228,8 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 }</code></pre>
 
           <p>File-based syntax like <code>[id]</code> and <code>[...path]</code> also works: it's converted to <code>:id</code> and catch-all internally.</p>
+
+          <p>A trailing slash is ignored when matching, except on the root: <code>/about/</code> shows the route <code>/about</code> (a static host serves <code>about/index.html</code> there), and <code>route.path</code> keeps the slash as the address bar has it. A link is active the same way, so <code>&lt;Link href="/docs/"&gt;</code> is active on <code>/docs</code> and below it. A server render matches a request the same way.</p>
 
           <h2 id="nested-layouts">Nested Layouts</h2>
           <p>Wrap groups of routes in shared layouts. The layout component receives the matched route's element as <code>children</code>:</p>
@@ -224,7 +258,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 ];</code></pre>
 
           <h2 id="middleware">Route Guards &amp; Middleware</h2>
-          <p>Route middleware runs synchronously with <code>{ path, params, query, route }</code>. Returning nothing also allows the route. Promises are not awaited: use <code>asyncGuard()</code> for asynchronous checks. The TypeScript middleware declaration now reflects this runtime contract; older declarations incorrectly accepted <code>Promise&lt;boolean&gt;</code>.</p>
+          <p>Route middleware runs synchronously with <code>{ path, url, params, query, route }</code>, where <code>url</code> is the whole destination (path, search and hash) and <code>route</code> is the destination's route config. Returning nothing also allows the route. Promises are not awaited: use <code>asyncGuard()</code> for asynchronous checks. Middleware runs before the route's <code>preload</code>, which never runs for a route it declines. It runs once for a navigation, whose verdict the page renders by, and again only when a signal it read changes. On the server, a middleware redirect redirects the render's response. The TypeScript middleware declaration now reflects this runtime contract; older declarations incorrectly accepted <code>Promise&lt;boolean&gt;</code>.</p>
           <p>Protect routes with middleware functions that run before the route renders. Middleware can allow, reject, or redirect:</p>
 
 <pre><code><span class="keyword">import</span> { guard } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
@@ -297,7 +331,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
   },
 });</code></pre>
 
-          <p>The <code>loading</code> component renders while <code>route.isNavigating</code> is true. <code>asyncGuard</code> never sets that flag, so a route it protects shows the guard's own <code>loading</code> option while the check is pending, never the route's. When both the route being left and the route being entered declare a <code>loading</code> component, the destination's wins.</p>
+          <p>Without a <code>loading</code> component, the page being left stays on screen while a navigation prepares. With one, the <code>loading</code> component renders instead while the navigation prepares. <code>asyncGuard</code> never sets that flag, so a route it protects shows the guard's own <code>loading</code> option while the check is pending, never the route's. When both the route being left and the route being entered declare a <code>loading</code> component, the destination's wins.</p>
 
           <p>The <code>error</code> component is wrapped in an <code>ErrorBoundary</code> that catches exceptions during rendering. It is called with <code>{ error, reset }</code>, and <code>reset</code> re-runs the failed subtree:</p>
 
@@ -311,7 +345,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 }</code></pre>
 
           <h2 id="view-transitions">View Transitions</h2>
-          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. No configuration needed, just add CSS:</p>
+          <p>What Router uses the browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API">View Transitions API</a> by default for smooth page transitions. The update callback is the navigation's commit, after the destination was prepared, so the browser captures the new page once it is on screen. No configuration needed, just add CSS:</p>
 
 <pre><code><span class="comment">/* Fade in/out by default */</span>
 ::view-transition-old(root) {
@@ -346,7 +380,7 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 <span class="comment">// 2. Returning to a URL you already scrolled restores that position</span>
 <span class="comment">// 3. Everything else scrolls to top</span></code></pre>
 
-          <p>The order matters. A URL carrying a hash always goes to its element, even when a position is saved for that exact URL, so clicking the same <code>#install</code> link twice lands on the section both times. Positions are keyed by the full URL, path and query and hash together, so <code>/list?tab=inbox</code> and <code>/list?tab=archive</code> each remember their own place.</p>
+          <p>The order matters. A URL carrying a hash always goes to its element, even when a position is saved for that exact URL, so clicking the same <code>#install</code> link twice lands on the section both times. Positions are keyed by the full URL, path and query and hash together, so <code>/list?tab=inbox</code> and <code>/list?tab=archive</code> each remember their own place. These rules are for forward navigations: back and forward land where the entry was left, as the browser restores one, at the position saved for it and not at its hash element first.</p>
 
           <p>Rule 2 is the one that surprises people: a nav-bar link back to a page you scrolled earlier in the session lands where you left it rather than at the top, and switching back to a tab you have already opened does the same. Saved positions live in memory for the life of the page, so a reload starts clean and the browser's own <code>history.scrollRestoration</code> takes over.</p>
 
@@ -361,7 +395,16 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
 <span class="comment">// Disable prefetch on a specific Link</span>
 &lt;<span class="function">Link</span> href="/heavy-page" prefetch={<span class="keyword">false</span>}&gt;Heavy Page&lt;/<span class="function">Link</span>&gt;</code></pre>
 
-          <p>This is a hint to the browser to fetch that URL's document early. It does not pull in a <code>lazy()</code> route's JavaScript chunk, and each URL is prefetched at most once per page load.</p>
+          <p>Prefetching starts downloading the <code>lazy()</code> chunk of the route the URL goes to, so the click need not wait for it, unless that route has middleware (a navigation downloads it once the middleware admits it). It also hints the browser to fetch the URL. Each URL is prefetched at most once per page load.</p>
+
+          <h2 id="base-path">Serving Below a Base Path</h2>
+          <p>An app deployed below a path (<code>/app/</code> on GitHub Pages or behind a reverse proxy) routes below it. With Vite, its <code>base</code> is the router's: set <code>base: '/app/'</code> in <code>vite.config.js</code>. A server-rendered app gives what-server the same path, <code>createRequestHandler({ basePath: '/app' })</code> or <code>exportStatic({ basePath: '/app' })</code>, and the router renders the pages they serve below it, with no <code>setBase</code> on the server, also in a server build that keeps what-router external. Without Vite's base (another bundler), or in a custom server that renders with <code>renderToString</code>, call <code>setBase</code> once, before the app renders:</p>
+
+<pre><code><span class="keyword">import</span> { setBase } <span class="keyword">from</span> <span class="string">'what-framework/router'</span>;
+
+<span class="function">setBase</span>(<span class="string">'/app'</span>); <span class="comment">// or setBase(import.meta.env.BASE_URL)</span></code></pre>
+
+          <p>Below the base, a path from the root is a URL of the app: <code>&lt;Link href="/x"&gt;</code> renders and goes to <code>/app/x</code>, <code>navigate('/x')</code>, <code>redirect('/x')</code> and a middleware returning <code>'/x'</code> go to <code>/app/x</code>, and route paths are written as without a base. Route state holds the URL without the base: <code>route.url</code>, <code>route.path</code>, the params, <code>useRoute()</code>, active links, and what middleware, <code>preload</code> and the navigation hooks are given. A relative href resolves against the address bar, as the browser resolves it. A URL outside the base is not the app's: no route shows it (a catch-all included: the Router shows its <code>fallback</code>), and <code>navigate()</code> and <code>&lt;Link&gt;</code> leave it to the browser. A server render of a request below the base renders the same page, and its redirects go below the base: a path is a URL of the app whoever redirects to it, so a loader's <code>response.redirect('/login')</code> and a component's <code>getResponse().redirect('/login')</code> answer <code>/app/login</code>, as <code>redirect('/login')</code> does. <code>'/app'</code>, <code>'/app/'</code> and <code>'app'</code> are the same base; <code>''</code> and <code>'/'</code> are none. A base the app sets (Vite's, <code>setBase</code>) is the router's on the server too; give what-server's <code>basePath</code> the same path. Server actions use the same base: an action posts to <code>/app/__what_action</code>, a <code>&lt;Form&gt;</code>'s <code>redirect</code> is a URL of the app, and so is a path an action redirects to.</p>
 
           <h2 id="use-route">useRoute Hook</h2>
           <p>Access reactive route state inside any component with the <code>useRoute</code> hook. Returns computed signals for each property:</p>
@@ -406,10 +449,12 @@ route.isNavigating  <span class="comment">// true during navigation</span></code
             <li><a href="#nested-layouts">Nested Layouts</a></li>
             <li><a href="#middleware">Route Guards</a></li>
             <li><a href="#route-groups">Route Groups</a></li>
+            <li><a href="#preload">Route Data: preload</a></li>
             <li><a href="#loading-states">Loading &amp; Error States</a></li>
             <li><a href="#view-transitions">View Transitions</a></li>
             <li><a href="#scroll-restoration">Scroll Restoration</a></li>
             <li><a href="#prefetching">Prefetching</a></li>
+            <li><a href="#base-path">Base Path</a></li>
             <li><a href="#use-route">useRoute Hook</a></li>
           </ul>
         </aside>

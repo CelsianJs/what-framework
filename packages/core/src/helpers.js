@@ -1,56 +1,40 @@
 // What Framework - Helpers & Utilities
 // Commonly needed patterns, zero overhead.
 
-import { signal, effect, __DEV__ } from './reactive.js';
-
-// --- each(list, fn) --- [DEPRECATED: use <For> component or .map() instead]
-// Keyed list rendering. Optimized for reconciliation.
-let _eachWarned = false;
-export function each(list, fn, keyFn) {
-  if (!_eachWarned) {
-    _eachWarned = true;
-    console.warn('[what] each() is deprecated. Use the <For> component or Array.map() instead.');
-  }
-  if (!list || list.length === 0) return [];
-  return list.map((item, index) => {
-    const vnode = fn(item, index);
-    if (keyFn && vnode && typeof vnode === 'object') {
-      vnode.key = keyFn(item, index);
-    }
-    return vnode;
-  });
-}
+import { signal, effect, onCleanup, __DEV__ } from './reactive.js';
+import { _vnode } from './h.js';
+import { createPortalDOM } from './dom.js';
+import { report } from './diagnostics.js';
+import { styleText } from './markup-rules.js';
 
 // --- cls(...args) ---
 // Conditional class names. Like clsx but tiny.
 // cls('base', condition && 'active', { hidden: isHidden, bold: isBold })
 export function cls(...args) {
   const classes = [];
-  for (const arg of args) {
-    if (!arg) continue;
+  const add = (arg) => {
+    if (!arg) return;
     if (typeof arg === 'string') {
       classes.push(arg);
+    } else if (Array.isArray(arg)) {
+      for (const item of arg) add(item);
     } else if (typeof arg === 'object') {
       for (const [key, val] of Object.entries(arg)) {
         if (val) classes.push(key);
       }
     }
-  }
+  };
+  for (const arg of args) add(arg);
   return classes.join(' ');
 }
 
 // --- style(obj) ---
-// Convert a style object to a CSS string for SSR.
+// A style object as CSS text, exactly as the server writes the style prop
+// (markup-rules.js styleText): a declaration the prop would drop is left out.
+// A string is returned as it is.
 export function style(obj) {
   if (typeof obj === 'string') return obj;
-  return Object.entries(obj)
-    .filter(([, v]) => v != null && v !== '')
-    .map(([k, v]) => `${camelToKebab(k)}:${v}`)
-    .join(';');
-}
-
-function camelToKebab(str) {
-  return str.replace(/([A-Z])/g, '-$1').toLowerCase();
+  return styleText(obj);
 }
 
 // --- debounce ---
@@ -75,11 +59,6 @@ export function throttle(fn, ms) {
   };
 }
 
-// Component context ref — injected by dom.js to avoid circular imports
-/** @type {(() => any) | null} */
-let _getCurrentComponentRef = null;
-export function _setComponentRef(fn) { _getCurrentComponentRef = fn; }
-
 // --- useMediaQuery ---
 // Reactive media query. Returns a signal. Cleans up listener on component unmount.
 export function useMediaQuery(query) {
@@ -89,12 +68,8 @@ export function useMediaQuery(query) {
   const handler = (e) => s.set(e.matches);
   mq.addEventListener('change', handler);
 
-  // Register cleanup if inside a component context
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => mq.removeEventListener('change', handler));
-  }
+  // Stop listening when the owner (the component using it) goes away.
+  onCleanup(() => mq.removeEventListener('change', handler));
 
   return s;
 }
@@ -113,11 +88,11 @@ export function useLocalStorage(key, initial) {
   const s = signal(stored);
 
   // Sync to localStorage on changes
-  const dispose = effect(() => {
+  effect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(s()));
     } catch (e) {
-      if (__DEV__) console.warn('[what] localStorage write failed (quota exceeded?):', e);
+      if (__DEV__) report('ERR_STORAGE_FAILED', { data: { key, operation: 'write', reason: e?.message || String(e) } });
     }
   });
 
@@ -128,46 +103,47 @@ export function useLocalStorage(key, initial) {
     storageHandler = (e) => {
       if (e.key === key && e.newValue !== null) {
         try { s.set(JSON.parse(e.newValue)); } catch (err) {
-          if (__DEV__) console.warn('[what] localStorage parse failed:', err);
+          if (__DEV__) report('ERR_STORAGE_FAILED', { data: { key, operation: 'read', reason: err?.message || String(err) } });
         }
       }
     };
     window.addEventListener('storage', storageHandler);
   }
 
-  // Register cleanup if inside a component context
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      dispose();
-      if (storageHandler) window.removeEventListener('storage', storageHandler);
-    });
-  }
+  // The sync effect belongs to the owner it is created under; the listener
+  // goes with that owner too.
+  onCleanup(() => {
+    if (storageHandler) window.removeEventListener('storage', storageHandler);
+  });
 
   return s;
 }
 
 // --- portal ---
-// Render children into a different DOM container.
-export function Portal({ target, children }) {
-  // In SSR, just return null (portals are client-only)
+// Render children into a different DOM container: `target`, an element or a
+// selector, document.body when there is none. Compiled children arrive
+// unbuilt (`_deferChildren`, see dom.js _installLazyChildren) and are built in
+// the container: while hydrating, children built where the portal is placed
+// would claim the server's nodes there. The server renders nothing for it.
+export const Portal = /* @__PURE__ */ Object.assign(function Portal({ target, children }) {
   if (typeof document === 'undefined') return null;
-  const container = typeof target === 'string'
-    ? document.querySelector(target)
-    : target;
-  if (!container) return null;
+  const container = typeof target === 'string' ? document.querySelector(target) : target ?? document.body;
+  if (!container) {
+    if (__DEV__ && typeof target === 'string') report('ERR_PORTAL_TARGET_MISSING', { data: { selector: target } });
+    return null;
+  }
   // The DOM reconciler will mount children here
-  return { tag: '__portal', props: { container }, children: Array.isArray(children) ? children : [children], _vnode: true };
-}
+  return _vnode('__portal', { container, mount: createPortalDOM }, Array.isArray(children) ? children : [children]);
+}, { _deferChildren: true });
 
 // --- useClickOutside ---
 // Detect clicks outside a ref'd element. Essential for dropdowns, modals, popovers.
 export function useClickOutside(ref, handler) {
   if (typeof document === 'undefined') return;
 
+  // A ref object is read at each press: null until it is attached.
   const listener = (e) => {
-    const el = ref.current || ref;
+    const el = ref && typeof ref === 'object' && 'current' in ref ? ref.current : ref;
     if (!el || el.contains(e.target)) return;
     handler(e);
   };
@@ -175,19 +151,15 @@ export function useClickOutside(ref, handler) {
   document.addEventListener('mousedown', listener);
   document.addEventListener('touchstart', listener);
 
-  const ctx = _getCurrentComponentRef?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      document.removeEventListener('mousedown', listener);
-      document.removeEventListener('touchstart', listener);
-    });
-  }
+  onCleanup(() => {
+    document.removeEventListener('mousedown', listener);
+    document.removeEventListener('touchstart', listener);
+  });
 }
 
-// --- Transition helper ---
-// Animate elements in/out. Returns props to spread on the element.
-export function transition(name, active) {
+// --- transitionClass(name, active) ---
+// Enter/leave classes for a CSS transition, as props to spread on the element.
+export function transitionClass(name, active) {
   return {
     class: active ? `${name}-enter ${name}-enter-active` : `${name}-leave ${name}-leave-active`,
   };

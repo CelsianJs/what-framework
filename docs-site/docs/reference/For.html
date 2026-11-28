@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -76,8 +76,8 @@
             <tbody>
               <tr>
                 <td><code>each</code></td>
-                <td><code>() =&gt; T[]</code></td>
-                <td>The array to iterate over. Pass the signal itself, or a thunk. A plain array works only on the uncompiled runtime path; compiled output calls <code>each()</code> and throws <code>source is not a function</code> on an array (so <code>each={items()}</code> throws too).</td>
+                <td><code>T[] | (() =&gt; T[])</code></td>
+                <td>The array to iterate over: the signal itself, a thunk, or an array. Compiled JSX makes <code>each={items()}</code> and <code>each={items().filter(f)}</code> follow the signal too.</td>
               </tr>
               <tr>
                 <td><code>key</code></td>

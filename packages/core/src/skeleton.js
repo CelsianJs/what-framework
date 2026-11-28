@@ -80,7 +80,7 @@ function injectStyles() {
  * @param {number|string} [props.height]
  * @param {'shimmer'|'pulse'|'wave'} [props.variant]
  * @param {boolean} [props.circle]
- * @param {string} [props.class]
+ * @param {string | (() => string)} [props.class]
  * @param {Record<string, any>} [props.style]
  * @param {number} [props.count]
  */
@@ -92,11 +92,14 @@ export function Skeleton({
   class: className,
   style: customStyle,
   count = 1,
-}) {
+} = {}) {
   injectStyles();
 
   const baseClass = `what-skeleton ${variant === 'pulse' ? 'what-skeleton-pulse' : ''} ${variant === 'wave' ? 'what-skeleton-wave' : ''}`;
-  const finalClass = className ? `${baseClass} ${className}` : baseClass;
+  const withClass = (extra) => (extra ? `${baseClass} ${extra}` : baseClass);
+  // A reactive `class` (a signal or a getter) stays reactive: it is read in
+  // the binding, never coerced to a string here.
+  const finalClass = typeof className === 'function' ? () => withClass(className()) : withClass(className);
 
   const style = {
     width: typeof width === 'number' ? `${width}px` : width,
@@ -127,7 +130,7 @@ export function SkeletonText({
   lineHeight = 16,
   gap = 8,
   variant = 'shimmer',
-}) {
+} = {}) {
   injectStyles();
 
   return h('div', { class: 'what-skeleton-text', 'aria-hidden': 'true' },
@@ -155,7 +158,7 @@ export function SkeletonText({
 export function SkeletonAvatar({
   size = 40,
   variant = 'shimmer',
-}) {
+} = {}) {
   return Skeleton({
     width: size,
     height: size,
@@ -170,7 +173,7 @@ export function SkeletonCard({
   imageHeight = 200,
   lines = 3,
   variant = 'shimmer',
-}) {
+} = {}) {
   injectStyles();
 
   return h('div', { class: 'what-skeleton-card', 'aria-hidden': 'true' },
@@ -195,7 +198,7 @@ export function SkeletonTable({
   rows = 5,
   columns = 4,
   variant = 'shimmer',
-}) {
+} = {}) {
   injectStyles();
 
   return h('div', { class: 'what-skeleton-table', 'aria-hidden': 'true' },
@@ -234,11 +237,12 @@ export function SkeletonTable({
 // --- Island Skeleton ---
 // Specific skeleton for island placeholders
 
+/** @param {{ type?: string, height?: string | number, children?: any }} [props] */
 export function IslandSkeleton({
   type = 'default', // 'default' | 'card' | 'text' | 'custom'
   height,
   children,
-}) {
+} = {}) {
   injectStyles();
 
   if (type === 'card') {
@@ -271,16 +275,22 @@ export function useSkeleton(asyncFn, _deps = []) {
   const data = signal(null);
   const error = signal(null);
 
+  // A run that a later one superseded (asyncFn read a signal that changed
+  // before it settled) settles nothing: the latest run's result is shown.
+  let latest = 0;
   effect(() => {
+    const run = ++latest;
     isLoading.set(true);
     error.set(null);
 
     Promise.resolve(asyncFn())
       .then(result => {
-        data.set(result);
+        if (run !== latest) return;
+        data.set(() => result);
         isLoading.set(false);
       })
       .catch(err => {
+        if (run !== latest) return;
         error.set(err);
         isLoading.set(false);
       });
@@ -303,7 +313,7 @@ export function Placeholder({
   label = 'Loading...',
   showLabel = false,
   variant = 'shimmer',
-}) {
+} = {}) {
   injectStyles();
 
   return h('div', {
@@ -329,7 +339,7 @@ export function Placeholder({
 
 // --- Loading Dots ---
 
-export function LoadingDots({ size = 8, color = '#666' }) {
+export function LoadingDots({ size = 8, color = '#666' } = {}) {
   injectStyles();
 
   const dotStyle = {
@@ -354,7 +364,7 @@ export function LoadingDots({ size = 8, color = '#666' }) {
 
 // --- Spinner ---
 
-export function Spinner({ size = 24, color = '#666', strokeWidth = 2 }) {
+export function Spinner({ size = 24, color = '#666', strokeWidth = 2 } = {}) {
   return h('svg', {
     width: size,
     height: size,

@@ -12,21 +12,10 @@
 // server-rendered is everything an operator needs before JavaScript lands: the
 // chrome, the filter form, the counts from the loader.
 
-import {
-  LiveRegion,
-  Show,
-  computed,
-  effect,
-  h,
-  Head,
-  rules,
-  signal,
-  simpleResolver,
-  useForm,
-  useId,
-  useInfiniteQuery,
-  useLoaderData,
-} from 'what-framework';
+import { Show, computed, effect, h, Head, signal, startTransition, useId, useLoaderData } from 'what-framework';
+import { LiveRegion } from 'what-framework/a11y';
+import { rules, simpleResolver, useForm } from 'what-framework/form';
+import { useInfiniteQuery } from 'what-framework/data';
 import { useOptimistic } from 'what-server/actions';
 import { Link } from 'what-router';
 
@@ -74,11 +63,13 @@ export default function Console() {
   });
 
   // --- Optimistic acknowledge --------------------------------------------
-  // The reducer appends an ack with no `by`: that missing field IS the pending
-  // state. Only the server can fill it in, so a row that says "acknowledged by
-  // ops-bot" cannot be the optimistic guess.
-  const acks = useOptimistic([], (list, action) => [...list, { id: action.id, by: null, at: null }]);
-  const ackIndex = computed(() => new Map(acks.value().map((ack) => [ack.id, ack])));
+  // The acknowledgements the server has, with an overlay for each acknowledge
+  // in flight. The overlay appends an ack with no `by`: that missing field IS
+  // the pending state. Only the server can fill it in, so a row that says
+  // "acknowledged by ops-bot" cannot be the optimistic guess.
+  const serverAcks = signal([], 'ops:acks');
+  const [acks, addAck] = useOptimistic(serverAcks, (list, action) => [...list, { id: action.id, by: null, at: null }]);
+  const ackIndex = computed(() => new Map(acks().map((ack) => [ack.id, ack])));
 
   // Read the acknowledgements the server already has, so a reload does not
   // pretend every incident is unacknowledged.
@@ -92,18 +83,24 @@ export default function Console() {
   // same job and works on every build.
   if (typeof window !== 'undefined') {
     fetchAcks()
-      .then((list) => acks.set(list))
+      .then((list) => serverAcks(list))
       .catch(() => announcement('Could not load existing acknowledgements.'));
   }
 
+  // The overlay lasts as long as the transition: it drops when the server has
+  // answered, with the server's list in its place, or alone when the server
+  // refused, which rolls the row back.
   async function acknowledge(id) {
-    const action = { id };
+    let confirmed = [];
     try {
-      const confirmed = await acks.withOptimistic(action, async () => (await postAck(id)).acks);
+      await startTransition(async () => {
+        addAck({ id });
+        confirmed = (await postAck(id)).acks;
+        serverAcks(confirmed);
+      });
       const record = confirmed.find((ack) => ack.id === id);
       announcement(`${id} acknowledged by ${record ? record.by : 'the server'}.`);
     } catch (err) {
-      // withOptimistic has already rolled the row back by the time we get here.
       announcement(`Could not acknowledge ${id}: ${err.message}. Rolled back.`);
     }
   }
@@ -144,7 +141,7 @@ export default function Console() {
   const describeInput = (el) => {
     if (!el) return;
     effect(() => {
-      el.setAttribute('aria-describedby', filterError() ? `${errorId()} ${hintId()}` : hintId());
+      el.setAttribute('aria-describedby', filterError() ? `${errorId} ${hintId}` : hintId);
     });
   };
 
@@ -178,23 +175,23 @@ export default function Console() {
         ),
 
         h('form', { class: 'filter', onsubmit: applyFilter, 'data-filter-form': '' },
-          h('label', { for: inputId(), class: 'filter-label' }, 'Service'),
+          h('label', { for: inputId, class: 'filter-label' }, 'Service'),
           h('input', {
-            id: inputId(),
+            id: inputId,
             name: 'service',
             type: 'search',
             autocomplete: 'off',
             placeholder: 'payments',
             'data-filter-input': '',
-            'aria-describedby': hintId(),
+            'aria-describedby': hintId,
             ref: describeInput,
             oninput: filterForm.register('service').oninput,
             onblur: filterForm.register('service').onBlur,
           }),
           h('button', { type: 'submit', class: 'ghost', 'data-filter-apply': '' }, 'Apply'),
-          h('p', { id: errorId(), class: 'field-error', role: 'alert', 'data-filter-error': '' },
+          h('p', { id: errorId, class: 'field-error', role: 'alert', 'data-filter-error': '' },
             () => filterError()?.message || ''),
-          h('p', { id: hintId(), class: 'hint', 'data-filter-hint': '' },
+          h('p', { id: hintId, class: 'hint', 'data-filter-hint': '' },
             `Filter the loaded events by service. ${services.length} services reporting.`),
         ),
 

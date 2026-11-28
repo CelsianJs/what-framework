@@ -4,17 +4,10 @@
 // Wraps the krausest harness and emits gate-comparable timings so
 // check-regressions.js can guard real DOM operations, not just Node micro-ops.
 //
-// Aggregate: the 25th percentile of every measured sample, pooled across
-// rounds. Chromium's frame scheduling contaminates this harness in one
-// direction only (a sample can be a frame late, never early), so the low end of
-// the distribution is the stable end. Measured across three independent
-// 20-round probes, the pooled p25 moved at most 2.4% between probes where the
-// median of round medians moved 6.2%, and it is insensitive to the round count
-// (identical at 5, 10 and 20 rounds), so a short CI run and a long recording
-// run are comparable.
-// Those initial probes do not establish equivalence across browser/toolchain
-// versions or machine conditions; retain provenance and samples to check it.
-//
+// Aggregate the 25th percentile of script-only samples pooled across rounds.
+// The harness verifies the DOM when click-triggered microtasks have drained.
+// Preserve samples and browser provenance alongside the aggregate.
+
 // Runs `what` only (the competitor implementations exist for the published
 // comparison, not for the gate). Numbers are ms, lower is better.
 //
@@ -30,6 +23,7 @@ import { OPS, runFrameworks } from './krausest/bench.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const krausest = path.join(here, 'krausest');
+export const DOM_TIMING = 'click-to-microtasks';
 
 function flag(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -64,13 +58,13 @@ function p25(xs) {
 }
 
 // Pure report generation: tests exercise the gate aggregate without launching
-// Chromium. Raw samples retain the harness's existing two-decimal precision.
+// Chromium. Raw samples retain the script metric's three-decimal precision.
 export function createDomReport(runs, provenance = {}) {
   if (!runs.length) throw new Error('DOM report requires at least one round.');
   const rounds = runs.map((run) => run.results.what);
   const results = OPS.map((op) => {
     const samples = rounds.map((round, i) => {
-      const values = round[op.id]?.samples;
+      const values = round[op.id]?.script?.samples;
       if (!Array.isArray(values) || !values.length || values.some((v) => !Number.isFinite(v) || v < 0)) {
         throw new Error(`Invalid ${GATE_NAMES[op.id]} samples in round ${i + 1}.`);
       }
@@ -80,12 +74,13 @@ export function createDomReport(runs, provenance = {}) {
     return {
       name: GATE_NAMES[op.id],
       label: op.label,
-      ms: +p25(samples.flat()).toFixed(2),
+      ms: +p25(samples.flat()).toFixed(3),
       // Range of round p25 values, NOT a standard deviation/confidence interval.
-      spread: +(Math.max(...perRound) - Math.min(...perRound)).toFixed(2),
+      spread: +(Math.max(...perRound) - Math.min(...perRound)).toFixed(3),
       sampleCount: samples.reduce((sum, values) => sum + values.length, 0),
       sampleCounts: samples.map((values) => values.length),
       samples,
+      stoppedByFrame: rounds.map((round) => round[op.id].script.stoppedByFrame),
     };
   });
 
@@ -105,12 +100,32 @@ export function createDomReport(runs, provenance = {}) {
     ])),
     browsers: runs.map((run) => run.browser),
     metric: 'ms',
+    timing: DOM_TIMING,
     aggregate: 'p25 of pooled samples',
     lowerIsBetter: true,
-    // Keep the recorded floor and the gate's comparison unchanged.
-    noiseFloorMs: 0.5,
+    // One tick of Chromium's cross-origin isolated performance clock.
+    noiseFloorMs: 0.005,
     results,
   };
+}
+
+/**
+ * The most a guarded op may take before the gate calls it a regression: its
+ * baseline plus the largest of the tolerance, one tick of the clock
+ * (`noiseFloorMs`) and half the spread of the baseline's own rounds. An op of
+ * a few dozen microseconds moves more than the tolerance between sessions with
+ * nothing changed (round 6: selectRow recorded at 0.085 ms, measured at
+ * 0.100 ms at load 8, its recorded rounds spanning 0.06 ms); the spread is how
+ * far it moved while the baseline was recorded.
+ */
+export function domThreshold(base, tolerance, noiseFloorMs) {
+  return base.ms + Math.max(base.ms * tolerance, noiseFloorMs, (Number.isFinite(base.spread) ? base.spread : 0) / 2);
+}
+
+// The machine's 1, 5 and 15 minute load averages: a baseline recorded on a
+// busy machine is not one, so the file says what it was recorded under.
+export function loadAverage() {
+  return os.loadavg().map((n) => +n.toFixed(2));
 }
 
 function readToolchain() {
@@ -150,14 +165,15 @@ async function main() {
     execFileSync(process.execPath, ['build-all.mjs', 'what'], { cwd: krausest, stdio: 'inherit' });
   }
   const toolchain = readToolchain();
+  const loadAtStart = loadAverage();
   const runs = [];
   for (let i = 0; i < ROUNDS; i++) {
     process.stdout.write(`round ${i + 1}/${ROUNDS}`);
-    const run = await runFrameworks(['what'], { samples: SAMPLES, provenance: true });
+    const run = await runFrameworks(['what'], { samples: SAMPLES, samplesHeavy: Math.min(5, SAMPLES), provenance: true, scriptMetric: true });
     runs.push(run);
-    process.stdout.write(` ${OPS.map((op) => `${GATE_NAMES[op.id]}:${p25(run.results.what[op.id].samples)}`).join(' ')}\n`);
+    process.stdout.write(` ${OPS.map((op) => `${GATE_NAMES[op.id]}:${p25(run.results.what[op.id].script.samples)}`).join(' ')}\n`);
   }
-  const report = createDomReport(runs, { toolchain, buildPerformed });
+  const report = createDomReport(runs, { toolchain, buildPerformed, load: { start: loadAtStart, end: loadAverage() } });
   writeFileSync(outPath, JSON.stringify(report, null, 2) + '\n');
   console.log(`DOM benchmark written to ${outPath}`);
 }

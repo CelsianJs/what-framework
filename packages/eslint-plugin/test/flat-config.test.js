@@ -51,21 +51,34 @@ describe('flat configs work out of the box', () => {
     const ruleIds = result.messages.map(m => m.ruleId);
     assert.ok(ruleIds.includes('what/signal-call-in-jsx'),
       `expected what/signal-call-in-jsx to fire, got: ${ruleIds.join(', ')}`);
-    assert.ok(ruleIds.includes('what/no-camelcase-events'),
-      `expected what/no-camelcase-events to fire, got: ${ruleIds.join(', ')}`);
-    assert.ok(result.messages.length >= 3,
-      `expected at least 3 findings, got ${result.messages.length}`);
+    assert.ok(!ruleIds.includes('what/no-camelcase-events'),
+      `onClick is not a finding (the runtime takes it), got: ${ruleIds.join(', ')}`);
+    assert.ok(result.messages.length >= 2,
+      `expected at least 2 findings, got ${result.messages.length}`);
   });
 
-  it('recommended config message reflects compiler auto-wrapping (no "[Function]" claim)', async () => {
+  it('recommended config reports the signal used as a condition, not the live binding', async () => {
     const eslint = makeESLint(plugin.configs.recommended);
     const results = await eslint.lintFiles(['bad-component.jsx']);
-    const msg = results[0].messages.find(m => m.ruleId === 'what/signal-call-in-jsx');
-    assert.ok(msg, 'signal-call-in-jsx finding expected');
-    assert.ok(!msg.message.includes('[Function]'),
-      'message must not claim bare signals render "[Function]" — the compiler auto-wraps them');
-    assert.ok(/auto-wrap/i.test(msg.message),
-      `message should mention compiler auto-wrapping, got: ${msg.message}`);
+    const findings = results[0].messages.filter(m => m.ruleId === 'what/signal-call-in-jsx' || m.ruleId === 'what/no-uncalled-signals');
+    assert.ok(findings.length > 0, 'the unconditional {isLoading && …} is reported');
+    for (const msg of findings) {
+      assert.ok(/isLoading/.test(msg.message), `only the condition is reported, got: ${msg.message}`);
+    }
+    const msg = findings.find(m => m.ruleId === 'what/signal-call-in-jsx');
+    assert.ok(/always truthy/.test(msg.message), `the message says why, got: ${msg.message}`);
+  });
+
+  it('recommended config leaves state from React hooks alone in a what-react file', () => {
+    const code = (source) => `import { useState } from '${source}';\n` +
+      'export function Menu() { const [open, setOpen] = useState(false); ' +
+      'return <div onClick={() => setOpen(true)}>{open && <p>menu</p>}{open ? <b>on</b> : null}</div>; }';
+    const reported = (source) => new Linter().verify(code(source), [plugin.configs.recommended], { filename: 'menu.jsx' })
+      .filter(m => m.ruleId === 'what/signal-call-in-jsx' || m.ruleId === 'what/no-uncalled-signals')
+      .map(m => m.ruleId);
+    assert.deepEqual(reported('react'), []);
+    assert.deepEqual(reported('what-react'), []);
+    assert.equal(reported('what-framework').filter(id => id === 'what/signal-call-in-jsx').length, 2, "What's own useState still is");
   });
 
   it('strict config lints the same fixture as errors', async () => {

@@ -38,6 +38,7 @@ import { createCacheEngine, createMemoryStore } from 'what-isr';
 import { createRequestHandler } from '../src/adapter/core.js';
 import { action } from '../src/actions.js';
 import { Form, ACTION_ENDPOINT } from '../src/form.js';
+import { renderToString } from '../src/index.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
@@ -169,23 +170,23 @@ describe('#20 the per-request CSRF token reaches the loader that renders the for
     assert.equal(/what-csrf-token/.test(html), false, 'and the cached HTML must not carry one');
   });
 
-  it('warns about both halves of the contract when a server-rendered form has no token', () => {
+  // A form on a cached page has no token, and does not need one: the action
+  // endpoint takes a post the browser marks same-origin (Fetch Metadata or
+  // Origin). So a tokenless form renders no empty token field and warns about
+  // nothing.
+  it('renders a form without a token, with no token field and no warning', () => {
     const warnings = [];
     const original = console.warn;
     console.warn = (...args) => warnings.push(args.join(' '));
+    let html;
     try {
-      Form({ action: reviewAction, csrfToken: null });
+      html = renderToString(h(Form, { action: reviewAction, csrfToken: null }));
     } finally {
       console.warn = original;
     }
-
-    assert.equal(warnings.length, 1, 'the missing-token warning still fires');
-    const [warning] = warnings;
-    // Where the token comes from...
-    assert.match(warning, /loader/i);
-    // ...and where it deliberately does not, so nobody chases a token that a
-    // shared cache entry is never going to have.
-    assert.match(warning, /cached|static/i);
+    assert.deepEqual(warnings, []);
+    assert.doesNotMatch(html, /what-csrf-token/);
+    assert.match(html, /name="_action"/);
   });
 });
 
@@ -498,16 +499,17 @@ describe('#29 core declarations match the reactive runtime', () => {
     assert.equal(diags.length, 0, `expected no diagnostics, got:\n${summarize(diags)}`);
   });
 
-  it('types batch() as returning nothing, because it returns undefined', () => {
+  it('types batch() as returning its callback value, as the runtime does', async () => {
+    const { batch } = await import('what-core');
+    assert.equal(batch(() => 42), 42);
     const diags = diagnose('__probe-batch.ts', `
       import { batch, signal } from 'what-core';
       const a = signal(0);
       export const value: number = batch(() => { a(1); return 42; });
+      // @ts-expect-error the result is the callback's type, not any
+      export const wrong: string = batch(() => 42);
     `);
-    assert.ok(
-      diags.some((d) => d.code === 2322),
-      `batch() returns undefined at runtime, so its result must not be assignable to number. Got:\n${summarize(diags) || '(no diagnostics)'}`,
-    );
+    assert.equal(diags.length, 0, `expected no diagnostics, got:\n${summarize(diags)}`);
   });
 
   it('still accepts batch() as a statement', () => {

@@ -3,13 +3,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { loadCompiled } from '../../../test-utils/load-compiled.js';
 
 // Set up DOM globals before importing framework modules
 const { dom } = installDOM('<!DOCTYPE html><html><head></head><body><div id="app"></div></body></html>');
 
 const { h } = await import('../src/h.js');
 const { mount, _isUnsafeAttr } = await import('../src/dom.js');
-const { setProp } = await import('../src/render.js');
+const { setProp, spread } = await import('../src/render.js');
+const { flushSync } = await import('../src/reactive.js');
 const { Head, beginHeadCollection, endHeadCollection, clearHead } = await import('../src/head.js');
 
 function getContainer() {
@@ -273,3 +275,119 @@ describe('non-coercible URL attribute values', () => {
     assert.equal(_isUnsafeAttr('id', Object.create(null)), false);
   });
 });
+
+// =========================================================================
+// Every element property that parses markup or loads a URL, on every path
+// =========================================================================
+// An untrusted props object (attributes from a CMS, JSON, a URL) reaches the
+// property fall-through of setProp for any key the element has as a property,
+// and `outerHTML` used to be written through: it replaced the element with its
+// value parsed as live markup. Each property below parses its value as markup
+// (outerHTML, innerHTML, srcdoc) or navigates or loads with a URL that can run
+// script (href, src, action, formAction, data, ping, xlink:href). Each must be
+// refused, or pass the URL check, on the compiled path (an explicit attribute
+// and a spread), on h(), through setProp and through spread, with a plain value
+// and through a reactive accessor.
+
+const MARKUP = '<img id="pwn" src="x">';
+const SINKS = [
+  // [prop, tag, hostile value, svg]
+  ['outerHTML', 'div', MARKUP],
+  ['OuterHTML', 'div', MARKUP],
+  ['innerHTML', 'div', MARKUP],
+  ['srcdoc', 'iframe', MARKUP],
+  ['srcDoc', 'iframe', MARKUP],
+  ['href', 'a', 'javascript:alert(1)'],
+  ['href', 'area', 'javascript:alert(1)'],
+  ['src', 'iframe', 'javascript:alert(1)'],
+  ['src', 'embed', 'javascript:alert(1)'],
+  ['action', 'form', 'javascript:alert(1)'],
+  ['formAction', 'button', 'javascript:alert(1)'],
+  ['formaction', 'input', 'javascript:alert(1)'],
+  ['data', 'object', 'javascript:alert(1)'],
+  ['ping', 'a', 'javascript:alert(1)'],
+  ['xlink:href', 'a', 'javascript:alert(1)', true],
+  ['href', 'a', 'javascript:alert(1)', true],
+];
+
+// The sink is closed when the element is still in place, nothing parsed from
+// the value is in the document, and no attribute or property holds the value.
+function assertClosed(host, el, prop, value, label) {
+  assert.ok(el && el.isConnected, `${label}: the element was replaced`);
+  assert.equal(host.querySelector('#pwn'), null, `${label}: markup from the value is live`);
+  for (const name of [prop, prop.toLowerCase()]) {
+    assert.notEqual(el.getAttribute(name), value, `${label}: attribute ${name} holds the value`);
+  }
+  if (prop in el && typeof el[prop] === 'string') {
+    assert.ok(!el[prop].includes(value) && !/^javascript:/i.test(el[prop]), `${label}: property ${prop} is ${el[prop]}`);
+  }
+}
+
+const tags = [...new Set(SINKS.map(([, tag, , svg]) => (svg ? 'svg:' : '') + tag))];
+const compiledSinks = await loadCompiled(
+  tags.map((t, i) => {
+    const tag = t.replace('svg:', '');
+    const el = `<${tag} {...p.attrs} />`;
+    return `export const S${i} = (p) => <section>${t.startsWith('svg:') ? `<svg>${el}</svg>` : el}</section>;`;
+  }).join('\n') + `
+  export const Outer = (p) => <section><div outerHTML={p.value()} /></section>;
+  export const OuterStatic = (p) => <section><div outerHTML={p.value} /></section>;
+`);
+
+function renderPath(path, tag, svg, props) {
+  const container = getContainer();
+  const host = container.appendChild(document.createElement('section'));
+  const wrap = svg ? host.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'svg')) : host;
+  let el;
+  if (path === 'compiled') {
+    const Component = compiledSinks[`S${tags.indexOf((svg ? 'svg:' : '') + tag)}`];
+    silenceWarns(() => mount(() => Component({ attrs: props }), host));
+    el = host.querySelector(`section > ${svg ? 'svg > ' : ''}${tag}`);
+  } else if (path === 'h()') {
+    const vnode = svg ? h('svg', {}, h(tag, props)) : h(tag, props);
+    silenceWarns(() => mount(h('div', {}, vnode), host));
+    el = host.querySelector(`div > ${svg ? 'svg > ' : ''}${tag}`);
+  } else {
+    el = wrap.appendChild(svg ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag));
+    silenceWarns(() => {
+      if (path === 'setProp') for (const key in props) setProp(el, key, props[key]);
+      else spread(el, props);
+    });
+  }
+  flushSync();
+  return { host: container, el };
+}
+
+describe('markup and URL property sinks on every path', () => {
+  for (const path of ['compiled', 'h()', 'setProp', 'spread']) {
+    for (const [prop, tag, value, svg] of SINKS) {
+      const label = `${path}: ${prop} on ${svg ? 'svg ' : ''}<${tag}>`;
+      it(label, () => {
+        const plain = renderPath(path, tag, svg, { [prop]: value });
+        assertClosed(plain.host, plain.el, prop, value, label);
+        const reactive = renderPath(path, tag, svg, { [prop]: () => value });
+        assertClosed(reactive.host, reactive.el, prop, value, `${label} (accessor)`);
+      });
+    }
+  }
+
+  it('compiled: an explicit outerHTML attribute is refused, plain and reactive', () => {
+    for (const [Component, value] of [[compiledSinks.OuterStatic, MARKUP], [compiledSinks.Outer, () => MARKUP]]) {
+      const container = getContainer();
+      silenceWarns(() => mount(() => Component({ value }), container));
+      assertClosed(container, container.querySelector('section > div'), 'outerHTML', MARKUP, 'explicit outerHTML');
+    }
+  });
+
+  it('still applies safe values and the explicit innerHTML form', () => {
+    const container = getContainer();
+    mount(h('div', {}, h('a', { href: '/ok' }), h('p', { innerHTML: { __html: '<b>x</b>' } })), container);
+    assert.equal(container.querySelector('a').getAttribute('href'), '/ok');
+    assert.equal(container.querySelector('p b').textContent, 'x');
+    const el = document.createElement('div');
+    spread(el, { innerHTML: { __html: '<i>y</i>' }, title: 't' });
+    assert.equal(el.innerHTML, '<i>y</i>');
+    assert.equal(el.title, 't');
+  });
+});
+

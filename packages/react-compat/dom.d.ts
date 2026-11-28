@@ -9,9 +9,18 @@ export interface Root {
 }
 
 export function createRoot(container: Element | DocumentFragment): Root;
+/** React's hydrateRoot options that what-react honours (it renders the root in the browser, replacing the server's HTML). */
+export interface HydrationOptions {
+  /** useId gives `_<identifierPrefix>r_<n>_`, as React's client ids. */
+  identifierPrefix?: string;
+  /** Called once when what the client rendered is not the server's HTML. */
+  onRecoverableError?: (error: unknown, errorInfo?: { componentStack?: string }) => void;
+}
+
 export function hydrateRoot(
   container: Element | DocumentFragment,
   initialChildren: ReactNode,
+  options?: HydrationOptions,
 ): Root;
 
 export function render(
@@ -41,6 +50,29 @@ export function unstable_batchedUpdates<A, R>(
   arg?: A,
 ): R;
 
+export interface FormStatus {
+  pending: boolean;
+  data: FormData | null;
+  method: string | null;
+  action: ((formData: FormData) => void | Promise<void>) | null;
+}
+/** The status of the <form> this component is inside, while its function `action` runs. */
+export function useFormStatus(): FormStatus;
+/** React 18's name for useActionState. */
+export function useFormState<S, P>(
+  action: (state: Awaited<S>, payload: P) => S | Promise<S>,
+  initialState: Awaited<S>,
+  permalink?: string,
+): [state: Awaited<S>, dispatch: (payload: P) => void, isPending: boolean];
+export function requestFormReset(form: HTMLFormElement): void;
+// Resource hints. React writes <link> tags for these; here they do nothing.
+export function preload(href: string, options?: object): void;
+export function preloadModule(href: string, options?: object): void;
+export function preinit(href: string, options?: object): void;
+export function preinitModule(href: string, options?: object): void;
+export function preconnect(href: string, options?: object): void;
+export function prefetchDNS(href: string): void;
+
 export const version: string;
 
 declare const ReactDOM: {
@@ -52,6 +84,15 @@ declare const ReactDOM: {
   flushSync: typeof flushSync;
   findDOMNode: typeof findDOMNode;
   unstable_batchedUpdates: typeof unstable_batchedUpdates;
+  useFormStatus: typeof useFormStatus;
+  useFormState: typeof useFormState;
+  requestFormReset: typeof requestFormReset;
+  preload: typeof preload;
+  preloadModule: typeof preloadModule;
+  preinit: typeof preinit;
+  preinitModule: typeof preinitModule;
+  preconnect: typeof preconnect;
+  prefetchDNS: typeof prefetchDNS;
   version: string;
 };
 export default ReactDOM;

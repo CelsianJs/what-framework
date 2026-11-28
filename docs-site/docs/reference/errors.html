@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every diagnostic the What Framework can raise, with the suggestion and worked example for each of the 33 codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the 80 codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -64,7 +64,7 @@
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every diagnostic What can raise, all 33 of them: 27 errors and 6 warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all 80 of them: 44 errors and 36 warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -73,61 +73,180 @@
           <h2 id="all-codes">All codes</h2>
           <ul class="error-index">
             <li><a href="#ERR_ACTION_FAILED">ERR_ACTION_FAILED</a></li>
+            <li><a href="#ERR_ASYNC_COMPONENT">ERR_ASYNC_COMPONENT</a></li>
+            <li><a href="#ERR_ASYNC_EFFECT">ERR_ASYNC_EFFECT</a></li>
+            <li><a href="#ERR_ASYNC_MEMO">ERR_ASYNC_MEMO</a></li>
             <li><a href="#ERR_ASYNC_MIDDLEWARE">ERR_ASYNC_MIDDLEWARE</a></li>
+            <li><a href="#ERR_ASYNC_READ_IN_BODY">ERR_ASYNC_READ_IN_BODY</a></li>
+            <li><a href="#ERR_ASYNC_WITHOUT_SUSPENSE">ERR_ASYNC_WITHOUT_SUSPENSE</a></li>
             <li><a href="#ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</a></li>
+            <li><a href="#ERR_CLASS_COMPONENT_NOT_INSTALLED">ERR_CLASS_COMPONENT_NOT_INSTALLED</a></li>
+            <li><a href="#ERR_CLEANUP_READS_LIVE">ERR_CLEANUP_READS_LIVE</a></li>
+            <li><a href="#ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</a></li>
             <li><a href="#ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</a></li>
-            <li><a href="#ERR_DESTRUCTURED_PROPS">ERR_DESTRUCTURED_PROPS</a></li>
+            <li><a href="#ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</a></li>
+            <li><a href="#ERR_COMPUTED_CYCLE">ERR_COMPUTED_CYCLE</a></li>
+            <li><a href="#ERR_CONTEXT_NOT_PROVIDED">ERR_CONTEXT_NOT_PROVIDED</a></li>
+            <li><a href="#ERR_DERIVED_WITHOUT_STATE">ERR_DERIVED_WITHOUT_STATE</a></li>
             <li><a href="#ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</a></li>
+            <li><a href="#ERR_DUPLICATE_KEY">ERR_DUPLICATE_KEY</a></li>
+            <li><a href="#ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</a></li>
+            <li><a href="#ERR_EFFECT_DEP_NOT_SIGNAL">ERR_EFFECT_DEP_NOT_SIGNAL</a></li>
+            <li><a href="#ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</a></li>
             <li><a href="#ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</a></li>
-            <li><a href="#ERR_FORM_ACTION_NOT_REGISTERED">ERR_FORM_ACTION_NOT_REGISTERED</a></li>
+            <li><a href="#ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</a></li>
+            <li><a href="#ERR_FORM_RADIO_UNTYPED">ERR_FORM_RADIO_UNTYPED</a></li>
+            <li><a href="#ERR_FORM_RADIO_WITHOUT_VALUE">ERR_FORM_RADIO_WITHOUT_VALUE</a></li>
+            <li><a href="#ERR_HOOK_OUTSIDE_COMPONENT">ERR_HOOK_OUTSIDE_COMPONENT</a></li>
             <li><a href="#ERR_HOOK_OUTSIDE_RENDER">ERR_HOOK_OUTSIDE_RENDER</a></li>
             <li><a href="#ERR_HYDRATION_MISMATCH">ERR_HYDRATION_MISMATCH</a></li>
+            <li><a href="#ERR_HYDRATION_OWNER_MISMATCH">ERR_HYDRATION_OWNER_MISMATCH</a></li>
             <li><a href="#ERR_INFINITE_EFFECT">ERR_INFINITE_EFFECT</a></li>
             <li><a href="#ERR_INVALID_HTML_NESTING">ERR_INVALID_HTML_NESTING</a></li>
             <li><a href="#ERR_INVALID_SSR_TAG">ERR_INVALID_SSR_TAG</a></li>
             <li><a href="#ERR_ISLAND_STORE_OUTSIDE_RENDER">ERR_ISLAND_STORE_OUTSIDE_RENDER</a></li>
+            <li><a href="#ERR_ISLAND_WITHOUT_NAME">ERR_ISLAND_WITHOUT_NAME</a></li>
             <li><a href="#ERR_ISR_MISSING_CLIENT">ERR_ISR_MISSING_CLIENT</a></li>
             <li><a href="#ERR_ISR_VARY_NO_HEADERS">ERR_ISR_VARY_NO_HEADERS</a></li>
             <li><a href="#ERR_ISR_VARY_UNRESOLVED">ERR_ISR_VARY_UNRESOLVED</a></li>
+            <li><a href="#ERR_JSX_ISLAND_PROP">ERR_JSX_ISLAND_PROP</a></li>
+            <li><a href="#ERR_LATE_REDIRECT">ERR_LATE_REDIRECT</a></li>
             <li><a href="#ERR_MISSING_CLEANUP">ERR_MISSING_CLEANUP</a></li>
             <li><a href="#ERR_MISSING_KEY">ERR_MISSING_KEY</a></li>
             <li><a href="#ERR_MISSING_SIGNAL_READ">ERR_MISSING_SIGNAL_READ</a></li>
+            <li><a href="#ERR_MOUNT_TARGET_MISSING">ERR_MOUNT_TARGET_MISSING</a></li>
+            <li><a href="#ERR_MOVED_IMPORT">ERR_MOVED_IMPORT</a></li>
+            <li><a href="#ERR_NESTED_FLUSH_SYNC">ERR_NESTED_FLUSH_SYNC</a></li>
             <li><a href="#ERR_NO_SECURE_RANDOM">ERR_NO_SECURE_RANDOM</a></li>
+            <li><a href="#ERR_NO_VNODE_RENDERER">ERR_NO_VNODE_RENDERER</a></li>
+            <li><a href="#ERR_OPTIMISTIC_OUTSIDE_TRANSITION">ERR_OPTIMISTIC_OUTSIDE_TRANSITION</a></li>
             <li><a href="#ERR_ORPHAN_EFFECT">ERR_ORPHAN_EFFECT</a></li>
             <li><a href="#ERR_PAGE_NO_DEFAULT_EXPORT">ERR_PAGE_NO_DEFAULT_EXPORT</a></li>
+            <li><a href="#ERR_PAYLOAD_TOO_LARGE">ERR_PAYLOAD_TOO_LARGE</a></li>
+            <li><a href="#ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</a></li>
+            <li><a href="#ERR_PORTAL_TARGET_MISSING">ERR_PORTAL_TARGET_MISSING</a></li>
             <li><a href="#ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</a></li>
+            <li><a href="#ERR_PROP_READ_ONCE">ERR_PROP_READ_ONCE</a></li>
+            <li><a href="#ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</a></li>
+            <li><a href="#ERR_REBUILT_COMPONENT">ERR_REBUILT_COMPONENT</a></li>
+            <li><a href="#ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</a></li>
             <li><a href="#ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</a></li>
             <li><a href="#ERR_RUNTIME">ERR_RUNTIME</a></li>
+            <li><a href="#ERR_SIGNAL_WRITE_IN_COMPUTED">ERR_SIGNAL_WRITE_IN_COMPUTED</a></li>
             <li><a href="#ERR_SIGNAL_WRITE_IN_RENDER">ERR_SIGNAL_WRITE_IN_RENDER</a></li>
+            <li><a href="#ERR_SSR_INVALID_ID_PREFIX">ERR_SSR_INVALID_ID_PREFIX</a></li>
+            <li><a href="#ERR_SSR_LATE_HEAD">ERR_SSR_LATE_HEAD</a></li>
+            <li><a href="#ERR_SSR_SUSPENSE_TIMEOUT">ERR_SSR_SUSPENSE_TIMEOUT</a></li>
+            <li><a href="#ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</a></li>
+            <li><a href="#ERR_STATE_READ_ONCE">ERR_STATE_READ_ONCE</a></li>
             <li><a href="#ERR_STATIC_WRITE_ESCAPE">ERR_STATIC_WRITE_ESCAPE</a></li>
+            <li><a href="#ERR_STORAGE_FAILED">ERR_STORAGE_FAILED</a></li>
+            <li><a href="#ERR_SUSPEND_IN_TRANSITION">ERR_SUSPEND_IN_TRANSITION</a></li>
+            <li><a href="#ERR_SYMBOL_CHILD">ERR_SYMBOL_CHILD</a></li>
+            <li><a href="#ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</a></li>
             <li><a href="#ERR_UNKNOWN">ERR_UNKNOWN</a></li>
             <li><a href="#ERR_UNKNOWN_TOOL">ERR_UNKNOWN_TOOL</a></li>
             <li><a href="#ERR_UNSAFE_INNERHTML">ERR_UNSAFE_INNERHTML</a></li>
             <li><a href="#ERR_UNSAFE_REDIRECT">ERR_UNSAFE_REDIRECT</a></li>
+            <li><a href="#ERR_UNSAFE_STATIC_MARKUP">ERR_UNSAFE_STATIC_MARKUP</a></li>
             <li><a href="#ERR_USE_INVALID_ARG">ERR_USE_INVALID_ARG</a></li>
+            <li><a href="#ERR_USE_UNCACHED_PROMISE">ERR_USE_UNCACHED_PROMISE</a></li>
+            <li><a href="#ERR_WRITE_AFTER_AWAIT">ERR_WRITE_AFTER_AWAIT</a></li>
           </ul>
 
           <h2 id="ERR_ACTION_FAILED">ERR_ACTION_FAILED</h2>
           <p class="subtitle">The server action rejected.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>The server action rejected. The message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string.</p>
+          <p>The server action rejected. The server refused the call or the action threw: `status` is the response's (403 for a CSRF check, 404 for an action it does not have, 400 for arguments it cannot read, 500 for a throw), and the message is the one the action threw, forwarded to the client by the action handler. Throw a typed error from the action and branch on its shape rather than parsing this string; a body over bodyLimit is ERR_PAYLOAD_TOO_LARGE.</p>
 <pre><code>// In the action, fail with something the client can read:
 export const save = action(async (data) =&gt; {
   if (!data.email) throw Object.assign(new Error('Email required'), { field: 'email' });
 });</code></pre>
+
+          <h2 id="ERR_ASYNC_COMPONENT">ERR_ASYNC_COMPONENT</h2>
+          <p class="subtitle">Component &quot;component&quot; returned a promise: an async component renders as text.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>Components run once and synchronously, so an async one renders the promise's text, even under &lt;Suspense&gt;. Keep the component synchronous and make the data an async value: computed(async ({ signal }) =&gt; ...) made in the body or outside it, and read in JSX, where a binding waits for it to land and a &lt;Suspense&gt; above shows its fallback meanwhile. For a component whose code loads later, use lazy().</p>
+<pre><code>// Bad — an async component renders &quot;[object Promise]&quot;:
+async function Profile(props) {
+  const user = await fetchUser(props.id);
+  return &lt;h1&gt;{user.name}&lt;/h1&gt;;
+}
+
+// Good — a synchronous component that reads an async value:
+function Profile(props) {
+  const user = computed(({ signal }) =&gt; fetchUser(props.id, { signal }));
+  return &lt;h1&gt;{user().name}&lt;/h1&gt;;
+}</code></pre>
+
+          <h2 id="ERR_ASYNC_EFFECT">ERR_ASYNC_EFFECT</h2>
+          <p class="subtitle">Effect &quot;effectName&quot; is an async function. Only what it reads before its first await is tracked, the promise it returns is not a cleanup, and an older run can finish after a newer one and overwrite it.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Fetch in an async computed instead: computed(async () =&gt; ...) is a value in the graph that supersedes older runs, aborts them and shows as pending, and an effect or binding that reads it runs when the value lands. Keep effects synchronous; if one must start async work, start it inside and keep the effect itself sync, returning a cleanup that cancels it.</p>
+<pre><code>// Bad — reads after the await are not tracked, and a slow old run can win:
+useEffect(async () =&gt; {
+  const res = await fetch('/api/users/' + id());
+  user(await res.json());
+});
+
+// Good — an async computed: one value, newest run wins, older runs aborted:
+function Profile() {
+  const user = computed(async ({ signal }) =&gt; {
+    const res = await fetch('/api/users/' + id(), { signal });
+    return res.json();
+  });
+  return &lt;h1&gt;{user().name}&lt;/h1&gt;;
+}</code></pre>
+
+          <h2 id="ERR_ASYNC_MEMO">ERR_ASYNC_MEMO</h2>
+          <p class="subtitle">useMemo() returned a promise; useMemo keeps it, so its readers get the promise.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>useMemo keeps what its function returns, as React's does. For a value that loads, use computed() or useComputed() instead: computed(async ({ signal }) =&gt; ...) is an async value, whose readers wait for it to land and which refetches when what it reads changes. Keep useMemo for values computed synchronously.</p>
+<pre><code>// Bad — user() is a promise:
+const user = useMemo(() =&gt; fetch('/api/users/' + id()).then((r) =&gt; r.json()));
+
+// Good — user() is the user once it has landed:
+const user = computed(({ signal }) =&gt; fetch('/api/users/' + id(), { signal }).then((r) =&gt; r.json()));</code></pre>
 
           <h2 id="ERR_ASYNC_MIDDLEWARE">ERR_ASYNC_MIDDLEWARE</h2>
           <p class="subtitle">Route middleware must be synchronous; received a promise or thenable.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
           <p>Return true or void to continue, false to deny access, or a redirect path synchronously. Promises and thenables fail closed: the protected component never mounts, and their results are not awaited or used to authorize navigation. For async authorization, wrap the route component with asyncGuard(check)(Component), optionally passing fallback and loading options to asyncGuard.</p>
 <pre><code>// Bad - an async middleware result cannot authorize a route:
-{ path: '/private', component: Component, middleware: [async () =&gt; check()] }
+const routes = [{ path: '/private', component: Component, middleware: [async () =&gt; check()] }];
 
 // Good - the component wrapper waits for the authorization check:
-{ path: '/private', component: asyncGuard(check)(Component) }
+const routes = [{ path: '/private', component: asyncGuard(check)(Component) }];
 
 // Optional denial redirect and loading UI:
-{ path: '/private', component: asyncGuard(check, { fallback: '/login', loading: Spinner })(Component) }</code></pre>
+const Private = asyncGuard(check, { fallback: '/login', loading: Spinner })(Component);</code></pre>
+
+          <h2 id="ERR_ASYNC_READ_IN_BODY">ERR_ASYNC_READ_IN_BODY</h2>
+          <p class="subtitle">Component &quot;component&quot; read an async value it made in its own body before the value landed: suspending would run it again, make the value again and fetch again, forever.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>A component body runs once; reading an async value there before it lands suspends the component, and running it again makes a new computed with a new fetch. Read the value in JSX, where a binding waits for it (and a &lt;Suspense&gt; shows its fallback), or make the computed outside the component (a parent, a module) and pass it in.</p>
+<pre><code>// Bad — read in the body that made it:
+function Profile() {
+  const user = computed(() =&gt; fetchUser());
+  const name = user().name;
+  return &lt;h1&gt;{name}&lt;/h1&gt;;
+}
+
+// Good — read in JSX:
+function Profile() {
+  const user = computed(() =&gt; fetchUser());
+  return &lt;h1&gt;{user().name}&lt;/h1&gt;;
+}</code></pre>
+
+          <h2 id="ERR_ASYNC_WITHOUT_SUSPENSE">ERR_ASYNC_WITHOUT_SUSPENSE</h2>
+          <p class="subtitle">Component &quot;component&quot; suspended (lazy(), use() or a value that had not landed, read in its body) with no &lt;Suspense&gt; above it: it renders nothing until the promise settles.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A component that suspends waits for its promise and then renders in place. With a &lt;Suspense fallback&gt; above it, the fallback shows meanwhile on first load. Wrap the part of the page that loads in &lt;Suspense&gt;, or read the async value in JSX instead of in the component body: a binding that reads it renders nothing until it lands, and is not a suspension.</p>
+<pre><code>// Bad — nothing on screen, and no fallback, until the chunk arrives:
+mount(&lt;Settings /&gt;, '#app');   // Settings = lazy(() =&gt; import('./Settings.jsx'))
+
+// Good — a fallback while it loads:
+mount(&lt;Suspense fallback={&lt;Spinner /&gt;}&gt;&lt;Settings /&gt;&lt;/Suspense&gt;, '#app');</code></pre>
 
           <h2 id="ERR_CHILDREN_ONLY">ERR_CHILDREN_ONLY</h2>
           <p class="subtitle">React.Children.only expected to receive a single React element child.</p>
@@ -139,78 +258,266 @@ export const save = action(async (data) =&gt; {
 // Good:
 &lt;Tooltip&gt;&lt;span&gt;a&lt;/span&gt;&lt;/Tooltip&gt;</code></pre>
 
-          <h2 id="ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</h2>
-          <p class="subtitle">what-compiler output cannot be server-rendered: file.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-server</code>.</p>
-          <p>what-compiler lowers JSX to module-scope _$template() calls that run document.createElement() at import time, and to _$createComponent() which builds DOM. Neither has a server-rendered form, so a module it compiled throws &quot;document is not defined&quot; when a server imports it. Server-rendered views have two supported spellings: author them with h(), or compile them with the automatic JSX runtime (jsxImportSource: &quot;what-framework&quot;), which emits h() calls that renderToString understands. what-compiler stays on the client entry, where the fine-grained output is the point.</p>
-<pre><code>// Bad — a server module compiled by what-compiler:
-// vite.config.js: plugins: [what()]  +  vite build --ssr
-export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // throws on import
+          <h2 id="ERR_CLASS_COMPONENT_NOT_INSTALLED">ERR_CLASS_COMPONENT_NOT_INSTALLED</h2>
+          <p class="subtitle">[what-react] name is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-react</code>.</p>
+          <p>Class components come with what-react's Component and PureComponent, or with `what-react/class`. A class whose prototype is marked isReactComponent without extending Component (by hand, or by a library) needs the install. reactCompat() adds `import 'what-react/class'` to every module that has the marker; a build without the plugin (esbuild, another bundler) imports it once, in its entry.</p>
+<pre><code>// main.jsx, built without what-react's Vite plugin
+import 'what-react/class';
+import { createRoot } from 'react-dom/client';
+import { App } from './App.jsx';
 
-// Good — h(), which renderToString understands:
-import { h } from 'what-framework';
-export function Page() { return h('h1', null, 'Hi'); }
+createRoot(document.getElementById('app')).render(&lt;App /&gt;);</code></pre>
 
-// Good — the automatic JSX runtime for the server build:
-// vite.config.js (server): esbuild: { jsx: 'automatic',
-//                            jsxImportSource: 'what-framework' }
-export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // lowers to h()</code></pre>
+          <h2 id="ERR_CLEANUP_READS_LIVE">ERR_CLEANUP_READS_LIVE</h2>
+          <p class="subtitle">The hook cleanup in &lt;component&gt; reads `name` when it runs, not the value its run used.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-compiler</code>.</p>
+          <p>A component runs once, so a prop or a state accessor read in an effect's cleanup is read when the cleanup runs: after the change that makes the effect run again. React's cleanup closes over the render that made it and sees the old value, so a cleanup that undoes what its run did with a prop (`join(roomId)`, then `leave(roomId)`) undoes it for the new value here, and the old one is never undone. Keep the value the run used in a local and use the local in the run and in the cleanup. On unmount, when nothing changed, both forms do the same. what-compiler reports it at build time (development builds) when the cleanup reads a prop or calls a state accessor that its run also reads, and the effect can run again (it has no `[]` dependency array); eslint-plugin-what's no-cleanup-reads-live reports the same where the compiler does not build (the islands template, h() code).</p>
+<pre><code>import { useEffect } from 'what-framework';
 
-          <h2 id="ERR_DESTRUCTURED_PROPS">ERR_DESTRUCTURED_PROPS</h2>
-          <p class="subtitle">Destructuring 'binding' in the component body snapshots props and loses reactivity.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-devtools-mcp</code>.</p>
-          <p>What components run ONCE, so the body is not re-run when a prop changes. Reading `props.foo` goes through the reactive proxy and tracks; `const { foo } = props` reads the value once and detaches it. Read through the proxy inside JSX and effects, or wrap each field in an accessor.</p>
-<pre><code>// Bad - snapshots at first run, never updates:
-function Row(props) {
-  const { label } = props;
-  return &lt;span&gt;{label}&lt;/span&gt;;
+// Bad - when roomId changes, the cleanup leaves the new room:
+function ChatRoom({ roomId }) {
+  useEffect(() =&gt; {
+    join(roomId);
+    return () =&gt; leave(roomId);
+  });
+  return &lt;h2&gt;{roomId}&lt;/h2&gt;;
 }
 
-// Good - reads through the proxy each time:
-function Row(props) {
-  return &lt;span&gt;{props.label}&lt;/span&gt;;
-}
-
-// Good - an accessor keeps the destructured name:
-function Row(props) {
-  const label = () =&gt; props.label;
-  return &lt;span&gt;{label()}&lt;/span&gt;;
+// Good - the cleanup undoes what its run did:
+function ChatRoom({ roomId }) {
+  useEffect(() =&gt; {
+    const room = roomId;
+    join(room);
+    return () =&gt; leave(room);
+  });
+  return &lt;h2&gt;{roomId}&lt;/h2&gt;;
 }</code></pre>
+
+          <h2 id="ERR_CLEANUP_WITHOUT_OWNER">ERR_CLEANUP_WITHOUT_OWNER</h2>
+          <p class="subtitle">onCleanup() was called outside a component and outside any reactive owner, so the cleanup never runs.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>onCleanup attaches to the component being rendered, or else to the reactive owner around the call: createRoot, a list row, a mount root, or the run of an effect. Code that runs later has none of these: an async callback after an await, a timer, an event handler. Register the cleanup while the component body runs, before anything awaits. For a subscription outside any component, create it inside createRoot and keep the dispose function it passes you.</p>
+<pre><code>// Bad - after the await nothing owns the call, so the cleanup never runs:
+function Room({ id }) {
+  onMount(async () =&gt; {
+    const room = await joinRoom(id);
+    onCleanup(() =&gt; room.leave());
+  });
+}
+
+// Good - register the cleanup while the body runs, before anything awaits:
+function Room({ id }) {
+  const joined = joinRoom(id);
+  onCleanup(() =&gt; joined.then((room) =&gt; room.leave()));
+}</code></pre>
+
+          <h2 id="ERR_COMPILED_JSX_IN_SSR">ERR_COMPILED_JSX_IN_SSR</h2>
+          <p class="subtitle">what-compiler client output cannot be server-rendered: file.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-server</code>.</p>
+          <p>what-compiler has two targets. Its client output lowers JSX to _$template() calls, which parse their markup with document.createElement() the first time a template is used, and to _$createComponent(), which builds DOM, so it has no server-rendered form. Its server target (generate: &quot;ssr&quot;) lowers the same JSX to string templates that what-server renders. The Vite plugin compiles server transforms with the server target unless the project sets ssr: false, which is when this error is raised for a module that builds DOM; at render time it means a module compiled for the client reached a server renderer. Remove ssr: false, or author the view with h(), or compile it with the automatic JSX runtime (jsxImportSource: &quot;what-framework&quot;).</p>
+<pre><code>// Bad — server transforms compiled as client output:
+// vite.config.js: plugins: [what({ ssr: false })]  +  vite build --ssr
+export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // refused at build time
+
+// Good — the default: server transforms use the server target:
+// vite.config.js: plugins: [what()]
+export function Page() { return &lt;h1&gt;Hi&lt;/h1&gt;; }   // renders on the server
+
+// Good — or h(), which renderToString understands:
+import { h } from 'what-framework';
+export function Title() { return h('h1', null, 'Hi'); }</code></pre>
+
+          <h2 id="ERR_COMPILER_RUNTIME_MISMATCH">ERR_COMPILER_RUNTIME_MISMATCH</h2>
+          <p class="subtitle">what-compiler compiler cannot build for name version (file).</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p>what-compiler's output imports the runtime helpers of its own release, so a build needs what-compiler, what-framework and what-core of one release. npm refuses an install that mixes them (each declares the others as peers at its release), so a mixed install comes from one that skipped peer checks: --legacy-peer-deps, --force, or a package manager that only warns. what-compiler/vite and the Babel plugin check the installed versions before they compile and stop with this error. Move every What package to one release in one install, as step 1 of &quot;Before you start&quot; in UPGRADING.md says.</p>
+<pre><code>// Bad — the compiler upgraded alone, peer checks skipped:
+//   npm install -D what-compiler@latest --legacy-peer-deps
+//   what-compiler 0.15.0 beside what-framework 0.14.0: the build stops here
+
+// Good — every What package in one install, at one release:
+//   npm install what-framework@0.15.0 what-compiler@0.15.0</code></pre>
+
+          <h2 id="ERR_COMPUTED_CYCLE">ERR_COMPUTED_CYCLE</h2>
+          <p class="subtitle">Computed &quot;name&quot; reads its own value, directly or through computeds that read it.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>A computed cannot depend on itself. Find which computed it reads that reads it back, and move the input they share into a signal or computed of its own that both read. A value that has to build on its own previous value is state: keep it in a signal and write it from an effect.</p>
+<pre><code>// Bad - total reads itself through average:
+const average = computed(() =&gt; total() / items().length);
+const total = computed(() =&gt; average() * items().length + shipping());
+
+// Good - both read the inputs, never each other:
+const subtotal = computed(() =&gt; items().reduce((sum, item) =&gt; sum + item.price, 0));
+const total = computed(() =&gt; subtotal() + shipping());
+const average = computed(() =&gt; subtotal() / items().length);
+
+// Good - a running value keeps its previous value in a signal:
+const spent = signal(0);
+effect(() =&gt; { const price = lastPurchase(); spent((previous) =&gt; previous + price); });</code></pre>
+
+          <h2 id="ERR_CONTEXT_NOT_PROVIDED">ERR_CONTEXT_NOT_PROVIDED</h2>
+          <p class="subtitle">context was read with no provider above the component and has no default value, so useContext returned undefined.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>createContext() called with no argument says the value must come from a provider. Render the reader inside &lt;Ctx value={...}&gt; (or &lt;Ctx.Provider value={...}&gt;), or pass createContext a default for the case with no provider. Set Ctx.displayName to name the context in this message.</p>
+<pre><code>const Theme = createContext();
+Theme.displayName = 'Theme';
+
+// Bad - no provider above &lt;Toolbar&gt;:
+mount(&lt;Toolbar /&gt;, '#app');
+
+// Good - provide a value:
+mount(&lt;Theme value=&quot;dark&quot;&gt;&lt;Toolbar /&gt;&lt;/Theme&gt;, '#app');
+
+// Good - or give the context a default:
+const Theme = createContext('light');</code></pre>
+
+          <h2 id="ERR_DERIVED_WITHOUT_STATE">ERR_DERIVED_WITHOUT_STATE</h2>
+          <p class="subtitle">derived() for &quot;key&quot; takes no parameter, so it cannot read the store state.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>createStore calls a derived function with the store state as its argument, and tracks the fields it reads through that argument. A function that declares no parameter reads nothing reactive and never updates.</p>
+<pre><code>import { createStore, derived } from 'what-framework';
+
+// Bad - the function takes no state, so it never updates:
+const useCounter = createStore({ count: 0, doubled: derived(() =&gt; 0) });
+
+// Good:
+const useCounter = createStore({ count: 0, doubled: derived(state =&gt; state.count * 2) });</code></pre>
 
           <h2 id="ERR_DUPLICATE_ACTION_ID">ERR_DUPLICATE_ACTION_ID</h2>
           <p class="subtitle">Duplicate server action ID &quot;id&quot;.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-server</code>.</p>
           <p>Action ids are the wire address of a server action, so two actions cannot share one. Ids derive from the file path and export name, so this usually means the same action is being registered twice, or an explicit id was reused.</p>
-<pre><code>// Bad — two actions pinned to the same id:
+<pre><code>import { action } from 'what-framework/server';
+
+// Bad — two actions pinned to the same id:
 export const save = action(fn, { id: 'save' });
 export const store = action(fn, { id: 'save' });
 
 // Good — let ids derive, or make them distinct:
+import { action } from 'what-framework/server';
 export const save = action(fn);
 export const store = action(fn, { id: 'store-user' });</code></pre>
 
+          <h2 id="ERR_DUPLICATE_KEY">ERR_DUPLICATE_KEY</h2>
+          <p class="subtitle">A keyed list has more than one item with the key key.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Every item with that key still gets a row of its own, and none is lost or leaked, but rows that share a key can only be told apart by their order: when the list is reordered, one item can be handed another item's DOM, focus and component state. Key each item by a value that is unique within the list, such as its id. A list of plain values that may repeat needs no key at all: an unkeyed list tracks each value by position among its equals.</p>
+<pre><code>// Bad — two todos can share a title:
+{todos().map(todo =&gt; &lt;li key={todo.title}&gt;{todo.title}&lt;/li&gt;)}
+
+// Good — key by a unique id:
+{todos().map(todo =&gt; &lt;li key={todo.id}&gt;{todo.title}&lt;/li&gt;)}</code></pre>
+
+          <h2 id="ERR_EFFECT_DEP_NOT_FUNCTION">ERR_EFFECT_DEP_NOT_FUNCTION</h2>
+          <p class="subtitle">useEffect dependency at index index is a plain value, so the effect cannot re-run when it changes.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>A dependency array lists signals and computeds, which the effect reads to track them. A value in the array is read once when the component runs and never changes, so the effect never re-runs for it. Pass the signal itself, not its current value; for a prop or any other expression, a computed over it (useMemo(() =&gt; props.count)). Omitting the array tracks whatever the effect reads.</p>
+<pre><code>const [count, setCount] = useState(0);
+
+// Bad - count() is read once, the array holds a number:
+useEffect(() =&gt; save(count()), [count()]);
+
+// Good - pass the signal:
+useEffect(() =&gt; save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() =&gt; save(count()));</code></pre>
+
+          <h2 id="ERR_EFFECT_DEP_NOT_SIGNAL">ERR_EFFECT_DEP_NOT_SIGNAL</h2>
+          <p class="subtitle">useEffect dependency index is a function, never read.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A function in a dependency array that is not a signal or a computed is never called, so the effect cannot re-run for what it reads. A dependency array re-runs the effect for the signals and computeds in it. Any other function is left alone: a deps array often holds setters and callbacks ([setCount], [load], [props.onClose]), and calling one to see what it reads would write state or start work on every run. If this one is a getter, list a computed over the same expression (useMemo(() =&gt; props.count)), or omit the array so the effect tracks what its callback reads. If it is a callback, leave it out: a component runs once, so a callback never changes. A function that takes arguments is never reported.</p>
+<pre><code>// Bad - the arrow is never called, so the effect runs once:
+useEffect(() =&gt; save(props.count), [() =&gt; props.count]);
+
+// Good - a computed is a signal:
+const count = useMemo(() =&gt; props.count);
+useEffect(() =&gt; save(count()), [count]);
+
+// Good - or let the effect track what it reads:
+useEffect(() =&gt; save(props.count));</code></pre>
+
+          <h2 id="ERR_FOREIGN_ENGINE_IN_SSR">ERR_FOREIGN_ENGINE_IN_SSR</h2>
+          <p class="subtitle">An async value was made by a second copy of what-core during a server render.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>The page is server-rendered by one copy of what-core, and a component made a resource, a query or another async value with a different copy: usually a library that bundled what-framework into its own build instead of declaring it as a peer dependency. A second copy never joins the render, so its value would start over on every retry of the render and never reach the client; the render fails instead. Bundle one copy: mark what-framework (and what-core) external in the library's build and list it under peerDependencies, or dedupe the install (npm ls what-core shows each copy). Effects and computeds of a second copy are still owned by the render and disposed with it.</p>
+<pre><code>// Bad — a library's vite.config.js bundles what-framework into dist/index.js:
+export default defineConfig({ build: { lib: { entry: 'src/index.js' } } });
+
+// Good — the library leaves the framework to the app (and lists it in peerDependencies):
+export default defineConfig({
+  build: {
+    lib: { entry: 'src/index.js' },
+    rollupOptions: { external: [/^what-framework/, /^what-core/] },
+  },
+});</code></pre>
+
           <h2 id="ERR_FORM_ACTION_MISSING">ERR_FORM_ACTION_MISSING</h2>
-          <p class="subtitle">[what] &lt;Form&gt; requires an `action` prop: a server action or its id.</p>
+          <p class="subtitle">&lt;Form&gt; requires an `action` prop: a server action, its id, or a function.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>Pass the action itself, or the string id it was registered under.</p>
+          <p>Pass the server action itself, the string id it was registered under, or a client action such as the dispatch useActionState returns.</p>
 <pre><code>// Bad:
 &lt;Form method=&quot;post&quot; /&gt;
 
 // Good:
-&lt;Form action={save} /&gt;
-&lt;Form action=&quot;save-user&quot; /&gt;</code></pre>
+&lt;Form action={save} /&gt;;
+&lt;Form action=&quot;save-user&quot; /&gt;;</code></pre>
 
-          <h2 id="ERR_FORM_ACTION_NOT_REGISTERED">ERR_FORM_ACTION_NOT_REGISTERED</h2>
-          <p class="subtitle">[what] &lt;Form action={fn}&gt;: that function is not a server action.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>Wrap it with action() from what-server, or pass the action id as a string. A plain function has no id, so there is nothing for the form post to address.</p>
-<pre><code>// Bad — a plain function:
-async function save(data) {}
-&lt;Form action={save} /&gt;
+          <h2 id="ERR_FORM_HANDLER_WITHOUT_EVENT">ERR_FORM_HANDLER_WITHOUT_EVENT</h2>
+          <p class="subtitle">register(&quot;name&quot;) change handler was called without an event; the field was left unchanged.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>The handler register() returns reads the new value from event.target. Pass the DOM event through, or set the value directly with form.setValue(name, value).</p>
+<pre><code>// Bad - calls the handler with a value instead of an event:
+const field = register('email');
+field.onchange('a@b.co');
 
-// Good — a registered action:
-export const save = action(async (data) =&gt; {});
-&lt;Form action={save} /&gt;</code></pre>
+// Good:
+&lt;input {...register('email')} /&gt;
+form.setValue('email', 'a@b.co');</code></pre>
+
+          <h2 id="ERR_FORM_RADIO_UNTYPED">ERR_FORM_RADIO_UNTYPED</h2>
+          <p class="subtitle">register(&quot;name&quot;) was spread onto a radio without { type: 'radio' }, which overwrote the radio's value.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A plain registration binds the input's value to the field, which for a radio replaces the option it stands for. Tell the registration it is a radio and which value it contributes, or use &lt;Radio&gt;.</p>
+<pre><code>// Bad:
+&lt;input type=&quot;radio&quot; value=&quot;small&quot; {...register('size')} /&gt;
+
+// Good:
+&lt;input type=&quot;radio&quot; {...register('size', { type: 'radio', value: 'small' })} /&gt;;
+&lt;Radio name=&quot;size&quot; value=&quot;small&quot; register={register} /&gt;;</code></pre>
+
+          <h2 id="ERR_FORM_RADIO_WITHOUT_VALUE">ERR_FORM_RADIO_WITHOUT_VALUE</h2>
+          <p class="subtitle">Radio for field &quot;name&quot; has no value, so it cannot record a choice.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Radios in a group share one field that holds the selected option's value. A radio with no value attribute reports &quot;on&quot;, which identifies nothing, so the registration ignores it. Give every radio a value.</p>
+<pre><code>// Bad:
+&lt;Radio name=&quot;size&quot; register={register} /&gt;
+
+// Good:
+&lt;Radio name=&quot;size&quot; value=&quot;small&quot; register={register} /&gt;;
+&lt;input type=&quot;radio&quot; {...register('size', { type: 'radio', value: 'small' })} /&gt;;</code></pre>
+
+          <h2 id="ERR_HOOK_OUTSIDE_COMPONENT">ERR_HOOK_OUTSIDE_COMPONENT</h2>
+          <p class="subtitle">hookName() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>A hook attaches its state to the component it belongs to, found through the current owner: the component body, or an effect, region or list row the component created. Code that runs later under no owner has no component: an event handler, a timer, anything after an await, module scope. What components run once, so call hooks at the top of the body, where each runs once. Outside a component use signal(), computed() and effect() directly; to use a context value in a callback, read it in the body and close over the result.</p>
+<pre><code>import { onMount, useState } from 'what-framework';
+
+// Bad - after the await nothing owns the call:
+function Profile() {
+  onMount(async () =&gt; {
+    await Promise.resolve();
+    const [user, setUser] = useState(null);   // throws
+  });
+}
+
+// Good - hooks at the top of the body, async work inside:
+function Profile() {
+  const [user, setUser] = useState(null);
+  onMount(async () =&gt; setUser(await fetchUser()));
+  return &lt;p&gt;{() =&gt; user()?.name}&lt;/p&gt;;
+}</code></pre>
 
           <h2 id="ERR_HOOK_OUTSIDE_RENDER">ERR_HOOK_OUTSIDE_RENDER</h2>
           <p class="subtitle">[what-react] hookName() called outside of a component render.</p>
@@ -221,26 +528,50 @@ import { reactCompat } from 'what-react/vite';
 export default { plugins: [reactCompat()] };</code></pre>
 
           <h2 id="ERR_HYDRATION_MISMATCH">ERR_HYDRATION_MISMATCH</h2>
-          <p class="subtitle">Hydration mismatch in component &quot;component&quot;: server rendered &quot;serverHTML&quot; but client expects &quot;clientHTML&quot;.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-devtools-mcp</code>.</p>
-          <p>Ensure server and client render identical initial HTML. Avoid reading browser-only APIs (window, localStorage) during the initial render. Use onMount() for client-only logic.</p>
-<pre><code>// Bad — different on server vs client:
-function App() {
-  return &lt;p&gt;{window.innerWidth}&lt;/p&gt;;
+          <p class="subtitle">Hydration mismatch (kind) in &lt;component&gt; at path: the server rendered found where the client renders expected. Recovery: recovery.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>, <code>what-react</code>.</p>
+          <p>hydrate() adopts the server's DOM only where the client renders the same thing. Here it does not, so that region was rendered on the client instead (a component's key mismatch only reports: the markup itself matched). The usual cause is a value the server cannot know or computes differently: Date.now(), Math.random(), typeof window, localStorage, the viewport, a locale. Render the same value on both sides during hydration and change it in onMount(), or send it with the page (a loader, a keyed resource). Each report carries the record { kind, component, ownerPath, path, expected, found, recovery } (the diagnostic's data in development, the argument of hydrate()'s onHydrationError option in every build): kind is tag, text, missing, extra-nodes, marker, key (a component's data-hk, or a keyed list whose server rows have other keys, or keys in another order, or keys hydration cannot compare (anything but strings and finite numbers): expected and found list them), shadow-root (an element hosting a declarative shadow root, which a client render never makes: the element is replaced), prebuilt (JSX the client built before the walk reached its place: in a variable, read by a component that inspects it, or given to an h() component; it takes the server's place, and what the user changed in a form control there is kept), not-hydratable, or attribute (development only, and the diagnostic only: an attribute the server wrote otherwise than the client's first write, or that only one side wrote; the record also carries `attribute`, its name; the client's value is written, recovery client-value; a boolean attribute present on both sides and style declarations the DOM reads as the same are equal, class tokens in another order and a URL written otherwise are not); component and ownerPath name the component and its owner path (its data-hk); path is the DOM path under the hydrate() container; expected and found describe the client's and the server's node; recovery is client-render, move (a keyed list: each server row was taken as the row of its own key and moved into the client's order; a row is never given to another key, so what was typed in it stays with its key), or none for a component's key mismatch. kind not-hydratable means hydrate() was handed DOM already built, reported once: compiled JSX adopts server markup only when compiled for hydration (what-compiler's hydratable option, which the Vite plugin sets when the project renders on the server), and DOM made by hand in a component body is replaced the same way (create it in onMount).</p>
+<pre><code>// Bad — the client renders a value the server could not know:
+import { h, hydrate } from 'what-framework';
+
+function Width() {
+  return h('p', {}, `${window.innerWidth}px`);
 }
 
-// Good — use onMount for client-only values:
-function App() {
+const page = document.createElement('main');
+page.innerHTML = '&lt;p&gt;1280px&lt;/p&gt;'; // what the server sent
+document.body.append(page);
+hydrate(h(Width), page, { onHydrationError: (record) =&gt; console.log(record) });
+// { kind: 'text', component: 'Width', ownerPath: '~0', path: 'p&gt;#text',
+//   expected: '&quot;1024px&quot;', found: '&quot;1280px&quot;', recovery: 'client-render' }
+
+// Good — the same on both sides, corrected after hydration:
+function Width() {
   const width = signal(0);
   onMount(() =&gt; width(window.innerWidth));
-  return &lt;p&gt;{width()}&lt;/p&gt;;
+  return &lt;p&gt;{width()}px&lt;/p&gt;;
 }</code></pre>
 
+          <h2 id="ERR_HYDRATION_OWNER_MISMATCH">ERR_HYDRATION_OWNER_MISMATCH</h2>
+          <p class="subtitle">A keyless resource or async value at owner path path was rendered by &lt;server&gt; on the server and &lt;client&gt; on the client, so it fetches instead of adopting the server value.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>While hydrating, a keyless createResource() or async computed() takes the value the server rendered with by its position in the tree (its owner path), and in development only when the component at that position is the same one on both sides. Here it is not: a component exists on one side only (a branch on isServerRender(), typeof window, localStorage or a feature flag) and moved its neighbours. In development the value fetches again; a production build cannot compare names, since its bundle renames every function, so there the component at this position takes the value the server rendered for the other one. Render the same components on both sides during hydration (decide client-only content in onMount), wrap the one-sided branch in a component that exists on both sides, or give the resource a key, which is adopted by that key wherever it is.</p>
+<pre><code>// Bad — a branch that exists only on the client moves its siblings:
+&lt;div&gt;{showChat() &amp;&amp; &lt;ChatWidget /&gt;}&lt;Account /&gt;&lt;/div&gt;
+
+// Good — the same component on both sides; the widget decides after mount:
+&lt;div&gt;&lt;ChatSlot /&gt;&lt;Account /&gt;&lt;/div&gt;
+
+// Good — a keyed resource is adopted by its key, wherever it is:
+const [account] = createResource(loadAccount, { key: 'account' });</code></pre>
+
           <h2 id="ERR_INFINITE_EFFECT">ERR_INFINITE_EFFECT</h2>
-          <p class="subtitle">Effect &quot;effectName&quot; exceeded 25 flush iterations — likely an infinite loop.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>, <code>what-devtools-mcp</code>.</p>
+          <p class="subtitle">Effect &quot;effectName&quot; was stopped after rounds re-runs in one flush: it keeps re-triggering itself, likely an infinite loop.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
           <p>An effect is writing to a signal it also reads, creating a cycle. Use untrack() to read the signal without subscribing, or restructure so the write and read are in separate effects.</p>
-<pre><code>// Bad — reads and writes count, creating a cycle:
+<pre><code>const count = signal(0);
+
+// Bad — reads and writes count, creating a cycle:
 effect(() =&gt; { count(count() + 1); });
 
 // Good — use untrack() so the read doesn't subscribe:
@@ -251,29 +582,34 @@ const doubled = computed(() =&gt; count() * 2);</code></pre>
 
           <h2 id="ERR_INVALID_HTML_NESTING">ERR_INVALID_HTML_NESTING</h2>
           <p class="subtitle">&lt;parent&gt; cannot contain &lt;child&gt;: the HTML parser closed the outer tag early, so the rendered tree does not match your JSX.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>, <code>what-core</code>.</p>
           <p>The compiler turns each element into an HTML template string, and the browser parses it under real HTML rules. Some nestings are not expressible: &lt;p&gt; may only hold phrasing content, &lt;a&gt; may not hold another &lt;a&gt;, and a table section may not hold arbitrary elements. The parser silently reorders them, which leaves compiled output walking a tree that no longer matches your source. Change the outer tag (usually &lt;p&gt; to &lt;div&gt;) or move the child out.</p>
 <pre><code>// Bad — the parser closes &lt;p&gt; before &lt;div&gt;, producing four sibling nodes:
 &lt;p&gt;Intro&lt;div&gt;{body()}&lt;/div&gt;Outro&lt;/p&gt;
 
 // Good — a block container can hold block content:
-&lt;div class=&quot;prose&quot;&gt;Intro&lt;div&gt;{body()}&lt;/div&gt;Outro&lt;/div&gt;
+&lt;div class=&quot;prose&quot;&gt;Intro&lt;div&gt;{body()}&lt;/div&gt;Outro&lt;/div&gt;;
 
 // Good — or keep the paragraph and use phrasing content:
-&lt;p&gt;Intro&lt;span&gt;{body()}&lt;/span&gt;Outro&lt;/p&gt;</code></pre>
+&lt;p&gt;Intro&lt;span&gt;{body()}&lt;/span&gt;Outro&lt;/p&gt;;</code></pre>
 
           <h2 id="ERR_INVALID_SSR_TAG">ERR_INVALID_SSR_TAG</h2>
-          <p class="subtitle">[what-server] Invalid tag name in SSR: tag.</p>
+          <p class="subtitle">Invalid tag name in SSR: &quot;tag&quot;</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
-          <p>renderToString reached a vnode whose tag is neither a string nor a component function. This is almost always a component that returned a raw object, or a value interpolated where an element was expected.</p>
-<pre><code>// Bad — returns a plain object, not a vnode:
-function Row() { return { name: 'a' }; }
+          <p>A server renderer reached a vnode whose tag is neither an element name nor a component function: h() was given a tag built from data (one with a space, a quote or a &quot;&lt;&quot; in it), or a value that is not a string or a function. Choose the tag from the ones you allow. A component that returns a plain object is not this error: an object that is not a vnode renders as its text.</p>
+<pre><code>// Bad — the tag is built from data, and is not an element name:
+function Heading({ level }) {
+  return h(`h${level} class=&quot;big&quot;`, {}, 'Title');
+}
 
-// Good — return elements, and interpolate values as children:
-function Row({ name }) { return &lt;li&gt;{name}&lt;/li&gt;; }</code></pre>
+// Good — choose the tag from the ones you allow:
+const TAGS = { 1: 'h1', 2: 'h2', 3: 'h3' };
+function Heading({ level }) {
+  return h(TAGS[level] || 'h2', { class: 'big' }, 'Title');
+}</code></pre>
 
           <h2 id="ERR_ISLAND_STORE_OUTSIDE_RENDER">ERR_ISLAND_STORE_OUTSIDE_RENDER</h2>
-          <p class="subtitle">[what-server] Island store &quot;name&quot; was accessed outside an active server render.</p>
+          <p class="subtitle">Island store &quot;name&quot; was accessed outside an active server render.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
           <p>A module-scoped island store resolves against the current request, so it can only be read or written from a component rendered by renderDocument/renderPage. Reading one at module scope, or from a background task, has no request to bind to.</p>
 <pre><code>// Bad — runs at import time, with no request in scope:
@@ -282,8 +618,21 @@ const count = cart.items.length;
 // Good — read it inside a component the server is rendering:
 function Cart() { return &lt;span&gt;{cart.items.length}&lt;/span&gt;; }</code></pre>
 
+          <h2 id="ERR_ISLAND_WITHOUT_NAME">ERR_ISLAND_WITHOUT_NAME</h2>
+          <p class="subtitle">Island &lt;component&gt; has no `name`: a minified build renames its function, so the server and the browser name the island differently.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>what-compiler names a `client:*` island by its tag as written (`&lt;Counter client:idle /&gt;` is &quot;Counter&quot;). An island written by hand, `h(_$Island, { component: Counter })`, takes its function's name instead, which a minifier renames in one bundle and not the other: the server marks the island &quot;Counter&quot; and the browser calls it &quot;a&quot;, in its `data-island` attribute and in the `island:hydrated` event's `detail.name`. Pass `name`, the same string in both builds, or write the island as `&lt;Counter client:idle /&gt;`. Reported in development only.</p>
+<pre><code>// Bad — a minified browser bundle renames Counter:
+h(_$Island, { component: Counter, mode: 'idle' });
+
+// Good — a name both builds share:
+h(_$Island, { component: Counter, name: 'Counter', mode: 'idle' });
+
+// Good — the compiler names it by its tag:
+&lt;Counter client:idle /&gt;;</code></pre>
+
           <h2 id="ERR_ISR_MISSING_CLIENT">ERR_ISR_MISSING_CLIENT</h2>
-          <p class="subtitle">[what-isr] createRedisStore requires { client }.</p>
+          <p class="subtitle">[what-isr] createRedisStore requires { client }</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-isr</code>.</p>
           <p>what-isr ships no Redis driver on purpose, so the client is injected. Pass an ioredis or node-redis instance (get/set/del/sadd/srem/smembers, optionally expire/scan/keys).</p>
 <pre><code>import Redis from 'ioredis';
@@ -293,8 +642,8 @@ const store = createRedisStore({ client: new Redis(process.env.REDIS_URL) });</c
           <p class="subtitle">[what-isr] route declares `vary` but the adapter supplied no request headers; refusing to cache.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-isr</code>.</p>
           <p>The route varies its output per header, and the adapter called the engine without them. Caching anyway would serve one variant to every request. Forward the request headers from the adapter into the engine call.</p>
-<pre><code>// In the adapter:
-await engine.handle(routeMatch, { headers: request.headers });</code></pre>
+<pre><code>// In the adapter, the route match carries the request headers:
+await engine.handle({ ...routeMatch, headers: request.headers });</code></pre>
 
           <h2 id="ERR_ISR_VARY_UNRESOLVED">ERR_ISR_VARY_UNRESOLVED</h2>
           <p class="subtitle">[what-isr] cannot build a cache key: `vary` is declared but could not be resolved against the request.</p>
@@ -309,9 +658,42 @@ cacheKey({ path, vary: ['cookie:session'], headers: request.headers });
 // Good — or resolve it yourself:
 cacheKey({ path, vary: { 'cookie:session': sessionId } });</code></pre>
 
+          <h2 id="ERR_JSX_ISLAND_PROP">ERR_JSX_ISLAND_PROP</h2>
+          <p class="subtitle">An island prop holds JSX: message</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p>An island's props are serialized to JSON so the browser can hydrate it, and markup is not data: JSX in a prop would arrive as an empty object, or as a plain object pretending to be an element. what-compiler refuses it on both targets. Pass the markup as a child of the island, which renders on the server and hydrates with it, or pass the data and build the markup inside the island. A function prop (a render prop) is fine: functions are left out of the JSON, and the island makes its own when it hydrates.</p>
+<pre><code>// Bad — the icon would reach the browser as {}:
+&lt;Chart client:load icon={&lt;StarIcon /&gt;} /&gt;;
+
+// Good — markup as a child:
+&lt;Chart client:load&gt;&lt;StarIcon /&gt;&lt;/Chart&gt;;
+
+// Good — data, and the markup built inside the island:
+&lt;Chart client:load icon=&quot;star&quot; /&gt;;</code></pre>
+
+          <h2 id="ERR_LATE_REDIRECT">ERR_LATE_REDIRECT</h2>
+          <p class="subtitle">[what-server] redirect(location) after the shell was sent needs an inline script, and this stream has noScripts.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
+          <p>Once the shell is sent, the status line has gone out, so a redirect from a streamed boundary can only be made by an inline script that navigates. With noScripts the stream may not write one, and the redirect is dropped. Redirect from the loader, or from anything that runs before the shell is sent, so the response is a real 3xx; or allow the script with a nonce instead of noScripts.</p>
+<pre><code>// Bad — a redirect from inside a streamed &lt;Suspense&gt;, with noScripts:
+function Account() {
+  const [user] = createResource(loadUser);
+  if (!user()) getResponse().redirect('/login');
+  return &lt;p&gt;{() =&gt; user()?.name}&lt;/p&gt;;
+}
+renderDocumentStream(page, req, { noScripts: true });
+
+// Good — redirect from the loader, before the shell: a real 3xx:
+export async function loader({ request, response }) {
+  if (!(await loadSession(request))) response.redirect('/login', 302);
+}
+
+// Good — or let the stream write the one script, under a CSP nonce:
+renderDocumentStream(page, req, { nonce });</code></pre>
+
           <h2 id="ERR_MISSING_CLEANUP">ERR_MISSING_CLEANUP</h2>
           <p class="subtitle">Effect sets up &quot;resource&quot; but does not return a cleanup function.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-devtools-mcp</code>.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>.</p>
           <p>Effects that add event listeners, set timers, or open connections should return a cleanup function to prevent memory leaks.</p>
 <pre><code>// Bad — no cleanup:
 effect(() =&gt; {
@@ -325,27 +707,73 @@ effect(() =&gt; {
 });</code></pre>
 
           <h2 id="ERR_MISSING_KEY">ERR_MISSING_KEY</h2>
-          <p class="subtitle">List rendered without key prop in component &quot;component&quot;. Items may re-order incorrectly.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-compiler</code>, <code>what-devtools-mcp</code>.</p>
+          <p class="subtitle">A .map() returns JSX without a key prop.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-compiler</code>.</p>
           <p>Add a unique key prop to each item in a list. Use a stable identifier (like an ID), not the array index.</p>
 <pre><code>// Bad — no key:
-&lt;For each={items()}&gt;{item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;}&lt;/For&gt;
+&lt;ul&gt;{items().map(item =&gt; &lt;li&gt;{item.name}&lt;/li&gt;)}&lt;/ul&gt;
 
 // Good — stable key:
-&lt;For each={items()}&gt;{item =&gt; &lt;li key={item.id}&gt;{item.name}&lt;/li&gt;}&lt;/For&gt;</code></pre>
+&lt;ul&gt;{items().map(item =&gt; &lt;li key={item.id}&gt;{item.name}&lt;/li&gt;)}&lt;/ul&gt;</code></pre>
 
           <h2 id="ERR_MISSING_SIGNAL_READ">ERR_MISSING_SIGNAL_READ</h2>
-          <p class="subtitle">Signal &quot;signalName&quot; used without calling () — renders as &quot;[Function]&quot; instead of its value.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-devtools-mcp</code>.</p>
-          <p>Signals are functions. Call them to read: count() not count. In JSX: {count()} not {count}.</p>
-<pre><code>// Bad — signal reference, not value:
-&lt;span&gt;{count}&lt;/span&gt;       // renders &quot;[Function]&quot;
+          <p class="subtitle">Signal &quot;signalName&quot; was used as a value without being called (in a template literal, `+`, arithmetic, a comparison or as a property key), so the function's source text stood in for its value.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>Signals are functions, and so are the accessors useState, useReducer and useMemo return and computed() creates. Call them to read: count() not count, in a template literal (`${count()}`), in arithmetic (`count() + 1`), in a comparison (`count() &gt; 5`: `count &gt; 5` compares the source text and is false) and as a key (`labels[count()]`). On its own as a JSX child or attribute value (`&lt;span&gt;{count}&lt;/span&gt;`) an accessor is a live binding and needs no call. Development renders exactly what production renders here, so the broken text you see is the bug. The report names the scope that used the signal, and its location is the line that used it when the browser's stack names one (the module as the dev server serves it, so the line can differ from the source), else that scope's; `data.createdAt` is where the signal was created.</p>
+<pre><code>// Bad - the accessor itself is converted:
+const [count, setCount] = useState(3);
+const label = `Total: ${count}`;   // &quot;Total: function sig(next) {...&quot;
+if (count &gt; 5) {}                  // compares the function's text: always false
 
-// Good — call the signal:
-&lt;span&gt;{count()}&lt;/span&gt;     // renders the actual value</code></pre>
+// Good - call it:
+const label = `Total: ${count()}`;  // &quot;Total: 3&quot;
+if (count() &gt; 5) {}</code></pre>
+
+          <h2 id="ERR_MOUNT_TARGET_MISSING">ERR_MOUNT_TARGET_MISSING</h2>
+          <p class="subtitle">fn() got no container element.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>, <code>what-react</code>.</p>
+          <p>mount() and hydrate() render into an element that is in the page when they run: pass the element, or a CSS selector that matches one. The full-page document what-server renders (renderDocument, createRequestHandler, the scaffold) puts the route directly under &lt;body&gt; with no wrapper of its own, so its client hydrates document.body. Use a selector such as #app only where the page writes that element itself.</p>
+<pre><code>// Bad - the built-in document has no #app wrapper:
+hydrate(&lt;App /&gt;, document.getElementById('app'));
+
+// Good - the built-in document:
+hydrate(&lt;App /&gt;, document.body);
+
+// Good - a page that writes &lt;div id=&quot;app&quot;&gt; itself:
+hydrate(&lt;App /&gt;, '#app');</code></pre>
+
+          <h2 id="ERR_MOVED_IMPORT">ERR_MOVED_IMPORT</h2>
+          <p class="subtitle">&quot;name&quot; is not exported by source. answer</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>eslint-plugin-what</code>, <code>what-compiler</code>.</p>
+          <p>In 0.15 the root entry (what-framework, and what-core alike) kept the core API: the domain kits moved to subpaths such as what-framework/form and what-framework/ui, a few names were renamed, and some were removed. Each name has one answer, recorded in IMPORT_CHANGES (what-core/internal) and listed in UPGRADING.md. eslint --fix with eslint-plugin-what's no-moved-imports rule splits the import per destination; a removed name is left for you to replace as its answer says. A name only a subpath has ever exported, such as the router's (Router, Link, navigate from what-framework/router), gets the same answer when it is imported from the root entry, from what-compiler's Vite plugin and from no-moved-imports, whose fix moves it to what-framework/router.</p>
+<pre><code>// Bad - useForm and Spinner left the root entry in 0.15:
+import { signal, useForm, Spinner } from 'what-framework';
+
+// Good:
+import { signal } from 'what-framework';
+import { useForm } from 'what-framework/form';
+import { Spinner } from 'what-framework/ui';</code></pre>
+
+          <h2 id="ERR_NESTED_FLUSH_SYNC">ERR_NESTED_FLUSH_SYNC</h2>
+          <p class="subtitle">flushSync() was called while context was running, so it did nothing: the effects it would run already run when the current flush reaches them.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>flushSync() runs queued effects immediately, which is only safe when no effect, computed or flush is running; inside one it returns without running anything. Call it from an event handler, onMount or test code, or drop it: effects queued during an effect run later in the same flush.</p>
+<pre><code>// Bad - inside an effect, flushSync() does nothing:
+effect(() =&gt; {
+  width(container().offsetWidth);
+  flushSync();
+  layout();
+});
+
+// Good - flush from the handler that made the write:
+button.addEventListener('click', () =&gt; {
+  open(true);
+  flushSync();
+  panel.focus();
+});</code></pre>
 
           <h2 id="ERR_NO_SECURE_RANDOM">ERR_NO_SECURE_RANDOM</h2>
-          <p class="subtitle">[what] No secure random source available for CSRF token generation.</p>
+          <p class="subtitle">No secure random source available for CSRF token generation.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
           <p>Neither globalThis.crypto.getRandomValues nor node:crypto was reachable. On Node this means a build older than 18 or a bundler that stripped node:crypto; on an edge runtime it means the Web Crypto global was not provided. A CSRF token from Math.random is not a token, so this refuses rather than degrading.</p>
 <pre><code>// Node 18+ exposes Web Crypto globally; nothing to configure.
@@ -353,17 +781,57 @@ effect(() =&gt; {
 import { webcrypto } from 'node:crypto';
 globalThis.crypto ??= webcrypto;</code></pre>
 
-          <h2 id="ERR_ORPHAN_EFFECT">ERR_ORPHAN_EFFECT</h2>
-          <p class="subtitle">Effect &quot;effectName&quot; was created outside a reactive root — it will never be cleaned up.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>, <code>what-devtools-mcp</code>.</p>
-          <p>Wrap effect creation in createRoot() or create effects inside component functions where they are automatically tracked.</p>
-<pre><code>// Bad — orphaned, leaks memory:
-effect(() =&gt; console.log(count()));
+          <h2 id="ERR_NO_VNODE_RENDERER">ERR_NO_VNODE_RENDERER</h2>
+          <p class="subtitle">what reached the compiled-JSX runtime, but no vnode renderer is installed.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>Compiled JSX builds DOM directly, so a program that only uses compiled JSX leaves the vnode renderer out of its bundle, and something handed the runtime a vnode anyway. The producers that make vnodes install the renderer as they do (h, Fragment and html from what-framework, the automatic JSX runtime, and the components that return vnodes: ErrorBoundary, Suspense, Portal, lazy, Island), so the vnode came from the compiled-JSX runtime itself: the form what-compiler gives JSX handed to hydrate(), passed somewhere else. Write the JSX where it is used. An object built by hand in the { tag, props, children } shape is not a vnode (vnodes carry a brand only those producers give) and renders as its text instead.</p>
+<pre><code>// Bad — the compiled form of &lt;App /&gt; for hydrate(), given to mount():
+import { mount } from 'what-framework';
+import { _$componentVNode } from 'what-framework/render';
 
-// Good — inside a root with cleanup:
-createRoot(dispose =&gt; {
-  effect(() =&gt; console.log(count()));
-  // later: dispose() cleans up
+const App = () =&gt; &lt;p&gt;Hello&lt;/p&gt;;
+mount(_$componentVNode(App, null, []), document.body);
+
+// Good — mount the JSX itself, which the compiler builds directly:
+import { mount } from 'what-framework';
+
+const App = () =&gt; &lt;p&gt;Hello&lt;/p&gt;;
+mount(&lt;App /&gt;, document.body);</code></pre>
+
+          <h2 id="ERR_OPTIMISTIC_OUTSIDE_TRANSITION">ERR_OPTIMISTIC_OUTSIDE_TRANSITION</h2>
+          <p class="subtitle">addOptimistic() was called outside a transition, so the optimistic value drops at once instead of lasting until the action finishes.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>An optimistic overlay lives as long as the transition it was added in. Call addOptimistic synchronously inside startTransition, before its first await (after an await the function is no longer inside the transition, as in React).</p>
+<pre><code>// Bad — added after an await, or in a plain handler:
+const toggle = async (id) =&gt; {
+  await save(id);
+  addOptimistic(id);
+};
+
+// Good — added first, inside the transition:
+const toggle = (id) =&gt; startTransition(async () =&gt; {
+  addOptimistic(id);
+  await save(id);
+  await refresh(todos);
+});</code></pre>
+
+          <h2 id="ERR_ORPHAN_EFFECT">ERR_ORPHAN_EFFECT</h2>
+          <p class="subtitle">Effect &quot;effectName&quot; was created after an await, where no owner is current: nothing will dispose it when the component that started the async work goes away.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Work created after an `await` belongs to no owner. Read getOwner() before the await and create the effect inside runWithOwner(owner, ...), so it is disposed with the component (or with the effect run) that started the work; or create it before the await.</p>
+<pre><code>// Bad — the effect outlives the component:
+onMount(async () =&gt; {
+  const user = await loadUser();
+  effect(() =&gt; console.log(user.name, count()));
+});
+
+// Good — attach the work to the owner that started it:
+onMount(async () =&gt; {
+  const owner = getOwner();
+  const user = await loadUser();
+  runWithOwner(owner, () =&gt; {
+    effect(() =&gt; console.log(user.name, count()));
+  });
 });</code></pre>
 
           <h2 id="ERR_PAGE_NO_DEFAULT_EXPORT">ERR_PAGE_NO_DEFAULT_EXPORT</h2>
@@ -376,41 +844,197 @@ export function Home() { return &lt;h1&gt;Hi&lt;/h1&gt;; }
 // Good:
 export default function Home() { return &lt;h1&gt;Hi&lt;/h1&gt;; }</code></pre>
 
+          <h2 id="ERR_PAYLOAD_TOO_LARGE">ERR_PAYLOAD_TOO_LARGE</h2>
+          <p class="subtitle">A call over the limit-byte bodyLimit was refused.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
+          <p>The action call's body (every field and file in it) was over the server's bodyLimit (1 MB by default), so the server answered 413 and ran nothing. The error carries `status` 413 and `limit`, the bytes allowed (none when a proxy or the platform answered the 413 itself: its message then says the server accepts less). Raise bodyLimit for uploads, check a file's size before the form is sent (setCustomValidity on the file input keeps the form and tells the visitor), and show the error in an &lt;ErrorBoundary&gt; around the component whose useActionState dispatched the action, which a throwing action reaches. Without JavaScript the visitor gets the server's 413 page, which names the limit.</p>
+<pre><code>// Good - refuse a file over the limit before the form is sent:
+const MAX_UPLOAD = 1_000_000; // the server's bodyLimit, less room for the other fields
+const avatar = &lt;input type=&quot;file&quot; name=&quot;avatar&quot; onChange={(e) =&gt; {
+  const file = e.target.files[0];
+  e.target.setCustomValidity(file &amp;&amp; file.size &gt; MAX_UPLOAD ? 'Choose a file under 1 MB' : '');
+}} /&gt;;
+
+// Good - and the error reaches a boundary around the component whose
+// useActionState dispatched the action:
+const page = &lt;ErrorBoundary fallback={({ error, reset }) =&gt; (
+  &lt;p role=&quot;alert&quot;&gt;{error.code === 'ERR_PAYLOAD_TOO_LARGE' &amp;&amp; error.limit !== undefined ? `Too large: the limit is ${error.limit} bytes.` : error.message}
+    &lt;button onClick={reset}&gt;Try again&lt;/button&gt;&lt;/p&gt;
+)}&gt;
+  &lt;Signup /&gt;
+&lt;/ErrorBoundary&gt;;</code></pre>
+
+          <h2 id="ERR_PENDING_READ_UNTRACKED">ERR_PENDING_READ_UNTRACKED</h2>
+          <p class="subtitle">call was read in a component body. The body runs once, so this reads the pending state once and it never changes on screen.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Read pending state where it is tracked: in JSX (users.pending() is a zero-argument call the compiler wraps, so {users.pending() &amp;&amp; &lt;Spinner /&gt;} updates), or wrap the expression in a function: {() =&gt; isPending(() =&gt; users()) ? &quot;Refreshing&quot; : &quot;&quot;}. In an event handler, reading it once is what you want, and nothing is reported.</p>
+<pre><code>// Bad — read once when the component is created:
+function Users() {
+  const refreshing = users.pending();
+  return &lt;p&gt;{refreshing ? 'Refreshing…' : ''}&lt;/p&gt;;
+}
+
+// Good — read in JSX, where it is tracked:
+function Users() {
+  return &lt;p&gt;{users.pending() ? 'Refreshing…' : ''}&lt;/p&gt;;
+}</code></pre>
+
+          <h2 id="ERR_PORTAL_TARGET_MISSING">ERR_PORTAL_TARGET_MISSING</h2>
+          <p class="subtitle">&lt;Portal target=&quot;selector&quot;&gt; matched no element, so its children render nowhere.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A string target is a CSS selector, looked up when the portal is built: the element has to be in the document by then. Leave `target` out to render into document.body, pass an element (a ref, document.getElementById), or put the container in the page before the component that holds the portal.</p>
+<pre><code>// Bad - #modal-root is not in the page:
+&lt;Portal target=&quot;#modal-root&quot;&gt;&lt;Dialog /&gt;&lt;/Portal&gt;
+
+// Good - no target renders into document.body:
+&lt;Portal&gt;&lt;Dialog /&gt;&lt;/Portal&gt;</code></pre>
+
           <h2 id="ERR_PRETEXT_NOT_INSTALLED">ERR_PRETEXT_NOT_INSTALLED</h2>
           <p class="subtitle">[what-text] Failed to load @chenglou/pretext: message.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-text</code>.</p>
           <p>what-text declares pretext as an optional peer so the package installs without it. Install it to use the text engine: npm install @chenglou/pretext</p>
-<pre><code>npm install @chenglou/pretext</code></pre>
+<pre><code>// Install the optional peer first: npm install @chenglou/pretext
+// Then load it up front, so a missing install fails at startup:
+import { ensurePretext } from 'what-text';
+await ensurePretext();</code></pre>
+
+          <h2 id="ERR_PROP_READ_ONCE">ERR_PROP_READ_ONCE</h2>
+          <p class="subtitle">Prop `name` is read once, when &lt;component&gt; runs: reason.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-compiler</code>, <code>what-router</code>.</p>
+          <p>what-compiler reads a destructured prop where it is used (`({ label }) =&gt; &lt;b&gt;{label}&lt;/b&gt;` reads `props.label` in the binding), so it follows the parent's state as React re-renders with it, and a rest element keeps the props' live values (`({ as: Tag, ...rest }) =&gt; &lt;Tag {...rest} /&gt;`). It cannot when the binding is assigned again, its key is computed, it is destructured twice, its default reads a name of the component or calls something, its nested pattern holds a rest element or an array, or the pattern is declared with `var`. Three more shapes read a prop once: a component that decides what it returns from a prop (`return on ? &lt;A /&gt; : &lt;B /&gt;`, `if (!open) return null`) decides once, so branch where it renders (`&lt;&gt;{() =&gt; (on ? &lt;A /&gt; : &lt;B /&gt;)}&lt;/&gt;` or `&lt;Show when={…}&gt;`; with h(), `() =&gt; (on ? h(A) : null)`); a value computed from a prop in the body and shown in JSX (`const label = name.toUpperCase()` with `{label}`) keeps its first value, so write the expression in the JSX (`{name.toUpperCase()}`) or make it a function and call it there (`const label = () =&gt; name.toUpperCase()` with `{label()}`); and props handed to a function that renders JSX as a value (`return mk({ value })`) are the values they had, so hand the props on (`mk(props)`) or render it as a component (`&lt;Mk value={value} /&gt;`). A route page's `params` and `route` are not reported: the router builds a page again for other params. Its `query` is: a change of query alone (`?page=2`) keeps the page mounted, as React Router keeps the route's element, so a read in the body of a component under the page keeps its first value, and in development what-router reports one (a static `queryKey: ['items', query.page]`, `useSearch().q`) the first time the query changes under it, unless that change disposes the component (a `key` that changes with it builds a new one, as in React; a branch it closes removes it); a read that seeds state meant to keep its first value (`useState(query.q)`) is reported too, and keeps it as meant. Neither is a value derived from a field of a keyed row's item (`item.title` in `&lt;Row key={item.id} item={item} /&gt;`): the row is built again when that field changes. The compiler reports each at build time (development builds), and a value derived only from fields of props on the page, where the component renders outside such a row; where it does not build (the islands template, h() code), eslint-plugin-what's no-prop-read-once reports the return decided by a prop. Read the prop where you use it (`props.size ?? 'md'`), give the result a name of its own instead of assigning the prop, make a default a constant at module scope, or keep a value that must change in a signal.</p>
+<pre><code>// Bad - size is assigned again, so it is read once:
+function Button({ size, ...rest }) {
+  size = size ?? 'md';
+  return &lt;button class={'btn-' + size} {...rest} /&gt;;
+}
+
+// Bad - which element it returns is decided once:
+function Status({ online }) {
+  return online ? &lt;b&gt;online&lt;/b&gt; : &lt;i&gt;offline&lt;/i&gt;;
+}
+
+// Bad - label is computed once, from the first name:
+function Title({ name }) {
+  const label = name.toUpperCase();
+  return &lt;h1&gt;{label}&lt;/h1&gt;;
+}
+
+// Good - the default applies where size is read, and size follows the parent:
+function Button({ size = 'md', ...rest }) {
+  return &lt;button class={'btn-' + size} {...rest} /&gt;;
+}
+
+// Good - a computed default, read where it is used:
+function IconButton(props) {
+  return &lt;button class={'btn-' + (props.size ?? defaultSize())} /&gt;;
+}
+
+// Good - the branch is a reactive child, decided where it renders:
+function Status({ online }) {
+  return &lt;&gt;{() =&gt; (online ? &lt;b&gt;online&lt;/b&gt; : &lt;i&gt;offline&lt;/i&gt;)}&lt;/&gt;;
+}
+
+// Good - label is a function, called where it is shown:
+function Title({ name }) {
+  const label = () =&gt; name.toUpperCase();
+  return &lt;h1&gt;{label()}&lt;/h1&gt;;
+}</code></pre>
+
+          <h2 id="ERR_QUERY_OUTSIDE_RENDER">ERR_QUERY_OUTSIDE_RENDER</h2>
+          <p class="subtitle">[what] Server query cache used outside a render, loader or action.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>On the server, each render, loader and server action has a query cache of its own, so one request's data never answers another. Code outside them (module scope, a timer, a background task, or code after an await on a runtime without AsyncLocalStorage) has no request to bind to, and a cache every request shared would hand one user's data to the next. So prefetchQuery, setQueryData, getQueryData and query() there get an empty cache of their own. Call them in a loader, an action or a component the server renders. On an edge runtime, enable AsyncLocalStorage (Cloudflare Workers: the nodejs_compat flag).</p>
+<pre><code>// Bad: runs at import time, with no request in scope.
+prefetchQuery(['config'], loadConfig);
+
+// Good: in the loader, which runs in the request's render.
+export async function loader() {
+  await prefetchQuery(['config'], loadConfig);
+  return null;
+}</code></pre>
+
+          <h2 id="ERR_REBUILT_COMPONENT">ERR_REBUILT_COMPONENT</h2>
+          <p class="subtitle">A reactive region rebuilt &lt;component&gt; when it ran again, and the state &lt;component&gt; held is gone: &quot;region&quot; builds everything it returns anew on every run.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>Write the branches as a JSX ternary or &lt;Show&gt; (&lt;Switch&gt;/&lt;Match&gt; for more than two), and read the changing value where the component takes it: `&lt;Panel data={query.data()} /&gt;`, with a computed() for a derived value. The compiler then builds &lt;Panel&gt; once and updates its props in place. A block function child (`{() =&gt; { const d = q(); if (!d) return ...; return &lt;Panel data={d} /&gt;; }}`) runs again whenever anything it read changes, and rebuilds what it returns.</p>
+<pre><code>// Bad — the region runs again on every refetch and rebuilds &lt;Chart&gt;:
+&lt;div&gt;{() =&gt; {
+  if (query.isLoading()) return &lt;Spinner /&gt;;
+  const counts = countByKind(query.data());
+  return &lt;Chart counts={counts} /&gt;;
+}}&lt;/div&gt;
+
+// Good — &lt;Chart&gt; is built once; its counts follow the data:
+const counts = computed(() =&gt; countByKind(query.data()));
+&lt;div&gt;
+  &lt;Show when={!query.isLoading()} fallback={&lt;Spinner /&gt;}&gt;
+    &lt;Chart counts={counts()} /&gt;
+  &lt;/Show&gt;
+&lt;/div&gt;</code></pre>
+
+          <h2 id="ERR_REDIRECT_CYCLE">ERR_REDIRECT_CYCLE</h2>
+          <p class="subtitle">[what-router] Redirect loop (kind): cycle. Guards of: guards.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
+          <p>Route middleware sent the navigation round in a loop, so the router stopped it and showed the redirect-loop screen. The cycle lists each hop as the pattern of the route it matched, in order (never the URL itself: a path segment, a query or a fragment may carry what the visitor sent), and a hop no route matches as (no route); the guards are the patterns of the routes whose middleware or component redirected. Make each guard a fixed point for the state it redirects to: a guard must let its own target through (the login page must not redirect a logged-out user to itself or back), and two guards must not send each other the same state.</p>
+<pre><code>// Bad — a logged-in non-admin bounces between the two forever:
+const routes = [
+  { path: '/login', component: Login, middleware: [() =&gt; !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() =&gt; isAdmin() || '/login'] },
+];
+
+// Good — the dashboard's guard sends a logged-in non-admin somewhere that lets them in:
+const routes = [
+  { path: '/login', component: Login, middleware: [() =&gt; !isLoggedIn() || '/dashboard'] },
+  { path: '/dashboard', component: Dashboard, middleware: [() =&gt; isAdmin() || (isLoggedIn() ? '/account' : '/login')] },
+];</code></pre>
 
           <h2 id="ERR_REDIRECT_NOT_CAUGHT">ERR_REDIRECT_NOT_CAUGHT</h2>
-          <p class="subtitle">A redirect() to &quot;target&quot; surfaced uncaught, so nothing performed the navigation.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-devtools-mcp</code>, <code>what-router</code>.</p>
-          <p>redirect() is caught in route middleware and in a component body. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server this signal escapes renderToString to its caller: read its `to` and emit a 302 rather than calling navigate().</p>
+          <p class="subtitle">[what-router] redirect to target</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
+          <p>redirect() is caught in route middleware and in a component body, in the browser and in every server renderer, and in a server action. From an event handler, a promise callback, a timer or a reactive thunk, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect. On the server the render answers it: its response redirects, below the base, so pass renderToString a response (createResponse()) and answer with its status and location, as the request handler does.</p>
 <pre><code>// Bad - a reactive thunk re-runs outside the render the Router caught:
 &lt;div&gt;{() =&gt; (loggedOut() ? redirect('/login') : &lt;Dashboard /&gt;)}&lt;/div&gt;
 
 // Good - navigate() from a thunk or a handler:
-&lt;div&gt;{() =&gt; (loggedOut() ? (navigate('/login'), null) : &lt;Dashboard /&gt;)}&lt;/div&gt;
-&lt;button onclick={() =&gt; navigate('/login')}&gt;Sign in&lt;/button&gt;
+&lt;div&gt;{() =&gt; (loggedOut() ? (navigate('/login'), null) : &lt;Dashboard /&gt;)}&lt;/div&gt;;
+&lt;button onclick={() =&gt; navigate('/login')}&gt;Sign in&lt;/button&gt;;
 
-// On the server, catch it instead of navigating:
-try { html = renderToString(&lt;App /&gt;); }
-catch (e) { if (e.name === 'RouterRedirect') return Response.redirect(e.to, 302); throw e; }</code></pre>
+// On the server, the render redirects the response it was given:
+const response = createResponse();
+const html = renderToString(&lt;App /&gt;, { response });
+if (response.location) res.writeHead(response.status, { location: response.location }).end();</code></pre>
 
           <h2 id="ERR_RUNTIME">ERR_RUNTIME</h2>
           <p class="subtitle">An error surfaced that the framework could not classify, so the message is the original one verbatim.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-devtools-mcp</code>.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
           <p>An error surfaced that the framework could not classify, so the message is the original one verbatim. The stack, file and line on the error narrow it; if the same shape shows up repeatedly it is worth its own code here.</p>
 <pre><code>// Inspect the structured form rather than the string:
 try { render(); } catch (e) { console.log(classifyError(e).toJSON()); }</code></pre>
 
+          <h2 id="ERR_SIGNAL_WRITE_IN_COMPUTED">ERR_SIGNAL_WRITE_IN_COMPUTED</h2>
+          <p class="subtitle">Computed &quot;computedName&quot; wrote signal &quot;signalName&quot;. A computed only derives a value; a write from it runs again on every recomputation and can loop.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
+          <p>A computed runs lazily, whenever it is read after an input changed, so a write inside it happens an unpredictable number of times and can re-trigger its own readers. Derive the second value as a computed of its own, or make the write in an effect or an event handler.</p>
+<pre><code>// Bad - the computed writes count:
+const count = signal(0);
+const total = computed(() =&gt; {
+  count(items().length);
+  return items().reduce((sum, item) =&gt; sum + item.price, 0);
+});
+
+// Good - each derived value is its own computed:
+const count = computed(() =&gt; items().length);
+const total = computed(() =&gt; items().reduce((sum, item) =&gt; sum + item.price, 0));</code></pre>
+
           <h2 id="ERR_SIGNAL_WRITE_IN_RENDER">ERR_SIGNAL_WRITE_IN_RENDER</h2>
           <p class="subtitle">Signal &quot;signalName&quot; written during render of component &quot;component&quot;. This triggers re-execution.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-devtools-mcp</code>.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>eslint-plugin-what</code>.</p>
           <p>Move signal writes into event handlers, effects, or onMount(). The component body should only read signals, not write them.</p>
-<pre><code>// Bad — write during render:
+<pre><code>const count = signal(0);
+
+// Bad — write during render:
 function Counter() {
-  count(count() + 1);  // triggers infinite loop
+  count(count() + 1);  // a side effect of rendering: every mount writes it
   return &lt;span&gt;{count()}&lt;/span&gt;;
 }
 
@@ -419,22 +1043,168 @@ function Counter() {
   return &lt;button onclick={() =&gt; count(c =&gt; c + 1)}&gt;{count()}&lt;/button&gt;;
 }</code></pre>
 
+          <h2 id="ERR_SSR_INVALID_ID_PREFIX">ERR_SSR_INVALID_ID_PREFIX</h2>
+          <p class="subtitle">idPrefix idPrefix is not a letter followed by letters, digits, &quot;_&quot; or &quot;-&quot;.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
+          <p>The streaming renderer writes idPrefix into element ids, comments and an inline script, so it is validated rather than escaped: a letter, then letters, digits, &quot;_&quot; or &quot;-&quot;. It only needs to differ between streams on one page; every stream already adds a random part after it.</p>
+<pre><code>// Bad — characters that would end the attribute or the comment:
+renderToStream(app, { idPrefix: 'side&quot;bar' });
+
+// Good:
+renderToStream(app, { idPrefix: 'sidebar' });</code></pre>
+
+          <h2 id="ERR_SSR_LATE_HEAD">ERR_SSR_LATE_HEAD</h2>
+          <p class="subtitle">[what-server] &lt;Head&gt; inside a streamed &lt;Suspense&gt; (boundary boundaryId) set head tags after the shell was sent.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-server</code>.</p>
+          <p>A streamed document sends its &lt;head&gt; with the shell. Tags a &lt;Head&gt; sets inside a &lt;Suspense&gt; that streams later travel with that boundary and are applied to document.head by script (or by applyStreamedBoundaries() with noScripts), so the page gets them, but the HTML &lt;head&gt; does not carry them and a crawler that runs no scripts does not see them. Set the title and meta from data the shell already has (the loader's), or render the route buffered (page.stream: false), to have them in the server HTML.</p>
+<pre><code>// Bad for crawlers — the title waits for a streamed resource:
+function Post() {
+  const [post] = createResource(loadPost, { key: 'post' });
+  return &lt;&gt;&lt;Head title={post().title} /&gt;&lt;h1&gt;{post().title}&lt;/h1&gt;&lt;/&gt;;
+}
+
+// Good — the loader has the title before the shell is sent:
+export const loader = ({ params }) =&gt; loadPostMeta(params.id);
+function Page({ loaderData }) {
+  return &lt;&gt;&lt;Head title={loaderData.title} /&gt;&lt;Suspense fallback=&quot;...&quot;&gt;&lt;Post /&gt;&lt;/Suspense&gt;&lt;/&gt;;
+}</code></pre>
+
+          <h2 id="ERR_SSR_SUSPENSE_TIMEOUT">ERR_SSR_SUSPENSE_TIMEOUT</h2>
+          <p class="subtitle">[what-server] A resource was still pending after 12 attempts during streaming SSR.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
+          <p>A resource or async component inside &lt;Suspense&gt; never settled while the page streamed, so the renderer stopped waiting for it. Make every fetcher resolve or reject, or give it a timeout so that it does. The boundary keeps its fallback in the streamed HTML, and the client renders the boundary itself.</p>
+<pre><code>// Bad — a fetch with no bound can leave the boundary waiting forever:
+const [posts] = createResource(() =&gt; fetch(API).then((r) =&gt; r.json()));
+
+// Good — a timeout, so the fetcher settles either way:
+const [posts] = createResource(() =&gt;
+  fetch(API, { signal: AbortSignal.timeout(5000) }).then((r) =&gt; r.json()));</code></pre>
+
+          <h2 id="ERR_SSR_UNSAFE_REDIRECT">ERR_SSR_UNSAFE_REDIRECT</h2>
+          <p class="subtitle">[what-server] method: refusing unsafe redirect target target; redirecting to root instead. (ERR_SSR_UNSAFE_REDIRECT)</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-server</code>.</p>
+          <p>A server response redirect(), from a loader's `response` or from getResponse(), takes a same-origin path only (&quot;/account?tab=2&quot;), by the same rule as the action handler's _redirect field. An absolute URL, &quot;//host&quot;, &quot;/\host&quot; or javascript: is refused, because a loader that redirects to request data (`?next=`) would otherwise be an open redirect; the response goes to the app's root (&quot;/&quot;, or &quot;/app/&quot; below a base) instead of failing the request. To send the visitor off the site on purpose, call redirectExternal(url), which takes an absolute http(s) URL with no credentials, or a mailto: or tel: URL.</p>
+<pre><code>// Bad — an absolute URL through redirect() is refused:
+export function loader({ query, response }) {
+  response.redirect(query.next);          // ?next=https://evil.example -&gt; &quot;/&quot;
+}
+
+// Good — a local path from request data, checked by redirect() itself,
+// and leaving the site explicitly:
+export function loader({ query, response }) {
+  if (query.billing) response.redirectExternal('https://billing.example.com/portal');
+  else response.redirect(query.next ?? '/');   // &quot;/account&quot; is kept
+}</code></pre>
+
+          <h2 id="ERR_STATE_READ_ONCE">ERR_STATE_READ_ONCE</h2>
+          <p class="subtitle">State `name` is read once in &lt;component&gt;: reason.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-compiler</code>.</p>
+          <p>A component runs once, so state it reads in its body, outside JSX and outside a function, is read once, where React reads it again on every render. Two shapes ported from React do something else, with no error: a component that decides what it returns from its state (`if (loading()) return &lt;Spinner /&gt;`, `return open() ? &lt;Dialog /&gt; : null`) keeps the branch it took first, so branch where it renders (`&lt;&gt;{() =&gt; (loading() ? &lt;Spinner /&gt; : &lt;List /&gt;)}&lt;/&gt;` or `&lt;Show when={…}&gt;`); and a value derived from state in the body and shown in JSX (`const valid = name().length &gt; 0` with `disabled={!valid}`) keeps its first value, so write the expression in the JSX (`disabled={name().length === 0}`) or derive it with `computed()` or `useMemo()` and call it there (`valid()`). State is the accessor a What hook or primitive returns (`useState`, `useReducer`, `useSignal`, `signal`, `computed`, `useMemo`, …). what-compiler reports both at build time (development builds), and eslint-plugin-what's no-state-read-once where the compiler does not build (the islands template, h() code). A read inside a function is not reported: `untrack(() =&gt; count())` keeps the first value on purpose.</p>
+<pre><code>import { useState, useEffect, useMemo } from 'what-framework';
+
+// Bad - &quot;Loading…&quot; forever: the branch is decided once:
+function Users() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() =&gt; { load().then(() =&gt; setLoading(false)); }, []);
+  if (loading()) return &lt;p&gt;Loading…&lt;/p&gt;;
+  return &lt;ul&gt;…&lt;/ul&gt;;
+}
+
+// Bad - the button never enables: valid is computed once:
+function Signup() {
+  const [name, setName] = useState('');
+  const valid = name().length &gt; 0;
+  return &lt;button disabled={!valid}&gt;Sign up&lt;/button&gt;;
+}
+
+// Good - the branch is a reactive child:
+function Users() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() =&gt; { load().then(() =&gt; setLoading(false)); }, []);
+  return &lt;&gt;{() =&gt; (loading() ? &lt;p&gt;Loading…&lt;/p&gt; : &lt;ul&gt;…&lt;/ul&gt;)}&lt;/&gt;;
+}
+
+// Good - derived with useMemo, read where it is shown:
+function Signup() {
+  const [name, setName] = useState('');
+  const valid = useMemo(() =&gt; name().length &gt; 0);
+  return &lt;button disabled={!valid()}&gt;Sign up&lt;/button&gt;;
+}</code></pre>
+
           <h2 id="ERR_STATIC_WRITE_ESCAPE">ERR_STATIC_WRITE_ESCAPE</h2>
-          <p class="subtitle">[what-server] Refusing to write outside outDir: path.</p>
+          <p class="subtitle">[what-server] Refusing to write outside outDir: path</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-server</code>.</p>
           <p>A route path resolved to a location outside the export directory, which a &quot;../&quot; segment in a route or a param can do. Sanitize the route path, or drop the route from the static export.</p>
-<pre><code>// Bad — a param that can contain a slash escapes outDir:
-{ path: '/docs/:slug*', mode: 'static' }
+<pre><code>// Bad — a slug from the CMS such as '../../x' resolves outside outDir:
+const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
+  getStaticPaths: () =&gt; ({ paths: slugs.map((slug) =&gt; ({ params: { slug } })) }) };
 
-// Good — constrain the param, or precompute the exact paths:
-{ path: '/docs/:slug', mode: 'static', paths: () =&gt; slugs.map(slug =&gt; ({ slug })) }</code></pre>
+// Good — export only slugs that are one safe path segment:
+const docs = { path: '/docs/:slug', mode: 'static', component: Doc,
+  getStaticPaths: () =&gt; ({ paths: slugs.filter((s) =&gt; /^[a-z0-9-]+$/.test(s)).map((slug) =&gt; ({ params: { slug } })) }) };</code></pre>
+
+          <h2 id="ERR_STORAGE_FAILED">ERR_STORAGE_FAILED</h2>
+          <p class="subtitle">useLocalStorage(&quot;key&quot;) could not operation localStorage: reason.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A write fails when the quota is exhausted or storage is disabled (private browsing); a read fails when the stored text is not valid JSON, usually because something else wrote that key. The signal keeps working in memory either way. Use a key no other code writes, and keep stored values small.</p>
+<pre><code>// Good - a namespaced key and a small value:
+const theme = useLocalStorage('myapp:theme', 'light');</code></pre>
+
+          <h2 id="ERR_SUSPEND_IN_TRANSITION">ERR_SUSPEND_IN_TRANSITION</h2>
+          <p class="subtitle">Component &quot;component&quot; suspended while a transition committed: its fallback shows.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>The component suspended on a promise (use() or a lazy() chunk), so its &lt;Suspense&gt; shows the fallback again. A transition holds async values, not components that suspend (React keeps the old content here). Make what the component waits for an async value of the state the transition writes, and read it in JSX: computed(async ({ signal }) =&gt; fetchTab(tab(), { signal })) is held by the transition, which keeps the old content on screen until the new value has landed. A lazy() chunk can be loaded before the transition (call its import() first), or read as an async value in its parent: computed(() =&gt; import(&quot;./Page.jsx&quot;)).</p>
+<pre><code>// Bad — React's tabs pattern: the fallback replaces the old tab:
+function Panel(props) {
+  const data = use(props.promise);
+  return &lt;p&gt;{data.text}&lt;/p&gt;;
+}
+&lt;button onClick={() =&gt; startTransition(() =&gt; tab('b'))}&gt;B&lt;/button&gt;
+
+// Good — the tab's data is an async value of the tab:
+const data = computed(({ signal }) =&gt; fetchTab(tab(), { signal }));
+function Panel() {
+  return &lt;p&gt;{data().text}&lt;/p&gt;;
+}
+&lt;button onClick={() =&gt; startTransition(() =&gt; tab('b'))}&gt;B&lt;/button&gt;</code></pre>
+
+          <h2 id="ERR_SYMBOL_CHILD">ERR_SYMBOL_CHILD</h2>
+          <p class="subtitle">A Symbol (symbol) is a child of &lt;component&gt;, which renders nothing for it (path).</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>A Symbol is not renderable. The server, the client and hydration all render nothing in its place, as for null, so the page shows a gap where a value was meant to be. The usual cause is a Symbol used as an enum value or a sentinel reaching JSX. Render a string for it instead: its description (sym.description), or a label looked up by it. Reported once for each component and Symbol, in development.</p>
+<pre><code>// Bad — a Symbol status renders nothing:
+const OPEN = Symbol('open');
+function Status() {
+  const status = OPEN;
+  return &lt;span&gt;{status}&lt;/span&gt;; // an empty span
+}
+
+// Good — render a label for it:
+const OPEN = Symbol('open');
+const LABELS = { [OPEN]: 'Open' };
+function Status() {
+  const status = OPEN;
+  return &lt;span&gt;{LABELS[status]}&lt;/span&gt;;
+}</code></pre>
+
+          <h2 id="ERR_TEMPLATE_NAMESPACE">ERR_TEMPLATE_NAMESPACE</h2>
+          <p class="subtitle">The compiled template for &lt;tag&gt; has no namespace flag, so its root would render as an unknown HTML element instead of SVG or MathML.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>what-compiler marks every template whose root is an SVG or MathML element other than &lt;svg&gt; and &lt;math&gt;, and the runtime parses it in that namespace; the runtime no longer guesses the namespace from the tag. A template without the mark comes from a what-compiler older than the runtime, usually a library that ships precompiled output. Compiler and runtime versions move together: recompile the module with the what-compiler release that matches what-framework, and have a library declare what-framework at its own minor version as a peer dependency.</p>
+<pre><code>// Bad — output of what-compiler 0.14, loaded by a newer runtime:
+const _tmpl$0 = _$template(&quot;&lt;circle r='1'&gt;&lt;/circle&gt;&quot;);
+
+// Good — the same component recompiled by the matching what-compiler:
+const _tmpl$0 = _$template(&quot;&lt;svg&gt;&lt;circle r='1'&gt;&lt;/circle&gt;&lt;/svg&gt;&quot;, 2);</code></pre>
 
           <h2 id="ERR_UNKNOWN">ERR_UNKNOWN</h2>
           <p class="subtitle">createWhatError() was called with a code that is not in this catalogue.</p>
-          <p><span class="badge badge-error">error</span></p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
           <p>createWhatError() was called with a code that is not in this catalogue. Check the spelling against ERROR_CODES, or add the entry.</p>
-<pre><code>// Bad - not a catalogue key:
-createWhatError('MISSING_KEYS');
+<pre><code>import { createWhatError } from 'what-core/internal';
+
+// Bad - not a catalogue key:
+throw createWhatError('MISSING_KEYS');
 
 // Good:
 createWhatError('MISSING_KEY', { component: 'TodoList' });</code></pre>
@@ -443,12 +1213,12 @@ createWhatError('MISSING_KEY', { component: 'TodoList' });</code></pre>
           <p class="subtitle">The MCP client called a tool this server does not expose.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-mcp</code>.</p>
           <p>The MCP client called a tool this server does not expose. Call tools/list to enumerate what is available; a stale client cache is the usual cause.</p>
-<pre><code>// List what the server actually exposes:
-{ &quot;method&quot;: &quot;tools/list&quot; }</code></pre>
+<pre><code>// List what the server actually exposes (tools/list), with the MCP SDK client:
+const { tools } = await client.listTools();</code></pre>
 
           <h2 id="ERR_UNSAFE_INNERHTML">ERR_UNSAFE_INNERHTML</h2>
           <p class="subtitle">innerHTML set on element without using the __html safety marker.</p>
-          <p><span class="badge badge-warning">warning</span> Raised by <code>what-devtools-mcp</code>.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>eslint-plugin-what</code>, <code>what-core</code>.</p>
           <p>Use the html tagged template literal or pass { __html: content } to mark innerHTML as intentional and reviewed.</p>
 <pre><code>// Bad — raw innerHTML (XSS risk):
 &lt;div innerHTML={userInput} /&gt;
@@ -460,22 +1230,79 @@ createWhatError('MISSING_KEY', { component: 'TodoList' });</code></pre>
 html`&lt;div&gt;${sanitizedContent}&lt;/div&gt;`</code></pre>
 
           <h2 id="ERR_UNSAFE_REDIRECT">ERR_UNSAFE_REDIRECT</h2>
-          <p class="subtitle">redirect() refused an unsafe target: target.</p>
-          <p><span class="badge badge-error">error</span> Raised by <code>what-devtools-mcp</code>, <code>what-router</code>.</p>
-          <p>redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Protocol-relative (&quot;//host&quot;), backslash-smuggled and javascript:/data: targets are open-redirect vectors. Check a user-supplied target against an allowlist first.</p>
+          <p class="subtitle">redirect() refused an unsafe target: target</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-router</code>.</p>
+          <p>redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only, in the browser and in a server render alike. Protocol-relative (&quot;//host&quot;), backslash-smuggled, javascript:/data: and credential-carrying (&quot;https://trusted.example@evil.example&quot;) targets are open-redirect vectors. Check a user-supplied target against an allowlist first.</p>
 <pre><code>// Bad - a user-controlled target can leave your origin:
 redirect(query.next);
 
 // Good - allowlist the target first:
 redirect(ALLOWED.has(query.next) ? query.next : '/');</code></pre>
 
+          <h2 id="ERR_UNSAFE_STATIC_MARKUP">ERR_UNSAFE_STATIC_MARKUP</h2>
+          <p class="subtitle">Refused unsafe static markup: message</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-compiler</code>.</p>
+          <p>what-compiler writes static tags, attributes and text straight into markup (the DOM target's template strings, which the browser parses, and the server target's string templates), so it checks them when the module is compiled, by the same rules the runtime applies to a value on every path: a URL attribute (href, src, action, formaction, data, ping, xlink:href) must not use a javascript:, vbscript: or data: scheme, srcdoc and outerHTML are never written because escaping cannot make markup safe, innerHTML or dangerouslySetInnerHTML take { __html: trustedString }, never a string, the text of a &lt;script&gt; cannot contain &quot;&lt;/&quot; or &quot;&lt;!--&quot; and that of a &lt;style&gt; cannot contain &quot;&lt;/&quot;, and a tag cannot be a namespaced name such as &lt;svg:rect&gt;. The server target also checks that a tag or attribute name can be emitted verbatim. Fix the value in the source; a dynamic value is still checked at run time.</p>
+<pre><code>// Bad — each of these fails the build:
+&lt;a href=&quot;javascript:void 0&quot;&gt;Open&lt;/a&gt;;
+&lt;iframe srcdoc=&quot;&lt;p&gt;hi&lt;/p&gt;&quot; /&gt;;
+&lt;div innerHTML=&quot;&lt;b&gt;raw&lt;/b&gt;&quot; /&gt;;
+&lt;script&gt;{&quot;document.write('&lt;/p&gt;')&quot;}&lt;/script&gt;;
+&lt;svg:rect /&gt;;
+
+// Good:
+&lt;button type=&quot;button&quot; onClick={open}&gt;Open&lt;/button&gt;;
+&lt;iframe src=&quot;/preview.html&quot; /&gt;;
+&lt;div innerHTML={{ __html: trustedHtml }} /&gt;;
+&lt;script&gt;{&quot;document.write('&lt;\\/p&gt;')&quot;}&lt;/script&gt;;
+&lt;svg&gt;&lt;rect /&gt;&lt;/svg&gt;;</code></pre>
+
           <h2 id="ERR_USE_INVALID_ARG">ERR_USE_INVALID_ARG</h2>
           <p class="subtitle">[what-react] use() expects a promise or a context.</p>
           <p><span class="badge badge-error">error</span> Raised by <code>what-react</code>.</p>
-          <p>use() reads either a thenable or a context object. Anything else has nothing to suspend on or subscribe to.</p>
-<pre><code>// Good:
-const value = use(ThemeContext);
-const data = use(fetchUser(id));</code></pre>
+          <p>use() reads either a thenable or a context object. Anything else has nothing to suspend on or subscribe to. A promise read with use() must outlive the component: make it outside the component and pass it in, since one made in the body is a new promise every time the component runs.</p>
+<pre><code>// Good — a context, and a promise made outside the component:
+function Profile({ userPromise }) {
+  const theme = use(ThemeContext);
+  const user = use(userPromise);
+  return &lt;p className={theme}&gt;{user.name}&lt;/p&gt;;
+}</code></pre>
+
+          <h2 id="ERR_USE_UNCACHED_PROMISE">ERR_USE_UNCACHED_PROMISE</h2>
+          <p class="subtitle">Component &quot;component&quot; keeps suspending on a new promise: use() received a promise made in the component body, which is new on every attempt, so it never finishes.</p>
+          <p><span class="badge badge-error">error</span> Raised by <code>what-core</code>.</p>
+          <p>A component that suspends on use(promise) runs again when the promise settles, and a promise created in its body is created again then. Pass use() a promise made outside the component (a prop, a module-level cache), or make the value an async computed, which is created once and suspends its readers until it lands.</p>
+<pre><code>// Bad — a new promise on every attempt:
+function User(props) {
+  const user = use(fetch('/api/users/' + props.id).then((r) =&gt; r.json()));
+  return &lt;h1&gt;{user.name}&lt;/h1&gt;;
+}
+
+// Good — an async computed, created once:
+function User(props) {
+  const user = computed(() =&gt; fetch('/api/users/' + props.id).then((r) =&gt; r.json()));
+  return &lt;h1&gt;{user().name}&lt;/h1&gt;;
+}</code></pre>
+
+          <h2 id="ERR_WRITE_AFTER_AWAIT">ERR_WRITE_AFTER_AWAIT</h2>
+          <p class="subtitle">Signal &quot;signalName&quot; was written outside a transition while the async function of a transition that also wrote it was still running: a write after an await is not part of the transition, so it shows before the transition commits.</p>
+          <p><span class="badge badge-warning">warning</span> Raised by <code>what-core</code>.</p>
+          <p>startTransition holds what the writes made synchronously inside its function reach. After an await, the function runs on its own and its writes are ordinary writes (as in React). Make the writes that belong to the commit before the first await, or wrap the later ones in startTransition again; data that arrives later belongs in an async computed, which the transition waits for.</p>
+<pre><code>// Bad — status('saved') shows at once, before the list commits:
+startTransition(async () =&gt; {
+  status('saving');
+  await save(item);
+  status('saved');
+  await refresh(list);
+});
+
+// Good — the later write is a transition of its own:
+startTransition(async () =&gt; {
+  status('saving');
+  await save(item);
+  startTransition(() =&gt; status('saved'));
+  await refresh(list);
+});</code></pre>
         </div>
       </div>
     </main>

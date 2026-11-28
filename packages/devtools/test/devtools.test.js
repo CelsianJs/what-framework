@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { createServer } from 'vite';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,22 +20,11 @@ let page;
 // the `before` hook throws and node:test cancels every subtest with
 // "test did not finish before its parent and was cancelled", which poisons
 // the whole repo's test output. Mirrors devtools-mcp/test/e2e.test.js.
-let browserAvailable = false;
-try {
-  browserAvailable = existsSync(chromium.executablePath());
-} catch {
-  browserAvailable = false;
-}
 // See the note in packages/devtools-mcp/test/e2e.test.js: a graceful skip is
 // correct locally, but the publish workflow was skipping these too, so the
 // browser client shipped unverified. WHAT_REQUIRE_BROWSER_TESTS=1 makes a
-// missing browser fail instead of disappear.
-if (process.env.WHAT_REQUIRE_BROWSER_TESTS === '1' && !browserAvailable) {
-  throw new Error(
-    'WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is not installed. ' +
-    'Run `npx playwright install --with-deps chromium` before this suite.',
-  );
-}
+// browser that does not launch fail instead of disappear.
+const browserAvailable = await chromiumLaunches(chromium);
 const browserDescribe = browserAvailable ? describe : describe.skip;
 if (!browserAvailable) {
   console.warn('[what] Skipping devtools browser tests: Chromium not installed (run `npx playwright install chromium`).');
@@ -93,7 +82,6 @@ browserDescribe('what-devtools', () => {
   test('devtools track signals', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(200);
 
     const snap = await page.evaluate(safeSnapshot);
 
@@ -104,7 +92,6 @@ browserDescribe('what-devtools', () => {
   test('devtools track effects', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(200);
 
     const snap = await page.evaluate(safeSnapshot);
 
@@ -115,7 +102,6 @@ browserDescribe('what-devtools', () => {
   test('signal updates are reflected', async () => {
     await page.goto(URL);
     await page.waitForSelector('#increment');
-    await page.waitForTimeout(200);
 
     // Get initial count value via devtools
     const before = await page.evaluate(() => window.__TEST__.count());
@@ -123,7 +109,6 @@ browserDescribe('what-devtools', () => {
 
     // Trigger update via click
     await page.click('#increment');
-    await page.waitForTimeout(200);
 
     // Verify signal value updated
     const after = await page.evaluate(() => window.__TEST__.count());
@@ -149,12 +134,11 @@ browserDescribe('what-devtools', () => {
   test('DevPanel opens and shows tabs', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(200);
 
     // Click the W toggle button
     const wButton = await page.locator('button:has-text("W")').first();
     await wButton.click();
-    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Signals")').first().waitFor({ timeout: 5000 });
 
     // Panel should be visible with tabs
     const signalsTab = await page.locator('button:has-text("Signals")').first();
@@ -169,18 +153,17 @@ browserDescribe('what-devtools', () => {
   test('DevPanel signals tab shows tracked signals', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(300);
 
     // Open the panel
     const wButton = await page.locator('button:has-text("W")').first();
     await wButton.click();
-    await page.waitForTimeout(300);
+    await page.locator('button:has-text("Signals")').first().waitFor({ timeout: 5000 });
 
     // Switch to the Signals tab (signal names only render there —
     // the default Overview tab shows counts, not names)
     const signalsTab = page.locator('button:has-text("Signals")').first();
     await signalsTab.click();
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => document.body.textContent.includes('signal_'), null, { timeout: 5000 });
 
     // Check signal names are visible in the panel
     const hasSignalText = await page.evaluate(() => {
@@ -191,15 +174,32 @@ browserDescribe('what-devtools', () => {
     assert.ok(hasSignalText, 'Panel should show signal entries (signal_N names)');
   });
 
+  test('DevPanel previews a signal held in a signal without stringifying it', async () => {
+    const warnings = [];
+    const onConsole = (msg) => { if (msg.text().includes('ERR_MISSING_SIGNAL_READ')) warnings.push(msg.text()); };
+    page.on('console', onConsole);
+    try {
+      await page.goto(URL);
+      await page.waitForSelector('#title');
+      await page.locator('button:has-text("W")').first().click();
+      await page.locator('button:has-text("Signals")').first().click();
+      await page.waitForFunction(() => document.body.textContent.includes('[Function: sig]'), null, { timeout: 5000 });
+      const shown = await page.evaluate(() => document.body.textContent.includes('[Function: sig]'));
+      assert.ok(shown, 'the held signal is previewed as a function');
+    } finally {
+      page.off('console', onConsole);
+    }
+    assert.deepEqual(warnings, []);
+  });
+
   test('DevPanel close button hides panel', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(300);
 
     // Open panel
     const wButton = page.locator('button:has-text("W")').first();
     await wButton.click();
-    await page.waitForTimeout(300);
+    await page.locator('button:has-text("Signals")').first().waitFor({ timeout: 5000 });
 
     const signalsTab = page.locator('button:has-text("Signals")').first();
     assert.strictEqual(await signalsTab.isVisible(), true, 'Panel should be open');
@@ -207,7 +207,7 @@ browserDescribe('what-devtools', () => {
     // Close via x button in panel header
     const closeButton = page.locator('button:has-text("x")').first();
     await closeButton.click();
-    await page.waitForTimeout(300);
+    await signalsTab.waitFor({ state: 'hidden', timeout: 5000 });
 
     assert.strictEqual(await signalsTab.isVisible(), false, 'Panel should be hidden after close');
   });
@@ -215,7 +215,6 @@ browserDescribe('what-devtools', () => {
   test('subscribe receives events on signal change', async () => {
     await page.goto(URL);
     await page.waitForSelector('#title');
-    await page.waitForTimeout(200);
 
     const events = await page.evaluate(() => {
       return new Promise(resolve => {

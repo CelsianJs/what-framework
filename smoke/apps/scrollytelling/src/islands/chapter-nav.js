@@ -1,12 +1,13 @@
 // client:idle: the chapter rail.
 //
 // `idle` because the server already ships it as working fragment links. The
-// only thing hydration adds is the smooth scroll and the current-chapter mark,
-// so it can wait until the browser has nothing better to do.
+// only thing hydration adds is the smooth scroll and moving the current-chapter
+// mark, so it can wait until the browser has nothing better to do.
 
-import { h, smoothScrollTo } from 'what-framework';
+import { h } from 'what-framework';
+import { smoothScrollTo } from 'what-framework/dom';
 import { chapters } from '../story.js';
-import { activeChapter, bindEl, prefersReducedMotion } from '../motion.js';
+import { activeChapter, prefersReducedMotion } from '../motion.js';
 
 export default function ChapterNav() {
   const jump = (event, id) => {
@@ -24,15 +25,12 @@ export default function ChapterNav() {
       chapters.map((chapter) => h('li', {},
         h('a', {
           href: `#${chapter.id}`,
-          class: 'chapter-link',
+          // Reactive props, so the server marks the opening chapter as the
+          // client does and the mark does not wait for the idle hydration.
+          class: () => (activeChapter() === chapter.id ? 'chapter-link is-current' : 'chapter-link'),
+          'aria-current': () => String(activeChapter() === chapter.id),
           'data-chapter-link': chapter.id,
           onclick: (event) => jump(event, chapter.id),
-          ref: (el) => bindEl(el, () => {
-            const on = activeChapter() === chapter.id;
-            el.classList.toggle('is-current', on);
-            if (on) el.setAttribute('aria-current', 'true');
-            else el.setAttribute('aria-current', 'false');
-          }),
         },
         h('span', { class: 'chapter-num' }, chapter.num),
         h('span', { class: 'chapter-title' }, chapter.title),

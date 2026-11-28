@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { claudeMd, agentsMd } from './agent-instructions.js';
 
 // ---------------------------------------------------------------------------
 // CLI arguments
@@ -209,26 +210,29 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   // with .mcp.json, .cursor/mcp.json and an MCP-promising CLAUDE.md while
   // omitting the one package that makes any of it work is the worst combination,
   // because the agent is primed to call tools that cannot answer.
-  // The islands template renders every page on the server, so its JSX goes
-  // through What's automatic runtime (plain h() calls, which Vite's own JSX
-  // transform emits) rather than what-compiler, whose output is client-only.
+  // The islands template's JSX goes through What's automatic runtime (plain h()
+  // calls, which Vite's own JSX transform emits) rather than what-compiler: an
+  // island hydrates in place over its server-rendered markup, which takes an
+  // unbuilt vnode tree, and compiled JSX builds its DOM directly.
   const devDeps = template === 'fullstack'
     ? {
         esbuild: '^0.28.2',
         'what-devtools': whatVersionRange,
         'what-devtools-mcp': whatVersionRange,
-        eslint: '^9.0.0',
+        eslint: '^10.0.0',
         'eslint-plugin-what': whatVersionRange,
         typescript: '^5.6.0',
+        'typescript-eslint': '^8.56.0',
       }
     : template === 'islands'
       ? {
           vite: '^6.0.0',
           'what-devtools': whatVersionRange,
           'what-devtools-mcp': whatVersionRange,
-          eslint: '^9.0.0',
+          eslint: '^10.0.0',
           'eslint-plugin-what': whatVersionRange,
           typescript: '^5.6.0',
+          'typescript-eslint': '^8.56.0',
         }
       : {
           vite: '^6.0.0',
@@ -236,9 +240,10 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
           'what-devtools': whatVersionRange,
           'what-devtools-mcp': whatVersionRange,
           '@babel/core': '^7.23.0',
-          eslint: '^9.0.0',
+          eslint: '^10.0.0',
           'eslint-plugin-what': whatVersionRange,
           typescript: '^5.6.0',
+          'typescript-eslint': '^8.56.0',
         };
 
   const scripts = template === 'fullstack'
@@ -255,6 +260,12 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
     deps['what-core'] = whatVersionRange;
     // Include zustand as a demo React library
     deps['zustand'] = '^5.0.0';
+    // React's own types: what `import ... from 'react'` means to tsc in a
+    // React file written in TypeScript (the file's first line,
+    // /** @jsxImportSource react */, selects them for its JSX; tsconfig's
+    // jsxImportSource stays What's, for native files).
+    devDeps['@types/react'] = '^19.0.0';
+    devDeps['@types/react-dom'] = '^19.0.0';
   }
 
   if (cssApproach === 'tailwind') {
@@ -263,8 +274,8 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   }
 
   if (cssApproach === 'stylex') {
-    devDeps['@stylexjs/stylex'] = '^0.10.0';
-    devDeps['vite-plugin-stylex'] = '^0.12.0';
+    devDeps['@stylexjs/stylex'] = '^0.19.2';
+    devDeps['@stylexjs/unplugin'] = '^0.19.2';
   }
 
   return JSON.stringify({
@@ -278,22 +289,57 @@ function generatePackageJson(packageName, { reactCompat, cssApproach, template }
   }, null, 2) + '\n';
 }
 
+// The scaffold's eslint.config.js for `template`.
+function generateEslintConfig(template) {
+  const ignores = template === 'islands' ? "['dist', '.ssr', 'node_modules']" : "['dist', 'node_modules']";
+  const preset = template === 'fullstack'
+    ? `  what.configs.recommended,
+  // This template authors pages with h() on purpose (buildless, no compiler).
+  { rules: { 'what/no-h-in-user-code': 'off' } },`
+    : template === 'islands'
+      ? `  // 'recommended' preset: this project's JSX uses the automatic runtime, not
+  // the What compiler, so reactive text has to be written as a function.
+  what.configs.recommended,`
+      : `  // 'compiler' preset: this project uses the What compiler (via Vite), which
+  // handles event casing and reactive JSX wrapping automatically.
+  what.configs.compiler,`;
+  return `import what from 'eslint-plugin-what';
+import tseslint from 'typescript-eslint';
+
+export default [
+  { ignores: ${ignores} },
+${preset}
+  { rules: { 'no-unused-vars': ['warn', { args: 'none', varsIgnorePattern: '^_' }] } },
+  // TypeScript: typescript-eslint's parser, and its unused-variable rule,
+  // which counts a name used only as a type.
+  {
+    files: ['**/*.{ts,tsx,mts,cts}'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', { args: 'none', varsIgnorePattern: '^_' }],
+    },
+  },
+];
+`;
+}
+
 function generateViteConfig({ reactCompat, cssApproach }) {
   const imports = [];
   const plugins = [];
 
   imports.push(`import { defineConfig } from 'vite';`);
 
+  // The What compiler compiles the app's JSX. With React support, what-react's
+  // plugin runs React libraries on what-react and lets native files and React
+  // files share one app: a React component in a native file is a React island
+  // (what-react's MIXED.md).
+  imports.push(`import what from 'what-compiler/vite';`);
+  plugins.push('what()');
   if (reactCompat) {
-    // React compat projects use the what-react Vite plugin instead of the
-    // What compiler. The what-react plugin aliases react/react-dom imports
-    // to what-react, which runs React code on What Framework's signal engine.
     imports.push(`import { reactCompat } from 'what-react/vite';`);
     plugins.push('reactCompat()');
-  } else {
-    // Standard What Framework projects use the What compiler for JSX
-    imports.push(`import what from 'what-compiler/vite';`);
-    plugins.push('what()');
   }
 
   // MCP DevTools — auto-injects devtools client in dev mode for AI agent debugging
@@ -306,8 +352,8 @@ function generateViteConfig({ reactCompat, cssApproach }) {
   }
 
   if (cssApproach === 'stylex') {
-    imports.push(`import stylexPlugin from 'vite-plugin-stylex';`);
-    plugins.push('stylexPlugin()');
+    imports.push(`import stylex from '@stylexjs/unplugin/vite';`);
+    plugins.push('stylex()');
   }
 
   let config = `${imports.join('\n')}
@@ -316,12 +362,11 @@ export default defineConfig({
   plugins: [${plugins.join(', ')}],`;
 
   if (reactCompat) {
-    // Note: the what-react/vite plugin handles optimizeDeps.exclude and
-    // resolve.alias automatically. No manual configuration needed.
     config += `
-  // what-react/vite handles all React aliasing and optimizeDeps automatically.
-  // Any React library you install (zustand, @tanstack/react-query, etc.)
-  // will be auto-detected and excluded from pre-bundling.`;
+  // reactCompat() points every \`react\` import at what-react, in the dev
+  // server, in a production build and in a server build. A React library you
+  // install (zustand, @tanstack/react-query, react-router, ...) needs no
+  // configuration here.`;
   }
 
   config += '\n});\n';
@@ -562,56 +607,30 @@ mount(<App />, '#app');
 `;
 }
 
+// The React template: a native What app (what-compiler) that uses a React
+// library. main.jsx is native; BearCounter.jsx calls zustand's hook, so
+// what-react's plugin makes it a React file, and <BearCounter /> in the
+// native App becomes a React island (what-react's MIXED.md).
 function generateMainWithReactCompat({ cssApproach }) {
-  // React compat demo: uses zustand (a real React library) to show it works
-  // with What Framework under the hood.
+  const header = `import { mount, signal } from 'what-framework';
+import { BearCounter } from './BearCounter.jsx';
+`;
+  const note = `// App is a native What component: it runs once, and {count()} updates only
+// that text. BearCounter is a React component (its file calls zustand's
+// hook), so it renders as a React island here: React rules inside it,
+// native rules around it.`;
+
   if (cssApproach === 'tailwind') {
-    return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  // useStore is a React hook from zustand — what-react makes it work seamlessly
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-      <p className="text-sm text-amber-700 font-medium">Zustand Store (React library)</p>
-      <p className="mt-1 text-2xl font-bold text-amber-900">{bears} bears</p>
-      <div className="mt-2 flex gap-2">
-        <button
-          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
-          onClick={increase}
-        >
-          Add bear
-        </button>
-        <button
-          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
-          onClick={reset}
-        >
-          Reset
-        </button>
-      </div>
-    </div>
-  );
-}
-
+    return `${header}
+${note}
 function App() {
-  const count = signal(0);
+  const count = signal(0, 'count');
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-lg">
         <h1 className="text-2xl font-bold text-slate-900">What Framework</h1>
-        <p className="mt-1 text-slate-500">React compat + Tailwind CSS.</p>
+        <p className="mt-1 text-slate-500">Native What + a React library, with Tailwind CSS.</p>
 
         <section className="mt-6 inline-flex items-center gap-3">
           <button
@@ -640,9 +659,7 @@ mount(<App />, '#app');
   }
 
   if (cssApproach === 'stylex') {
-    return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-import * as stylex from '@stylexjs/stylex';
+    return `${header}import * as stylex from '@stylexjs/stylex';
 
 const styles = stylex.create({
   page: {
@@ -679,60 +696,17 @@ const styles = stylex.create({
     ':hover': { borderColor: '#2563eb' },
   },
   output: { minWidth: '2ch', textAlign: 'center', fontWeight: 700 },
-  zustandBox: {
-    marginTop: '1.5rem',
-    padding: '1rem',
-    background: '#fffbeb',
-    border: '1px solid #fde68a',
-    borderRadius: 12,
-  },
-  zustandLabel: { fontSize: '0.875rem', color: '#92400e', fontWeight: 500 },
-  zustandCount: { marginTop: '0.25rem', fontSize: '1.5rem', fontWeight: 700, color: '#78350f' },
-  zustandButtons: { marginTop: '0.5rem', display: 'flex', gap: '0.5rem' },
-  zustandBtn: {
-    padding: '0.25rem 0.75rem',
-    borderRadius: 8,
-    border: '1px solid #fbbf24',
-    background: '#ffffff',
-    color: '#78350f',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    ':hover': { borderColor: '#d97706' },
-  },
 });
 
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div {...stylex.props(styles.zustandBox)}>
-      <p {...stylex.props(styles.zustandLabel)}>Zustand Store (React library)</p>
-      <p {...stylex.props(styles.zustandCount)}>{bears} bears</p>
-      <div {...stylex.props(styles.zustandButtons)}>
-        <button {...stylex.props(styles.zustandBtn)} onClick={increase}>Add bear</button>
-        <button {...stylex.props(styles.zustandBtn)} onClick={reset}>Reset</button>
-      </div>
-    </div>
-  );
-}
-
+${note}
 function App() {
-  const count = signal(0);
+  const count = signal(0, 'count');
 
   return (
     <main {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.shell)}>
         <h1 {...stylex.props(styles.heading)}>What Framework</h1>
-        <p {...stylex.props(styles.subtitle)}>React compat + StyleX.</p>
+        <p {...stylex.props(styles.subtitle)}>Native What + a React library, with StyleX.</p>
 
         <section {...stylex.props(styles.counter)}>
           <button {...stylex.props(styles.button)} onClick={() => count(c => c - 1)}>-</button>
@@ -750,42 +724,15 @@ mount(<App />, '#app');
 `;
   }
 
-  // React compat with vanilla CSS
-  return `import { mount, signal } from 'what-framework';
-import { create } from 'zustand';
-
-// A real React state library — works with What Framework via what-react!
-const useStore = create((set) => ({
-  bears: 0,
-  increase: () => set((state) => ({ bears: state.bears + 1 })),
-  reset: () => set({ bears: 0 }),
-}));
-
-function BearCounter() {
-  // useStore is a React hook from zustand — what-react makes it work seamlessly
-  const bears = useStore((state) => state.bears);
-  const increase = useStore((state) => state.increase);
-  const reset = useStore((state) => state.reset);
-
-  return (
-    <div className="zustand-demo">
-      <p className="zustand-label">Zustand Store (React library)</p>
-      <p className="zustand-count">{bears} bears</p>
-      <div className="zustand-buttons">
-        <button className="zustand-btn" onClick={increase}>Add bear</button>
-        <button className="zustand-btn" onClick={reset}>Reset</button>
-      </div>
-    </div>
-  );
-}
-
+  return `${header}
+${note}
 function App() {
-  const count = signal(0);
+  const count = signal(0, 'count');
 
   return (
     <main className="app-shell">
       <h1>What Framework</h1>
-      <p>React compat enabled — use React libraries with signals.</p>
+      <p>Native What components, with a React library inside.</p>
 
       <section className="counter">
         <button onClick={() => count(c => c - 1)}>-</button>
@@ -799,6 +746,117 @@ function App() {
 }
 
 mount(<App />, '#app');
+`;
+}
+
+// src/BearCounter.jsx of the React template: a React file, written as any
+// React component is.
+function generateBearCounter({ cssApproach }) {
+  const store = `/** @jsxImportSource react */
+import { create } from 'zustand';
+
+// zustand is a React library. This file calls its hook, so it is a React
+// file: its components follow React's rules (hooks return values, the
+// component re-renders when its state changes). The first line says so too.
+// A .jsx file does not need it; in a .tsx file it is what makes tsc check
+// the JSX with React's types (ChangeEvent, CSSProperties, refs).
+export const useStore = create((set) => ({
+  bears: 0,
+  increase: () => set((state) => ({ bears: state.bears + 1 })),
+  reset: () => set({ bears: 0 }),
+}));
+`;
+  if (cssApproach === 'tailwind') {
+    return `${store}
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+      <p className="text-sm text-amber-700 font-medium">Zustand store (React library)</p>
+      <p className="mt-1 text-2xl font-bold text-amber-900">{bears} bears</p>
+      <div className="mt-2 flex gap-2">
+        <button
+          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
+          onClick={increase}
+        >
+          Add bear
+        </button>
+        <button
+          className="px-3 py-1 rounded-lg border border-amber-300 bg-white text-amber-800 hover:border-amber-500 cursor-pointer text-sm"
+          onClick={reset}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
+`;
+  }
+  if (cssApproach === 'stylex') {
+    return `${store}import * as stylex from '@stylexjs/stylex';
+
+const styles = stylex.create({
+  box: {
+    marginTop: '1.5rem',
+    padding: '1rem',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: 12,
+  },
+  label: { fontSize: '0.875rem', color: '#92400e', fontWeight: 500 },
+  count: { marginTop: '0.25rem', fontSize: '1.5rem', fontWeight: 700, color: '#78350f' },
+  buttons: { marginTop: '0.5rem', display: 'flex', gap: '0.5rem' },
+  button: {
+    padding: '0.25rem 0.75rem',
+    borderRadius: 8,
+    border: '1px solid #fbbf24',
+    background: '#ffffff',
+    color: '#78350f',
+    cursor: 'pointer',
+    fontSize: '0.875rem',
+    ':hover': { borderColor: '#d97706' },
+  },
+});
+
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div {...stylex.props(styles.box)}>
+      <p {...stylex.props(styles.label)}>Zustand store (React library)</p>
+      <p {...stylex.props(styles.count)}>{bears} bears</p>
+      <div {...stylex.props(styles.buttons)}>
+        <button {...stylex.props(styles.button)} onClick={increase}>Add bear</button>
+        <button {...stylex.props(styles.button)} onClick={reset}>Reset</button>
+      </div>
+    </div>
+  );
+}
+`;
+  }
+  return `${store}
+export function BearCounter() {
+  const bears = useStore((state) => state.bears);
+  const increase = useStore((state) => state.increase);
+  const reset = useStore((state) => state.reset);
+
+  return (
+    <div className="zustand-demo">
+      <p className="zustand-label">Zustand store (React library)</p>
+      <p className="zustand-count">{bears} bears</p>
+      <div className="zustand-buttons">
+        <button className="zustand-btn" onClick={increase}>Add bear</button>
+        <button className="zustand-btn" onClick={reset}>Reset</button>
+      </div>
+    </div>
+  );
+}
 `;
 }
 
@@ -920,8 +978,9 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
 
   if (reactCompat) {
     notes += `
-- React compat is enabled via \`what-react\`. Any React library (zustand, @tanstack/react-query, framer-motion, etc.) works out of the box.
-- The \`what-react/vite\` plugin handles all aliasing automatically.`;
+- React libraries work through \`what-react\`. Your files stay native What; a file that imports \`react\` or calls a React library's hook (like \`src/BearCounter.jsx\`) is a React file, and its components render as React islands inside native ones. See what-react's MIXED.md.
+- The \`what-react/vite\` plugin points every \`react\` import at what-react, in \`vite\`, \`vite build\` and a server build. A React library needs no entry in \`vite.config.js\`.
+- TypeScript: start a React file (\`.tsx\`) with \`/** @jsxImportSource react */\`, as \`src/BearCounter.jsx\` does. \`tsc\` then checks its JSX with React's types (\`@types/react\` is installed); every other file is checked with What's.`;
   }
 
   if (cssApproach === 'tailwind') {
@@ -931,7 +990,7 @@ function generateReadme(packageName, { reactCompat, cssApproach, template }) {
 
   if (cssApproach === 'stylex') {
     notes += `
-- StyleX is configured via \`vite-plugin-stylex\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
+- StyleX is configured via \`@stylexjs/unplugin\`. Define styles with \`stylex.create()\` and apply with \`{...stylex.props()}\`.`;
   }
 
   if (template === 'islands') {
@@ -979,8 +1038,9 @@ npm run preview   # serves dist/ the way a static host would
 
 ## Notes
 
-- JSX here uses What's automatic runtime (\`jsxImportSource: "what-framework"\`),
-  the setup that renders on the server. There is no compiler auto-wrapping, so
+- JSX here uses What's automatic runtime (\`jsxImportSource: "what-framework"\`):
+  an island hydrates over its server-rendered markup from an unbuilt vnode tree,
+  which compiled JSX does not produce. There is no compiler auto-wrapping, so
   reactive text is written as a function: \`{() => count()}\`.
 - An island's \`mode\` decides when it hydrates: \`load\`, \`idle\`, \`visible\`,
   \`action\` (first interaction), \`media\`, or \`static\` (never).
@@ -1012,26 +1072,49 @@ serves, logs one warning, and that path returns 404:
 
 \`\`\`bash
 WHAT_REVALIDATE_SECRET=$(node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))") \\
+PUBLIC_ORIGIN=https://blog.example \\
 NODE_ENV=production npm start
 \`\`\`
+
+Set \`PUBLIC_ORIGIN\` to the site's public origin (several, comma-separated).
+Only its pages are cached: a request naming any other Host is rendered for
+itself, never stored. Development defaults to \`http://localhost:PORT\` and
+\`http://127.0.0.1:PORT\`; in production without it the app logs one warning and
+caches a page for any Host a request names. A value that names no origin
+(\`" , "\`), or an origin without its scheme (\`blog.example\`), stops the server
+with an error naming the value. Behind a TLS proxy, have it send
+\`X-Forwarded-Proto\`: the request's origin takes the scheme it reports.
 
 ## Deploy to Vura
 
 \`npm run build\` writes Vura's build output to \`dist/\`:
 
-- \`dist/static/\`: \`public/\` plus the client files listed in \`client-files.js\`,
-  served by the CDN at the same URL paths.
+- \`dist/static/\`: \`public/\`, the client files listed in \`client-files.js\` and
+  the framework modules, served by the CDN at the same URL paths.
 - \`dist/functions/_/index.js\`: \`function.js\` bundled by esbuild into one file. It
   is a single scale-to-zero Function that renders pages, runs server actions
   and answers the revalidate webhook, using the same \`createHandler()\` as
-  \`server.js\`.
+  \`server.js\`. It has no \`node_modules\`, so the build first writes the page's
+  import map to \`import-map.json\` (gitignored) for it to bundle.
 - \`dist/manifest.json\`: one catch-all serverless route, so the deploy fits the
   free tier (static files plus one Function, no dedicated server).
+
+The deploy is a production build: the page loads the framework's production
+modules (\`dist/*.min.js\`, no development code), and the Function runs in
+production whatever its host sets \`NODE_ENV\` to. Build with
+\`NODE_ENV=development npm run build\` for a development deploy.
 
 The ISR cache is in memory, per Function instance: a cold start begins with an
 empty cache, and \`revalidatePath\` purges only the instance that ran the action.
 Swap \`createMemoryStore()\` in \`server.js\` for a shared store if you need one
 cache across instances.
+
+The Function reads the same environment as \`npm start\`: set \`PUBLIC_ORIGIN\` in
+its environment to the deploy's public origin (\`https://\` and the domain it is
+served on; several, comma-separated). Without it, every cold start logs the
+warning above and the cache stores a page for any Host a request names; an
+origin given without its scheme stops the Function with an error naming the
+value. Set \`WHAT_REVALIDATE_SECRET\` there too to enable the webhook.
 
 The poll scheduler in \`server.js\` does not run in the Function, which only runs
 while it serves a request. For scheduled revalidation, have an external cron
@@ -1041,8 +1124,10 @@ call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
 
 - \`src/pages/*\` — pages. Each may export \`page\` (route config), \`loader\` (server
   data), \`getStaticPaths\` (pre-render), and a default component.
-- \`src/actions/*\` — server actions (mutations), served at \`/__what_action\`. Call
-  \`revalidatePath\`/\`revalidateTag\` after a mutation to purge the ISR cache.
+- \`src/actions/*\` — server-only mutations and helpers. To call an action from a
+  hydrated page, put its declaration in a browser-served module such as
+  \`src/components/post-actions.js\` and import any server-only helpers inside
+  its callback. See the example in CLAUDE.md.
 - \`src/routes.js\` — the route table (loaders/getStaticPaths/page bound per route).
 - \`src/entry-client.js\` — client hydration entry: re-renders the matched page
   with the server's loader data (\`#__what_data\`) and attaches interactivity.
@@ -1059,10 +1144,30 @@ call \`POST /__what_revalidate\` with \`WHAT_REVALIDATE_SECRET\` set.
 - \`what.config.js\`: app config. Nothing in this template reads it; the
   comment in the file says what does.
 
+## Adding a page
+
+Create the page module in \`src/pages/\` (a default component written with
+\`h()\`, plus \`page\` and \`loader\` exports as it needs), add its route to
+\`src/routes.js\`, and add it to \`matchPage()\` in \`src/entry-client.js\`.
+The server renders a page from the route table alone, but the browser hydrates
+only what \`matchPage()\` returns: a page missing there shows, and its buttons
+and other handlers do nothing.
+
 The \`/new\` form works without JavaScript: it SSRs hidden \`_action\`,
 \`what-csrf-token\` and \`_redirect\` fields, so a plain form-encoded POST to
 \`/__what_action\` dispatches the action and redirects. With JavaScript,
-\`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload).
+\`src/entry-client.js\` upgrades it to a JSON fetch (no full-page reload),
+and a call the server refuses (a body over its limit, an action that throws)
+is shown in the form.
+
+The \`/edit/:slug\` editor shows a server validation error next to what the
+visitor typed, with and without JavaScript, and goes to the post once it is
+saved: its \`<Form>\`'s action is the dispatch of
+\`useActionState(savePostAction, null)\` (\`src/components/post-actions.js\`),
+the title's \`defaultValue\` comes from the state, and the action redirects
+with \`getResponse().redirect()\` when the save succeeds. Without JavaScript the
+form posts to the editor's own URL, and the server renders it with the
+action's result.
 Unknown posts (\`/blog/nope\`) return a real 404 and are never ISR-cached.
 
 ### ISR cheat-sheet
@@ -1132,14 +1237,53 @@ export function createPost({ title, body }) {
   posts.push(post);
   return post;
 }
+
+export function updatePostTitle(slug, title) {
+  const post = getPost(slug);
+  if (post) post.title = title;
+  return post;
+}
+`);
+
+  // The editor's action, declared where the browser can load it: the page
+  // calls it. Its callback runs on the server only, where it imports the
+  // database.
+  mkdirSync(resolve(root, 'src', 'components'), { recursive: true });
+  writeFileSync(resolve(root, 'src', 'components', 'post-actions.js'), `// The post editor's server action. The browser loads this module (the edit
+// page calls the action), so the database is imported inside the callback,
+// which only ever runs on the server.
+//
+// It is called as savePostAction(previousState, fields), with and without
+// JavaScript. A validation failure is a value it returns, not a throw: the
+// edit page shows it next to what the visitor typed, exactly as typed (the
+// trimmed title is what is checked and saved). A save redirects to the post:
+// a 303 without JavaScript, a client navigation with it. Like createPost, it
+// checks no caller: anyone can call it with any slug. In a real app, check the
+// session here first (getRequest() is the caller's request).
+
+import { getResponse } from 'what-framework';
+import { action, revalidatePath } from 'what-framework/server';
+
+export const savePostAction = action(async (previous, fields) => {
+  const typed = String(fields.title ?? '');
+  const title = typed.trim();
+  if (title.length < 3) return { error: 'Title needs three characters', fields: { title: typed } };
+  const { updatePostTitle } = await import('../db.js');
+  const post = updatePostTitle(String(fields.slug), title);
+  if (!post) return { error: 'That post no longer exists', fields: { title: typed } };
+  await revalidatePath(\`/blog/\${post.slug}\`);
+  getResponse().redirect(\`/blog/\${post.slug}\`);
+  return { saved: true };
+}, { id: 'savePost', revalidate: ['/'] });
 `);
 
   // Server action: mutate, then revalidate the cached pages it affects.
   writeFileSync(resolve(root, 'src', 'actions', 'posts.js'), `// Server action: create a post, then revalidate the cached home listing.
-// revalidatePath purges the origin ISR cache (and any CDN) so the new post
-// appears immediately on the next request.
+// \`revalidate: ['/']\` purges the origin ISR cache (and any CDN) when the
+// action succeeds, so the new post appears on the next request; call
+// revalidatePath() from what-framework/server for a path known only then.
 
-import { action, revalidatePath } from 'what-framework/server';
+import { action } from 'what-framework/server';
 import { createPost } from '../db.js';
 
 export const createPostAction = action(
@@ -1201,17 +1345,18 @@ export default function Home() {
   writeFileSync(resolve(root, 'src', 'pages', 'post.js'), `// Dynamic post page. getStaticPaths pre-renders known slugs at build; unknown
 // slugs render on first hit (fallback: 'blocking') and are then cached.
 // The database import lives inside the loader/getStaticPaths (server-only),
-// keeping /src/db.js out of the browser. A missing post sets notFound: true,
-// which server.js turns into a real 404 status that is never ISR-cached.
+// keeping /src/db.js out of the browser. A missing post answers 404
+// (response.setStatus), which the ISR cache never stores.
 
 import { h, Head, useLoaderData } from 'what-framework';
 
 export const page = { mode: 'static', revalidate: 60, tags: ['posts'] };
 
-export const loader = async ({ params }) => {
+export const loader = async ({ params, response }) => {
   const { getPost } = await import('../db.js'); // server-only
   const post = getPost(params.slug);
-  return { post, notFound: !post };
+  if (!post) response.setStatus(404);
+  return { post };
 };
 
 export async function getStaticPaths() {
@@ -1231,7 +1376,61 @@ export default function Post() {
       meta: [{ property: 'og:title', content: post.title }],
     }),
     h('article', {}, h('h1', {}, post.title), h('p', {}, post.body)),
-    h('p', {}, h('a', { href: '/' }, '← Back'))
+    h('p', {}, h('a', { href: '/' }, '← Back'), ' · ', h('a', { href: \`/edit/\${post.slug}\` }, 'Edit'))
+  );
+}
+`);
+
+  // /edit/:slug — server validation with and without JavaScript.
+  writeFileSync(resolve(root, 'src', 'pages', 'edit.js'), `// Post editor: one form with server validation that works with and without
+// JavaScript. Its action is the dispatch of useActionState(savePostAction):
+//   - With JS: the action's result becomes \`state\`, then the form resets to
+//     the defaults that state gives, so the typed title stays next to the
+//     error.
+//   - No JS: the form posts to this page's own URL with the state it holds;
+//     the server runs the action and renders this page with its result.
+//     Reloading that page, or going back to it, posts the form again, as
+//     with any form POST: a save redirects, so only an error page does.
+// A save redirects to the post in both modes (the action's
+// getResponse().redirect()). mode:'server': an editor is one visitor's page.
+// A call the server refuses (a body over its bodyLimit: ERR_PAYLOAD_TOO_LARGE,
+// with \`limit\`) or an action that throws reaches the <ErrorBoundary> around
+// the component whose useActionState dispatched it, which says so.
+
+import { h, ErrorBoundary, Head, useActionState, useLoaderData } from 'what-framework';
+import { Form } from 'what-framework/server';
+import { savePostAction } from '../components/post-actions.js';
+
+export const page = { mode: 'server' };
+
+export const loader = async ({ params, response }) => {
+  const { getPost } = await import('../db.js'); // server-only
+  const post = getPost(params.slug);
+  if (!post) response.setStatus(404);
+  return { post };
+};
+
+export default function EditPost() {
+  const { post } = useLoaderData();
+  if (!post) return h('main', { class: 'container' }, h('h1', {}, 'Not found'));
+  return h('main', { class: 'container' },
+    h(Head, { title: \`Edit \${post.title} — ${packageName}\` }),
+    h('h1', {}, 'Edit post'),
+    h(ErrorBoundary, { fallback: ({ error, reset }) => h('p', { role: 'alert' },
+      error.code !== 'ERR_PAYLOAD_TOO_LARGE' ? \`Could not save: \${error.message}\` : error.limit !== undefined ? \`Too large: the limit is \${error.limit} bytes.\` : error.message,
+      ' ', h('button', { type: 'button', onClick: reset }, 'Try again')) },
+      h(PostForm, { post })),
+    h('p', {}, h('a', { href: \`/blog/\${post.slug}\` }, '← Back'))
+  );
+}
+
+function PostForm({ post }) {
+  const [state, save] = useActionState(savePostAction, null);
+  return h(Form, { action: save },
+    h('input', { type: 'hidden', name: 'slug', value: post.slug }),
+    h('label', {}, 'Title ', h('input', { name: 'title', defaultValue: () => state()?.fields?.title ?? post.title })),
+    () => (state()?.error ? h('p', { role: 'alert' }, state().error) : null),
+    h('button', { type: 'submit' }, 'Save')
   );
 }
 `);
@@ -1245,7 +1444,8 @@ export default function Post() {
 //     carry the action id (_action), the double-submit CSRF token
 //     (what-csrf-token) and the post-submit redirect (_redirect).
 //   - With JS: src/entry-client.js intercepts submit and posts JSON with the
-//     X-What-Action header (the action protocol), then navigates to the post.
+//     X-What-Action header (the action protocol), then navigates to the post,
+//     or shows in the form why the server refused the call.
 
 import { h, Head, useLoaderData } from 'what-framework';
 
@@ -1290,14 +1490,17 @@ export default function NewPost() {
 import Home, { loader as homeLoader, page as homePage } from './pages/home.js';
 import Post, { loader as postLoader, getStaticPaths as postPaths, page as postPage } from './pages/post.js';
 import NewPost, { loader as newLoader, page as newPage } from './pages/new.js';
+import EditPost, { loader as editLoader, page as editPage } from './pages/edit.js';
 
-// Importing the action registers it so /__what_action can dispatch it.
+// Importing the action registers it so /__what_action can dispatch it (the
+// editor's comes with its page).
 import './actions/posts.js';
 
 export const routes = [
   { path: '/', component: Home, loader: homeLoader, page: homePage, mode: homePage.mode },
   { path: '/blog/:slug', component: Post, loader: postLoader, getStaticPaths: postPaths, page: postPage, mode: postPage.mode },
   { path: '/new', component: NewPost, loader: newLoader, page: newPage, mode: newPage.mode },
+  { path: '/edit/:slug', component: EditPost, loader: editLoader, page: editPage, mode: editPage.mode },
 ];
 `);
 
@@ -1319,17 +1522,17 @@ import { h, hydrate } from 'what-framework';
 import Home from './pages/home.js';
 import Post from './pages/post.js';
 import NewPost from './pages/new.js';
+import EditPost from './pages/edit.js';
 
 function matchPage(pathname) {
   if (pathname === '/') return h(Home, {});
   const post = pathname.match(/^\\/blog\\/([^/]+)\\/?$/);
   if (post) return h(Post, { slug: decodeURIComponent(post[1]) });
   if (pathname === '/new') return h(NewPost, {});
+  const edit = pathname.match(/^\\/edit\\/([^/]+)\\/?$/);
+  if (edit) return h(EditPost, { slug: decodeURIComponent(edit[1]) });
   return null;
 }
-
-const vnode = matchPage(location.pathname);
-if (vnode) hydrate(vnode, document.body);
 
 // Dev-only devtools bridge. This is what makes the \\\`what_*\\\` MCP tools in
 // CLAUDE.md able to see this running app: without it every live tool reports
@@ -1338,23 +1541,26 @@ if (vnode) hydrate(vnode, document.body);
 // hand. server.js sets __WHAT_DEV__ and __WHAT_MCP__ in dev only, and the
 // imports are dynamic, so a production page never fetches either module.
 if (globalThis.__WHAT_DEV__) {
-  Promise.all([
-    import('what-core'),
-    import('what-devtools'),
-  ]).then(async ([core, devtools]) => {
-    // installDevTools alone makes the app inspectable in the browser. Connecting
-    // to the MCP bridge is a second, optional step: it only happens once
-    // \\\`npx what-devtools-mcp\\\` has run and written a token, so an app started
-    // without the MCP server makes no connection attempts and logs nothing.
+  try {
+    const [core, devtools] = await Promise.all([
+      import('what-core/internal'),
+      import('what-devtools'),
+    ]);
+    // installDevTools alone makes the app inspectable in the browser. The MCP
+    // bridge connection goes through server.js's discovery endpoint, which
+    // answers quietly when no bridge runs.
     devtools.installDevTools(core);
     if (globalThis.__WHAT_MCP__) {
       const mcp = await import('what-devtools-mcp/client');
       mcp.connectDevToolsMCP(globalThis.__WHAT_MCP__);
     }
-  }).catch((err) => {
+  } catch (err) {
     console.warn('[what] devtools unavailable:', err.message);
-  });
+  }
 }
+
+const vnode = matchPage(location.pathname);
+if (vnode) hydrate(vnode, document.body);
 
 // Progressive enhancement for server-action forms: submit as JSON to
 // /__what_action with the X-What-Action header (the served-action protocol),
@@ -1368,6 +1574,22 @@ function csrfToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// A call the server refuses is said in the form, above its button, as the
+// edit page's <ErrorBoundary> says it: a body over the server's bodyLimit is
+// answered 413 with { code: 'ERR_PAYLOAD_TOO_LARGE', limit }, an action that
+// throws 500 with { message }.
+function showRefusal(form, { code, limit, message }) {
+  let alert = form.querySelector('[role="alert"]');
+  if (!alert) {
+    alert = document.createElement('p');
+    alert.setAttribute('role', 'alert');
+    form.insertBefore(alert, form.querySelector('button[type="submit"]'));
+  }
+  alert.textContent = code === 'ERR_PAYLOAD_TOO_LARGE' && limit !== undefined
+    ? \`Too large: the limit is \${limit} bytes.\`
+    : \`Could not publish: \${message}\`;
+}
+
 for (const form of document.querySelectorAll('form[data-action]')) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1378,17 +1600,23 @@ for (const form of document.querySelectorAll('form[data-action]')) {
     const headers = { 'content-type': 'application/json', 'x-what-action': form.dataset.action };
     const token = csrfToken();
     if (token) headers['x-csrf-token'] = token;
-    const res = await fetch('/__what_action', {
-      method: 'POST',
-      headers,
-      credentials: 'same-origin',
-      body: JSON.stringify({ args: [args] }),
-    });
+    let res;
+    try {
+      res = await fetch('/__what_action', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({ args: [args] }),
+      });
+    } catch (err) {
+      showRefusal(form, { message: err.message });
+      return;
+    }
     const result = await res.json().catch(() => ({}));
     if (res.ok) {
       location.href = result.slug ? \`/blog/\${result.slug}\` : '/';
     } else {
-      console.error('[what] action failed:', result.message || res.status);
+      showRefusal(form, { ...result, message: result.message || \`the server answered \${res.status}\` });
     }
   });
 }
@@ -1477,10 +1705,10 @@ textarea {
 
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
+import { existsSync, statSync, createReadStream } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequestHandler, renderDocument, toNodeListener } from 'what-framework/server';
+import { createRequestHandler, createRouteRenderer, toNodeListener } from 'what-framework/server';
 import {
   createCacheEngine,
   createMemoryStore,
@@ -1488,7 +1716,7 @@ import {
   createScheduler,
 } from 'what-isr';
 import { routes } from './src/routes.js';
-import { CLIENT_DIRS, CLIENT_FILES, DEV_CLIENT_DIRS } from './client-files.js';
+import { CLIENT_DIRS, CLIENT_FILES, clientPackages, importMapFor } from './client-files.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const isProd = process.env.NODE_ENV === 'production';
@@ -1509,11 +1737,45 @@ if (!REVALIDATE_SECRET) {
   }
 }
 
+// The public origins this site serves, comma-separated
+// (PUBLIC_ORIGIN=https://blog.example). Only their pages are cached: a request
+// naming any other Host (one a sender planted) is rendered for itself, and a
+// scheduled regeneration renders each of these. Development defaults to
+// http://localhost:PORT and http://127.0.0.1:PORT. Left unset in production,
+// every origin a request names is cached, and a tick refreshes at most 16 of
+// them.
+const DEV_PORT = Number(process.env.PORT) || 3000;
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || '').trim();
+const PUBLIC_ORIGINS = PUBLIC_ORIGIN ? publicOrigins(PUBLIC_ORIGIN) : isProd ? [] : [\`http://localhost:\${DEV_PORT}\`, \`http://127.0.0.1:\${DEV_PORT}\`];
+if (isProd && PUBLIC_ORIGINS.length === 0) {
+  console.warn('[${packageName}] PUBLIC_ORIGIN is not set, so the ISR cache stores a page for any Host a request names. Set it to the public origin of the site.');
+}
+
+// PUBLIC_ORIGIN's origins: a value that names none, or one that is not an
+// origin (no scheme), stops the server with the value it holds.
+function publicOrigins(value) {
+  const origins = value.split(',').map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0) {
+    throw new Error(\`[${packageName}] PUBLIC_ORIGIN is \${JSON.stringify(value)}, which names no origin. Set it to the site's public origin (https://blog.example; several, comma-separated), or leave it unset.\`);
+  }
+  for (const origin of origins) {
+    if (!/^https?:\\/\\/[^/?#]+\\/?$/i.test(origin)) {
+      throw new Error(\`[${packageName}] PUBLIC_ORIGIN holds \${JSON.stringify(origin)}, which is not an origin. Give its scheme and host, as in https://blog.example.\`);
+    }
+  }
+  return origins;
+}
+
 // Origin ISR cache. Swap createMemoryStore() for createFilesystemStore({dir})
 // to survive restarts, or createRedisStore({client}) for multi-instance.
-// \`render\` powers scheduled regeneration (renderRoute is defined below;
-// function declarations hoist, so the reference is valid here).
-const cache = createCacheEngine({ store: createMemoryStore(), render: renderRoute });
+// \`render\` powers scheduled regeneration: the framework's own renderer
+// (renderRoute below; function declarations hoist), so a regenerated page is
+// rendered exactly as a requested one.
+const cache = createCacheEngine({
+  store: createMemoryStore(),
+  render: renderRoute,
+  ...(PUBLIC_ORIGINS.length ? { origins: PUBLIC_ORIGINS } : {}),
+});
 
 // Non-200 renders (soft-404s like /blog/nonexistent) must never be ISR-cached —
 // a cached "Not found" would shadow a post created later and poison SEO. The
@@ -1535,60 +1797,50 @@ const appCache = {
   },
 };
 
-// Keep the home listing warm every 5 minutes regardless of traffic.
+// Keep the home listing warm every 5 minutes regardless of traffic. The
+// scheduled render has no request: the ISR engine renders it from a GET of
+// the path, so the entry it stores is the one the first visitor reads.
+const home = routes.find((route) => route.path === '/');
 const scheduler = createScheduler(cache);
 scheduler.register(
-  { path: '/', query: {}, params: {}, config: routes[0].page, route: routes[0] },
+  { path: '/', query: {}, params: {}, config: home.page, route: home },
   { intervalMs: 5 * 60 * 1000 }
 );
 
-// The browser loads /src/entry-client.js as a native ES module; this import
-// map resolves its bare imports. Sources are served from node_modules below.
-const importMap = {
-  imports: {
-    'what-framework': '/node_modules/what-framework/src/index.js',
-    'what-core': '/node_modules/what-core/src/index.js',
-    // Dev only. This template is buildless, so there is no Vite plugin to inject
-    // the devtools bridge the way the SPA template gets it. Mapping the two
-    // specifiers here (and serving them below) is all it takes for the MCP
-    // \`what_*\` tools to see this app: entry-client.js dynamically imports them
-    // behind the __WHAT_DEV__ flag, so production never fetches either module.
-    ...(isProd ? {} : {
-      'what-devtools': '/node_modules/what-devtools/src/index.js',
-      'what-devtools-mcp/client': '/node_modules/what-devtools-mcp/src/client.js',
-    }),
-  },
-};
-
-// The MCP bridge writes its token here when \`npx what-devtools-mcp\` starts.
-// Read per render, not once at boot, so starting the bridge after the server is
-// already up only costs a page reload.
+// The browser loads /src/entry-client.js as a native ES module, and the page's
+// import map resolves its bare imports: every subpath the client packages
+// export (client-files.js), at the URLs this server serves them from. It is
+// read from node_modules on first use. The Vura Function has no node_modules,
+// so build.js writes the map to import-map.json and function.js passes it to
+// createHandler().
 //
-// The token is passed INLINE rather than via the Vite plugin's same-origin
-// discovery endpoint, which this server does not implement. That is deliberate:
-// the client only probes for a bridge when it has a token or a discovery URL, so
-// an app running without the MCP server makes no requests and logs nothing at
-// all. Handing it a discovery URL that 404s would put a red line in every
-// developer's console on every page load.
-function mcpToken() {
-  try {
-    return JSON.parse(readFileSync(join(ROOT, 'node_modules', '.cache', 'what-devtools-mcp', 'token'), 'utf8')).token || '';
-  } catch {
-    return '';
-  }
-}
+// In development the map also carries the devtools bridge. This template is
+// buildless, so there is no Vite plugin to inject it the way the SPA template
+// gets it: entry-client.js imports it behind the __WHAT_DEV__ flag, and
+// production never maps or serves it.
+let importMap = null;
+
+// Dev only: the page asks this server (same origin) for a bridge credential,
+// and the server pairs with the MCP bridge Node-side, exactly as the Vite
+// plugin does for the SPA template. The bridge only admits a page with a
+// credential issued for its own origin; with no bridge running, discovery
+// answers { bridge: false } and the page makes no other request.
+const MCP_DISCOVERY_PATH = '/__what_mcp_discovery';
+const mcpDiscovery = isProd ? null : await import('what-devtools-mcp/vite')
+  .then((m) => m.createDiscoveryHandler({ root: ROOT }))
+  .catch(() => null);
 
 function devToolsHead() {
   if (isProd) return '';
-  const token = mcpToken();
-  if (!token) return '<script>globalThis.__WHAT_DEV__=true</script>';
-  return \`<script>globalThis.__WHAT_DEV__=true;globalThis.__WHAT_MCP__=\${JSON.stringify({ port: 9229, token })}</script>\`;
+  if (!mcpDiscovery) return '<script>globalThis.__WHAT_DEV__=true</script>';
+  return \`<script>globalThis.__WHAT_DEV__=true;globalThis.__WHAT_MCP__=\${JSON.stringify({ discoveryUrl: MCP_DISCOVERY_PATH })}</script>\`;
 }
 
 const documentOptions = {
   clientEntry: '/src/entry-client.js',
   // A getter, so devToolsHead() re-reads the token on every render.
   get head() {
+    importMap ??= importMapFor(clientPackages({ dev: !isProd, production: isProd }));
     return \`<script type="importmap">\${JSON.stringify(importMap)}</script>\` +
       devToolsHead() +
       '<link rel="stylesheet" href="/src/styles.css">' +
@@ -1596,27 +1848,19 @@ const documentOptions = {
   },
 };
 
-// Render a matched route. Mirrors the framework default renderer, plus:
-//   - passes csrfToken through to loaders (so /new can SSR the no-JS form token)
-//   - honors a loader's \`notFound: true\` with a real 404 status (the appCache
-//     wrapper above keeps those responses out of the ISR cache)
-async function renderRoute(routeMatch) {
-  const { route, params, query, request, csrfToken } = routeMatch;
-  const reqCtx = { params, query, request, csrfToken };
-  const loaderData = typeof route.loader === 'function' ? await route.loader(reqCtx) : undefined;
-  const notFound = !!(loaderData && loaderData.notFound);
-  const pageModule = { default: route.component, loader: () => loaderData };
-  const opts = csrfToken ? { ...documentOptions, csrfToken } : documentOptions;
-  const html = await renderDocument(pageModule, reqCtx, opts);
-  return {
-    html,
-    status: notFound ? 404 : 200,
-    tags: (routeMatch.config && routeMatch.config.tags) || [],
-    path: routeMatch.path,
-  };
+// Render a matched route with the framework's renderer: the loader gets the
+// request, its params and query, the per-visitor csrfToken on an uncached
+// route (so /new can SSR the no-JS form token) and the \`response\`, whose
+// status, headers and redirect (a loader's response.redirect(), a <Router>
+// middleware's) the page is answered with. A non-200 render, such as a
+// missing post's 404, is kept out of the ISR cache by appCache above.
+const renderPage = createRouteRenderer(documentOptions);
+function renderRoute(routeMatch, cacheCtx) {
+  return renderPage(routeMatch, cacheCtx);
 }
 
-export function createHandler() {
+export function createHandler(options = {}) {
+  if (options.importMap) importMap = options.importMap;
   return createRequestHandler({
     routes,
     cache: appCache,
@@ -1643,29 +1887,38 @@ const MIME = {
 };
 
 // Deny-by-default static serving: ONLY the client files listed in
-// client-files.js are served from the project root (plus public/ at the root).
+// client-files.js are served from the project root (plus public/ at the root),
+// and the client packages from the directories their exports point into (in
+// production, only their production build's files).
 // Server-only modules — src/db.js, src/actions/** and src/routes.js — are
 // importable by Node but 404 over HTTP, so DB code and mutation logic never
 // leak to the browser. \`npm run build\` publishes the same list, so a new
 // client-side file goes in client-files.js and nowhere else.
 const SERVED_FILES = new Set(CLIENT_FILES);
-// Dev-only devtools modules are gated on isProd so production never serves them.
-const SERVED_PREFIXES = [...CLIENT_DIRS, ...(isProd ? [] : DEV_CLIENT_DIRS)];
+let packageDirs = null;
 
 function resolveStaticFile(pathname) {
-  if (pathname.includes('..') || pathname.includes('\0')) return null;
-  const allowed = SERVED_FILES.has(pathname) || SERVED_PREFIXES.some((p) => pathname.startsWith(p));
-  const file = allowed
-    ? resolve(join(ROOT, pathname))
-    : resolve(join(ROOT, 'public', pathname));
-  if (!file.startsWith(resolve(ROOT))) return null;
+  if (pathname.includes('..') || pathname.includes('\\0')) return null;
+  packageDirs ??= clientPackages({ dev: !isProd, production: isProd }).flatMap((pkg) => pkg.dirs);
+  const pkgDir = packageDirs.find((d) => (d.url.endsWith('/') ? pathname.startsWith(d.url) : pathname === d.url));
+  let file;
+  if (pkgDir) {
+    file = join(pkgDir.dir, pathname.slice(pkgDir.url.length));
+  } else {
+    const allowed = SERVED_FILES.has(pathname) || CLIENT_DIRS.some((p) => pathname.startsWith(p));
+    file = resolve(join(ROOT, allowed ? '' : 'public', pathname));
+    if (!file.startsWith(resolve(ROOT))) return null;
+  }
   if (!existsSync(file) || !statSync(file).isFile()) return null;
   return file;
 }
 
+// A path only: \`//x\` is the path \`//x\`, and a target that is not a path
+// (\`*\`, an absolute URL) or that does not parse is null.
 function requestPathname(reqUrl) {
+  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/')) return null;
   try {
-    return decodeURIComponent(new URL(reqUrl || '/', 'http://localhost').pathname);
+    return decodeURIComponent(new URL('http://localhost' + reqUrl).pathname);
   } catch {
     return null;
   }
@@ -1683,6 +1936,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
         res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
         return res.end('Bad Request');
       }
+      if (mcpDiscovery && pathname === MCP_DISCOVERY_PATH) return mcpDiscovery(req, res);
       const file = resolveStaticFile(pathname);
       if (file) {
         res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
@@ -1699,7 +1953,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   process.once('SIGINT', stop);
 
   const port = Number(process.env.PORT) || 3000;
-  server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port}\`));
+  // The mode decides what is served (the development build and the devtools,
+  // or the production build only), so the first line says which this is.
+  server.listen(port, () => console.log(\`${packageName} → http://localhost:\${port} (\${isProd ? 'production' : 'development; NODE_ENV=production serves the production build'})\`));
 }
 `);
 
@@ -1712,18 +1968,144 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
 // absent. A new client-side file or folder goes here, or neither the dev
 // server nor a deploy will serve it.
 
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export const CLIENT_FILES = ['/src/entry-client.js', '/src/styles.css'];
 
 export const CLIENT_DIRS = [
-  '/src/pages/',                       // page modules (hydrated by entry-client)
-  '/src/components/',                  // client-shared UI (create as needed)
-  '/node_modules/what-framework/src/', // the import map's targets (server.js)
-  '/node_modules/what-core/src/',
+  '/src/pages/',      // page modules (hydrated by entry-client)
+  '/src/components/', // client-shared UI (create as needed)
+  '/src/stores/',     // client state (what_scaffold writes stores here)
 ];
 
-// Dev only: the devtools bridge entry-client imports when __WHAT_DEV__ is set.
-// server.js stops serving these in production and the build never publishes them.
-export const DEV_CLIENT_DIRS = ['/node_modules/what-devtools/', '/node_modules/what-devtools-mcp/'];
+const ROOT = fileURLToPath(new URL('.', import.meta.url));
+
+// The packages the browser loads as ES modules: what-framework and the
+// packages its entries re-export, with every subpath they export, plus, in
+// development, the two devtools entries entry-client imports (the rest of
+// what-devtools-mcp is the Node MCP server). Each is found the way Node finds
+// it, wherever the package manager put it: the re-exported packages from
+// what-framework itself, since a package manager that does not hoist installs
+// them only there. Each one is served at /node_modules/<name>/. For
+// production (\`production: true\`) each export maps to the package's
+// production build (dist/*.min.js), which carries no development code, and
+// only that build's files are served and published: not the development
+// build beside it, and not the source maps.
+const DEVTOOLS = { 'what-devtools': ['.'], 'what-devtools-mcp': ['./client'] };
+
+export function clientPackages({ dev = false, production = false } = {}) {
+  const conditions = production ? PRODUCTION_CONDITIONS : BROWSER_CONDITIONS;
+  const framework = clientPackage('what-framework', ROOT, undefined, conditions);
+  const packages = [framework, ...['what-core', 'what-router', 'what-server'].map((name) => clientPackage(name, framework.dir, undefined, conditions))];
+  if (dev) {
+    for (const [name, subpaths] of Object.entries(DEVTOOLS)) {
+      const pkg = installed(name, subpaths);
+      if (pkg) packages.push(pkg);
+    }
+  }
+  return packages;
+}
+
+// A package's own \`#\` imports (package.json \`imports\`, what-core's \`#env\`)
+// resolve only inside the package, so they sit in the scope of its URL.
+export function importMapFor(packages) {
+  return {
+    imports: Object.fromEntries(packages.flatMap((pkg) => pkg.imports)),
+    scopes: Object.fromEntries(packages.filter((pkg) => pkg.scope.length).map((pkg) => [pkg.url, Object.fromEntries(pkg.scope)])),
+  };
+}
+
+// The devtools are devDependencies: absent from a production install.
+function installed(name, subpaths) {
+  try {
+    return clientPackage(name, ROOT, subpaths);
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') return null;
+    throw err;
+  }
+}
+
+// { name, dir, url, imports: [[specifier, url]], scope: [[specifier, url]],
+// dirs: [{ url, dir }] }, mapping the given subpaths, or every one the package
+// exports, and the package's own \`#\` imports. \`dir\` is where Node
+// found the package, which is where its own dependencies resolve from.
+function clientPackage(name, from, subpaths, conditions = BROWSER_CONDITIONS) {
+  let dir = dirname(createRequire(join(from, 'package.json')).resolve(name));
+  while (!isPackage(dir, name)) {
+    if (dirname(dir) === dir) throw new Error(\`no package.json names \${name}\`);
+    dir = dirname(dir);
+  }
+  // Served and published through the project's node_modules when that path
+  // leads to the same package (hoisted, or linked): the build publishes only
+  // from inside the project.
+  const local = join(ROOT, 'node_modules', name);
+  const home = existsSync(local) && realpathSync(local) === realpathSync(dir) ? local : dir;
+
+  const url = \`/node_modules/\${name}/\`;
+  const imports = [];
+  const tops = new Set();
+  for (const [subpath, target] of Object.entries(readPackage(dir).exports)) {
+    if (subpaths && !subpaths.includes(subpath)) continue;
+    const file = browserFile(target, conditions);
+    if (!file) continue;
+    imports.push([name + subpath.slice(1), url + file.slice(2)]);
+    tops.add(file.slice(2).split('/')[0]);
+  }
+  const scope = [];
+  for (const [specifier, target] of Object.entries(readPackage(dir).imports ?? {})) {
+    const file = browserFile(target, conditions);
+    if (!file) continue;
+    scope.push([specifier, url + file.slice(2)]);
+    tops.add(file.slice(2).split('/')[0]);
+  }
+  const dirs = [...tops].map((top) => ({ url: \`\${url}\${top}/\`, dir: join(home, top) }));
+  return { name, dir, url, imports, scope, dirs: conditions === PRODUCTION_CONDITIONS ? dirs.flatMap(productionFiles) : dirs };
+}
+
+// The production build's files under a directory, each as its own entry
+// (a URL with no trailing '/' names one file): its *.min.js, which import only
+// each other.
+function productionFiles({ url, dir }) {
+  const files = [];
+  const pending = [''];
+  while (pending.length > 0) {
+    const at = pending.pop();
+    for (const entry of readdirSync(join(dir, at), { withFileTypes: true })) {
+      const path = at + entry.name;
+      if (entry.isDirectory()) pending.push(path + '/');
+      else if (entry.name.endsWith('.min.js')) files.push({ url: url + path, dir: join(dir, path) });
+    }
+  }
+  return files;
+}
+
+// The file a browser import of an export resolves to: its \`browser\`,
+// \`import\` or \`default\` condition, whichever the package lists first;
+// for production, its \`production\` build. \`node\` is the server's. An
+// import with no production build (what-core's \`#env\`, which the
+// production build does not import) is not mapped for production.
+const BROWSER_CONDITIONS = new Set(['browser', 'import', 'default']);
+const PRODUCTION_CONDITIONS = new Set(['production']);
+
+function browserFile(target, conditions) {
+  if (typeof target === 'string') return conditions === PRODUCTION_CONDITIONS ? null : target;
+  for (const [condition, value] of Object.entries(target)) {
+    const file = conditions.has(condition) ? browserFile(value, BROWSER_CONDITIONS) : null;
+    if (file) return file;
+  }
+  return null;
+}
+
+function readPackage(dir) {
+  return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+}
+
+function isPackage(dir, name) {
+  return existsSync(join(dir, 'package.json')) && readPackage(dir).name === name;
+}
 `);
 
   // The Vura Function: the same handler server.js runs, nothing re-wired.
@@ -1739,29 +2121,46 @@ export const DEV_CLIENT_DIRS = ['/node_modules/what-devtools/', '/node_modules/w
 
 import { createVuraHandler } from 'what-framework/server';
 import { createHandler } from './server.js';
+// Written by build.js: the Function has no node_modules to derive the page's
+// import map from.
+import importMap from './import-map.json';
 
-export default createVuraHandler(createHandler());
+export default createVuraHandler(createHandler({ importMap }));
 `);
 
   // \`npm run build\`: Vura deploy output.
   writeFileSync(resolve(root, 'build.js'), `// \`npm run build\`: Vura deploy output in dist/.
-//   dist/static/**             public/ plus the files in client-files.js,
-//                              served by the CDN at the same URL paths
+//   dist/static/**             public/, the files in client-files.js and the
+//                              client packages, served by the CDN at the same
+//                              URL paths
+//   import-map.json            the page's import map, which function.js
+//                              bundles (the Function has no node_modules)
 //   dist/functions/_/index.js  function.js bundled into one file (esbuild)
 //   dist/manifest.json         one catch-all serverless route, nothing else
 // \`npm start\` does not need this step; it is only for deploying.
 
+import { writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildVuraOutput } from 'what-framework/server';
-import { CLIENT_DIRS, CLIENT_FILES } from './client-files.js';
+import { CLIENT_DIRS, CLIENT_FILES, clientPackages, importMapFor } from './client-files.js';
+
+const projectRoot = fileURLToPath(new URL('.', import.meta.url));
+// A deploy is a production build unless this runs with NODE_ENV=development:
+// the page maps the packages' production builds, and buildVuraOutput bakes
+// the same mode into the Function.
+const packages = clientPackages({ production: process.env.NODE_ENV !== 'development' });
+writeFileSync(join(projectRoot, 'import-map.json'), JSON.stringify(importMapFor(packages), null, 2) + '\\n');
 
 const { copied } = await buildVuraOutput({
-  projectRoot: fileURLToPath(new URL('.', import.meta.url)),
+  projectRoot,
   entry: 'function.js',
   staticFiles: [
     { from: 'public', to: '/' },
     // A URL path in client-files.js is the project-relative path plus a leading '/'.
     ...[...CLIENT_FILES, ...CLIENT_DIRS].map((path) => path.slice(1)),
+    // The client packages, at the URLs the import map names.
+    ...packages.flatMap((pkg) => pkg.dirs).map(({ url, dir }) => ({ from: relative(projectRoot, dir), to: url })),
   ],
 });
 
@@ -1790,9 +2189,9 @@ export default {
 
 // ---------------------------------------------------------------------------
 // Islands template: JSX pages prerendered to static HTML, with interactive
-// islands hydrated by what-server's island registry. Every page is rendered on
-// the server, so JSX goes through What's automatic runtime (h() calls), which
-// renders with renderDocument() and hydrates in place in the browser.
+// islands hydrated by what-server's island registry. JSX goes through What's
+// automatic runtime (h() calls), which renders with renderDocument() and
+// hydrates in place in the browser.
 // ---------------------------------------------------------------------------
 function generateIslandsFiles(root, packageName) {
   for (const dir of ['pages', 'components', 'islands']) {
@@ -1804,10 +2203,11 @@ import { extname, join, posix, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import whatDevTools from 'what-devtools-mcp/vite-plugin';
 
-// Every page is rendered to HTML by the server half (src/entry-server.js), so
-// JSX uses What's automatic runtime. It lowers to h() calls, which render on the
-// server and hydrate in place in the browser. (what-compiler's output is
-// client-only, which is why this template does not use it.)
+// Every page is rendered to HTML by the server half (src/entry-server.js), and
+// each island then hydrates in place over that HTML. JSX uses What's automatic
+// runtime: it lowers to h() calls, an unbuilt vnode tree that hydration can
+// match against the server's markup. what-compiler's client output builds DOM
+// directly, so it would replace that markup instead of adopting it.
 export default defineConfig({
   appType: 'custom',
   esbuild: { jsx: 'automatic', jsxImportSource: 'what-framework' },
@@ -1825,6 +2225,18 @@ export default defineConfig({
   },
 });
 
+// The path of a request target: \`//x\` is the path \`//x\`, and a target that
+// is not a path, or that does not parse, is null (never a throw out of a
+// middleware, which would end the dev server).
+function pathOf(target) {
+  if (typeof target !== 'string' || !target.startsWith('/')) return null;
+  try {
+    return new URL('http://localhost' + target).pathname;
+  } catch {
+    return null;
+  }
+}
+
 function staticPages() {
   return {
     name: 'static-pages',
@@ -1839,9 +2251,9 @@ function staticPages() {
       });
       server.middlewares.use(async (req, res, next) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-        const { pathname } = new URL(req.url, 'http://localhost');
+        const pathname = pathOf(req.url);
         // Files and Vite's own endpoints are never pages.
-        if (extname(pathname) || pathname.startsWith('/@') || pathname.startsWith('/__')) return next();
+        if (pathname === null || extname(pathname) || pathname.startsWith('/@') || pathname.startsWith('/__')) return next();
         try {
           const { renderRoute } = await server.ssrLoadModule('/src/entry-server.js');
           const html = await renderRoute(pathname, {
@@ -1863,8 +2275,8 @@ function staticPages() {
     configurePreviewServer(server) {
       const outDir = resolve(server.config.root, server.config.build.outDir);
       server.middlewares.use((req, res, next) => {
-        const { pathname } = new URL(req.url, 'http://localhost');
-        if (!extname(pathname) && existsSync(join(outDir, pathname, 'index.html'))) {
+        const pathname = pathOf(req.url);
+        if (pathname !== null && !extname(pathname) && existsSync(join(outDir, pathname, 'index.html'))) {
           req.url = posix.join(pathname, 'index.html');
         }
         next();
@@ -2169,8 +2581,9 @@ async function main() {
   const isIslands = options.template === 'islands';
 
   // The templates have different authoring models: the SPA compiles JSX
-  // through Vite + what-compiler, the full-stack template is buildless and has
-  // neither, and the islands template writes JSX for the automatic runtime.
+  // through Vite + what-compiler (or what-react, with React compat), the
+  // full-stack template is buildless and has neither, and the islands template
+  // writes JSX for the automatic runtime.
   // An agent told the wrong one writes code that cannot run, or never updates.
   const authoringNotes = isFullstack
     ? `Components run ONCE. This is the buildless full-stack template: \`server.js\` renders
@@ -2204,7 +2617,28 @@ To add an island: create it in \`src/islands/\`, register it by name in
 \`<Island name="..." mode="..." props={p}><Component {...p} /></Island>\` (the \`Island\` from
 \`what-framework/server\`). The child is its server render and must match what the component
 renders in the browser. Pages are listed in \`routes\` in \`src/entry-server.js\`.`
-      : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
+      : reactCompat
+        ? `This is the SPA template with React libraries. Components run ONCE: Vite +
+\`what-compiler\` compile the JSX of native files into fine-grained DOM operations.
+\`what-react\` runs React libraries, and a file is a React file when it imports \`react\`
+or calls a hook it imports from a React package (\`src/BearCounter.jsx\` calls zustand's
+\`useStore\`). In a React file, components follow React's rules: hooks return values and
+the component re-renders. A React component used as a tag in a native file renders as a
+React island: its props are values, built again when a signal they read changes, and its
+React state survives. Keep React hooks in React files; native files use \`signal()\`.
+A React file written in TypeScript (\`.tsx\`) starts with \`/** @jsxImportSource react */\`:
+\`tsc\` then checks its JSX with React's types, and every other file with What's.
+
+\`\`\`jsx
+// src/main.jsx (native)
+import { BearCounter } from './BearCounter.jsx';
+function App() {
+  const count = signal(0, 'count');
+  return <main><output>{count()}</output><BearCounter /></main>;
+}
+\`\`\`
+`
+        : `Components run ONCE. This is the SPA template: Vite + \`what-compiler\` compile JSX into
 fine-grained DOM operations, so write JSX and use \`() => ...\` for reactive text.
 
 \`\`\`jsx
@@ -2220,199 +2654,10 @@ Run \`npm run dev\`, open the app, then use the live \`what_*\` tools below. \`w
 \`what_scaffold\` and \`what_fix\` also work offline with no browser at all.`
     : `This project includes MCP devtools that connect to the running app in the browser.`;
 
-  // CLAUDE.md — agent instructions for Claude Code (also useful for other AI tools)
-  writeFileSync(resolve(root, 'CLAUDE.md'), `# ${packageName}
-
-Built with What Framework — signal-based reactivity, components run once.
-
-## Writing Code
-
-\`\`\`js
-import { signal, effect, computed, batch, onMount, h, mount } from 'what-framework';
-
-const count = signal(0, 'count');  // state
-count()           // read
-count(5)          // write
-count(c => c + 1) // update
-
-const doubled = computed(() => count() * 2);  // derived
-effect(() => console.log(count()));           // side effect
-\`\`\`
-
-${authoringNotes}
-
-**Signal scope:** \`signal()\` works anywhere — module scope (shared state), component scope (local state). Components run once, so signal declarations execute exactly once.
-
-## MCP DevTools
-
-${mcpIntro}
-
-### Quick Start (First 5 Minutes)
-
-1. \`what_connection_status\` — am I connected? how big is the app?
-2. \`what_diagnose\` — any errors or issues?
-3. \`what_page_map\` — what's on the page?
-4. \`what_components\` -> \`what_explain\` on a leaf component — deep dive
-5. \`what_signals({filter: "name", named_only: true})\` — check key state
-
-### Decision Tree
-
-| I want to... | Use this |
-|---|---|
-| Get oriented / check connection | \`what_connection_status\` |
-| Health check (errors + perf + reactivity) | \`what_diagnose\` |
-| Find a component by name | \`what_components {filter}\` |
-| Understand one component deeply | \`what_explain {componentId}\` |
-| See the component hierarchy | \`what_component_tree\` |
-| Check a signal's current value | \`what_signals {filter, named_only: true}\` |
-| See all effects and their run counts | \`what_effects {minRunCount}\` |
-| Understand why a signal changed | \`what_signal_trace {signalId}\` |
-| See what depends on a signal | \`what_dependency_graph {signalId, direction: "downstream"}\` |
-| See what an effect depends on | \`what_dependency_graph {effectId, direction: "upstream"}\` |
-| Find runtime errors | \`what_errors\` |
-| Get component layout/styles (no image) | \`what_look {componentId}\` |
-| Get full page structure | \`what_page_map\` |
-| Get a visual screenshot | \`what_screenshot {componentId}\` (use after what_look) |
-| Inspect raw DOM | \`what_dom_inspect {componentId, depth}\` |
-| Find performance issues | \`what_perf {threshold}\` |
-| Compare before/after state | \`what_diff_snapshot {action: "save"}\` then \`{action: "diff"}\` |
-| Change a signal live | \`what_set_signal {signalId, value}\` |
-| Validate code before saving | \`what_lint {code}\` |
-| Generate boilerplate | \`what_scaffold {type, name}\` |
-| Diagnose an error code | \`what_fix {error}\` |
-
-### Workflows
-
-**Find and inspect a component:**
-\`what_components({filter:"Stats"})\` -> get ID -> \`what_explain({componentId: 4})\`
-
-**Debug a signal's reactive graph:**
-\`what_signals({filter:"count"})\` -> get ID -> \`what_dependency_graph({signalId: 1, direction: "downstream"})\`
-
-**Before/after comparison:**
-\`what_diff_snapshot({action:"save"})\` -> make change -> \`what_diff_snapshot({action:"diff"})\`
-
-**Performance audit:**
-\`what_perf({threshold: 3})\` -> \`what_effects({minRunCount: 2})\` -> \`what_dependency_graph({effectId: N})\`
-
-**Visual/layout audit:**
-\`what_page_map\` -> \`what_look({componentId: N})\` on key components -> \`what_screenshot\` only if needed
-
-**Disconnected reactivity (UI parts that should update together but don't):**
-\`what_dependency_graph({signalId: N, direction: "downstream"})\` -> check ALL expected effects appear. Missing edges = component won't react to that signal.
-
-**Multi-signal interaction (order-of-operations bugs):**
-\`what_diff_snapshot(save)\` -> set signal A -> \`diff\` -> save -> set signal B -> \`diff\`. Compare cascades.
-
-**Build & test new features:**
-\`what_look\` to match styling -> \`what_scaffold\` for structure -> write code -> \`what_lint\` -> \`what_diff_snapshot(save)\` -> \`what_set_signal\` to simulate trigger -> \`what_diff_snapshot(diff)\` to verify cascade.
-
-**Stale subscription (effect should fire but doesn't):**
-If dep graph shows an edge but diff shows 0 re-runs, the effect lost its subscription during a remount. Fix: move effect to module scope or use \`computed()\`.
-
-### Understanding Diagnostics
-
-- **"N signals with no subscribers"** — A signal may be unused or sampled during setup. Reactive text/attribute bindings do use tracked effects; check mounted bindings and dependency edges rather than assuming a separate renderer mechanism.
-- **"N effects with no signal dependencies"** — A successful one-shot setup effect can run once without dependencies. Initial runs are reported before a later signal write; lazy computeds remain unevaluated until read.
-- **Components with signalCount=0** — Module-scope signals (shared stores) don't appear on any component. Use \`what_signals\` directly.
-- **\`<!--fn-->\` in DOM** — Reactive function-child markers. Their tracked effects participate in the dependency graph.
-
-### Key Parameters
-
-| Param | Type | Notes |
-|---|---|---|
-| \`what_signals\` \`named_only\` | boolean | \`true\`/\`false\`, not a string |
-| \`what_effects\` \`minRunCount\` | number | Filter effects that ran >= N times |
-| \`what_dependency_graph\` \`direction\` | \`"upstream"\` \`"downstream"\` \`"both"\` | Default: both |
-| \`what_dom_inspect\` \`depth\` | number | DOM traversal depth (default: 3) |
-| \`what_perf\` \`threshold\` | number | Flag effects with >= N subscribers |
-
-### Efficiency
-
-**Parallel-safe (batch these):** \`what_perf\`, \`what_effects\`, \`what_signals\`, \`what_components\`, \`what_dependency_graph\`, \`what_explain\`, \`what_look\`, \`what_page_map\`, \`what_diagnose\`, \`what_lint\`, \`what_scaffold\`. NOT safe to parallelize: \`what_set_signal\` calls on signals that share effects.
-
-**Diff output:** \`effectsTriggered\` = re-ran. \`effectsAdded\` = new mounts. \`effectsRemoved\` = unmounts. \`what_perf\` includes \`largestSubscribers\` — skip \`what_signals\` if you only need hot signals.
-
-### Principles
-1. \`what_connection_status\` first — always orient before diving in
-2. \`what_explain\` over individual calls — replaces separate signals + effects + DOM lookups
-3. \`what_look\` before \`what_screenshot\` — 10x cheaper, usually sufficient
-4. \`what_signals\` with \`filter\` and \`named_only: true\` — never dump unfiltered
-5. \`what_lint\` before saving generated code
-6. Text tools before visual tools — orient with data, then confirm visually
-7. Re-fetch component IDs after state changes — IDs are ephemeral after mount/unmount cycles
-8. \`what_set_signal\` can cascade — use \`what_diff_snapshot\` to see full impact
-
-### Troubleshooting
-- **Not connected:** Open the app in a browser, wait 2-3s, retry. \`what_lint\`/\`what_scaffold\`/\`what_fix\` work offline.
-- **"Component N not found":** Re-fetch IDs with \`what_components\` after signal changes that alter the component tree.
-- **Screenshot fails:** Use \`what_look\` instead (usually sufficient without an image).
-- **\`what_lint\` false positive on \`signal-write-in-render\`:** Both named handlers and inline \`onClick={() => sig(val)}\` trigger this. Safe to ignore if signal write is inside an event handler. Re-run with \`rules\` excluding that rule to confirm.
-`);
-
-  // AGENTS.md — model-agnostic instructions for OpenCode, Codex, Gemini, Cursor, etc.
-  writeFileSync(resolve(root, 'AGENTS.md'), `# ${packageName} — Agent Instructions
-
-> Model-agnostic guide for AI agents using MCP DevTools with What Framework.
-
-## Framework Basics
-
-Signal-based reactivity. Components run **once**. \`signal()\` for state, \`() =>\` in JSX for reactive text.
-
-\`\`\`js
-import { signal, effect, computed, h, mount } from 'what-framework';
-const count = signal(0, 'count');
-count()           // read
-count(5)          // write
-count(c => c + 1) // update
-\`\`\`
-
-## MCP DevTools
-
-**Always start:** \`what_connection_status\` — returns app info, tool list, next steps.
-
-### Pick the Right Tool
-
-| Goal | Tool | Key params |
-|------|------|------------|
-| Orient / check connection | \`what_connection_status\` | none |
-| Health check | \`what_diagnose\` | none |
-| Find a component | \`what_components\` | \`filter\` (regex string) |
-| Deep-dive one component | \`what_explain\` | \`componentId\` (number) |
-| Check signal values | \`what_signals\` | \`filter\` (string), \`named_only\` (boolean) |
-| See effect run counts | \`what_effects\` | \`minRunCount\` (number) |
-| Signal dependency graph | \`what_dependency_graph\` | \`signalId\`/\`effectId\` (number), \`direction\` |
-| Page layout | \`what_page_map\` | none |
-| Component styling | \`what_look\` | \`componentId\` (number) |
-| Performance issues | \`what_perf\` | \`threshold\` (number) |
-| Before/after state | \`what_diff_snapshot\` | \`action\`: \`"save"\` then \`"diff"\` |
-| Change a signal | \`what_set_signal\` | \`signalId\` (number), \`value\` (any) |
-| Validate code | \`what_lint\` | \`code\` (string) |
-| Generate boilerplate | \`what_scaffold\` | \`type\`, \`name\` (strings) |
-
-### Recipes
-
-**Find component:** \`what_components({filter:"Name"})\` -> \`what_explain({componentId: N})\`
-**Debug signal:** \`what_signals({filter:"name"})\` -> \`what_dependency_graph({signalId: N, direction: "downstream"})\`
-**Before/after:** \`what_diff_snapshot({action:"save"})\` -> change -> \`what_diff_snapshot({action:"diff"})\`
-**Build feature:** \`what_look\` (match styling) -> \`what_scaffold\` -> write code -> \`what_lint\` -> \`what_diff_snapshot\` (save/set/diff)
-
-### Parameter Types (common mistakes)
-
-| Param | Correct | Wrong |
-|-------|---------|-------|
-| \`named_only\` | \`true\` (boolean) | \`"true"\` (string) |
-| \`componentId\` | \`4\` (number) | \`"4"\` (string) |
-| \`direction\` | \`"downstream"\` | \`downstream\` |
-
-### Pitfalls
-
-- **Not connected:** Open app in browser, wait 3s, retry
-- **Component IDs change** after signal mutations — re-fetch with \`what_components\`
-- **\`what_lint\` FP on \`signal-write-in-render\`:** Handlers in event callbacks are safe
-- **\`what_set_signal\` cascades:** Use \`what_diff_snapshot\` to see full impact
-- **"N signals with no subscribers":** Normal — reactive text bindings bypass tracked effects
-`);
+  // CLAUDE.md for Claude Code and AGENTS.md for every other agent: one text,
+  // shared with the skill what-framework ships (see agent-instructions.js).
+  writeFileSync(resolve(root, 'CLAUDE.md'), claudeMd({ packageName, authoringNotes, mcpIntro, isFullstack }));
+  writeFileSync(resolve(root, 'AGENTS.md'), agentsMd({ packageName, authoringNotes, mcpIntro, isFullstack }));
 
   // Also generate a .cursor/mcp.json for Cursor users
   mkdirSync(resolve(root, '.cursor'), { recursive: true });
@@ -2426,7 +2671,7 @@ count(c => c + 1) // update
   }, null, 2) + '\n');
 
   // .gitignore (.ssr is the islands build's temporary server bundle)
-  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n${isIslands ? '.ssr\n' : ''}.DS_Store\n`);
+  writeFileSync(resolve(root, '.gitignore'), `node_modules\ndist\n${isIslands ? '.ssr\n' : ''}${isFullstack ? 'import-map.json\n' : ''}.DS_Store\n`);
 
   // package.json
   writeFileSync(resolve(root, 'package.json'), generatePackageJson(packageName, options));
@@ -2462,35 +2707,10 @@ count(c => c + 1) // update
   //        `recommended` with the JSX-only h() rule disabled.
   //   Islands: JSX without the compiler, which is exactly what `recommended`
   //        checks (reactive children, signal calls in JSX, event casing).
-  writeFileSync(resolve(root, 'eslint.config.js'), options.template === 'fullstack'
-    ? `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', 'node_modules'] },
-  what.configs.recommended,
-  // This template authors pages with h() on purpose (buildless, no compiler).
-  { rules: { 'what/no-h-in-user-code': 'off' } },
-];
-`
-    : isIslands
-      ? `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', '.ssr', 'node_modules'] },
-  // 'recommended' preset: this project's JSX uses the automatic runtime, not
-  // the What compiler, so reactive text has to be written as a function.
-  what.configs.recommended,
-];
-`
-      : `import what from 'eslint-plugin-what';
-
-export default [
-  { ignores: ['dist', 'node_modules'] },
-  // 'compiler' preset: this project uses the What compiler (via Vite), which
-  // handles event casing and reactive JSX wrapping automatically.
-  what.configs.compiler,
-];
-`);
+  // Every template parses .ts and .tsx with typescript-eslint's parser, so the
+  // first TypeScript file lints as the .jsx ones do, and reports unused
+  // variables (typescript-eslint's rule in TypeScript, which knows types).
+  writeFileSync(resolve(root, 'eslint.config.js'), generateEslintConfig(options.template));
 
   // tsconfig.json
   writeFileSync(resolve(root, 'tsconfig.json'), JSON.stringify({
@@ -2509,7 +2729,8 @@ export default [
       esModuleInterop: true,
       resolveJsonModule: true,
       isolatedModules: true,
-      ...(isFullstack ? {} : { types: ['vite/client'] }),
+      // what-react/mixed: React components type-check as tags in native files.
+      ...(isFullstack ? {} : { types: reactCompat ? ['vite/client', 'what-react/mixed'] : ['vite/client'] }),
     },
     include: ['src'],
   }, null, 2) + '\n');
@@ -2522,8 +2743,9 @@ export default [
     'editor.formatOnSave': true,
   }, null, 2) + '\n');
 
+  // ESLint's extension shows eslint-plugin-what's warnings as you type.
   writeFileSync(resolve(root, '.vscode', 'extensions.json'), JSON.stringify({
-    recommendations: [],
+    recommendations: ['dbaeumer.vscode-eslint'],
   }, null, 2) + '\n');
 
   // Full-stack scaffold: file-routed SSR pages + server + client entry + ISR
@@ -2537,6 +2759,7 @@ export default [
   } else {
     // src/main.jsx
     writeFileSync(resolve(root, 'src', 'main.jsx'), generateMainJsx(options));
+    if (reactCompat) writeFileSync(resolve(root, 'src', 'BearCounter.jsx'), generateBearCounter(options));
 
     // src/styles.css
     if (reactCompat && cssApproach === 'none') {
@@ -2553,7 +2776,7 @@ export default [
   console.log(`\nCreated ${root}.`);
 
   const features = [];
-  if (reactCompat) features.push('React compat (what-react + zustand demo)');
+  if (reactCompat) features.push('React libraries (what-react, zustand demo)');
   if (cssApproach === 'tailwind') features.push('Tailwind CSS v4');
   if (cssApproach === 'stylex') features.push('StyleX');
   if (features.length > 0) {

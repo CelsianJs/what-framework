@@ -36,7 +36,7 @@ Add to your MCP client configuration:
 }
 ```
 
-The `what-devtools-mcp` server provides 29 live debugging tools.
+The `what-devtools-mcp` server provides 25 tools: 21 inspect and drive the running app, and 4 work offline.
 
 ### Step 2: Create a Project
 
@@ -49,7 +49,13 @@ npm run dev
 
 ### Step 3: Enable Live Debugging
 
-Add the DevTools Vite plugin for runtime inspection:
+A project made with `npm create what@latest` already has it: its
+`vite.config.js` adds the what-devtools-mcp Vite plugin, which connects the
+page to the MCP server in development. Run `npm run dev`, open the app in a
+browser, and call `what_connection_status`.
+
+Set up by hand (not scaffolded), install `what-devtools` and
+`what-devtools-mcp` as dev dependencies and add the plugin once:
 
 ```js
 // vite.config.js
@@ -58,11 +64,11 @@ import what from 'what-compiler/vite';
 import whatDevToolsMCP from 'what-devtools-mcp/vite-plugin';
 
 export default defineConfig({
-  plugins: [what(), whatDevToolsMCP({ port: 9229 })],
+  plugins: [what(), whatDevToolsMCP()],
 });
 ```
 
-Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and 26 other tools to inspect the running app.
+Now the agent can use `what_connection_status`, `what_signals`, `what_diagnose`, and 22 other tools to inspect the running app.
 
 ### Step 4: Read the Agent Guide
 

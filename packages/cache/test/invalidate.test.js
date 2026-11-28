@@ -27,7 +27,7 @@ describe('revalidatePath', () => {
     const { engine } = setup(cdn);
     await engine.handle({ path: '/x', query: {}, config: { mode: 'static', revalidate: 60 } });
     await engine.revalidatePath('/x');
-    assert.deepEqual(purged, ['/x']);
+    assert.deepEqual(purged, ['/x', '/x/']);
   });
 
   it('never sends a non-local target to the CDN adapter', async () => {
@@ -50,7 +50,7 @@ describe('revalidatePath', () => {
     assert.deepEqual(purged, [], 'nothing reached the CDN adapter');
 
     await engine.revalidatePath('/ok');
-    assert.deepEqual(purged, ['/ok'], 'local paths still purge');
+    assert.deepEqual(purged, ['/ok', '/ok/'], 'local paths still purge');
   });
 });
 

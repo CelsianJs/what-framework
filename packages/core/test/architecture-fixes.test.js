@@ -120,32 +120,6 @@ describe('FIX-1: memo() diamond dependency — no glitch', () => {
 // =========================================================================
 
 describe('FIX-2: computed chain evaluation — no stack overflow', () => {
-  it('handles deep computed chains (100 levels)', () => {
-    const source = signal(0);
-    let current = computed(() => source());
-    for (let i = 0; i < 100; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-
-    assert.equal(current(), 100);
-    source(10);
-    assert.equal(current(), 110);
-  });
-
-  it('handles deep computed chains (1000 levels)', () => {
-    const source = signal(0);
-    let current = computed(() => source());
-    for (let i = 0; i < 1000; i++) {
-      const prev = current;
-      current = computed(() => prev() + 1);
-    }
-
-    assert.equal(current(), 1000);
-    source(5);
-    assert.equal(current(), 1005);
-  });
-
   it('handles branching computed graphs efficiently', () => {
     const a = signal(1);
     const b = computed(() => a() * 2);

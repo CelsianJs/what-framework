@@ -5,7 +5,8 @@
 // The island wakes when the chapter arrives, and the spring starts from rest,
 // so the arrival IS the animation.
 
-import { h, spring } from 'what-framework';
+import { h, onMount } from 'what-framework';
+import { spring } from 'what-framework/motion';
 import { RATED_LUMENS } from '../story.js';
 import { bindEl, prefersReducedMotion } from '../motion.js';
 
@@ -16,19 +17,16 @@ export default function LumenMeter() {
   // Slightly overdamped: a meter that overshoots its rated figure and settles
   // back reads as a measurement error rather than an animation.
   const lumens = spring(0, { stiffness: 120, damping: 24 });
-  let running = false;
 
-  // A ref, not onMount(): onMount() throws during SSR in 0.12.2 (see
-  // smoke.config.mjs). Refs are skipped by the server renderer and fire on the
-  // client, which is the same "client only, once" guarantee without the throw.
-  const start = (el) => {
-    if (!el || running) return;
-    running = true;
+  // onMount, which runs on the client once the island has hydrated onto the
+  // server's meter at rest: snapping it (reduced motion) while hydrating would
+  // write a figure the server's HTML does not have.
+  onMount(() => {
     if (prefersReducedMotion()) lumens.snap(RATED_LUMENS);
     else lumens.set(RATED_LUMENS);
-  };
+  });
 
-  return h('figure', { class: 'meter', 'data-lumen-meter': '', ref: start },
+  return h('figure', { class: 'meter', 'data-lumen-meter': '' },
     h('p', { class: 'island-tag' }, 'client:visible'),
     h('figcaption', {},
       'Integrating-sphere output at full draw. Rated ',

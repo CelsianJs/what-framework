@@ -1,6 +1,6 @@
 // What Framework Server - TypeScript Definitions
 
-import { VNode, VNodeChild, Signal } from 'what-core';
+import { VNode, VNodeChild, Signal, ServerResponse, ServerContext } from 'what-core';
 
 // --- SSR ---
 
@@ -13,15 +13,125 @@ import { VNode, VNodeChild, Signal } from 'what-core';
 // never had the problem because they take `VNodeChild`.
 
 /** Render VNode tree to HTML string */
-export function renderToString(vnode: VNode<any>): string;
+/**
+ * Render a tree to HTML, synchronously. `options.response` is what
+ * getResponse() returns to its components: read the status, headers and
+ * redirect they set from it afterwards.
+ */
+export function renderToString(vnode: VNode<any>, options?: { response?: RenderResponse }): string;
 
-/** Render VNode tree as async iterator for streaming */
-export function renderToStream(vnode: VNode<any>): AsyncGenerator<string>;
+export interface StreamErrorInfo {
+  /**
+   * 'render': a component failed and was replaced by an error comment.
+   * 'boundary': an <ErrorBoundary> rendered its fallback, or a streamed
+   *   <Suspense> could not finish and keeps its fallback for the client.
+   * 'shell': the page could not render; the stream fails.
+   * 'stream': a fatal error after the shell went out; the stream fails.
+   */
+  phase: 'render' | 'boundary' | 'shell' | 'stream';
+  /** The streamed boundary the error belongs to, when there is one. */
+  boundaryId?: string;
+}
+
+export interface StreamOptions {
+  /** What useLoaderData() returns during this render. */
+  loaderData?: unknown;
+  /** Handed to server resource fetchers as `{ request }`. */
+  request?: Request;
+  /** What getResponse() returns during this render (a createResponse()); also `stream.response`. */
+  response?: RenderResponse;
+  /** Aborting it stops the render, its fetchers' signals, and ends the stream. */
+  signal?: AbortSignal;
+  /** Set on every <script> the stream writes, for a nonce-based CSP. */
+  nonce?: string;
+  /**
+   * Write no inline scripts. Streamed boundaries still arrive as templates; the
+   * client entry calls what-core's applyStreamedBoundaries() to show them.
+   */
+  noScripts?: boolean;
+  /** Called for every error the render contains or fails on. Default: console.error. Never silent. */
+  onError?: (error: unknown, info: StreamErrorInfo) => void;
+  /**
+   * Prefix for streamed boundary ids (default 'wb'): a letter, then letters,
+   * digits, '_' or '-'; anything else throws ERR_SSR_INVALID_ID_PREFIX. Every
+   * stream adds a random part after it, so page markup cannot name a boundary.
+   */
+  idPrefix?: string;
+}
+
+/**
+ * A streaming render. Consume it exactly once: `pipe` it into a Node writable,
+ * read `readable` (a WHATWG stream of UTF-8 bytes), or iterate it for string
+ * chunks. It is deliberately not a promise: awaiting it would buffer the whole
+ * page; use renderDocument or renderToStringAsync for a settled string.
+ */
+export interface RenderStream extends AsyncIterable<string> {
+  /** Resolves when the shell has been rendered (status and headers are final); rejects if it could not render or the render was aborted first. */
+  readonly shellReady: Promise<void>;
+  /** Resolves when the last streamed boundary has been sent; rejects with the reason when the render fails or is aborted before then. */
+  readonly allReady: Promise<void>;
+  /** The response the render's components set through getResponse(): status, headers, redirect. Final once `shellReady` resolves. */
+  readonly response: RenderResponse;
+  /** Write to a Node writable, honouring backpressure. Ends it when done; destroying it aborts the render. */
+  pipe<W extends { write(chunk: string): boolean; end(): void; on(event: string, fn: (...args: any[]) => void): any; off(event: string, fn: (...args: any[]) => void): any; destroy(error?: Error): void; destroyed?: boolean }>(writable: W): W;
+  /** A pull-based ReadableStream for Fetch-style hosts. Cancelling it aborts the render. */
+  readonly readable: ReadableStream<Uint8Array>;
+  /**
+   * Stop rendering and end the stream. The render's signal (its loader's and
+   * fetchers') aborts too. After the shell, the document's closing tags are
+   * written and boundaries still pending keep their fallbacks.
+   */
+  abort(reason?: unknown): void;
+}
+
+/**
+ * Render a vnode tree as HTML, shell first: everything outside a waiting
+ * <Suspense> goes out at once with the fallbacks in place, and each boundary
+ * follows as a <template> plus a swap script when its data is ready.
+ */
+export function renderToStream(vnode: VNode<any>, options?: StreamOptions): RenderStream;
+
+/**
+ * renderDocument, streamed: runs the loader, then streams the whole document
+ * shell-first. Resolves once the loader has run.
+ */
+export function renderDocumentStream(
+  pageModule: { default: (props: any) => VNode<any>; loader?: (ctx: RenderRequestContext) => any } | ((props: any) => VNode<any>),
+  reqCtx?: RenderRequestContext,
+  options?: DocumentOptions & Omit<StreamOptions, 'loaderData' | 'request' | 'signal'>,
+): Promise<RenderStream>;
+
+/**
+ * Install the async context provider (AsyncLocalStorage) when the host has
+ * one. Every render entry point calls it; call it yourself only from a custom
+ * renderer built on what-core's server context.
+ */
+export function ensureServerRuntime(): void;
+
+/** The response a server render answers with. Loaders receive one; components use what-core's getResponse(). */
+export type RenderResponse = ServerResponse & { readonly headers: Headers };
+
+/**
+ * A fresh response object, for a custom server that calls renderDocument,
+ * renderPage or renderDocumentStream itself: pass it as `reqCtx.response` and
+ * read its status, headers and redirect afterwards (after `shellReady` when
+ * streaming).
+ */
+export function createResponse(): RenderResponse;
 
 export interface RenderRequestContext {
   params?: Record<string, string>;
-  query?: Record<string, string>;
+  /** The parsed query: a key the URL repeats (`?tag=a&tag=b`) holds its values in order, as what-router's `parseQuery` gives them. */
+  query?: Record<string, string | string[]>;
   request?: any;
+  /** Aborts when the client goes away. The deploy adapters pass the request's signal. */
+  signal?: AbortSignal;
+  /**
+   * The response this render answers with: status, headers, redirect. Loaders
+   * always receive one; pass your own to renderDocument/renderPage to read it
+   * back afterwards. Components reach the same object with getResponse().
+   */
+  response?: RenderResponse;
   /**
    * The visitor's per-request CSRF token, on directly-rendered routes only.
    * Return it from the loader to pass into <Form csrfToken> so the no-JS submit
@@ -29,6 +139,16 @@ export interface RenderRequestContext {
    * shared, so a form there only submits with the client enhancer active.
    */
   csrfToken?: string;
+  /**
+   * What the action of a form posted to this page without JavaScript returned,
+   * for that form: `useActionState(action)` whose key is `key` starts from
+   * `state`, here and in the hydration; every other one keeps its initial
+   * state. createRequestHandler sets it; a custom server passes what
+   * createFormPostHandler resolved to. The state is the action's answer to the
+   * visitor's own fields: show it, trust it for nothing. The loader does not
+   * receive it.
+   */
+  actionState?: FormActionState;
   [key: string]: any;
 }
 
@@ -85,8 +205,14 @@ export interface ActionOptions {
   id?: string;
   onError?: (error: Error) => void;
   onSuccess?: (result: any) => void;
-  /** Paths to revalidate after the action succeeds. */
+  /**
+   * Paths to revalidate after the action succeeds: on the server their cached
+   * pages are purged; on the client invalidatePath(path) refetches the
+   * queries and route data read on them, inside the action's transition.
+   */
   revalidate?: string[];
+  /** Query keys to invalidate on the client after the action succeeds (prefixes, as invalidateQueries reads them), inside its transition. */
+  invalidates?: ReadonlyArray<string | readonly unknown[]>;
   /**
    * Cache tags to purge after the action succeeds (handleActionRequest reads
    * these off the registered action). The only way to purge by tag from an
@@ -98,87 +224,28 @@ export interface ActionOptions {
   timeout?: number;
 }
 
-/** Define a server action */
+/**
+ * Define a server action: an async function or a plain one, whose value or
+ * throw the endpoint answers with either way. On the server it is the
+ * function itself (await its result: a plain function's comes back as is);
+ * on the client, calling it posts to the action endpoint as a transition (it
+ * joins one already running) and revalidates what the options name inside it.
+ * Resolves with the action's result once the refetches have landed.
+ */
 export function action<T extends any[], R>(
-  fn: (...args: T) => Promise<R>,
+  fn: (...args: T) => R | Promise<R>,
   options?: ActionOptions
-): (...args: T) => Promise<R>;
-
-/** Create a form action handler */
-export function formAction<R>(
-  actionFn: (data: Record<string, any>) => Promise<R>,
-  options?: {
-    onSuccess?: (result: R, form?: HTMLFormElement) => void;
-    onError?: (error: Error, form?: HTMLFormElement) => void;
-    resetOnSuccess?: boolean;
-  }
-): (formDataOrEvent: FormData | Event) => Promise<R>;
-
-// --- useAction Hook ---
-
-export interface UseActionResult<T extends any[], R> {
-  trigger: (...args: T) => Promise<R>;
-  isPending: () => boolean;
-  error: () => Error | null;
-  data: () => R | null;
-  reset: () => void;
-}
-
-export function useAction<T extends any[], R>(
-  actionFn: (...args: T) => Promise<R>
-): UseActionResult<T, R>;
-
-// --- useFormAction Hook ---
-
-export interface UseFormActionResult<R> extends UseActionResult<[FormData], R> {
-  handleSubmit: (e: Event) => Promise<R>;
-  formRef: { current: HTMLFormElement | null };
-}
-
-export function useFormAction<R>(
-  actionFn: (data: Record<string, any>) => Promise<R>,
-  options?: { resetOnSuccess?: boolean }
-): UseFormActionResult<R>;
+): ((...args: T) => Promise<R>) & { _actionId: string; _isAction: true };
 
 // --- Optimistic Updates ---
 
-export interface UseOptimisticResult<T, A> {
-  value: () => T;
-  isPending: () => boolean;
-  addOptimistic: (action: A) => void;
-  resolve: (action: A) => void;
-  rollback: (action: A, realValue: T) => void;
-  set: (value: T) => void;
-}
-
-export function useOptimistic<T, A>(
-  initialValue: T,
-  reducer: (currentValue: T, action: A) => T
-): UseOptimisticResult<T, A>;
-
-// --- Mutations ---
-
-export interface UseMutationResult<T extends any[], R> {
-  mutate: (...args: T) => Promise<R>;
-  isPending: () => boolean;
-  error: () => Error | null;
-  data: () => R | null;
-  reset: () => void;
-}
-
-export function useMutation<T extends any[], R>(
-  mutationFn: (...args: T) => Promise<R>,
-  options?: {
-    onSuccess?: (result: R, ...args: T) => void;
-    onError?: (error: Error, ...args: T) => void;
-    onSettled?: (data: R | null, error: Error | null, ...args: T) => void;
-  }
-): UseMutationResult<T, R>;
+/** what-core's useOptimistic (React 19's shape), re-exported for server-action code. */
+export { useOptimistic } from 'what-core';
 
 // --- Revalidation ---
 
-export function onRevalidate(path: string, callback: () => void): () => void;
-export function invalidatePath(path: string): void;
+/** what-core/data's: call `callback` whenever invalidatePath(path) runs. */
+export { onRevalidate, invalidatePath } from 'what-core/data';
 
 // --- Server Handler ---
 
@@ -187,10 +254,16 @@ export interface ActionResponse {
   body: any;
 }
 
+/**
+ * Run the registered action `actionId` with `args`. It fails closed: without
+ * `csrfToken` (the session's token, compared with the request's
+ * `x-csrf-token` header) it answers 500, unless `skipCsrf` opts out.
+ */
 export function handleActionRequest(
   req: any,
   actionId: string,
-  args: any[]
+  args: any[],
+  options?: { csrfToken?: string; skipCsrf?: boolean }
 ): Promise<ActionResponse>;
 
 export function getRegisteredActions(): string[];
@@ -207,15 +280,47 @@ export function renderToHydratableString(vnode: VNode<any>): string;
 export function renderToStringWithHead(vnode: VNode<any>): { body: string; head: string };
 
 /**
+ * The request being answered: inside a server render, a page's loader, or a
+ * server action the built-in endpoints run (createRequestHandler,
+ * nodeActionMiddleware, fetchActionHandler, createActionHandler). Null anywhere
+ * else. A server action is a public endpoint: read its caller's cookies and
+ * headers here to decide whether it may run.
+ */
+export function getRequest(): Request | null;
+
+/** What renderToStringAsync renders with. Any other field, or a value of the wrong kind, rejects with a TypeError. */
+export interface RenderInit {
+  /** The page's loader data, which useLoaderData() reads. */
+  loaderData?: unknown;
+  /** Aborts the render. */
+  signal?: AbortSignal;
+  /** The request being answered: its signal aborts the render too. */
+  request?: Request;
+  /** The response the components set status, headers and a redirect on (createResponse()). */
+  response?: RenderResponse;
+}
+
+/**
  * Render, awaiting any suspended resources so their data is resolved in the
- * output. `resources` is the payload the client reuses so it does not refetch.
+ * output. `resources` (keyed resources) and `owned` (keyless ones, by owner
+ * key) are the payload the client reuses so it does not refetch.
  */
 export function renderToStringAsync(
   vnode: VNode<any>,
-  ctx?: unknown,
-): Promise<{ body: string; head: string; resources: Record<string, unknown> }>;
+  init?: RenderInit | null,
+  options?: { onError?: (error: unknown, info: StreamErrorInfo) => void },
+): Promise<{
+  body: string;
+  head: string;
+  loaderData: unknown;
+  resources: Record<string, unknown>;
+  owned: Record<string, unknown>;
+  ctx: ServerContext;
+  /** The status, headers and redirect the components set (getResponse()). */
+  response: RenderResponse;
+}>;
 
-// The five keys wrapHtmlDocument reads. `bodyAttrs`, `scripts` and `styles`
+// The six keys wrapHtmlDocument reads. `bodyAttrs`, `scripts` and `styles`
 // were declared here and read by nothing: `styles: ['/app.css']` typechecked,
 // shipped, and produced a page with no stylesheet and no error. (PageConfig's
 // scripts/styles are real; these were not.)
@@ -230,6 +335,10 @@ export interface DocumentOptions {
   clientEntry?: string;
   /** Per-request CSRF token, inlined as <meta name="what-csrf-token">. The deploy adapter supplies this. */
   csrfToken?: string;
+  /** Set on the document's scripts, for a nonce-based CSP. */
+  nonce?: string;
+  /** Called for every error the render contains or fails on. Default: console.error. */
+  onError?: (error: unknown, info: StreamErrorInfo) => void;
 }
 
 /**
@@ -247,11 +356,26 @@ export function renderDocument(
 // with JavaScript disabled and is enhanced to a fetch when JS is present.
 
 export interface FormProps {
-  /** A server action (from `action()`) or its id. */
+  /**
+   * A server action (from `action()`) or its id, or a client function such as
+   * useActionState's dispatch. Without JavaScript a server action's form posts
+   * to the action endpoint; a dispatch's posts to its `permalink`, by default
+   * the page it is on, where useActionState(serverAction) gets the result back
+   * for this form alone. A client function's dispatch receives the FormData.
+   */
   action: ((...args: any[]) => any) | string;
-  /** Per-request CSRF token. Required for SSR; read from the page when omitted. */
+  /**
+   * The visitor's CSRF token, when the page knows it (an uncached route's
+   * loader gets `ctx.csrfToken`). Optional: the endpoint accepts a post the
+   * browser marks same-origin, which is how a form on a cached page posts.
+   */
   csrfToken?: string | null;
-  /** Where to send the browser after a no-JS submit. */
+  /**
+   * A server action's form: where the endpoint sends the browser after a no-JS
+   * submit (303), by default back to the page the form is on. A mounted form
+   * stays put. A useActionState dispatch's form does not read it: its page
+   * renders the result, and the action redirects with getResponse().redirect().
+   */
   redirect?: string;
   method?: string;
   /** Set false to leave a plain HTML form the client enhancer ignores. */
@@ -262,7 +386,7 @@ export interface FormProps {
 
 export function Form(props: FormProps): VNode;
 
-/** The endpoint server actions post to. */
+/** The path of the endpoint server actions post to, `'/__what_action'`. Below a base path (what-router `setBase`, or Vite's `base`) `<Form>` and the action client post to it below the base (`'/app/__what_action'`). */
 export const ACTION_ENDPOINT: string;
 
 // --- CSRF ---
@@ -288,11 +412,45 @@ export interface ActionHandlerOptions {
   getCsrfToken?: (reqLike: any) => string | null | undefined | Promise<string | null | undefined>;
   /** Opt out of CSRF validation (e.g. a token-authed API behind another gateway). */
   skipCsrf?: boolean;
-  /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. */
+  /** Other origins whose pages may post here ("https://app.example"); the browser's Origin must be one of them or this host. */
+  trustedOrigins?: string[];
+  /** Mount path, default '/__what_action'. Read by nodeActionMiddleware. Below a base, the endpoint is `'/app/__what_action'`, and with no base set on the server (what-router's) that path names the base a path an action redirects to goes below. */
   basePath?: string;
+  /** The most bytes a request body may hold, default 1048576 (1 MB): a larger one is answered 413 (an HTML page for a browser's form post, JSON for an action call or anything else). Read by nodeActionMiddleware, fetchActionHandler and createFormPostHandler (when it reads `request` itself); a server that reads the body itself sets its own limit. A multipart/form-data body's fields and files are all within it. */
+  bodyLimit?: number;
 }
 
 export function createActionHandler(options?: ActionHandlerOptions): (request: any) => Promise<any>;
+
+/** What a form posted to a page returned, for the useActionState that rendered it. */
+export interface FormActionState {
+  /** The server action's id. */
+  action: string;
+  /** The key of the useActionState whose form was posted (its `_actionKey` field), or null when it carried none. */
+  key: string | null;
+  /** What the action returned. */
+  state: unknown;
+}
+
+/** What createFormPostHandler resolves to for a post it runs. */
+export type FormPostOutcome =
+  /** A refusal (403, 400), the action's failure (404, 500), or its redirect (303): send it as it is. */
+  | { response: { status: number; headers: Record<string, string | string[]>; body: string } }
+  /** Render the page with `actionState` in its request context, and these headers (the action's) on the response, `cache-control: private, no-store`. */
+  | { actionState: FormActionState; headers: Record<string, string | string[]> };
+
+/**
+ * Run a form posted to a page without JavaScript (the <Form> of a
+ * useActionState(serverAction) dispatch posts to its page), by the action
+ * endpoint's rules: the same options and checks. `request.body` is the posted
+ * fields as an object (a name posted more than once as an array, a file as a
+ * Web `File`), `url` the absolute URL. Leave `body` out and pass `request` (the
+ * Web Request) to have the handler read an urlencoded or multipart/form-data
+ * body itself, from a copy, up to `bodyLimit`. Resolves to null for a post with
+ * no `_action`, which the page answers as before. createRequestHandler does
+ * this itself; a custom server calls it before rendering the page.
+ */
+export function createFormPostHandler(options?: ActionHandlerOptions): (request: { method?: string; headers: any; body?: Record<string, any>; url: string; request?: Request }) => Promise<FormPostOutcome | null>;
 export function nodeActionMiddleware(options?: ActionHandlerOptions): (req: any, res: any, next?: () => void) => void;
 export function fetchActionHandler(options?: ActionHandlerOptions): (request: Request) => Promise<Response>;
 
@@ -326,6 +484,8 @@ export interface RouteDefinition {
     swr?: number;
     tags?: string[];
     vary?: string[] | string;
+    /** A server-mode route streams its document shell-first unless this is false. */
+    stream?: boolean;
     [key: string]: any;
   };
   [key: string]: any;
@@ -333,8 +493,11 @@ export interface RouteDefinition {
 
 /** What the adapter passes to (and expects back from) a render function. */
 export interface RouteMatchContext {
+  /** The path without the base path (`basePath`) the request was below. */
   path: string;
-  query: Record<string, string>;
+  /** The request handler's `basePath`, without its trailing slash: a match with no request renders as a GET of the path below it, and a path its page redirects to goes below it. */
+  base?: string;
+  query: Record<string, string | string[]>;
   params: Record<string, string>;
   config: Record<string, any>;
   route: RouteDefinition;
@@ -342,6 +505,14 @@ export interface RouteMatchContext {
   /** Present only on the direct-render path. Cached HTML is shared, so it never carries a per-visitor token. */
   csrfToken?: string;
   varyHeaders?: Record<string, string>;
+  /** On the cache path: the request's signal, which the cache engine watches while the request waits. */
+  signal?: AbortSignal;
+}
+
+/** What the cache engine hands a render it may share between visitors. */
+export interface CacheRenderContext {
+  /** Aborts only when every request waiting on this render has gone; never for a background refresh. */
+  signal?: AbortSignal;
 }
 
 // What a `render` override hands back. Closed, like the options above, so every
@@ -351,6 +522,12 @@ export interface RouteMatchContext {
 export interface RenderRouteResult {
   html: string;
   status?: number;
+  /**
+   * The response headers (Location for a redirect, cookies, the page's own).
+   * On the cache path a Set-Cookie, a private/no-store/no-cache Cache-Control
+   * or a Vary keeps the render out of the cache; the rest are stored with it.
+   */
+  headers?: Headers | Record<string, string | string[]>;
   tags?: string[];
   path?: string;
   head?: string;
@@ -375,13 +552,16 @@ export interface RenderRouteResult {
  * what-server never has to import what-isr (an optional peer).
  */
 export interface CacheEngineLike {
-  handle(routeMatch: RouteMatchContext, render?: () => any): Promise<{
+  handle(routeMatch: RouteMatchContext, render?: (routeMatch: any, ctx?: CacheRenderContext) => any): Promise<{
     html: string;
     status?: number;
-    headers?: Record<string, string>;
+    /** `set-cookie` may be an array: a render made for this request keeps its cookies. */
+    headers?: Record<string, string | string[]>;
   }>;
   revalidatePath?: (path: string, options?: any) => any;
   revalidateTag?: (tag: string, options?: any) => any;
+  /** @internal what-isr's engine: the request handler's `basePath`, which a CDN purge names a page's URL below. */
+  _setBasePath?: (basePath: string) => void;
 }
 
 // Every key here is destructured by createRequestHandler. There is no index
@@ -392,20 +572,44 @@ export interface RequestHandlerOptions {
   routes?: RouteDefinition[];
   /** ISR engine. Omit for no caching. */
   cache?: CacheEngineLike;
-  /** Replace the built-in route renderer. */
-  render?: (routeMatch: RouteMatchContext) => RenderRouteResult | Promise<RenderRouteResult>;
+  /** Replace the built-in route renderer. On the cache path it also receives the cache's context. */
+  render?: (routeMatch: RouteMatchContext, cacheCtx?: CacheRenderContext) => RenderRouteResult | Promise<RenderRouteResult>;
   /** Handler for POST /__what_revalidate, e.g. what-isr's createRevalidateWebhook. */
   revalidateWebhook?: (req: { headers: Record<string, string>; body: any }) => Promise<{ status: number; body: any }>;
   /** Document shell options passed to renderDocument. */
   document?: DocumentOptions;
   /** Body for unmatched paths. */
   notFound?: () => string;
-  /** Path prefix stripped before matching. */
+  /**
+   * The path the app is served below (`'/app'`, `'/app/'` as Vite writes
+   * it, or `'app'`, all the same base; `''` and `'/'` are none), stripped from a request's path on a segment boundary before
+   * matching: `/app/x` matches `/x`, `/app` matches `/`, and a path outside
+   * it (`/application`) is matched as it is and rendered outside the cache,
+   * whose keys are the paths below the base. The action endpoint is
+   * `/app/__what_action`, and a path a page or an action redirects to (a
+   * loader's `response.redirect('/x')`, `getResponse().redirect('/x')`,
+   * what-router's `redirect('/x')`) is answered with `/app/x`. The `cache`
+   * engine serves below it too: `revalidatePath('/x')` purges `/app/x` at the
+   * CDN, unless the engine has a `basePath` of its own. A render the handler
+   * runs routes below it when the app set no base of its own on the router;
+   * the client's base is what-router's (`setBase`, or Vite's `base`): give
+   * both the same path.
+   */
   basePath?: string;
-  /** Double-submit CSRF, on by default. */
-  csrf?: boolean;
+  /**
+   * CSRF protection, on by default: a post the browser marks cross-site
+   * (Sec-Fetch-Site / Origin) is refused, one it marks same-origin accepted
+   * (forms on cached pages), and one with neither header needs the
+   * double-submit token. `false` turns it off; `trustedOrigins` lets other
+   * origins of the app post.
+   */
+  csrf?: boolean | { trustedOrigins?: string[] };
   /** Take over /__what_action entirely. A custom handler owns its own CSRF policy, so cookie/meta auto-provisioning is skipped. */
   actionHandler?: (reqLike: any) => Promise<{ status: number; headers: Record<string, string>; body: any }>;
+  /** Hears every error a built-in route render (streamed or buffered) contains or fails on. Default: console.error. */
+  onError?: (error: unknown, info: StreamErrorInfo) => void;
+  /** The most bytes a request body may hold (an action call, a form posted to a page, the revalidate webhook), default 1048576 (1 MB), the Node adapter's read included: a larger one is answered 413, an HTML page for a browser's form post (urlencoded or multipart, or a request that accepts HTML), JSON otherwise. A multipart/form-data body's fields and files are all within it. */
+  bodyLimit?: number;
 }
 
 // Request in, Response out, and nothing else: the handler takes ONE argument.
@@ -415,6 +619,13 @@ export interface RequestHandlerOptions {
 // three-argument one is expected, so nothing that worked stops working.
 /** Runtime-neutral request handler: Request in, Response out. */
 export function createRequestHandler(options?: RequestHandlerOptions): (request: Request) => Promise<Response>;
+
+/**
+ * The built-in route renderer createRequestHandler uses: the route's loader and page rendered
+ * as a document, answering with the status, headers and redirect they set on `response`. Hand it
+ * to an ISR engine's `render` so scheduled regeneration renders a page as a request does.
+ */
+export function createRouteRenderer(documentOptions?: DocumentOptions): (routeMatch: RouteMatchContext, cacheCtx?: CacheRenderContext) => Promise<RenderRouteResult>;
 
 /** Cloudflare Workers entry wrapping createRequestHandler. */
 export function createCloudflareHandler(options?: RequestHandlerOptions): { fetch: (request: Request, env?: any, ctx?: any) => Promise<Response> };

@@ -1,0 +1,10 @@
+{
+  "name": "what-react-mixed-fixture",
+  "private": true,
+  "type": "module",
+  "description": "Browser fixture for mixed JSX: native What files and React files in one Vite app. Driven by ../../mixed-browser.mjs; npm install here for recharts.",
+  "dependencies": {
+    "recharts": "^3.9.0",
+    "react-hook-form": "^7.71.1"
+  }
+}

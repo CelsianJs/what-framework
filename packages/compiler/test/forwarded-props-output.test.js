@@ -1,0 +1,250 @@
+// What what-compiler emits for props forwarded the way React code forwards
+// them (their behaviour: what-core test/forwarded-props-react-habits.test.js),
+// and that a component that does none of it pays nothing for it.
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { compileJSX } from '../../../test-utils/compile.js';
+
+const flat = (code) => code.replace(/\s+/g, ' ');
+const quiet = (source, options) => {
+  const warn = console.warn;
+  const seen = [];
+  console.warn = (...args) => seen.push(args.join(' '));
+  try {
+    return { code: flat(compileJSX(source, options)), seen };
+  } finally {
+    console.warn = warn;
+  }
+};
+
+describe('an attribute written after a spread', () => {
+  it('is skipped by the spread, its alias too', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <a {...rest} href="/x" class="c" onClick={go} />;`);
+    assert.match(code, /_\$spread\(_el\$0, rest, \["href", "class", "className", "onclick"\]\)/);
+  });
+
+  it('an element whose attributes all come before the spread passes no list', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <a href="/x" {...rest} />;`);
+    assert.match(code, /_\$spread\(_el\$0, rest\);/);
+  });
+
+  it('two spreads, or an attribute before a spread, are one merge in source order', () => {
+    const { code } = quiet(`export const A = ({ a, b }) => <a {...a} id="i" {...b} title={t()} ref={r} />;`);
+    // Sources in source order; read again, for spreads of props that may be new objects.
+    assert.match(code, /_\$spreads\(_el\$0, \(\) => \[_props\.a, \{ __proto__: null, id: "i" \}, _props\.b, \{ __proto__: null, get title\(\) \{ return t\(\); \} \}\], \["ref"\]\); _\$applyRef\(r, _el\$0\);/);
+    const before = quiet(`export const B = ({ v, ...rest }) => <button class="c" onClick={own} {...rest} />;`).code;
+    assert.match(before, /_\$template\("<button class=c>"\)/, 'a static attribute before the spreads stays in the template');
+    assert.match(before, /_\$spreads\(_el\$0, \[\{ __proto__: null, onClick: own \}, rest\]\)/);
+  });
+
+  it('one plain spread compiles as it did, and only what needs it imports _$spreads', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <div><a {...rest} href="/x" /><input ref={input} {...register('t')} placeholder={d()} /></div>;`);
+    assert.doesNotMatch(code, /_\$spreads/);
+    assert.match(code, /_\$spread\(_el\$\d+, rest, \["href"\]\)/);
+    assert.match(code, /_\$spread\(_\$controlled\(_el\$\d+\), register\('t'\), \["placeholder"\]\)/);
+  });
+
+  it('a spread whose object may be built again is read again; a name or a call with arguments is not', () => {
+    const { code } = quiet(`export const A = (props) => <div><a {...bag()} /><a {...props.attrs} title="t" /><a {...rest} /><a {...register('t')} /></div>;
+      export const L = () => <ul>{rows().map((r) => <li key={r.id} {...r} />)}</ul>;`);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[bag\(\)\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[props\.attrs\], \["title"\]\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, rest\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, register\('t'\)\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[_\$item\(_item\$0\)\]\)/, 'a keyed row\'s item');
+  });
+
+  it('names after a spread are the ones the runtime compares; a namespaced attribute keeps the merge', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => <svg><use {...rest} className="c" xlinkHref="#a" onClick={f} /><use {...rest} {...more} xlink:href="#b" /></svg>;`);
+    assert.match(code, /_\$spread\(_el\$\d+, rest, \["className", "class", "xlinkHref", "xlink:href", "onclick"\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \[rest, more, \{ __proto__: null, "xlink:href": "#b" \}\]\)/);
+  });
+
+  it('a module installs the XLink writer only where an SVG element may write an XLink attribute', () => {
+    assert.match(quiet(`export const A = () => <svg><use xlinkHref={p()} /></svg>;`).code, / _\$xlink\(\); /);
+    assert.match(quiet(`export const A = () => <svg><use {...rest} /></svg>;`).code, / _\$xlink\(\); /);
+    for (const source of [`export const A = () => <a {...rest} />;`, `export const A = () => <svg><use href={p()} /></svg>;`, `export const A = () => <svg><use xlink:href="#a" /></svg>;`]) {
+      assert.doesNotMatch(quiet(source).code, /_\$xlink/, source);
+    }
+  });
+
+  it('a static attribute before a spread read again is one of its sources, and the template\'s from the start', () => {
+    const { code } = quiet(`export const A = () => <div title="fallback" {...attrs()} />;`);
+    assert.match(code, /_\$template\("<div title=fallback>"\)/);
+    // An attribute the element needs as it is made (`multiple` before the options) is in the template.
+    assert.match(quiet(`export const S = () => <select multiple {...{ value: v }}><option>a</option></select>;`).code, /_\$template\("<select multiple><option>a"\)/);
+    assert.match(code, /_\$spreads\(_el\$0, \(\) => \[\{ __proto__: null, title: "fallback" \}, attrs\(\)\]\)/);
+    assert.match(quiet(`export const B = () => <div title="kept" {...rest} />;`).code, /_\$template\("<div title=kept>"\)/, 'a name spread stays as it was');
+  });
+
+  it('an event with modifiers stays out of the merge, and the rest merges', () => {
+    const { code } = quiet(`export const A = () => <button {...{ onClick: a }} {...{ onclick: b }} onblur__preventDefault={f} />;`);
+    assert.match(code, /_\$spreads\(_el\$0, \[\{ onClick: a \}, \{ onclick: b \}\]\); _\$on\(_el\$0, "blur", /);
+  });
+
+  it('a call is read again where its callee or an argument reads state, and once where none does', () => {
+    const { code } = quiet(`export const A = (props) => <div><a {...make(state())} /><a {...pick(props.kind)} /><a {...register('t')} /><a {...build(1, 'x')} /></div>;`);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[make\(state\(\)\)\]\)/);
+    assert.match(code, /_\$spreads\(_el\$\d+, \(\) => \[pick\(props\.kind\)\]\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, register\('t'\)\)/);
+    assert.match(code, /_\$spread\(_el\$\d+, build\(1, 'x'\)\)/);
+  });
+
+  it('a literal that names children takes part in the children, the last winning', () => {
+    const { code } = quiet(`const first = { children: 'first' }; export const A = () => <div {...first} {...{ children: 'last' }} />;`);
+    assert.match(code, /_\$place\(_\$merge\(first, \{ children: 'last' \}\), "children"\)/);
+  });
+
+  it('an event written twice in two cases is one writer, the last', () => {
+    const { code } = quiet(`export const A = () => <button onClick={a} onclick={b} />;`);
+    assert.match(code, /\$\$click = b;/);
+    assert.doesNotMatch(code, /\$\$click = a/);
+  });
+});
+
+describe('children written as a prop', () => {
+  it('are a live prop when they read state', () => {
+    const { code } = quiet(`export const A = () => <Box children={label()} />;`);
+    assert.match(code, /get children\(\) \{ return label\(\); \}/);
+  });
+
+  it('JSX children still decide when both are written', () => {
+    const { code } = quiet(`export const A = () => <Box children={label()}>own</Box>;`);
+    assert.match(code, /\["own"\]/);
+  });
+});
+
+describe('an object literal that spreads the props', () => {
+  it('is their merge, read like the props, when it is only spread and read by key', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => { const merged = { ...rest, className: 'fixed' }; return <a {...merged} title={merged.title} />; };`);
+    assert.match(code, /const merged = _\$merge\(rest, \{ className: 'fixed' \}\);/);
+    assert.match(code, /_\$effect\(\(\) => _\$setProp\(_el\$0, "title", merged\.title\)\)/);
+    assert.match(code, /_\$insert\(_el\$0, _\$place\(merged, "children"\)\)/);
+  });
+
+  it('spread straight onto JSX', () => {
+    const { code } = quiet(`export const A = (props) => <a {...{ ...props, rel: 'x' }} />;`);
+    assert.match(code, /_\$spread\(_el\$0, _\$merge\(props, \{ rel: 'x' \}\)\)/);
+  });
+
+  it('stays object spread where the object is handed on, written or has a method', () => {
+    for (const body of [
+      `const m = { ...props }; use(m); return <a {...m} />;`,
+      `const m = { ...props }; m.x = 1; return <a {...m} />;`,
+      `const m = { ...props, get x() { return 1; } }; return <a {...m} />;`,
+      `let m = { ...props }; return <a {...m} />;`,
+    ]) {
+      const { code } = quiet(`export function A(props) { ${body} }`);
+      assert.doesNotMatch(code, /_\$merge/, body);
+    }
+  });
+
+  it('is not touched on the server', () => {
+    const { code } = quiet(`export const A = ({ v, ...rest }) => { const merged = { ...rest, id: 'x' }; return <a {...merged} />; };`, { pluginOptions: { generate: 'ssr' } });
+    assert.doesNotMatch(code, /_\$merge\(rest/);
+  });
+});
+
+describe('a function handed to a component in a prop', () => {
+  it('returns the prop it reads, not a placing read of it', () => {
+    const { code } = quiet(`export const A = (props) => <Child read={() => props.project} />; export const B = ({ project }) => <Child read={() => project} />;`);
+    assert.match(code, /read: \(\) => props\.project/);
+    assert.match(code, /read: \(\) => _props\.project/);
+    assert.doesNotMatch(code, /_\$place/);
+  });
+
+  it('a function written as a child still places what it returns', () => {
+    const { code } = quiet(`export const A = (props) => <div>{() => props.children}</div>;`);
+    assert.match(code, /_\$place\(props, "children"\)/);
+  });
+});
+
+describe('a keyed row hands a render callback its raw item', () => {
+  it('for a callback, a branch and a nested list\'s cell: the item read through the row, no view', () => {
+    const { code } = quiet(`export const T = () => <div>{rows().map((item) => <div key={item.id}>{renderCell(item)}{item.on ? a(item) : null}<b>{cols.map((c) => <i key={c.key}>{c.render(item)}</i>)}</b></div>)}</div>;`);
+    assert.doesNotMatch(code, /live/);
+    assert.match(code, /renderCell\(_\$item\(_item\$0\)\)/);
+    assert.match(code, /a\(_\$item\(_item\$0\)\)/);
+    assert.match(code, /\.render\(_\$item\(_item\$0\)\)/);
+  });
+
+  it('a live() view written by hand reads the row\'s item', () => {
+    const { code } = quiet(`import { live } from 'what-framework'; export const T = () => <div>{rows().map((item) => <div key={item.id}>{renderCell(live(() => item))}</div>)}</div>;`);
+    assert.match(code, /renderCell\(live\(\(\) => _\$item\(_item\$0\)\)\)/);
+  });
+});
+
+describe('a key that reads the index', () => {
+  it('is a key function of the item and the index, with no warning', () => {
+    const { code, seen } = quiet(`export const T = () => <ul>{terms().map((t, i) => <li key={\`\${t.term}-\${i}\`}>{t.term}</li>)}</ul>;`);
+    assert.match(code, /key: \(t, i\) => `\$\{t\.term\}-\$\{i\}`, follow: true/);
+    assert.deepEqual(seen, []);
+  });
+
+  it('the server\'s key function takes the index too', () => {
+    const { code } = quiet(`export const T = () => <ul>{terms().map((t, i) => <li key={t.term + i}>{t.term}</li>)}</ul>;`, { pluginOptions: { generate: 'ssr' } });
+    assert.match(code, /true, \(t, i\) => t\.term \+ i, \d+\)/);
+  });
+
+  it('a key from a name the callback declares still falls back, with a warning', () => {
+    const { code, seen } = quiet(`export const T = () => <ul>{terms().map((t) => { const k = t.term; return <li key={k}>{t.term}</li>; })}</ul>;`);
+    assert.doesNotMatch(code, /_\$mapArray/);
+    assert.match(seen.join('\n'), /reads `k`/);
+  });
+});
+
+describe('component shapes that used to read their props once', () => {
+  const H = `import { h, memo } from 'what-framework';\n`;
+  it('a component with h() a factory returns, a hook with h() and a class\'s render() read them where they are used', () => {
+    const { code } = quiet(`${H}const Make = () => ({ value }) => h('i', {}, () => value);
+      function useLook({ value }) { return h('i', {}, () => value); }
+      class Cls { render() { const { value, other: o = 1 } = this.props; return <i title={o}>{value}</i>; } }`);
+    assert.match(code, /const Make = \(\) => _props => h\('i', \{\}, \(\) => _props\.value\)/);
+    assert.match(code, /function useLook\(_props2\) \{ return h\('i', \{\}, \(\) => _props2\.value\); \}/);
+    assert.match(code, /const \{ other: o = 1 \} = this\.props;/, 'a name with a default keeps its destructuring');
+    assert.match(code, /_\$insert\(_el\$0, \(\) => this\.props\.value\)/);
+  });
+
+  it('a name destructured from this.props and called is called with no receiver', () => {
+    const { code } = quiet(`class C { render() { const { format, tag, Make } = this.props; return <p>{format()}{format?.()}{tag\`x\`}{String(new Make())}</p>; } }`);
+    assert.match(code, /\(0, this\.props\.format\)\(\)/);
+    assert.match(code, /\(0, this\.props\.format\)\?\.\(\)/);
+    assert.match(code, /\(0, this\.props\.tag\)`x`/);
+    assert.match(code, /new \(0, this\.props\.Make\)\(\)/);
+  });
+
+  it('a lower-case helper that calls h() is still not a component', () => {
+    const { code } = quiet(`${H}export function icon({ name, ...rest }) { return h('svg', rest, name); }`);
+    assert.doesNotMatch(code, /_\$omit|_props/);
+  });
+
+  const reports = (source) => quiet(source, { filename: `read-once-${Math.random()}.jsx` }).seen.filter((w) => w.includes('ERR_PROP_READ_ONCE'));
+  for (const [shape, source, name] of [
+    ['a returned ternary', `export function C({ on }) { return on ? <a /> : <b />; }`, 'on'],
+    ['an early return', `export function C(props) { if (!props.open) return null; return <a />; }`, 'props.open'],
+    ['a returned logical', `export const C = ({ on }) => on && <a />;`, 'on'],
+    ['h() returned conditionally', `${H}export function C({ value }) { return value ? h('i', {}, () => value) : null; }`, 'value'],
+  ]) {
+    it(`reports ${shape} that reads a prop: it decides once what the component returns`, () => {
+      const found = reports(source);
+      assert.equal(found.length, 1, found.join('\n'));
+      assert.ok(found[0].includes(`\`${name}\``) && found[0].includes('<C>') && found[0].includes('decides what the component returns'), found[0]);
+    });
+  }
+
+  it('reports a component that hands its props to a JSX helper as a value', () => {
+    const found = reports(`const mk = ({ value }) => <i>{value}</i>; export function Helper({ value }) { return mk({ value }); }`);
+    assert.equal(found.length, 1);
+    assert.match(found[0], /`value`.*<Helper>.*handed to `mk\(\)` as a value.*`mk\(props\)`/);
+  });
+
+  it('reports nothing for a branch inside a binding, a row, a nested function or a helper', () => {
+    for (const source of [
+      `export function C({ on }) { return <p>{on ? 'a' : 'b'}</p>; }`,
+      `export function C({ items }) { return <ul>{items.map((i) => { if (!i) return null; return <li key={i}>{i}</li>; })}</ul>; }`,
+      `export function C({ on }) { const f = () => { if (on) return 1; }; return <a>{f()}</a>; }`,
+      `export function C({ on }) { if (ready()) return null; return <a>{on}</a>; }`,
+      `export const pick = ({ on }) => (on ? 1 : 2);`,
+    ]) assert.deepEqual(reports(source), [], source);
+  });
+});

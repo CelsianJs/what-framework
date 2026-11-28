@@ -1,6 +1,6 @@
 {
   "name": "what-core",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "What Framework - Signal-based UI framework built for AI agents",
   "type": "module",
   "main": "src/index.js",
@@ -9,42 +9,143 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
+      "development": "./src/index.js",
       "production": "./dist/index.min.js",
+      "node": "./src/index.js",
+      "module": "./dist/index.js",
       "import": "./src/index.js",
       "default": "./src/index.js"
     },
     "./jsx-runtime": {
       "types": "./jsx-runtime.d.ts",
+      "development": "./src/jsx-runtime.js",
       "production": "./dist/jsx-runtime.min.js",
+      "node": "./src/jsx-runtime.js",
+      "module": "./dist/jsx-runtime.js",
       "import": "./src/jsx-runtime.js",
       "default": "./src/jsx-runtime.js"
     },
     "./jsx-dev-runtime": {
       "types": "./jsx-dev-runtime.d.ts",
+      "development": "./src/jsx-dev-runtime.js",
       "production": "./dist/jsx-dev-runtime.min.js",
+      "node": "./src/jsx-dev-runtime.js",
+      "module": "./dist/jsx-dev-runtime.js",
       "import": "./src/jsx-dev-runtime.js",
       "default": "./src/jsx-dev-runtime.js"
     },
     "./render": {
       "types": "./render.d.ts",
+      "development": "./src/render.js",
       "production": "./dist/render.min.js",
+      "node": "./src/render.js",
+      "module": "./dist/render.js",
       "import": "./src/render.js",
       "default": "./src/render.js"
     },
+    "./a11y": {
+      "types": "./a11y.d.ts",
+      "development": "./src/entries/a11y.js",
+      "production": "./dist/entries/a11y.min.js",
+      "node": "./src/entries/a11y.js",
+      "module": "./dist/entries/a11y.js",
+      "import": "./src/entries/a11y.js",
+      "default": "./src/entries/a11y.js"
+    },
+    "./ui": {
+      "types": "./ui.d.ts",
+      "development": "./src/entries/ui.js",
+      "production": "./dist/entries/ui.min.js",
+      "node": "./src/entries/ui.js",
+      "module": "./dist/entries/ui.js",
+      "import": "./src/entries/ui.js",
+      "default": "./src/entries/ui.js"
+    },
+    "./motion": {
+      "types": "./motion.d.ts",
+      "development": "./src/entries/motion.js",
+      "production": "./dist/entries/motion.min.js",
+      "node": "./src/entries/motion.js",
+      "module": "./dist/entries/motion.js",
+      "import": "./src/entries/motion.js",
+      "default": "./src/entries/motion.js"
+    },
+    "./dom": {
+      "types": "./dom.d.ts",
+      "development": "./src/entries/dom.js",
+      "production": "./dist/entries/dom.min.js",
+      "node": "./src/entries/dom.js",
+      "module": "./dist/entries/dom.js",
+      "import": "./src/entries/dom.js",
+      "default": "./src/entries/dom.js"
+    },
+    "./form": {
+      "types": "./form.d.ts",
+      "development": "./src/entries/form.js",
+      "production": "./dist/entries/form.min.js",
+      "node": "./src/entries/form.js",
+      "module": "./dist/entries/form.js",
+      "import": "./src/entries/form.js",
+      "default": "./src/entries/form.js"
+    },
+    "./data": {
+      "types": "./data.d.ts",
+      "development": "./src/entries/data.js",
+      "production": "./dist/entries/data.min.js",
+      "node": "./src/entries/data.js",
+      "module": "./dist/entries/data.js",
+      "import": "./src/entries/data.js",
+      "default": "./src/entries/data.js"
+    },
     "./testing": {
       "types": "./testing.d.ts",
+      "development": "./src/testing.js",
       "production": "./dist/testing.min.js",
+      "node": "./src/testing.js",
+      "module": "./dist/testing.js",
       "import": "./src/testing.js",
       "default": "./src/testing.js"
+    },
+    "./internal": {
+      "types": "./internal.d.ts",
+      "development": "./src/entries/internal.js",
+      "production": "./dist/entries/internal.min.js",
+      "node": "./src/entries/internal.js",
+      "module": "./dist/entries/internal.js",
+      "import": "./src/entries/internal.js",
+      "default": "./src/entries/internal.js"
+    },
+    "./internal/markup-rules": {
+      "types": "./markup-rules.d.ts",
+      "development": "./src/markup-rules.js",
+      "production": "./dist/markup-rules.min.js",
+      "node": "./src/markup-rules.js",
+      "module": "./dist/markup-rules.js",
+      "import": "./src/markup-rules.js",
+      "default": "./src/markup-rules.js"
+    }
+  },
+  "imports": {
+    "#env": {
+      "development": "./src/env-development.js",
+      "default": "./src/env.js"
     }
   },
   "files": [
     "src",
-    "dist/**/*.min.js",
+    "dist/**/*.js",
     "index.d.ts",
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
     "render.d.ts",
+    "a11y.d.ts",
+    "ui.d.ts",
+    "motion.d.ts",
+    "dom.d.ts",
+    "form.d.ts",
+    "data.d.ts",
+    "internal.d.ts",
+    "markup-rules.d.ts",
     "testing.d.ts"
   ],
   "sideEffects": false,
@@ -60,6 +161,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"

@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// Run every package's node:test suite (D3, sprint/v0.11-quality).
+// Run every package's node:test suite.
 //
-// The old root "test" script enumerated package test dirs by hand and silently
-// omitted packages (devtools, eslint-plugin, react-compat, what). This runner
-// DISCOVERS packages/*/test/*.test.js and examples/*/test/*.test.js so a new
-// package's tests can never be forgotten again.
+// The runner DISCOVERS packages/*/test/*.test.js and examples/*/test/*.test.js
+// instead of listing package test dirs by hand, so a new package's tests cannot
+// be left out.
 //
 // Why a script instead of `node --test <glob>`: the repo supports Node >= 20
 // (package.json engines), and the test runner's own glob expansion is only
@@ -13,6 +12,7 @@
 // Usage:
 //   node scripts/run-all-tests.mjs              # run everything
 //   node scripts/run-all-tests.mjs server core  # only matching package names
+//   node scripts/run-all-tests.mjs --gc         # only forced-GC tests
 
 import { readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
@@ -20,7 +20,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const filters = process.argv.slice(2);
+const args = process.argv.slice(2);
+const gcOnly = args.includes('--gc');
+const filters = args.filter(arg => arg !== '--gc');
 
 function isDir(p) {
   try { return statSync(p).isDirectory(); } catch { return false; }
@@ -30,6 +32,7 @@ function testFilesIn(dir) {
   if (!isDir(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith('.test.js') || f.endsWith('.test.mjs'))
+    .filter((f) => /\.gc\.test\.[cm]?js$/.test(f) === gcOnly)
     .map((f) => join(dir, f))
     .sort();
 }
@@ -49,11 +52,17 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// Tests that bundle the packages as a production build does resolve the
+// `production` export condition, dist/*.min.js, which `npm run build` writes.
+if (!gcOnly && !isDir(join(root, 'packages', 'what', 'dist'))) {
+  console.warn('[run-all-tests] packages/what/dist is missing: the tests that bundle the production exports will fail. Run `npm run build` first.');
+}
+
 const suites = new Set(files.map((f) => relative(root, dirname(f))));
 console.log(`[run-all-tests] ${files.length} test files across ${suites.size} suites:`);
 for (const s of [...suites].sort()) console.log(`  - ${s}`);
 
-const result = spawnSync(process.execPath, ['--test', ...files], {
+const result = spawnSync(process.execPath, [...(gcOnly ? ['--expose-gc'] : []), '--test', ...files], {
   cwd: root,
   stdio: 'inherit',
 });

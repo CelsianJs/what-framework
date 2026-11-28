@@ -1,6 +1,6 @@
 {
   "name": "what-text",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Optional text engine for What Framework, powered by @chenglou/pretext",
   "type": "module",
   "main": "src/index.js",
@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "peerDependencies": {
-    "what-core": ">=0.7.0",
+    "what-core": "^0.15.0",
     "@chenglou/pretext": ">=0.0.5"
   },
   "peerDependenciesMeta": {
@@ -36,6 +36,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"

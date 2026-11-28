@@ -9,7 +9,9 @@
  *   src/pages/blog/index.jsx   → /blog
  *   src/pages/blog/[slug].jsx  → /blog/:slug
  *   src/pages/[...path].jsx    → catch-all
- *   src/pages/_layout.jsx      → layout for that directory
+ *   src/pages/_layout.jsx      → layout for that directory and every
+ *                                directory below it, around the layouts
+ *                                those declare (Next.js's nested layouts)
  *   src/pages/(auth)/login.jsx → /login (group doesn't affect URL)
  *   src/pages/api/users.js     → API route: /api/users
  *
@@ -182,10 +184,10 @@ const PAGE_EXPORT_RE = /export\s+const\s+page\s*=\s*\{/;
 /**
  * Extract `export const page = { ... }` from a file's source code.
  *
- * This used to be four chained regexes over the matched text (swap ' for ",
- * quote bare keys, drop trailing commas, strip comments). Every one of them was
- * blind to string boundaries, so any config whose VALUES contained a
- * parser-significant character was corrupted into invalid JSON and thrown away:
+ * Chained regexes over the matched text (swap ' for ", quote bare keys, drop
+ * trailing commas, strip comments) would each be blind to string boundaries, so
+ * any config whose VALUES contained a parser-significant character would be
+ * corrupted into invalid JSON and thrown away:
  *
  *   vary: ['cookie:theme']          → the key regex rewrote it to ["cookie":theme"]
  *   canonical: 'https://x.com/a'    → the comment strip ate the rest of the line
@@ -199,7 +201,7 @@ const PAGE_EXPORT_RE = /export\s+const\s+page\s*=\s*\{/;
  * anything else looks at the text, and brace matching finds the real end of the
  * literal. It is still not a JS parser: only JSON-shaped values are supported
  * (strings, numbers, booleans, null, arrays, nested objects). Anything else is
- * a parse failure, which is now REPORTED rather than swallowed.
+ * a parse failure, which is REPORTED rather than swallowed.
  *
  * @param {string} source            Page module source.
  * @param {{ filePath?: string }} [options]  filePath is used in the warning.
@@ -431,6 +433,13 @@ function readStringLiteral(source, start) {
     // Quoted strings cannot span lines; treat it as unterminated rather than
     // running off into the rest of the module.
     if (quote !== '`' && (ch === '\n' || ch === '\r')) break;
+    // A template's line break is a \n whatever the file's line endings, as
+    // in JavaScript.
+    if (ch === '\r') {
+      value += '\n';
+      i += source[i + 1] === '\n' ? 2 : 1;
+      continue;
+    }
 
     value += ch;
     i++;
@@ -442,14 +451,28 @@ function readStringLiteral(source, start) {
 /**
  * Detect which named exports a page module declares. Functions (loader,
  * getStaticPaths) cannot live in `export const page` (JSON-only), so the codegen
- * imports them as live bindings instead. \b anchors avoid false positives like
- * `loaderState` or `getStaticPathsHelper`.
+ * imports them as live bindings instead. A page's `preload` and `middleware`
+ * are its route's (what-router), in the browser's routes module too. \b
+ * anchors avoid false positives like `loaderState` or `getStaticPathsHelper`.
  */
 export function detectPageExports(source) {
   return {
     hasLoader: /export\s+(?:async\s+)?(?:const|let|var|function)\s+loader\b/.test(source),
     hasGetStaticPaths: /export\s+(?:async\s+)?(?:const|let|var|function)\s+getStaticPaths\b/.test(source),
     hasPageConfig: /export\s+const\s+page\b/.test(source),
+    hasPreload: /export\s+(?:async\s+)?(?:const|let|var|function)\s+preload\b/.test(source),
+    hasMiddleware: /export\s+(?:const|let|var)\s+middleware\b/.test(source),
+  };
+}
+
+/** A page's route fields that come from its own exports (preload, middleware), and their imports. */
+function routeExports(detected, varName) {
+  const names = [];
+  if (detected.hasPreload) names.push('preload');
+  if (detected.hasMiddleware) names.push('middleware');
+  return {
+    named: names.map((n) => `${n} as ${varName}_${n}`).join(', '),
+    fields: names.map((n) => `, ${n}: ${varName}_${n}`).join(''),
   };
 }
 
@@ -464,37 +487,35 @@ export function generateRoutesModule(pagesDir, rootDir) {
   const routeEntries = [];
 
   // Generate layout imports
-  const layoutMap = new Map();
-  layouts.forEach((layout, i) => {
+  const layoutVars = layouts.map((layout, i) => {
     const varName = `_layout${i}`;
     const relPath = toImportPath(layout.filePath, rootDir);
     imports.push(`import ${varName} from '${relPath}';`);
-    layoutMap.set(layout.urlPrefix, varName);
+    return { dir: path.dirname(layout.filePath), name: varName };
   });
 
   // Generate page imports and route entries
   pages.forEach((page, i) => {
     const varName = `_page${i}`;
     const relPath = toImportPath(page.filePath, rootDir);
-    imports.push(`import ${varName} from '${relPath}';`);
 
     // Read file to extract page config + detect loader/getStaticPaths exports
     let pageConfig = { mode: 'client' };
-    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false };
+    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false, hasPreload: false, hasMiddleware: false };
     try {
       const source = fs.readFileSync(page.filePath, 'utf-8');
       pageConfig = extractPageConfig(source, { filePath: page.filePath });
       detected = detectPageExports(source);
     } catch {}
-
-    // Find matching layout (closest parent)
-    const layoutVar = findLayout(page.routePath, layoutMap);
+    const own = routeExports(detected, varName);
+    imports.push(own.named ? `import ${varName}, { ${own.named} } from '${relPath}';` : `import ${varName} from '${relPath}';`);
 
     const entry = {
       path: page.routePath,
       component: varName,
       mode: pageConfig.mode || 'client',
-      layout: layoutVar || null,
+      layout: findLayouts(page.filePath, layoutVars),
+      own: own.fields,
       hasLoader: detected.hasLoader,
     };
 
@@ -522,7 +543,7 @@ export function generateRoutesModule(pagesDir, rootDir) {
     '',
     'export const routes = [',
     ...routeEntries.map(r =>
-      `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ''}${r.hasLoader ? ', hasLoader: true' : ''} },`
+      `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'${r.layout ? `, layout: ${r.layout}` : ''}${r.own}${r.hasLoader ? ', hasLoader: true' : ''} },`
     ),
     '];',
     '',
@@ -555,11 +576,10 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
   const imports = [];
   const routeEntries = [];
 
-  const layoutMap = new Map();
-  layouts.forEach((layout, i) => {
+  const layoutVars = layouts.map((layout, i) => {
     const varName = `_layout${i}`;
     imports.push(`import ${varName} from '${toImportPath(layout.filePath, rootDir)}';`);
-    layoutMap.set(layout.urlPrefix, varName);
+    return { dir: path.dirname(layout.filePath), name: varName };
   });
 
   pages.forEach((page, i) => {
@@ -568,14 +588,14 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
     const relPath = toImportPath(page.filePath, rootDir);
 
     let pageConfig = { mode: 'client' };
-    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false };
+    let detected = { hasLoader: false, hasGetStaticPaths: false, hasPageConfig: false, hasPreload: false, hasMiddleware: false };
     try {
       const source = fs.readFileSync(page.filePath, 'utf-8');
       pageConfig = extractPageConfig(source, { filePath: page.filePath });
       detected = detectPageExports(source);
     } catch {}
 
-    const needsNs = detected.hasLoader || detected.hasGetStaticPaths || detected.hasPageConfig;
+    const needsNs = detected.hasLoader || detected.hasGetStaticPaths || detected.hasPageConfig || detected.hasPreload || detected.hasMiddleware;
     if (needsNs) {
       imports.push(`import ${def}, * as ${ns} from '${relPath}';`);
     } else {
@@ -587,7 +607,7 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
       component: def,
       ns,
       mode: pageConfig.mode || 'client',
-      layout: findLayout(page.routePath, layoutMap) || null,
+      layout: findLayouts(page.filePath, layoutVars),
       ...detected,
     });
   });
@@ -602,6 +622,8 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
   const routeLine = (r) =>
     `  { path: '${r.path}', component: ${r.component}, mode: '${r.mode}'` +
     `${r.layout ? `, layout: ${r.layout}` : ''}` +
+    `${r.hasPreload ? `, preload: ${r.ns}.preload` : ''}` +
+    `${r.hasMiddleware ? `, middleware: ${r.ns}.middleware` : ''}` +
     `${r.hasLoader ? `, loader: ${r.ns}.loader` : ''}` +
     `${r.hasGetStaticPaths ? `, getStaticPaths: ${r.ns}.getStaticPaths` : ''}` +
     `${r.hasPageConfig ? `, page: ${r.ns}.page` : ''} },`;
@@ -638,19 +660,17 @@ function toImportPath(filePath, rootDir) {
 }
 
 /**
- * Find the closest layout for a given route path.
+ * The layouts of the page in `pageFile`, as its route's `layout`: the
+ * `_layout` of every directory that holds the page, from the pages
+ * directory's down to the closest (a route group's `(auth)/_layout` too,
+ * around the group's pages only), as one name, a list of names (outermost
+ * first), or null without one. The router nests them in that order and keeps
+ * those two routes share.
  */
-function findLayout(routePath, layoutMap) {
-  // Walk up from the route path to find the nearest layout
-  const segments = routePath.split('/').filter(Boolean);
-
-  while (segments.length > 0) {
-    const prefix = '/' + segments.join('/');
-    if (layoutMap.has(prefix)) return layoutMap.get(prefix);
-    segments.pop();
-  }
-
-  // Check root layout
-  if (layoutMap.has('/')) return layoutMap.get('/');
-  return null;
+function findLayouts(pageFile, layoutVars) {
+  const found = layoutVars
+    .filter((layout) => pageFile.startsWith(layout.dir + path.sep))
+    .sort((a, b) => a.dir.length - b.dir.length)
+    .map((layout) => layout.name);
+  return found.length === 0 ? null : found.length === 1 ? found[0] : `[${found.join(', ')}]`;
 }

@@ -1,34 +1,33 @@
-// what-compiler output is client-only, and this pins the two places that now
-// SAY so instead of failing in a way that names the wrong thing.
+// Vite's server transforms and what-compiler.
 //
-// The fact, measured rather than assumed (probe in the PR body): a component
-// whose body what-compiler lowered returns `_tmpl$0()`, a cloneNode of a
-// module-scope <template>. It is finished DOM, not a vnode. Two consequences,
-// and before this change both were reported misleadingly:
+// By default a module Vite transforms for the server (the third `transform`
+// argument `{ ssr: true }`, or `this.environment.name === 'ssr'` from Vite 6)
+// is compiled with the server target: string templates that what-server
+// renders, with no _$template() or DOM in sight. The first block pins that.
 //
-//   - On a real server there is no `document`, and the _$template() call is
-//     HOISTED TO MODULE SCOPE, so the module throws `ReferenceError: document is
-//     not defined` at IMPORT time, from inside what-core, naming no file of the
-//     developer's.
-//   - Where a DOM does exist (jsdom in a test, a shim), the component returns an
-//     Element, every renderer destructures `vnode.tag` off it, gets `undefined`,
-//     and reported ERR_INVALID_SSR_TAG: "Invalid tag name in SSR: undefined".
-//     That code's own documentation blames a component returning a plain object
-//     or a typo'd tag. Neither is what happened.
+// The guard that used to be the only answer is still there for projects that
+// opt out with `ssr: false`: their compiled client output would build DOM on a
+// server, so a server transform of it is refused with ERR_COMPILED_JSX_IN_SSR,
+// naming the file, instead of shipping a module that throws "document is not
+// defined" the first time it renders.
 //
-// The Vite plugin now refuses the transform when it is compiling for the SSR
-// environment AND the output builds DOM, which is a build-time verdict on a
-// build-time fact. what-server raises the same code as the backstop.
-//
-// NEGATIVE CONTROLS ARE THE POINT of half this file. A guard that fires on
+// NEGATIVE CONTROLS ARE THE POINT of the second block. A guard that fires on
 // everything is not a guard, it is an outage: the client transform, a JSX-free
 // server-action module, a hydrate()-only module, and `ssrGuard: false` must all
-// still compile in an SSR graph. Those cases pass with the fix reverted too, and
-// they must.
+// still compile in an SSR graph.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import whatVitePlugin from '../src/vite-plugin.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const SSR_RUNTIME = path.resolve(here, '../../server/src/ssr-runtime.js');
+const { renderToString } = await import('../../server/src/index.js');
+const { h } = await import('../../core/src/index.js');
 
 const COMPONENT_JSX = `
 export function App() {
@@ -74,16 +73,57 @@ function expectGuard(fn, { file }) {
   // replaces; a guard that says "something somewhere" is not an improvement.
   assert.ok(thrown.message.includes(file), `message must name the file, got: ${thrown.message}`);
   assert.equal(thrown.id, file);
-  // Refusing without saying what to do instead is a dead end. Both supported
-  // spellings have to be in the text the developer actually sees.
+  // Refusing without saying what to do instead is a dead end: the server
+  // target, and both h() spellings, have to be in the text the developer sees.
+  assert.match(thrown.message, /ssr: false/);
   assert.match(thrown.message, /h\(\)/);
   assert.match(thrown.message, /jsxImportSource/);
   return thrown;
 }
 
-describe('what-compiler: SSR build guard', () => {
-  it('refuses a component module compiled for the SSR environment, naming the file', () => {
+describe('what-compiler: server transforms use the server target', () => {
+  it('compiles a component module for the server instead of refusing it', async () => {
     const plugin = whatVitePlugin();
+    const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: true });
+    assert.ok(out && out.code);
+    assert.match(out.code, /from "what-framework\/ssr-runtime"/);
+    assert.doesNotMatch(out.code, /_\$template|_\$createComponent|document/);
+    const dir = mkdtempSync(path.join(tmpdir(), 'what-vite-ssr-'));
+    try {
+      const file = path.join(dir, 'App.mjs');
+      writeFileSync(file, out.code.replace('"what-framework/ssr-runtime"', JSON.stringify(SSR_RUNTIME)));
+      const { App } = await import(pathToFileURL(file).href);
+      assert.equal(renderToString(h(App)), '<div class="app"><h1>Title</h1></div>');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('compiles a module whose JSX is only a component tag to a vnode', () => {
+    const plugin = whatVitePlugin();
+    const out = transform(plugin, COMPONENT_ONLY_JSX, '/proj/src/Page.jsx', { ssr: true });
+    assert.match(out.code, /_\$ssrLeaf\(Card,/);
+  });
+
+  it('detects the SSR environment through the Environment API, not only the ssr flag', () => {
+    const plugin = whatVitePlugin();
+    const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { environment: { name: 'ssr' } });
+    assert.match(out.code, /what-framework\/ssr-runtime/);
+  });
+
+  it('never appends the browser HMR boundary to a server module', () => {
+    const plugin = whatVitePlugin({ production: false });
+    plugin.configResolved({ root: '/proj', command: 'serve' });
+    const server = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: true });
+    const client = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx');
+    assert.doesNotMatch(server.code, /HMR Boundary/);
+    assert.match(client.code, /HMR Boundary/);
+  });
+});
+
+describe('what-compiler: SSR build guard (ssr: false)', () => {
+  it('refuses a component module compiled for the SSR environment, naming the file', () => {
+    const plugin = whatVitePlugin({ ssr: false });
     expectGuard(
       () => transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: true }),
       { file: '/proj/src/App.jsx' },
@@ -91,7 +131,7 @@ describe('what-compiler: SSR build guard', () => {
   });
 
   it('refuses a module whose JSX is only a component tag (_$createComponent builds DOM too)', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     expectGuard(
       () => transform(plugin, COMPONENT_ONLY_JSX, '/proj/src/Page.jsx', { ssr: true }),
       { file: '/proj/src/Page.jsx' },
@@ -101,7 +141,7 @@ describe('what-compiler: SSR build guard', () => {
   it('detects the SSR environment through the Environment API, not only the ssr flag', () => {
     // Vite 6+ routes this through `this.environment`. A plugin that only read
     // the third argument would silently stop guarding.
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     expectGuard(
       () => transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { environment: { name: 'ssr' } }),
       { file: '/proj/src/App.jsx' },
@@ -109,7 +149,7 @@ describe('what-compiler: SSR build guard', () => {
   });
 
   it('strips a query suffix from the file it names', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const err = expectGuard(
       () => transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx?v=123', { ssr: true }),
       { file: '/proj/src/App.jsx' },
@@ -117,17 +157,17 @@ describe('what-compiler: SSR build guard', () => {
     assert.ok(!err.message.includes('?v=123'), 'the version query is noise in an error message');
   });
 
-  // --- negative controls: these pass on BOTH arms and must ------------------
+  // --- negative controls -----------------------------------------------------
 
   it('compiles the same module normally for the client', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: false });
     assert.ok(out && out.code, 'client transform must still produce code');
     assert.match(out.code, /_\$template/);
   });
 
   it('does not fire on a client-environment transform reported through the Environment API', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { environment: { name: 'client' } });
     assert.ok(out && out.code);
   });
@@ -136,14 +176,14 @@ describe('what-compiler: SSR build guard', () => {
     // This is the module the SSR graph legitimately contains, and it emits
     // nothing that builds DOM. A guard keyed on "the plugin ran" would break
     // every server action in the project.
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const out = transform(plugin, SERVER_ACTION_JS, '/proj/src/actions.js', { ssr: true });
     assert.ok(out && out.code, 'server-action module must still compile for the server');
     assert.doesNotMatch(out.code, /_\$template/);
   });
 
   it('does not fire on a hydrate()-only module, whose JSX lowers to an unbuilt vnode', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const out = transform(plugin, HYDRATE_ONLY_JSX, '/proj/src/entry-client.jsx', { ssr: true });
     assert.ok(out && out.code);
     assert.match(out.code, /_\$componentVNode/);
@@ -151,14 +191,16 @@ describe('what-compiler: SSR build guard', () => {
   });
 
   it('honours ssrGuard: false for a project that has installed a DOM on purpose', () => {
-    const plugin = whatVitePlugin({ ssrGuard: false });
-    const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: true });
-    assert.ok(out && out.code);
-    assert.match(out.code, /_\$template/);
+    for (const options of [{ ssrGuard: false }, { ssr: false, ssrGuard: false }]) {
+      const plugin = whatVitePlugin(options);
+      const out = transform(plugin, COMPONENT_JSX, '/proj/src/App.jsx', { ssr: true });
+      assert.ok(out && out.code);
+      assert.match(out.code, /_\$template/);
+    }
   });
 
   it('leaves excluded files alone in the SSR graph', () => {
-    const plugin = whatVitePlugin();
+    const plugin = whatVitePlugin({ ssr: false });
     const out = transform(plugin, COMPONENT_JSX, '/proj/node_modules/dep/App.jsx', { ssr: true });
     assert.equal(out, null);
   });

@@ -1,9 +1,10 @@
 // useLoaderData() — reads the active render context's loader data on the server.
-// (Client payload reading is covered in Phase 5 hydration tests.)
+// (Client payload reading is covered in hydration-data.test.js.)
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { useLoaderData, runWithServerContext } from '../src/index.js';
+import { useLoaderData } from '../src/index.js';
+import { runWithServerContext } from '../src/entries/internal.js';
 
 describe('useLoaderData (server)', () => {
   it('returns loaderData from the active render context', () => {

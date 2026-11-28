@@ -1,0 +1,22 @@
+{
+  "name": "smoke-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Workspace smoke app: sign-in guard, nested layouts, a queried list, an optimistic edit that rolls back on error, a multi-step wizard that survives back/forward and a reload, a focus-trapped modal and a toast region.",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "what-framework": "0.15.0",
+    "what-router": "0.15.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^7.0.0",
+    "what-compiler": "0.15.0"
+  }
+}

@@ -1,4 +1,4 @@
-// Publish-surface safety net (D4, sprint/v0.11-quality).
+// Publish-surface safety net.
 //
 // 1. Every documented what-framework subpath ('.', './router', './server',
 //    './jsx-runtime', plus the rest of the exports map) must resolve AND
@@ -37,6 +37,8 @@ const EXPECTED_EXPORTS = {
     'h', 'mount', 'hydrate', 'onMount', 'onCleanup',
     'For', 'Show', 'Suspense', 'ErrorBoundary', 'Fragment',
     'createStore', 'createResource', 'createContext', 'useContext', 'lazy',
+    'refresh', 'isPending', 'startTransition', 'useTransition', 'useOptimistic', 'use', 'settled',
+    'useActionState', 'useFormStatus',
   ],
   './router': [
     'Router', 'Link', 'NavLink', 'Outlet', 'route', 'navigate',
@@ -44,16 +46,27 @@ const EXPECTED_EXPORTS = {
   ],
   './server': [
     'renderToString', 'renderToStringAsync', 'renderDocument', 'renderToStream',
-    'createRequestHandler', 'createActionHandler', 'createServer',
-    'action', 'formAction', 'island', 'Island', 'hydrateIslands',
+    'createRequestHandler', 'createRouteRenderer', 'createActionHandler', 'createServer',
+    'action', 'Form', 'island', 'Island', 'hydrateIslands',
     'generateCsrfToken', 'validateCsrfToken', 'csrfMetaTag',
     'exportStatic', 'createVercelHandler', 'createCloudflareHandler',
     'createVuraHandler', 'buildVuraOutput',
   ],
   './jsx-runtime': ['jsx', 'jsxs', 'Fragment'],
   './jsx-dev-runtime': [],
-  './render': [],
+  './render': ['template', 'insert', 'mapArray', 'spread', 'on', 'delegateEvents', 'isHydrating'],
+  // The helpers what-compiler's server target imports (generate: "ssr").
+  './ssr-runtime': [
+    'ssr', 'ssrForeign', 'ssrRow', 'ssrTemplate', 'ssrText', 'ssrList', 'ssrFor', 'ssrComponent',
+    'ssrLeaf', 'ssrFragment', 'ssrIsland', 'ssrElement', 'ssrRawText',
+  ],
   './testing': [],
+  './a11y': ['useFocusTrap', 'FocusTrap', 'announce', 'SkipLink', 'useRovingTabIndex', 'VisuallyHidden'],
+  './ui': ['Skeleton', 'SkeletonText', 'Spinner', 'useSkeleton'],
+  './motion': ['spring', 'tween', 'useTween', 'transitionClass', 'cssTransition'],
+  './dom': ['scheduleRead', 'scheduleWrite', 'raf', 'cls', 'debounce', 'useLocalStorage', 'clearHead'],
+  './form': ['useForm', 'useField', 'rules', 'Input', 'ErrorMessage'],
+  './data': ['query', 'useSWR', 'useQuery', 'useFetch', 'invalidateQueries', 'invalidatePath'],
 };
 
 describe('what-framework documented subpaths', () => {

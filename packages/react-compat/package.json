@@ -1,13 +1,17 @@
 {
   "name": "what-react",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "React compatibility layer for What Framework — real React semantics (value hooks, re-renders, context) on a dedicated compat runtime",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/hydrate-islands.js",
+    "./src/claim-islands.js",
+    "./src/class.js"
+  ],
   "main": "src/index.js",
   "types": "index.d.ts",
   "scripts": {
-    "test": "node --test 'test/*.test.js'"
+    "test": "node --test test/*.test.js"
   },
   "exports": {
     ".": {
@@ -20,6 +24,26 @@
       "import": "./src/dom.js",
       "default": "./src/dom.js"
     },
+    "./mixed": {
+      "types": "./mixed.d.ts",
+      "import": "./src/mixed.js",
+      "default": "./src/mixed.js"
+    },
+    "./hydrate-islands": {
+      "types": "./hydrate-islands.d.ts",
+      "import": "./src/hydrate-islands.js",
+      "default": "./src/hydrate-islands.js"
+    },
+    "./claim-islands": {
+      "types": "./claim-islands.d.ts",
+      "import": "./src/claim-islands.js",
+      "default": "./src/claim-islands.js"
+    },
+    "./class": {
+      "types": "./class.d.ts",
+      "import": "./src/class.js",
+      "default": "./src/class.js"
+    },
     "./jsx-runtime": {
       "types": "./jsx-runtime.d.ts",
       "import": "./src/jsx-runtime.js",
@@ -29,6 +53,11 @@
       "types": "./jsx-dev-runtime.d.ts",
       "import": "./src/jsx-dev-runtime.js",
       "default": "./src/jsx-dev-runtime.js"
+    },
+    "./compiler-runtime": {
+      "types": "./compiler-runtime.d.ts",
+      "import": "./src/compiler-runtime.js",
+      "default": "./src/compiler-runtime.js"
     },
     "./vite": {
       "types": "./vite.d.ts",
@@ -42,7 +71,13 @@
     "dom.d.ts",
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
-    "vite.d.ts"
+    "compiler-runtime.d.ts",
+    "vite.d.ts",
+    "mixed.d.ts",
+    "hydrate-islands.d.ts",
+    "claim-islands.d.ts",
+    "class.d.ts",
+    "MIXED.md"
   ],
   "keywords": [
     "react",
@@ -53,10 +88,14 @@
     "compatibility"
   ],
   "peerDependencies": {
-    "what-core": "^0.14.0"
+    "what-core": "^0.15.0",
+    "@babel/core": "^7.23.0"
   },
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"
@@ -64,5 +103,10 @@
   "bugs": {
     "url": "https://github.com/CelsianJs/what-framework/issues"
   },
-  "homepage": "https://react.whatfw.com"
+  "homepage": "https://react.whatfw.com",
+  "peerDependenciesMeta": {
+    "@babel/core": {
+      "optional": true
+    }
+  }
 }

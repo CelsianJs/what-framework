@@ -1,10 +1,11 @@
-// Served server actions (Phase 3). Wires the missing /__what_action HTTP path:
-// createActionHandler (framework-agnostic core) + Node middleware + fetch handler.
-// Also the first real coverage of actions.js round-trip + CSRF.
+// Served server actions: the /__what_action HTTP path, createActionHandler
+// (framework-agnostic core) + Node middleware + fetch handler, and the
+// actions.js round-trip + CSRF.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { action, handleActionRequest, getRegisteredActions } from '../src/actions.js';
 import {
   createActionHandler,
@@ -15,6 +16,11 @@ import {
 // Register fixtures once (server-side registration: typeof window === 'undefined').
 action(async (a, b) => ({ sum: a + b }), { id: 'sum' });
 action(async () => { throw new Error('SECRET internal detail'); }, { id: 'boom' });
+// Plain functions are actions too, in the types and at runtime.
+action((a, b) => a * b, { id: 'product' });
+action(() => { throw new Error('SECRET sync detail'); }, { id: 'syncBoom' });
+let received = null;
+action((data) => { received = data; return 'ok'; }, { id: 'receive' });
 
 function mockReq(method, url, headers, bodyStr) {
   const req = new EventEmitter();
@@ -145,6 +151,84 @@ describe('createActionHandler (core)', () => {
   });
 });
 
+describe('form fields', () => {
+  it('a field named like a built-in or __proto__ is an own field, not an inherited value or the prototype', async () => {
+    const { parseActionBody } = await import('../src/action-handler.js');
+    const fields = parseActionBody('constructor=y&toString=z&hasOwnProperty=w&__proto__=p&to=a&to=b', 'application/x-www-form-urlencoded');
+    assert.deepEqual(Object.keys(fields), ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'to']);
+    assert.deepEqual([fields.constructor, fields.toString, fields.hasOwnProperty, fields.to], ['y', 'z', 'w', ['a', 'b']]);
+    assert.equal(Object.getOwnPropertyDescriptor(fields, '__proto__').value, 'p');
+    assert.equal(Object.getPrototypeOf(fields), Object.prototype);
+    assert.equal(Object.prototype.hasOwnProperty.call(fields, 'to'), true);
+    assert.equal({}.p, undefined, 'Object.prototype is untouched');
+  });
+});
+
+describe('an action on a runtime without AsyncLocalStorage', () => {
+  // Nothing carries the call's context past an `await` there, so the action
+  // must start inside it: its synchronous part sees its own request. After
+  // the await, getRequest() is null (README, "Server actions"), never another
+  // caller's.
+  it('sees its own request until its first await, and nobody else\'s after it', () => {
+    const script = `
+      delete process.getBuiltinModule;
+      delete globalThis.AsyncLocalStorage;
+      const { action, getRequest, createActionHandler } = await import(${JSON.stringify(new URL('../src/index.js', import.meta.url).href)});
+      const who = () => /uid=(\\w+)/.exec(getRequest()?.headers.get('cookie') ?? '')?.[1] ?? 'none';
+      action(async () => {
+        const start = who();
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 5));
+        return { start, after: who() };
+      }, { id: 'who' });
+      const handle = createActionHandler({ skipCsrf: true });
+      const calls = Array.from({ length: 20 }, (_, i) => handle({ method: 'POST', headers: { 'x-what-action': 'who', cookie: 'uid=u' + i }, body: { args: [] } }));
+      console.log(JSON.stringify((await Promise.all(calls)).map((r) => JSON.parse(r.body))));
+    `;
+    const out = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    const seen = JSON.parse(out.stdout.trim().split('\n').pop());
+    assert.deepEqual(seen.map((s) => s.start), seen.map((_, i) => `u${i}`), 'each call starts with its own request');
+    assert.deepEqual([...new Set(seen.map((s) => s.after))], ['none'], 'after an await, no request: never another caller\'s');
+  });
+});
+
+describe('a no-JS form post', () => {
+  // The fields reach the action as own fields, as they do from the JS client:
+  // a field named `__proto__` is a key, and never sets data's prototype.
+  it('hands the action its fields as own keys, `__proto__` included', async () => {
+    const mw = nodeActionMiddleware({ skipCsrf: true });
+    const res = mockRes();
+    received = null;
+    await mw(mockReq('POST', '/__what_action', { 'content-type': 'application/x-www-form-urlencoded' },
+      '_action=receive&__proto__=p1&__proto__=p2&constructor=c&role=admin'), res, () => {});
+    assert.equal(res.statusCode, 303);
+    assert.equal(Object.getPrototypeOf(received), Object.prototype);
+    assert.deepEqual(Object.keys(received), ['__proto__', 'constructor', 'role']);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(received, '__proto__').value, ['p1', 'p2']);
+    assert.equal(received.length, undefined);
+    assert.equal({}.role, undefined);
+  });
+});
+
+describe('an action that is a plain function', () => {
+  it('answers with its value, and a throw is the generic 500, as for an async one', async () => {
+    assert.deepEqual(await handleActionRequest({ headers: {} }, 'product', [4, 5], { skipCsrf: true }), { status: 200, body: 20 });
+    const error = console.error;
+    console.error = () => {};
+    try {
+      const r = await handleActionRequest({ headers: {} }, 'syncBoom', [], { skipCsrf: true });
+      assert.deepEqual([r.status, r.body.message], [500, 'Action failed']);
+      assert.ok(!JSON.stringify(r.body).includes('SECRET'));
+      const mw = nodeActionMiddleware({ skipCsrf: true });
+      const res = mockRes();
+      await mw(mockReq('POST', '/__what_action', { 'x-what-action': 'syncBoom' }, JSON.stringify({ args: [] })), res, () => {});
+      assert.deepEqual([res.ended, res.statusCode], [true, 500], 'the middleware answers instead of rejecting');
+    } finally {
+      console.error = error;
+    }
+  });
+});
+
 describe('nodeActionMiddleware', () => {
   it('handles a POST to /__what_action end-to-end', async () => {
     const mw = nodeActionMiddleware({ skipCsrf: true });
@@ -175,5 +259,28 @@ describe('fetchActionHandler', () => {
     const response = await fh(request);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { sum: 13 });
+  });
+});
+
+// A server action is a public endpoint: anyone can post its id with any
+// arguments. The built-in endpoints run each call in a context of its own, so
+// the action can check its caller: getRequest() is the request, with its
+// cookies and headers, and the query cache it reads is the call's own.
+describe('an action call knows its request', () => {
+  it('getRequest() inside the action is the request the endpoint answered, and null outside', async () => {
+    const { getRequest } = await import('../src/index.js');
+    const seen = [];
+    action(async () => {
+      const request = getRequest();
+      seen.push(request && [request.method, request.headers.get('cookie'), new URL(request.url).pathname]);
+      return null;
+    }, { id: 'whoCalls' });
+    const mw = nodeActionMiddleware({ skipCsrf: true });
+    const res = mockRes();
+    await mw(mockReq('POST', '/__what_action', { 'x-what-action': 'whoCalls', cookie: 'session=alice', host: 'shop.test' }, JSON.stringify({ args: [] })), res, () => {});
+    const fh = fetchActionHandler({ skipCsrf: true });
+    await fh(new Request('http://shop.test/__what_action', { method: 'POST', headers: { 'x-what-action': 'whoCalls', 'content-type': 'application/json', cookie: 'session=bob' }, body: JSON.stringify({ args: [] }) }));
+    assert.deepEqual(seen, [['POST', 'session=alice', '/__what_action'], ['POST', 'session=bob', '/__what_action']]);
+    assert.equal(getRequest(), null);
   });
 });

@@ -1,8 +1,19 @@
 /**
- * Browser-side WebSocket client for what-devtools-mcp.
- * Connects to the Node.js bridge server, streams devtools state and events,
- * and handles commands from the MCP server (set-signal, get-snapshot, etc.).
+ * Browser-side client for what-devtools-mcp.
+ *
+ * Connects to the Node bridge, streams devtools events and answers commands
+ * from the MCP server. One page load is one session on the bridge; a dropped
+ * socket that reconnects resumes it.
+ *
+ * Ordering contract with the bridge: events are buffered for a few ms and sent
+ * in batches, and the buffer is always flushed before a command is answered,
+ * so the bridge has every event up to the state a response describes. For an
+ * action the client also sends a mark, after flushing and before acting, so
+ * the bridge knows exactly which events the action caused.
  */
+
+import { resolveSafeRead } from './safe-read.js';
+import { cacheSnapshot, invalidateCache } from './cache-commands.js';
 
 // Branded console logger
 const BADGE = 'background:#6366f1;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold';
@@ -11,13 +22,71 @@ const BADGE_WARN = 'background:#eab308;color:#000;padding:2px 6px;border-radius:
 const DIM = 'color:#888';
 
 function log(badge, badgeStyle, ...args) {
-  console.log(`%c${badge}%c`, badgeStyle, '', ...args);
+  try { console.log(`%c${badge}%c`, badgeStyle, '', ...args); } catch { /* logging never breaks a command */ }
 }
 
-function logGrouped(badge, badgeStyle, title, data) {
-  console.groupCollapsed(`%c${badge}%c ${title}`, badgeStyle, 'color:inherit');
-  if (data !== undefined) console.log(data);
-  console.groupEnd();
+const ACTIONS = new Set(['set-signal', 'invalidate-cache', 'navigate', 'eval']);
+const BATCH_MS = 16;
+const MAX_BATCH = 1000;
+
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+function newPageId() {
+  try {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cut(text, max) {
+  const s = String(text ?? '');
+  return s.length > max ? `${s.slice(0, max)}…(+${s.length - max} chars)` : s;
+}
+
+// Event payloads go over the socket as JSON-safe, bounded data. Only a write
+// carries live values; everything else devtools emits is already plain.
+function serializeEvent(devtools, event, data) {
+  if (event === 'signal:updated') {
+    return { ...data, value: devtools.preview(data.value, 200), prev: devtools.preview(data.prev, 200) };
+  }
+  if (event === 'error:captured') {
+    return { ...data, message: cut(data.message, 2000), stack: data.stack ? cut(data.stack, 4000) : null };
+  }
+  if (event === 'action') {
+    return {
+      name: cut(data.name, 160),
+      outcome: data.outcome,
+      invalidated: data.invalidated.map((key) => cut(key, 200)),
+      revalidated: data.revalidated.map((path) => cut(path, 200)),
+    };
+  }
+  if (event === 'diagnostic') {
+    // The fix text is not sent: the MCP server takes it from its own catalogue,
+    // so page code cannot supply instructions under a trusted label.
+    return {
+      seq: data.seq,
+      firstSeq: data.firstSeq,
+      code: String(data.code),
+      severity: data.severity,
+      count: data.count,
+      message: cut(data.message, 1000),
+      owner: Array.isArray(data.owner) ? data.owner.slice(0, 12).map((o) => cut(o, 120)) : [],
+      loc: data.loc ? cut(data.loc, 300) : null,
+      subject: isObject(data.subject) ? devtools.preview(data.subject, 300) : null,
+      data: data.code === 'ERR_HYDRATION_MISMATCH' ? hydrationMismatch(data.data) : devtools.preview(data.data, 1000),
+    };
+  }
+  return data;
+}
+
+function hydrationMismatch(data) {
+  if (!isObject(data)) return null;
+  return {
+    kind: cut(data.kind, 40), component: cut(data.component, 120),
+    ownerPath: data.ownerPath == null ? null : cut(data.ownerPath, 300),
+    path: cut(data.path, 300), expected: cut(data.expected, 200), found: cut(data.found, 200),
+    recovery: cut(data.recovery, 40),
+  };
 }
 
 export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' } = {}) {
@@ -31,6 +100,7 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
     }
   } catch {}
 
+  const pageId = newPageId();
   /** @type {WebSocket | null} */
   let ws = null;
   let connected = false;
@@ -38,8 +108,6 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   /** @type {ReturnType<typeof setTimeout> | null} */
   let probeTimer = null;
   // Probe back-off: first retry after 10s, then ×3 each time, capped at 5min.
-  // With no bridge running this yields probes at ~0s / 10s / 40s / 130s / 430s…
-  // — at most 3-4 quiet fetch attempts in the first two minutes, then near-silence.
   const PROBE_DELAY_INITIAL = 10000;
   const PROBE_DELAY_RECONNECT = 2000; // bridge restarts are usually fast
   const PROBE_BACKOFF_FACTOR = 3;
@@ -49,47 +117,57 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   let hasLoggedMissingBridge = false;
   let hasShownBanner = false;
   /** @type {(() => void) | null} */
-  let unsubscribeFn = null;
+  let unsubscribe = null;
   /** @type {(() => void) | null} */
-  let flushEventBatch = null; // Hoisted — set during subscription, called by set-signal
-  let discoveredToken = token;
-  let discoveredPort = port;
+  let disarm = null;
+  let credential = token;
+  let wsPort = port;
 
-  // --- Quiet bridge probe (also discovers the token) ---
-  // We NEVER open a WebSocket until this HTTP probe succeeds. A failed
-  // WebSocket connection always prints an unsuppressible red error in the
-  // browser console; a failed fetch wrapped in catch() prints at most a single
-  // muted "Failed to load resource" network line — the quietest probe the
-  // platform allows.
+  let batch = [];
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let batchTimer = null;
+
+  function send(msg) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    let text;
+    try {
+      text = JSON.stringify(msg);
+    } catch (err) {
+      if (msg.type !== 'response') return;
+      text = JSON.stringify({ type: 'response', correlationId: msg.correlationId, data: { error: `Answer could not be serialized: ${err?.message || err}` } });
+    }
+    ws.send(text);
+  }
+
+  function flush() {
+    if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    while (batch.length) send({ type: 'events', batch: batch.splice(0, MAX_BATCH) });
+  }
+
+  function queue(event, data) {
+    batch.push({ event, data });
+    if (!batchTimer) batchTimer = setTimeout(flush, BATCH_MS);
+  }
+
+  // --- Quiet bridge probe ---
+  // A WebSocket is opened only after this HTTP probe succeeds: a failed socket
+  // prints an unsuppressible red console error, a failed fetch at most one
+  // muted network line.
   //
-  // Two probe modes:
-  //
-  // 1. Same-origin discovery (preferred — `discoveryUrl`, set by the Vite
-  //    plugin): the dev server proxies the bridge probe Node-side, so a
-  //    missing bridge produces ZERO console output — the dev server itself is
-  //    up, so there is no network-layer ERR_CONNECTION_REFUSED line either.
-  //
-  // 2. Direct probe of GET http://localhost:{port+1}/__what_mcp_token
-  //    (loopback-origin gated; a 200 means the bridge is up AND returns the
-  //    token + actual WS port in one round-trip). Even wrapped in catch(),
-  //    the browser's network layer logs net::ERR_CONNECTION_REFUSED for every
-  //    failed attempt — unsuppressible from JS — so this mode only runs when
-  //    a bridge is actually expected (explicit token, or the
-  //    window.__WHAT_DEVTOOLS_DEBUG__ flag). See `pollEnabled` below.
-  //
-  // Trade-off (direct mode): if the discovery HTTP port (port+1) is occupied
-  // by another process while the WS port is free, we won't connect even with
-  // an explicit token. That edge case is rarer and cheaper than spamming
-  // every fresh app (the default state: no bridge running) with red WS errors.
+  // 1. Same-origin discovery (`discoveryUrl`, set by the Vite plugin): the dev
+  //    server pairs with the bridge Node-side and hands back a credential bound
+  //    to this page's origin. A missing bridge produces no console output.
+  // 2. Direct probe (an explicit pre-shared `token`, from WHAT_MCP_TOKEN): only
+  //    checks the bridge is up; the token itself is the credential.
   async function probeBridge() {
     if (discoveryUrl) {
       try {
         const res = await fetch(discoveryUrl, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          if (!data.bridge) return false;
-          if (data.token) discoveredToken = data.token;
-          discoveredPort = data.wsPort || port;
+          if (!data.bridge || !data.credential) return false;
+          credential = data.credential;
+          wsPort = data.wsPort || port;
           return true;
         }
       } catch {
@@ -98,11 +176,10 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       return false;
     }
     try {
-      const res = await fetch(`http://localhost:${port + 1}/__what_mcp_token`, { cache: 'no-store' });
+      const res = await fetch(`http://localhost:${port + 1}/__what_mcp_probe`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        if (data.token) discoveredToken = data.token;
-        discoveredPort = data.wsPort || port;
+        wsPort = data.wsPort || port;
         return true;
       }
     } catch {
@@ -118,7 +195,6 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
     if (!bridgeUp) {
       if (!hasLoggedMissingBridge) {
         hasLoggedMissingBridge = true;
-        // Single muted line — the ONLY console-API message a fresh app sees.
         console.info(
           '%c[what]%c devtools bridge not detected — start what-devtools-mcp to enable agent debugging (retrying quietly in background)',
           DIM, DIM
@@ -141,8 +217,7 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
 
   function openSocket() {
     try {
-      const tokenParam = discoveredToken ? `?token=${encodeURIComponent(discoveredToken)}` : '';
-      ws = new WebSocket(`ws://localhost:${discoveredPort}${tokenParam}`);
+      ws = new WebSocket(`ws://localhost:${wsPort}/?token=${encodeURIComponent(credential)}&page=${encodeURIComponent(pageId)}`);
     } catch {
       scheduleProbe();
       return;
@@ -154,60 +229,32 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
       hasLoggedMissingBridge = false;
       if (!hasShownBanner) {
         hasShownBanner = true;
-        // Banner only once we KNOW the bridge exists — silent otherwise.
         console.log(
-          '%c⚡ What DevTools MCP %c Client v0.2.0',
+          '%c⚡ What DevTools MCP %c connected',
           'background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;padding:4px 10px;border-radius:4px;font-weight:bold;font-size:13px',
           'color:#a855f7;font-weight:bold'
         );
       }
       log('MCP', BADGE, '🟢 Connected to bridge — AI agent can now inspect this app');
 
-      // Send initial snapshot
       const devtools = window.__WHAT_DEVTOOLS__;
-      if (devtools) {
-        const snapshot = devtools.getSnapshot();
-        send({ type: 'snapshot', data: devtools.safeSerialize(snapshot) });
-        const s = snapshot.signals?.length || 0;
-        const e = snapshot.effects?.length || 0;
-        const c = snapshot.components?.length || 0;
-        log('MCP', BADGE, `Sent initial snapshot — ${s} signals, ${e} effects, ${c} components`);
-      }
+      const backlog = devtools?.getDiagnostics?.() || { events: [], dropped: 0 };
+      send({ type: 'hello', url: location.href, title: document.title, diagnosticsDropped: backlog.dropped || 0 });
+      if (!devtools) return;
 
-      // Subscribe to devtools events and stream them
-      // Clean up previous subscription to prevent leak on reconnect
-      if (unsubscribeFn) {
-        unsubscribeFn();
-        unsubscribeFn = null;
-      }
-      if (devtools) {
-        let eventBatch = [];
-        /** @type {ReturnType<typeof setTimeout> | null} */
-        let batchTimer = null;
+      // What happened before the bridge connected (module scope, first render,
+      // a startup effect error) would otherwise never reach the agent.
+      for (const d of backlog.events) batch.push({ event: 'diagnostic', data: serializeEvent(devtools, 'diagnostic', d) });
+      for (const e of devtools.getErrors?.() || []) batch.push({ event: 'error:captured', data: serializeEvent(devtools, 'error:captured', e) });
+      flush();
 
-        // Hoisted so set-signal can call it to flush after programmatic writes
-        const flush = function() {
-          if (eventBatch.length === 0) return;
-          if (eventBatch.length === 1) {
-            const item = eventBatch[0];
-            send({ type: 'event', event: item.event, data: item.data });
-          } else {
-            send({ type: 'events', batch: eventBatch });
-          }
-          eventBatch = [];
-          if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
-        };
-        flushEventBatch = flush;
-
-        unsubscribeFn = devtools.subscribe((event, data) => {
-          eventCount++;
-          eventBatch.push({ event, data: devtools.safeSerialize(data) });
-          if (!batchTimer) {
-            batchTimer = setTimeout(flush, 16);
-          }
-        });
-        log('MCP', BADGE, 'Subscribed to reactive events — streaming to bridge (batched)');
-      }
+      unsubscribe?.();
+      disarm?.();
+      disarm = devtools.armCauses?.();
+      unsubscribe = devtools.subscribe((event, data) => {
+        eventCount++;
+        queue(event, serializeEvent(devtools, event, data));
+      });
     };
 
     ws.onmessage = (event) => {
@@ -219,9 +266,14 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
     ws.onclose = () => {
       const wasConnected = connected;
       connected = false;
+      unsubscribe?.();
+      unsubscribe = null;
+      disarm?.();
+      disarm = null;
+      batch = [];
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
       if (wasConnected) {
         log('MCP', BADGE_WARN, '🔴 Disconnected from bridge — will reconnect quietly in background');
-        // Bridge restarts are usually quick — retry fast, then back off.
         probeDelay = PROBE_DELAY_RECONNECT;
       }
       scheduleProbe();
@@ -229,147 +281,79 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
 
     ws.onerror = () => {
       // Silence — onclose handles reconnection.
-      // Without this, every failed reconnect attempt logs a loud red error.
     };
   }
 
-  function send(msg) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
+  function settleEffects() {
+    try { window.__WHAT_CORE__?.flushSync?.(); } catch { /* effect errors are captured by devtools */ }
+  }
+
+  async function runCommand(command, args, devtools) {
+    switch (command) {
+      case 'sync':
+        return {};
+      case 'state':
+        return devtools ? devtools.getState({ budget: Number(args.budget) || 300 }) : { signals: [], effects: [], components: [] };
+      case 'why':
+        return devtools?.why?.(args) || { error: 'Causal history is unavailable. Refresh the dev page.' };
+      case 'signal': {
+        const entry = devtools?._registries?.signals?.get(args.id);
+        if (!entry) return { error: `Signal ${args.id} not found` };
+        return { id: entry.id, name: entry.name, rev: entry.rev, value: devtools.preview(entry.ref.peek(), 4000) };
+      }
+      case 'read':
+        return resolveSafeRead(args.path);
+      case 'get-cache':
+        return cacheSnapshot(window.__WHAT_CORE__ || {}, devtools);
+      case 'set-signal': {
+        const entry = devtools?._registries?.signals?.get(args.signalId);
+        if (!entry) return { error: `Signal ${args.signalId} not found` };
+        const previous = devtools.preview(entry.ref.peek(), 300);
+        if (devtools.withWriteOrigin) devtools.withWriteOrigin({ kind: 'what_set_signal' }, () => entry.ref(args.value));
+        else entry.ref(args.value);
+        settleEffects();
+        return { previous, current: devtools.preview(entry.ref.peek(), 300), rev: entry.rev };
+      }
+      case 'invalidate-cache': {
+        const result = invalidateCache(window.__WHAT_CORE__ || {}, args.key);
+        settleEffects();
+        return result;
+      }
+      default: {
+        const { handleExtendedCommand } = await import('./client-commands.js');
+        const result = await handleExtendedCommand(command, args, devtools);
+        if (ACTIONS.has(command)) settleEffects();
+        return result ?? { error: `Unknown command: ${command}` };
+      }
     }
   }
 
   async function handleCommand(msg) {
-    const { command, correlationId, args } = msg;
+    if (!isObject(msg) || typeof msg.command !== 'string' || typeof msg.correlationId !== 'string') return;
+    const { command, correlationId } = msg;
+    const args = isObject(msg.args) ? msg.args : {};
     const devtools = window.__WHAT_DEVTOOLS__;
+    flush();
+    if (ACTIONS.has(command)) send({ type: 'mark', correlationId });
     let result;
-
-    const cmdNames = {
-      'get-snapshot': '📸 Snapshot requested',
-      'get-cache': '💾 Cache query',
-      'set-signal': '✏️  Signal write',
-      'invalidate-cache': '🗑️  Cache invalidation',
-    };
-
-    const label = cmdNames[command] || `❓ ${command}`;
-
-    switch (command) {
-      case 'get-snapshot': {
-        const snapshot = devtools?.getSnapshot() || { signals: [], effects: [], components: [], errors: [] };
-        result = devtools?.safeSerialize(snapshot) || snapshot;
-        const s = snapshot.signals?.length || 0;
-        const e = snapshot.effects?.length || 0;
-        const c = snapshot.components?.length || 0;
-        logGrouped('AI →', BADGE_CMD, `${label} — returning ${s} signals, ${e} effects, ${c} components`, result);
-        break;
-      }
-      case 'get-cache': {
-        let cacheData = [];
-        try {
-          const core = window.__WHAT_CORE__ || {};
-          if (core.__getCacheSnapshot) {
-            cacheData = core.__getCacheSnapshot();
-          }
-        } catch {}
-        result = devtools?.safeSerialize(cacheData) || cacheData;
-        logGrouped('AI →', BADGE_CMD, `${label} — ${cacheData.length} entries`, result);
-        break;
-      }
-      case 'set-signal': {
-        const { signalId, value: rawValue } = args || {};
-        // Defense-in-depth: also coerce stringified-JSON here in case an
-        // older MCP server forwards the raw string. See tools.js coerceJsonValue.
-        let value = rawValue;
-        if (typeof rawValue === 'string') {
-          const t = rawValue.trim();
-          const first = t[0];
-          if (t.length > 0 && (
-            first === '{' || first === '[' ||
-            first === 't' || first === 'f' || first === 'n' ||
-            first === '-' || (first >= '0' && first <= '9')
-          )) {
-            try {
-              const parsed = JSON.parse(t);
-              if (typeof parsed !== 'string') value = parsed;
-            } catch {}
-          }
-        }
-        const registries = devtools?._registries;
-        if (registries?.signals) {
-          const entry = registries.signals.get(signalId);
-          if (entry) {
-            const prev = entry.ref.peek();
-            entry.ref(value);
-            // Flush event batch immediately so what_watch captures programmatic writes
-            if (flushEventBatch) setTimeout(flushEventBatch, 0);
-            result = { previous: devtools.safeSerialize(prev), current: devtools.safeSerialize(value) };
-            log('AI →', BADGE_CMD, `${label} — signal #${signalId} "${entry.name}": ${JSON.stringify(prev)} → ${JSON.stringify(value)}`);
-          } else {
-            result = { error: `Signal ${signalId} not found` };
-            log('AI →', BADGE_WARN, `${label} — signal #${signalId} not found`);
-          }
-        } else {
-          result = { error: 'DevTools not available' };
-          log('AI →', BADGE_WARN, `${label} — devtools not available`);
-        }
-        break;
-      }
-      case 'invalidate-cache': {
-        const { key } = args || {};
-        try {
-          const core = window.__WHAT_CORE__ || {};
-          if (core.invalidateQueries) {
-            core.invalidateQueries(key);
-            result = { success: true, key };
-            log('AI →', BADGE_CMD, `${label} — key "${key}" invalidated`);
-          } else {
-            result = { error: 'invalidateQueries not available' };
-            log('AI →', BADGE_WARN, `${label} — invalidateQueries not available`);
-          }
-        } catch (e) {
-          result = { error: e.message };
-          log('AI →', BADGE_WARN, `${label} — error: ${e.message}`);
-        }
-        break;
-      }
-      default: {
-        // Try extended command handlers
-        /** @type {Record<string, any> | null} */
-        let extResult = null;
-        try {
-          const { handleExtendedCommand, initEventTracking } = await import('./client-commands.js');
-          // Auto-initialize event tracking on first extended command so
-          // what_signal_trace always has write history (not just after what_watch)
-          initEventTracking(devtools);
-          extResult = await handleExtendedCommand(command, args, devtools);
-        } catch (importErr) {
-          // Don't silently swallow — report the real error so it's not
-          // misdiagnosed as "Unknown command"
-          extResult = { error: `Command handler failed: ${importErr.message}` };
-          log('AI →', BADGE_WARN, `Extended command "${command}" threw:`, importErr);
-        }
-
-        if (extResult !== null) {
-          result = extResult;
-          logGrouped('AI →', BADGE_CMD, `🔧 ${command}`, result);
-        } else {
-          result = { error: `Unknown command: ${command}` };
-          log('AI →', BADGE_WARN, `Unknown command: ${command}`);
-        }
-      }
+    try {
+      result = await runCommand(command, args, devtools);
+    } catch (err) {
+      result = { error: `${command} failed: ${err?.message || err}` };
     }
-
-    if (correlationId) {
-      send({ type: 'response', correlationId, data: result });
+    flush();
+    send({ type: 'response', correlationId, data: result });
+    if (command !== 'sync' && command !== 'state') {
+      log('AI →', result?.error ? BADGE_WARN : BADGE_CMD, command, result?.error ? result.error : '');
     }
   }
 
   function disconnect() {
     stopped = true;
-    if (unsubscribeFn) {
-      unsubscribeFn();
-      unsubscribeFn = null;
-    }
+    unsubscribe?.();
+    unsubscribe = null;
+    disarm?.();
+    disarm = null;
     if (probeTimer) {
       clearTimeout(probeTimer);
       probeTimer = null;
@@ -384,9 +368,6 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   }
 
   // Manual retry escape hatch — resets the back-off and probes immediately.
-  // Useful when the dev just started the bridge and doesn't want to wait
-  // out the back-off (or reload the page). Also the opt-in for clients that
-  // start dormant (see pollEnabled below).
   function reconnect() {
     if (stopped || connected) return;
     if (probeTimer) {
@@ -401,21 +382,11 @@ export function connectDevToolsMCP({ port = 9229, token = '', discoveryUrl = '' 
   }
 
   // Direct cross-origin polling logs net::ERR_CONNECTION_REFUSED from the
-  // browser's network layer on every attempt when no bridge runs — JS cannot
-  // suppress it, and a fresh scaffold (no bridge) saw that on every load.
-  // So without a same-origin discoveryUrl, only poll when a bridge is
-  // actually expected: an explicit token was provided, or the developer set
-  // window.__WHAT_DEVTOOLS_DEBUG__ = true. Otherwise stay dormant — zero
-  // network traffic, zero console output — until reconnect() opts in
-  // (window.__WHAT_MCP_RECONNECT__() from the console works too).
-  const pollEnabled = Boolean(
-    discoveryUrl
-    || token
-    || (typeof window !== 'undefined' && window.__WHAT_DEVTOOLS_DEBUG__)
-  );
-
-  // Initial attempt — quiet probe first; WebSocket only if the bridge answers.
-  if (pollEnabled) tryConnect();
+  // browser's network layer on every attempt when no bridge runs, which JS
+  // cannot suppress. So the client polls only when it can connect at all: with
+  // the Vite plugin's same-origin discovery, or with an explicit token. Without
+  // either it stays dormant (zero network traffic) until reconnect().
+  if (discoveryUrl || token) tryConnect();
 
   return {
     disconnect,

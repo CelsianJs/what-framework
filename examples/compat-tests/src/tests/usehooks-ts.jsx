@@ -12,7 +12,7 @@ function TestComponent() {
         <input
           type="text"
           value={name}
-          oninput={(e) => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value)}
           placeholder="Type a name..."
           style={{ padding: '4px 8px', background: '#222', color: '#fff', border: '1px solid #444', borderRadius: '4px', width: '100%' }}
         />

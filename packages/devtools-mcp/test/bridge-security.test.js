@@ -1,70 +1,105 @@
 /**
- * Security regression: the devtools bridge must not be drivable cross-origin.
- * Before AUDIT-2026-06-06 C6, the token endpoint set `Access-Control-Allow-Origin: *`
- * and the WS handshake checked only the token (not Origin), so any website open
- * in the same browser as `what dev` could steal the token and drive
- * set-signal/navigate/eval against the live app (confused-deputy takeover).
+ * Who may attach to the bridge (security review #11).
+ *
+ * A credential is issued only to a dev server of this project, through the
+ * Node-only pairing endpoint, and only works from the origin it was issued
+ * for. One dev-server origin is served at a time; another origin is refused
+ * and the refusal is reported. No browser can read a key or a credential.
  */
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import WebSocket from 'ws';
-import { createBridge } from '../src/bridge.js';
+import { startBridge, connectPage } from './helpers/fake-page.js';
 
-const TEST_PORT = 9521; // avoid conflicts
+let started;
+const pages = [];
+afterEach(async () => {
+  for (const p of pages.splice(0)) await p.close();
+  started?.close();
+  started = null;
+});
 
-function waitForOpen(ws) {
-  return new Promise((resolve, reject) => {
-    ws.on('open', resolve);
-    ws.on('error', reject);
+function pair(bridge, body, headers = {}) {
+  return fetch(`http://127.0.0.1:${bridge.controlPort}/__what_mcp_pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
   });
 }
 
-describe('Bridge security: cross-origin lockdown (AUDIT C6)', () => {
-  let bridge, client;
-  afterEach(async () => {
-    if (client?.readyState === WebSocket.OPEN) client.close();
-    if (bridge) bridge.close();
-    await new Promise((r) => setTimeout(r, 100));
-  });
-
-  it('rejects a WS connection from a non-loopback Origin even with a valid token', async () => {
-    bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}?token=${bridge.authToken}`, {
-      headers: { Origin: 'https://evil.com' },
-    });
-    await assert.rejects(() => waitForOpen(client));
-    await new Promise((r) => setTimeout(r, 50));
-    assert.equal(bridge.isConnected(), false, 'evil.com must not connect even with the token');
-  });
-
-  it('accepts a WS connection from a loopback Origin with a valid token', async () => {
-    bridge = createBridge({ port: TEST_PORT });
-    client = new WebSocket(`ws://127.0.0.1:${TEST_PORT}?token=${bridge.authToken}`, {
-      headers: { Origin: 'http://localhost:5173' },
-    });
-    await waitForOpen(client);
-    await new Promise((r) => setTimeout(r, 50));
-    assert.equal(bridge.isConnected(), true);
-  });
-
-  it('token discovery endpoint returns 403 for a non-loopback Origin (no token leak)', async () => {
-    bridge = createBridge({ port: TEST_PORT });
-    const res = await fetch(`http://127.0.0.1:${TEST_PORT + 1}/__what_mcp_token`, {
-      headers: { Origin: 'https://evil.com' },
-    });
-    assert.equal(res.status, 403, 'token endpoint must refuse cross-origin reads');
-    assert.notEqual(res.headers.get('access-control-allow-origin'), '*', 'must never send wildcard ACAO');
-  });
-
-  it('token discovery endpoint serves loopback origins with an echoed (non-wildcard) ACAO', async () => {
-    bridge = createBridge({ port: TEST_PORT });
-    const res = await fetch(`http://127.0.0.1:${TEST_PORT + 1}/__what_mcp_token`, {
-      headers: { Origin: 'http://localhost:5173' },
-    });
+describe('pairing', () => {
+  it('issues a credential to a dev server inside the project', async () => {
+    started = await startBridge();
+    const res = await pair(started.bridge, { key: started.bridge.pairingKey, origin: 'http://localhost:5173', root: started.projectRoot });
     assert.equal(res.status, 200);
+    const { credential, wsPort } = await res.json();
+    assert.equal(wsPort, started.port);
+    assert.notEqual(credential, started.bridge.pairingKey);
+  });
+
+  it('refuses a wrong key, a non-loopback origin and a root outside the project', async () => {
+    started = await startBridge();
+    const key = started.bridge.pairingKey;
+    assert.equal((await pair(started.bridge, { key: 'nope', origin: 'http://localhost:5173', root: started.projectRoot })).status, 401);
+    assert.equal((await pair(started.bridge, { key, origin: 'http://evil.example', root: started.projectRoot })).status, 400);
+    assert.equal((await pair(started.bridge, { key, origin: 'http://localhost:5173', root: '/' })).status, 403);
+  });
+
+  it('refuses anything a browser sends', async () => {
+    started = await startBridge();
+    const body = { key: started.bridge.pairingKey, origin: 'http://localhost:5173', root: started.projectRoot };
+    assert.equal((await pair(started.bridge, body, { Origin: 'http://localhost:5173' })).status, 403);
+    assert.equal((await pair(started.bridge, body, { 'Sec-Fetch-Site': 'same-site' })).status, 403);
+  });
+
+  it('the probe says the bridge is up and carries no secret', async () => {
+    started = await startBridge();
+    const res = await fetch(`http://127.0.0.1:${started.bridge.controlPort}/__what_mcp_probe`, { headers: { Origin: 'http://localhost:5173' } });
     assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:5173');
-    const body = await res.json();
-    assert.equal(body.token, bridge.authToken);
+    const text = await res.text();
+    assert.ok(!text.includes(started.bridge.pairingKey));
+    const evil = await fetch(`http://127.0.0.1:${started.bridge.controlPort}/__what_mcp_probe`, { headers: { Origin: 'https://evil.example' } });
+    assert.equal(evil.status, 403);
+  });
+
+  it('the old token endpoint is gone', async () => {
+    started = await startBridge();
+    const res = await fetch(`http://127.0.0.1:${started.bridge.controlPort}/__what_mcp_token`, { headers: { Origin: 'http://localhost:4000' } });
+    assert.equal(res.status, 404);
+  });
+});
+
+describe('page sockets', () => {
+  async function credentialFor(origin) {
+    const res = await pair(started.bridge, { key: started.bridge.pairingKey, origin, root: started.projectRoot });
+    return (await res.json()).credential;
+  }
+
+  it('a credential works from its own origin only', async () => {
+    started = await startBridge();
+    const credential = await credentialFor('http://localhost:5173');
+    await assert.rejects(connectPage(started.bridge, { token: credential, origin: 'http://localhost:4000' }).ready, (err) => err.status === 401);
+    const page = await connectPage(started.bridge, { token: credential, origin: 'http://localhost:5173' }).ready;
+    pages.push(page);
+    assert.equal(started.bridge.isConnected(), true);
+  });
+
+  it('refuses a non-loopback origin even with the pairing key', async () => {
+    started = await startBridge();
+    await assert.rejects(connectPage(started.bridge, { origin: 'https://evil.example' }).ready, (err) => err.status === 403);
+  });
+
+  it('a second origin is refused while the first is attached, and the refusal is reported', async () => {
+    started = await startBridge();
+    const first = await connectPage(started.bridge, { token: await credentialFor('http://localhost:5173'), origin: 'http://localhost:5173' }).ready;
+    pages.push(first);
+    const pairing = await pair(started.bridge, { key: started.bridge.pairingKey, origin: 'http://localhost:4000', root: started.projectRoot });
+    assert.equal(pairing.status, 409);
+    await assert.rejects(connectPage(started.bridge, { origin: 'http://localhost:4000' }).ready, (err) => err.status === 409);
+    assert.ok(started.bridge.refusals().some((r) => r.origin === 'http://localhost:4000' && /serving http:\/\/localhost:5173/.test(r.reason)));
+    // A second tab of the attached app is just another session.
+    const tab = await connectPage(started.bridge, { token: await credentialFor('http://localhost:5173'), origin: 'http://localhost:5173' }).ready;
+    pages.push(tab);
+    assert.deepEqual(started.bridge.listSessions().map((s) => s.id), ['s1', 's2']);
   });
 });

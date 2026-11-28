@@ -41,21 +41,30 @@ configureText({ measure: true, cacheSize: 1000 });
 > All three components are `@alpha` — APIs may change without a major version bump. `TextCanvas` and `TextSVG` have no text selection or accessibility story yet.
 
 ```jsx
+import { signal } from 'what-framework';
 import { TextFlow, TextCanvas, TextSVG } from 'what-text';
 
-// Magazine-style multi-column flow. Works WITHOUT Pretext (falls back to CSS
-// columns); the `around` shape-flow prop requires Pretext.
-<TextFlow columns={3} gap="1.5rem">{() => article()}</TextFlow>
+const article = signal('The quick brown fox jumps over the lazy dog.', 'article');
 
-// Text rendered to <canvas> via Pretext layout (requires Pretext).
-<TextCanvas width={600} height={200} font="16px Inter, sans-serif">
-  {() => content()}
-</TextCanvas>
+export function Article() {
+  return (
+    <section>
+      {/* Magazine-style multi-column flow. Works WITHOUT Pretext (falls back
+          to CSS columns); the `around` shape-flow prop requires Pretext. */}
+      <TextFlow columns={3} gap="1.5rem">{() => article()}</TextFlow>
 
-// Text rendered as SVG <text>/<tspan> lines via Pretext layout (requires Pretext).
-<TextSVG width={600} height={200} font="16px Inter, sans-serif">
-  {() => content()}
-</TextSVG>
+      {/* Text rendered to <canvas> via Pretext layout (requires Pretext). */}
+      <TextCanvas width={600} height={200} font="16px Inter, sans-serif">
+        {() => article()}
+      </TextCanvas>
+
+      {/* Text rendered as SVG <text>/<tspan> lines via Pretext layout (requires Pretext). */}
+      <TextSVG width={600} height={200} font="16px Inter, sans-serif">
+        {() => article()}
+      </TextSVG>
+    </section>
+  );
+}
 ```
 
 Children may be a plain string or a reactive function — the components re-layout when signals they read change.

@@ -55,6 +55,8 @@ The server communicates over stdio using the MCP protocol.
 
 ## Available Tools
 
+The topic documentation described the 0.12 API and has been removed: every topic tool, and `what_search`, now answers with the `what-devtools-mcp` resource (`what://docs/*`) that covers the topic. `what_overview` still answers directly.
+
 | Tool | Description |
 |---|---|
 | `what_overview` | Framework overview and key features |

@@ -197,15 +197,15 @@ describe('compiled JSX: user components that forward children', () => {
 
   it('rewrites only a children binding that is never inspected', () => {
     const forwarded = compileJSX('function W({ children }) { return <Panel>{children}</Panel>; }');
-    assert.match(forwarded, /_props\.children/, 'a pure forward moves to a lazy read');
+    assert.match(forwarded, /_\$place\(_props, "children"\)/, 'a pure forward moves to a lazy read');
 
     const inspected = compileJSX('function W({ children }) { return <Panel>{children.length}{children}</Panel>; }');
-    assert.doesNotMatch(inspected, /_props\.children/, 'an inspected binding keeps its destructuring');
+    assert.doesNotMatch(inspected, /_\$place\(_props, "children"\)/, 'an inspected binding keeps its destructuring');
   });
 
   it('does not rewrite a duplicate children key', () => {
     const out = compileJSX('function W({ children, children: k2, fallback }) { return <Panel a={fallback}>{k2}</Panel>; }');
-    assert.doesNotMatch(out, /_props\.children/, 'the other key would still read the getter');
+    assert.doesNotMatch(out, /_\$place\(_props, "children"\)/, 'the other key would still read the getter');
   });
 
   // The rewrite moves the props destructuring out of the parameter list, which
@@ -216,10 +216,11 @@ describe('compiled JSX: user components that forward children', () => {
       '  return <div class={cls()} data-x={on()}><h3>{title}</h3><Panel>{children}</Panel></div>;\n' +
       '}'
     );
-    assert.match(out, /_props\.children/, 'the rewrite must have fired for this to prove anything');
-    assert.match(out, /_\$effect\(\(\) => _\$setClass\(/, 'a sibling attribute keeps its effect');
+    assert.match(out, /_\$place\(_props, "children"\)/, 'the rewrite must have fired for this to prove anything');
+    assert.match(out, /_\$effect\(\(\) => _\$className\(/, 'a sibling attribute keeps its effect');
     assert.match(out, /_\$effect\(\(\) => _\$setAttr\(/, 'a sibling attribute keeps its effect');
-    assert.match(out, /_\$insert\(_el\$\d+, \(\) => title/, 'a sibling expression child keeps its thunk');
+    // `title` is only placed too, so it is read where it is placed.
+    assert.match(out, /_\$insert\(_el\$\d+, _\$place\(_props, "title"\)/, 'a placed sibling is a placing read');
   });
 
   // Every expression shape the classifier knows about, in a component the
@@ -228,8 +229,11 @@ describe('compiled JSX: user components that forward children', () => {
     it(`keeps the thunk on {${expr}} through the rewrite`, () => {
       const forwarded = compileJSX(`function Card({ name, children }) { return <div>{${expr}}<Panel>{children}</Panel></div>; }`);
       const control = compileJSX(`function Card({ name }) { return <div>{${expr}}</div>; }`);
-      assert.match(forwarded, /_props\.children/, 'the rewrite must have fired');
-      const inserted = (out) => out.match(/_\$insert\(_el\$0, ([\s\S]*?), _el\$/)[1];
+      assert.match(forwarded, /_\$place\(_props, "children"\)/, 'the rewrite must have fired');
+      // The value argument, whether or not a marker follows it (a sole child
+      // takes none). An expression that only reads (`name.label`) is placed
+      // by _$plain, any other by _$insert.
+      const inserted = (out) => out.match(/(_\$(?:insert|plain))\(_el\$0, ([\s\S]*?)(?:, (?:_el\$[\w.$]*|null))?\);/).slice(1).join(' ');
       assert.equal(inserted(forwarded), inserted(control), 'the moved props must classify as they did');
     });
   }

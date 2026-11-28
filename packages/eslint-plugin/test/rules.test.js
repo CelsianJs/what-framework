@@ -52,90 +52,36 @@ function varDecl(name, init) {
 // --- Tests ---
 
 describe('eslint-plugin-what', () => {
-  describe('no-signal-in-effect-deps', async () => {
-    const { default: rule } = await import('../src/rules/no-signal-in-effect-deps.js');
-
-    it('warns when signal is used in useEffect deps', () => {
-      const reports = [];
-      const ctx = createFakeContext(reports);
-      const visitors = rule.create(ctx);
-
-      // Register signal variable
-      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
-
-      // Call useEffect with signal in deps
-      const countId = id('count');
-      visitors.CallExpression({
-        type: 'CallExpression',
-        callee: id('useEffect'),
-        arguments: [
-          { type: 'ArrowFunctionExpression' },
-          {
-            type: 'ArrayExpression',
-            elements: [countId],
-          },
-        ],
-      });
-
-      assert.strictEqual(reports.length, 1);
-      assert.strictEqual(reports[0].messageId, 'signalInDeps');
-      assert.strictEqual(reports[0].data.name, 'count');
-    });
-
-    it('allows non-signal variables in deps', () => {
-      const reports = [];
-      const ctx = createFakeContext(reports);
-      const visitors = rule.create(ctx);
-
-      visitors.CallExpression({
-        type: 'CallExpression',
-        callee: id('useEffect'),
-        arguments: [
-          { type: 'ArrowFunctionExpression' },
-          {
-            type: 'ArrayExpression',
-            elements: [id('someValue')],
-          },
-        ],
-      });
-
-      assert.strictEqual(reports.length, 0);
-    });
-  });
-
   describe('no-signal-write-in-render', async () => {
-    const { default: rule } = await import('../src/rules/no-signal-write-in-render.js');
+    const { Linter } = await import('eslint');
+    const { default: plugin } = await import('../src/index.js');
+    const lint = (code) => new Linter().verify(code, [{
+      files: ['**/*.jsx'],
+      languageOptions: { ecmaVersion: 'latest', sourceType: 'module', parserOptions: { ecmaFeatures: { jsx: true } } },
+      plugins: { what: plugin },
+      rules: { 'what/no-signal-write-in-render': 'warn' },
+    }], { filename: 'component.jsx' });
 
     it('warns on signal writes in render body', () => {
-      const reports = [];
-      const ctx = createFakeContext(reports);
-      const visitors = rule.create(ctx);
-
-      visitors.VariableDeclarator(varDecl('count', callExpr('signal', [{ type: 'Literal', value: 0 }])));
-
-      // Direct write in render: count(5)
-      const writeCall = callExpr('count', [{ type: 'Literal', value: 5 }]);
-      // Simulate render context (no safe parent)
-      writeCall.parent = { type: 'ExpressionStatement', parent: { type: 'BlockStatement', parent: { type: 'FunctionDeclaration', parent: null } } };
-
-      visitors.CallExpression(writeCall);
-
+      const reports = lint('function App() { const count = signal(0); count(5); return <p>{count()}</p>; }');
       assert.strictEqual(reports.length, 1);
       assert.strictEqual(reports[0].messageId, 'signalWriteInRender');
     });
 
     it('allows signal reads (0 args)', () => {
-      const reports = [];
-      const ctx = createFakeContext(reports);
-      const visitors = rule.create(ctx);
+      assert.strictEqual(lint('function App() { const count = signal(0); return <p>{count()}</p>; }').length, 0);
+    });
 
-      visitors.VariableDeclarator(varDecl('count', callExpr('signal', [{ type: 'Literal', value: 0 }])));
+    it('warns on a write in a JSX function child or a host attribute function: they run when the component renders', () => {
+      const region = lint('function App() { const tab = signal(0); return <div>{() => { tab(0); return <p />; }}</div>; }');
+      assert.strictEqual(region.length, 1);
+      const attr = lint('function App() { const tab = signal(0); return <div class={() => (tab(1), "x")} />; }');
+      assert.strictEqual(attr.length, 1);
+    });
 
-      // Read: count()
-      const readCall = callExpr('count', []);
-      visitors.CallExpression(readCall);
-
-      assert.strictEqual(reports.length, 0);
+    it('allows writes in event handlers, refs and functions handed to components', () => {
+      const code = 'function App() { const tab = signal(0); return <div onClick={() => tab(1)} ref={(el) => tab(2)}><List render={() => tab(3)} /></div>; }';
+      assert.strictEqual(lint(code).length, 0);
     });
   });
 
@@ -177,6 +123,26 @@ describe('eslint-plugin-what', () => {
 
       // Should return empty object
       assert.deepStrictEqual(visitors, {});
+    });
+
+    it('leaves a React file alone (one that imports from react, react-dom, preact or what-react)', async () => {
+      const { Linter } = await import('eslint');
+      const { default: plugin } = await import('../src/index.js');
+      const body = 'export function A() { return <button onClick={() => {}} onChange={() => {}}>x</button>; }\n';
+      const lint = (head) => new Linter()
+        .verify(head + body, [{ ...plugin.configs.recommended, rules: { 'what/no-camelcase-events': 'warn' } }], { filename: 'a.jsx' })
+        .filter((m) => m.ruleId === 'what/no-camelcase-events' || m.fatal);
+      for (const head of [
+        "import { useState } from 'react';\n",
+        "import { createRoot } from 'react-dom/client';\n",
+        "import { useState } from 'preact/hooks';\n",
+        "import { useState } from 'what-react';\n",
+        "export { useState } from 'react';\n",
+      ]) {
+        assert.deepStrictEqual(lint(head), [], head);
+      }
+      assert.strictEqual(lint("import { signal } from 'what-framework';\n").length, 2, 'a What file still is reported');
+      assert.strictEqual(lint("import { thing } from 'react-thing';\n").length, 2, 'a package named like React is not React');
     });
   });
 
@@ -274,17 +240,29 @@ describe('eslint-plugin-what', () => {
   describe('no-uncalled-signals', async () => {
     const { default: rule } = await import('../src/rules/no-uncalled-signals.js');
 
-    it('warns on bare signal reference in JSX expression', () => {
+    it('allows a signal that is the whole JSX child: {count} is a live binding', () => {
       const reports = [];
       const ctx = createFakeContext(reports);
       const visitors = rule.create(ctx);
 
-      // Register signal
       visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
 
-      // Bare reference: {count} in JSX
       const countId = id('count');
-      countId.parent = { type: 'JSXExpressionContainer', parent: { type: 'JSXElement' } };
+      countId.parent = { type: 'JSXExpressionContainer', expression: countId, parent: { type: 'JSXElement' } };
+      visitors.Identifier(countId);
+
+      assert.strictEqual(reports.length, 0);
+    });
+
+    it('warns on a signal coerced in a template literal', () => {
+      const reports = [];
+      const ctx = createFakeContext(reports);
+      const visitors = rule.create(ctx);
+
+      visitors.VariableDeclarator(varDecl('count', callExpr('useSignal', [{ type: 'Literal', value: 0 }])));
+
+      const countId = id('count');
+      countId.parent = { type: 'TemplateLiteral', expressions: [countId] };
       visitors.Identifier(countId);
 
       assert.strictEqual(reports.length, 1);
@@ -372,7 +350,7 @@ describe('eslint-plugin-what', () => {
         init: callExpr('useSWR', [{ type: 'Literal', value: 'key' }]),
       });
 
-      // swr.data without () — should warn
+      // swr.data without () in a condition — should warn (always truthy)
       const swrId = id('swr');
       const dataId = id('data');
       const memberExpr = {
@@ -380,8 +358,8 @@ describe('eslint-plugin-what', () => {
         object: swrId,
         property: dataId,
         computed: false,
-        parent: { type: 'JSXExpressionContainer', parent: { type: 'JSXElement' } },
       };
+      memberExpr.parent = { type: 'LogicalExpression', operator: '&&', left: memberExpr };
       swrId.parent = memberExpr;
       dataId.parent = memberExpr;
 
@@ -478,5 +456,42 @@ describe('eslint-plugin-what', () => {
 
       assert.strictEqual(reports.length, 0);
     });
+  });
+});
+
+describe('no-uncalled-signals through the real Linter', async () => {
+  const { Linter } = await import('eslint');
+  const { default: plugin } = await import('../src/index.js');
+  const lint = (code) => new Linter()
+    .verify(code, [plugin.configs.compiler], { filename: 'app.jsx' })
+    .filter((m) => m.ruleId === 'what/no-uncalled-signals');
+
+  it('does not report a name where it is declared, destructured or exported', () => {
+    const messages = lint([
+      "import { useState, useReducer, signal, mount } from 'what-framework';",
+      'const items = signal([]);',
+      'function App() {',
+      '  const [count, setCount] = useState(0);',
+      '  const [state, dispatch] = useReducer((s) => s, { n: 0 });',
+      '  return <button onClick={() => setCount((c) => c + 1)} title={count}>{count}{() => state().n}</button>;',
+      '}',
+      'export { App, items };',
+      "mount(<App />, '#app');",
+    ].join('\n'));
+    assert.deepEqual(messages, []);
+  });
+
+  it('reports a hook accessor coerced to a value', () => {
+    const messages = lint([
+      "import { useState } from 'what-framework';",
+      'function App() {',
+      '  const [count] = useState(0);',
+      '  return <p>{`Count: ${count}`}{count + 1}</p>;',
+      '}',
+    ].join('\n'));
+    assert.deepEqual(messages.map((m) => m.message), [
+      '"count" is a signal — call it to read the value: count()',
+      '"count" is a signal — call it to read the value: count()',
+    ]);
   });
 });

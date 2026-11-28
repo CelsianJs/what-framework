@@ -16,7 +16,8 @@
 //   'media'   - Hydrate when media query matches (e.g., mobile-only)
 //   'action'  - Hydrate on first user interaction (click, focus, hover)
 
-import { mount, hydrate, signal, batch, getServerContext } from 'what-core';
+import { h, mount, hydrate, signal, batch } from 'what-core';
+import { getServerContext, _currentOwnerPath, _currentRowPath, _formMember, _renderSalt, __readHydrationData, isVNode, _thrownMessage, __DEV__ } from 'what-core/internal';
 import { serializeState } from './serialize.js';
 
 const islandRegistry = new Map();
@@ -27,8 +28,13 @@ let isProcessingQueue = false;
 // --- Shared Island State ---
 // Browser stores intentionally persist across islands and client navigations.
 // Server stores belong to the active render context so one request can never
-// observe another request's state. Module-scoped server declarations receive a
-// lightweight handle that resolves to the current request's concrete store.
+// observe another request's state. Which one a call gets is decided by the
+// render scope, never by whether a `document` exists: under a DOM shim (jsdom,
+// happy-dom) a server render sees one, and deciding by it put every request's
+// stores in the one process-global browser map. A store obtained outside a
+// render (a module-scope declaration) is a handle that resolves on every
+// access: to the current request's store during a render, to the browser's
+// outside one.
 
 const browserStores = new Map();
 const serverStoreDefinitions = new Map();
@@ -102,7 +108,15 @@ function activeServerStoreMap(context) {
   return ctx && ctx.islandStores instanceof Map ? ctx.islandStores : null;
 }
 
-function serverStoreHandle(name, initialState) {
+// The map a store access resolves against right now: the render's during a
+// server render, the browser's on a page, none on a server outside a render.
+function currentStoreMap(context) {
+  const storeMap = activeServerStoreMap(context);
+  if (storeMap) return storeMap;
+  return typeof document === 'undefined' || getServerContext() ? null : browserStores;
+}
+
+function storeHandle(name, initialState) {
   if (serverStoreDefinitions.has(name)) {
     return serverStoreDefinitions.get(name).handle;
   }
@@ -113,14 +127,13 @@ function serverStoreHandle(name, initialState) {
   };
 
   const resolve = () => {
-    const storeMap = activeServerStoreMap();
+    const storeMap = currentStoreMap();
     if (!storeMap) {
       // ERROR_CODES.ISLAND_STORE_OUTSIDE_RENDER
+      const text = `Island store "${name}" was accessed outside an active server render. ` +
+        'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.';
       throw Object.assign(
-        new Error(
-          `[what-server] Island store "${name}" was accessed outside an active server render. ` +
-          'Read or write module-scoped island stores from a component rendered by renderDocument/renderPage.'
-        ),
+        new Error(__DEV__ ? _thrownMessage('ERR_ISLAND_STORE_OUTSIDE_RENDER', text) : `[what-server] ${text}`),
         { code: 'ERR_ISLAND_STORE_OUTSIDE_RENDER' },
       );
     }
@@ -151,38 +164,23 @@ function serverStoreHandle(name, initialState) {
 }
 
 export function createIslandStore(name, initialState) {
-  if (typeof document !== 'undefined') {
-    return createConcreteStore(browserStores, name, initialState);
-  }
-
   const storeMap = activeServerStoreMap();
   if (storeMap) {
     const definition = serverStoreDefinitions.get(name);
     return createConcreteStore(storeMap, name, definition?.initialState ?? initialState);
   }
-
-  return serverStoreHandle(name, initialState);
+  return storeHandle(name, initialState);
 }
 
 // Get or create a shared store
 export function useIslandStore(name, fallbackInitial = {}) {
-  if (typeof document !== 'undefined') {
-    return createConcreteStore(browserStores, name, fallbackInitial);
-  }
-
-  const storeMap = activeServerStoreMap();
-  if (storeMap) {
-    const definition = serverStoreDefinitions.get(name);
-    return createConcreteStore(storeMap, name, definition?.initialState ?? fallbackInitial);
-  }
-
-  return serverStoreHandle(name, fallbackInitial);
+  return createIslandStore(name, fallbackInitial);
 }
 
 // Serialize all shared stores for SSR.
 // Uses serializeState (not bare JSON.stringify) so user-controlled store values
 // containing "</script>" cannot break out of the <script> tag this is embedded
-// in. (AUDIT-2026-06-06 H3)
+// in.
 export function serializeIslandStores() {
   return serializeState(getIslandStoresSnapshot());
 }
@@ -190,9 +188,7 @@ export function serializeIslandStores() {
 // Raw (unserialized) snapshot of all shared island stores, so renderDocument can
 // merge it into the single consolidated #__what_data payload (one serialize pass).
 export function getIslandStoresSnapshot(context) {
-  const storeMap = typeof document !== 'undefined'
-    ? browserStores
-    : activeServerStoreMap(context);
+  const storeMap = currentStoreMap(context);
   const data = {};
   for (const [name, store] of storeMap || []) {
     data[name] = store._getSnapshot();
@@ -225,29 +221,96 @@ export function island(name, loader, opts = {}) {
   });
 }
 
+// --- Island props ---
+// Props cross to the client as JSON, and a vnode carries no brand through
+// JSON (what-core's isVNode), so an element passed as a prop
+// (`props: { icon: h('svg', ...) }`) would arrive as a plain object and render
+// as text. The server records where it wrote one: data-island-vnodes lists the
+// paths of the props that were vnodes, and the client turns exactly those
+// back into vnodes with h(). Nothing is revived by its shape, so an object a
+// prop got from data, whatever it looks like, stays data. A component vnode
+// has no JSON form and is left out, as a function prop is.
+
+function encodeIslandValue(value, path, vnodes) {
+  if (Array.isArray(value)) return value.map((item, i) => encodeIslandValue(item, [...path, i], vnodes));
+  if (isVNode(value)) {
+    if (typeof value.tag !== 'string') return undefined;
+    vnodes.push(path);
+    return {
+      tag: value.tag,
+      props: encodeIslandValue(value.props || {}, [...path, 'props'], vnodes),
+      children: encodeIslandValue(value.children || [], [...path, 'children'], vnodes),
+    };
+  }
+  if (value === null || typeof value !== 'object' || typeof value.toJSON === 'function') return value;
+  const out = {};
+  for (const key of Object.keys(value)) out[key] = encodeIslandValue(value[key], [...path, key], vnodes);
+  return out;
+}
+
+/** Island props as JSON, and the paths in it that the client revives as vnodes. */
+function serializeIslandProps(props) {
+  const vnodes = [];
+  const json = JSON.stringify(encodeIslandValue(props, [], vnodes));
+  return { json, vnodes };
+}
+
+/**
+ * The props an island was rendered with: `json` parsed, and the value at each
+ * path in `vnodePaths` (deepest first) made a vnode again. A path that does
+ * not lead to an element description is left as it is.
+ */
+function reviveIslandProps(json, vnodePaths) {
+  const props = JSON.parse(json || '{}');
+  const paths = vnodePaths ? JSON.parse(vnodePaths) : [];
+  if (!Array.isArray(paths)) return props;
+  for (let i = paths.length - 1; i >= 0; i--) {
+    const path = paths[i];
+    if (!Array.isArray(path) || path.length === 0) continue;
+    let holder = props;
+    for (let j = 0; j < path.length - 1 && holder != null; j++) holder = holder[path[j]];
+    const key = path[path.length - 1];
+    if (holder == null || typeof holder !== 'object' || !Object.hasOwn(holder, key)) continue;
+    const element = holder[key];
+    if (element === null || typeof element !== 'object' || typeof element.tag !== 'string') continue;
+    const children = Array.isArray(element.children) ? element.children : [];
+    holder[key] = h(element.tag, element.props && typeof element.props === 'object' ? element.props : null, ...children);
+  }
+  return props;
+}
+
 // --- Island wrapper for SSR ---
-// Renders the static HTML with a marker the client can find.
+// Renders the static HTML with a marker the client can find. Rendered as a
+// component, it also writes its own owner path as data-what-owner: the island
+// component it wraps is its first child there, and the client, hydrating that
+// component into this element, numbers it from the same path, so the island's
+// keyless resources adopt their server values (what-core hydration-data.js).
+// Inside a keyed row it writes its place among the keyed rows as
+// data-what-row (digests, no key), so the island's useActionState keys are
+// the server's too.
 
 export function Island({ name, props = {}, children, mode, priority, stores }) {
   const entry = islandRegistry.get(name);
   const resolvedMode = mode || entry?.mode || 'idle';
   const resolvedPriority = priority ?? entry?.priority ?? 0;
   const resolvedStores = stores || entry?.stores || [];
+  const ownerPath = getServerContext() ? _currentOwnerPath() : undefined;
+  const rowPath = ownerPath !== undefined ? _currentRowPath(_renderSalt()) : null;
 
   // Server: render as a div with data attributes for hydration
-  return {
-    tag: 'div',
-    props: {
-      'data-island': name,
-      'data-island-mode': resolvedMode,
-      'data-island-props': JSON.stringify(props),
-      'data-island-priority': resolvedPriority,
-      'data-island-stores': JSON.stringify(resolvedStores),
-    },
-    children: children || [],
-    key: null,
-    _vnode: true,
+  const { json, vnodes } = serializeIslandProps(props);
+  /** @type {Record<string, any>} */
+  const markerProps = {
+    'data-island': name,
+    'data-island-mode': resolvedMode,
+    'data-island-props': json,
+    'data-island-priority': resolvedPriority,
+    'data-island-stores': JSON.stringify(resolvedStores),
   };
+  if (vnodes.length > 0) markerProps['data-island-vnodes'] = JSON.stringify(vnodes);
+  if (ownerPath !== undefined) markerProps['data-what-owner'] = ownerPath;
+  if (rowPath !== null) markerProps['data-what-row'] = rowPath;
+  return h('div', markerProps, children);
 }
 
 // --- Priority Hydration Queue ---
@@ -285,32 +348,29 @@ function processQueue() {
     });
 }
 
-// Boost priority for an island (e.g., on user interaction)
+// Boost priority for an island (e.g., on user interaction): every waiting
+// instance of it, and never below the priority it already has (a load
+// island waits at its priority + 1000).
 export function boostIslandPriority(name, newPriority = 100) {
+  let changed = false;
   for (const task of hydrationQueue) {
-    if (task.name === name) {
+    if (task.name === name && task.priority < newPriority) {
       task.priority = newPriority;
-      // Re-sort queue
-      hydrationQueue.sort((a, b) => b.priority - a.priority);
-      break;
+      changed = true;
     }
   }
+  if (changed) hydrationQueue.sort((a, b) => b.priority - a.priority);
 }
 
 // --- Client-side hydration ---
 
-export function hydrateIslands() {
-  // First, hydrate any shared stores from the page. renderDocument emits them
-  // inside the consolidated #__what_data payload.
-  const dataScript = document.getElementById('__what_data');
-  if (dataScript) {
-    try {
-      const payload = JSON.parse(dataScript.textContent || '{}');
-      if (payload && payload.islandStores) hydrateIslandStores(payload.islandStores);
-    } catch (e) {
-      console.warn('[what] Failed to parse hydration payload:', e);
-    }
-  }
+// `options.onHydrationError` receives the mismatches of every island it
+// hydrates, as hydrate()'s own option does, whenever each one hydrates.
+export function hydrateIslands(options) {
+  // First, hydrate any shared stores from the page's hydration data (the
+  // #__what_data payload, plus any streamed data elements).
+  const payload = __readHydrationData();
+  if (payload && payload.islandStores) hydrateIslandStores(payload.islandStores);
 
   const islands = document.querySelectorAll('[data-island]');
 
@@ -322,7 +382,7 @@ export function hydrateIslands() {
 
     const name = el.dataset.island;
     const mode = el.dataset.islandMode || 'idle';
-    const props = JSON.parse(el.dataset.islandProps || '{}');
+    const props = reviveIslandProps(el.dataset.islandProps, el.dataset.islandVnodes);
     const priority = parseInt(el.dataset.islandPriority || '0', 10);
     const stores = JSON.parse(el.dataset.islandStores || '[]');
     const entry = islandRegistry.get(name);
@@ -335,11 +395,11 @@ export function hydrateIslands() {
     // Skip if already hydrated
     if (hydratedIslands.has(el)) continue;
 
-    scheduleHydration(el, entry, props, mode, priority, name, stores);
+    scheduleHydration(el, entry, props, mode, priority, name, stores, options);
   }
 }
 
-function scheduleHydration(el, entry, props, mode, priority, name, stores) {
+function scheduleHydration(el, entry, props, mode, priority, name, stores, options) {
   const hydrateIsland = async () => {
     if (hydratedIslands.has(el)) return;
     hydratedIslands.add(el);
@@ -353,10 +413,12 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
       storeProps[storeName] = useIslandStore(storeName);
     }
 
-    // Use hydrate() to reuse server-rendered DOM instead of destroying/recreating
-    const vnode = Component({ ...props, ...storeProps });
+    // Use hydrate() to reuse server-rendered DOM instead of destroying/recreating.
+    // As a component vnode, so it runs in a component context (its hooks work)
+    // and is numbered from the island's owner path.
+    const vnode = h(Component, { ...props, ...storeProps });
     if (el.childNodes.length > 0) {
-      hydrate(vnode, el);
+      hydrate(vnode, el, options);
     } else {
       mount(vnode, el);
     }
@@ -365,8 +427,11 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
     el.removeAttribute('data-island');
     el.removeAttribute('data-island-mode');
     el.removeAttribute('data-island-props');
+    el.removeAttribute('data-island-vnodes');
     el.removeAttribute('data-island-priority');
     el.removeAttribute('data-island-stores');
+    el.removeAttribute('data-what-owner');
+    el.removeAttribute('data-what-row');
 
     // Dispatch event for analytics/debugging
     el.dispatchEvent(new CustomEvent('island:hydrated', {
@@ -444,7 +509,7 @@ function scheduleHydration(el, entry, props, mode, priority, name, stores) {
 // --- Auto-discover islands from data attributes ---
 // Call this once on the client to set up all islands.
 
-export function autoIslands(registry) {
+export function autoIslands(registry, options) {
   for (const [name, config] of Object.entries(registry)) {
     island(name, config.loader || config, {
       mode: config.mode || 'idle',
@@ -456,9 +521,9 @@ export function autoIslands(registry) {
 
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', hydrateIslands);
+      document.addEventListener('DOMContentLoaded', () => hydrateIslands(options));
     } else {
-      hydrateIslands();
+      hydrateIslands(options);
     }
   }
 }
@@ -471,8 +536,10 @@ export function enhance(selector, handler) {
 
   const elements = document.querySelectorAll(selector);
   for (const el of elements) {
-    if (el.dataset.enhanced) continue;
-    el.dataset.enhanced = 'true';
+    // A form's own dataset: a field named "dataset" stands in for it.
+    const data = _formMember(el, 'dataset');
+    if (data.enhanced) continue;
+    data.enhanced = 'true';
     handler(el);
   }
 }
@@ -492,7 +559,7 @@ function readFormCsrfToken(form) {
     || document.querySelector('meta[name="what-csrf-token"]');
   if (meta) return meta.getAttribute('content');
 
-  const field = form.querySelector('input[name="what-csrf-token"], input[name="_csrf"]');
+  const field = /** @type {HTMLInputElement | null} */ (_formMember(form, 'querySelector')('input[name="what-csrf-token"], input[name="_csrf"]'));
   if (field && field.value) return field.value;
 
   const cookie = document.cookie.match(/(?:^|;\s*)what-csrf=([^;]+)/);
@@ -549,15 +616,11 @@ function formEntries(form, submitter, multipart) {
 /**
  * Form enhancement: submit via fetch instead of a full page load.
  *
- * The encoding is not a detail. `/__what_action` parses
- * application/x-www-form-urlencoded or JSON, never multipart, so an enhanced
- * submit of a default form has to use the same encoding as the plain HTML submit
- * it replaces. Posting a FormData object unconditionally produced a multipart
- * body the endpoint could not parse: the action id went missing and every
- * enhanced `<Form>` failed with 400 while the no-JS path kept working.
- *
- * The encoding now follows the form's own `enctype`, exactly as the browser
- * would, so a form that declares multipart still uploads its files.
+ * The encoding is not a detail: an enhanced submit has to send what the plain
+ * HTML submit it replaces sends, so it follows the form's own `enctype`,
+ * exactly as the browser would. A default form posts urlencoded, a file only
+ * by its name; a form that declares multipart/form-data uploads its files,
+ * which `/__what_action` and a page post read as the plain submit's.
  *
  * On success the action endpoint answers 303 to the form's `_redirect` target,
  * which fetch follows. The page is then navigated there so the enhanced path
@@ -566,19 +629,19 @@ function formEntries(form, submitter, multipart) {
  */
 export function enhanceForms(selector = 'form[data-enhance]') {
   enhance(selector, (form) => {
-    form.addEventListener('submit', async (event) => {
+    _formMember(form, 'addEventListener')('submit', async (event) => {
       event.preventDefault();
 
       try {
-        // getAttribute, never the properties. HTMLFormElement is
-        // [LegacyOverrideBuiltIns]: a field named "method" or "action" SHADOWS
-        // form.method / form.action with the input element itself. Reading
-        // `form.method.toUpperCase()` then threw a TypeError after
-        // preventDefault() had already run, so the submit produced no fetch, no
-        // form:error, and no native fallback. It just did nothing.
+        // The attributes, never the properties, and every member of the form
+        // read through _formMember: HTMLFormElement is [LegacyOverrideBuiltIns],
+        // so a field named "method", "action" or "getAttribute" stands in for
+        // that member. Reading `form.method.toUpperCase()` threw a TypeError
+        // after preventDefault() had already run, so the submit produced no
+        // fetch, no form:error, and no native fallback. It just did nothing.
         const submitter = event.submitter || null;
         const attr = (name) => (submitter && submitter.getAttribute(`form${name}`))
-          || form.getAttribute(name);
+          || _formMember(form, 'getAttribute')(name);
 
         const method = (attr('method') || 'get').toUpperCase();
         const action = new URL(attr('action') || location.href, location.href);
@@ -587,28 +650,15 @@ export function enhanceForms(selector = 'form[data-enhance]') {
 
         const entries = formEntries(form, submitter, multipart);
 
-        // CSRF is about protecting OUR endpoint. A form aimed at another origin
-        // must neither be blocked by our token policy nor be handed our token:
-        // attaching it would export the visitor's double-submit secret to a
-        // third party.
-        const sameOrigin = action.origin === location.origin;
+        // CSRF is about protecting OUR endpoint, which accepts a post the
+        // browser marks same-origin (Fetch Metadata, or an Origin header), as
+        // it accepts the native submit of a form on a cached page: a token is
+        // sent when the page has one, and the endpoint decides. A form aimed
+        // at another origin is never handed our token: attaching it would
+        // export the visitor's double-submit secret to a third party.
         const headers = { 'X-Requested-With': 'XMLHttpRequest' };
-
-        if (sameOrigin) {
+        if (action.origin === location.origin) {
           const csrfToken = readFormCsrfToken(form);
-          const noCsrf = form.getAttribute('data-no-csrf') === 'true';
-          if (!csrfToken && !noCsrf) {
-            console.warn(
-              '[what] Form submission blocked: no CSRF token found. ' +
-              'Add a <meta name="what-csrf-token"> tag (csrfMetaTag() emits it) ' +
-              'or set data-no-csrf="true" on the form to opt out.'
-            );
-            form.dispatchEvent(new CustomEvent('form:error', {
-              bubbles: true,
-              detail: { error: new Error('Missing CSRF token') },
-            }));
-            return;
-          }
           if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
         }
 
@@ -638,7 +688,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
           cancelable: true,
           detail: { response, ok: response.ok, redirected: response.redirected },
         });
-        const proceed = form.dispatchEvent(responseEvent);
+        const proceed = _formMember(form, 'dispatchEvent')(responseEvent);
 
         // Same-origin only. A native submit would follow an off-site redirect,
         // but a framework default that can navigate the page to another origin
@@ -654,7 +704,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
           if (target) location.assign(target);
         }
       } catch (error) {
-        form.dispatchEvent(new CustomEvent('form:error', {
+        _formMember(form, 'dispatchEvent')(new CustomEvent('form:error', {
           bubbles: true,
           detail: { error },
         }));
@@ -666,9 +716,7 @@ export function enhanceForms(selector = 'form[data-enhance]') {
 // --- Debugging ---
 
 export function getIslandStatus() {
-  const stores = typeof document !== 'undefined'
-    ? [...browserStores.keys()]
-    : [...(activeServerStoreMap()?.keys() || serverStoreDefinitions.keys())];
+  const stores = [...(currentStoreMap()?.keys() || serverStoreDefinitions.keys())];
   const status = {
     registered: [...islandRegistry.keys()],
     hydrated: hydratedIslands.size,

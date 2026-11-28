@@ -1,13 +1,7 @@
 /**
- * Extended command handlers for the browser client.
- * Handles: eval, dom-inspect, get-route, navigate, get-app-info, visual-inspect, page-map, get-signal-writers, component-screenshot
- *
- * Usage in client.js:
- *   import { handleExtendedCommand } from './client-commands.js';
- *
- *   // Inside handleCommand(), before the default case:
- *   const extResult = await handleExtendedCommand(command, args, devtools);
- *   if (extResult !== null) { result = extResult; break; }
+ * Command handlers the browser client loads on first use: eval, dom-inspect,
+ * route, navigate, app-info, visual-inspect, page-map, component-screenshot.
+ * Every handler returns a JSON-safe, bounded answer or `{ error }`.
  */
 
 // ---------------------------------------------------------------------------
@@ -43,77 +37,56 @@ function getComponentElement(entry) {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level ring buffer for correlating signal writes with effect runs.
-// Auto-initialized when initEventTracking() is called (early, not lazy).
+// Route state. what-router names its state signals 'what-router:*' in
+// development; reading them through the devtools registry gives the router's
+// own view (which can lag the address bar while a guard runs) without a global.
 // ---------------------------------------------------------------------------
 
-const MAX_WRITE_LOG = 200;
-let _signalWriteLog = [];       // { signalId, signalName, previousValue, newValue, timestamp, writerEffect }
-/** @type {{ id: any, name: any, timestamp: number } | null} */
-let _lastRunningEffect = null;  // { id, name, timestamp } — most recent effect:run event
-let _trackingInitialized = false;
-let _unsubTracker = null;
-
-/**
- * Initialize event tracking early so signal writes are always captured.
- * Called from client.js on connection, not lazily on first tool call.
- */
-export function initEventTracking(devtools) {
-  if (_trackingInitialized || !devtools?.subscribe) return;
-  _trackingInitialized = true;
-
-  _unsubTracker = devtools.subscribe((event, data) => {
-    if (event === 'effect:run') {
-      _lastRunningEffect = {
-        id: data?.id,
-        name: data?.name,
-        timestamp: Date.now(),
-      };
-    }
-
-    if (event === 'signal:updated' && data?.id != null) {
-      // Try to get the previous value from the registry snapshot.
-      // The event fires after the value has already changed, so we
-      // cannot recover the true previous value retroactively.
-      // However, the emit payload from devtools includes `value` (new).
-      // We store what we can — the previous value will be the last
-      // known `newValue` for this signal in the log, or undefined.
-      let previousValue;
-      const priorEntry = findLastWrite(data.id);
-      if (priorEntry) {
-        previousValue = priorEntry.newValue;
-      }
-
-      const entry = {
-        signalId: data.id,
-        signalName: data.name || `signal_${data.id}`,
-        previousValue,
-        newValue: data.value,
-        timestamp: Date.now(),
-        writerEffect: _lastRunningEffect ? { ..._lastRunningEffect } : null,
-      };
-
-      _signalWriteLog.push(entry);
-      if (_signalWriteLog.length > MAX_WRITE_LOG) {
-        _signalWriteLog = _signalWriteLog.slice(-MAX_WRITE_LOG);
-      }
-    }
-  });
-}
-
-function findLastWrite(signalId) {
-  for (let i = _signalWriteLog.length - 1; i >= 0; i--) {
-    if (_signalWriteLog[i].signalId === signalId) return _signalWriteLog[i];
+function routerSignals(devtools) {
+  const found = {};
+  for (const entry of devtools?._registries?.signals?.values() || []) {
+    if (typeof entry.name === 'string' && entry.name.startsWith('what-router:')) found[entry.name.slice(12)] = entry.ref;
   }
-  return null;
+  return found.url ? found : null;
 }
 
+function routeState(devtools) {
+  const loc = window.location;
+  const browser = {
+    path: loc.pathname,
+    query: Object.fromEntries(new URLSearchParams(loc.search)),
+    hash: loc.hash,
+    href: loc.href,
+  };
+  const r = routerSignals(devtools);
+  if (!r) return { browser, router: null, settled: true };
+  const url = String(r.url.peek());
+  const navigating = Boolean(r.navigating?.peek());
+  const error = r.error?.peek();
+  return {
+    browser,
+    router: {
+      url,
+      path: new URL(url, loc.href).pathname,
+      pattern: r.pattern?.peek() ?? null,
+      params: devtools.preview(r.params?.peek() ?? {}, 400),
+      query: devtools.preview(r.query?.peek() ?? {}, 400),
+      navigating,
+      pendingUrl: r.pendingUrl?.peek() ?? null,
+      error: error ? String(error.message || error) : null,
+    },
+    settled: !navigating && url === loc.pathname + loc.search + loc.hash,
+  };
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Handle extended commands sent from the MCP server via the bridge.
+ * Handle an extended command sent from the MCP server via the bridge.
  *
  * @param {string} command - The command name
  * @param {Record<string, any>} [args] - Command arguments
- * @param {any} [devtools] - window.__WHAT_DEVTOOLS__ reference (live hook bag)
+ * @param {any} [devtools] - window.__WHAT_DEVTOOLS__
  * @returns {Promise<Record<string, any>|null>} Result object, or null if command not handled
  */
 export async function handleExtendedCommand(command, args, devtools) {
@@ -121,61 +94,34 @@ export async function handleExtendedCommand(command, args, devtools) {
   switch (command) {
 
     // -------------------------------------------------------------------------
-    // eval — Execute arbitrary JS in the browser context
-    // WARNING: This executes arbitrary code. The MCP server guards this behind
-    // the --unsafe-eval flag. The browser side also checks a global flag so
-    // that even if the command somehow reaches the client, it is rejected
-    // unless explicitly enabled.
+    // eval — run arbitrary code. The MCP server sends it only when started with
+    // --unsafe-eval, and the page refuses it unless the page opted in as well.
+    // Safe reads never come here: they are the 'read' command.
     // -------------------------------------------------------------------------
     case 'eval': {
-      // Guard: only execute if explicitly enabled on the client side
       const evalEnabled = typeof window !== 'undefined' &&
-        (window.__WHAT_UNSAFE_EVAL__ === true ||
-         devtools?._unsafeEvalEnabled === true);
-
-      // Allow safe read-only expressions without the unsafe flag
-      const code = (args.code || '').trim();
-      // Strict safe-read: only allow dotted property access on known safe globals.
-      const SAFE_GLOBALS = new Set(['document', 'window', 'navigator', 'location', 'screen', 'performance', 'console']);
-      const segments = code.split('.');
-      const isSimpleIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
-      const PROTO_DENYLIST = new Set(['constructor', 'prototype', '__proto__']);
-      // Sensitive property paths: reads that exfiltrate secrets/state must
-      // require the explicit unsafe flag (document.cookie, window.localStorage...).
-      // Mirror of SENSITIVE_PATHS in tools-extended.js what_eval.
-      const SENSITIVE_PATHS = new Set([
-        'cookie', 'localStorage', 'sessionStorage', 'indexedDB', 'credentials',
-        'geolocation', 'clipboard', 'serviceWorker', 'caches', 'opener',
-      ]);
-      const isSafeRead = segments.length >= 2 &&
-        SAFE_GLOBALS.has(segments[0]) &&
-        segments.every(s => isSimpleIdent.test(s) && !PROTO_DENYLIST.has(s) && !SENSITIVE_PATHS.has(s));
-
-      if (!evalEnabled && !isSafeRead) {
-        return {
-          error: 'Eval is disabled for arbitrary code. Safe read-only expressions (document.title, window.innerWidth, etc.) work without the flag. For full eval, set window.__WHAT_UNSAFE_EVAL__ = true or enable --unsafe-eval on the MCP server.',
-        };
+        (window.__WHAT_UNSAFE_EVAL__ === true || devtools?._unsafeEvalEnabled === true);
+      if (!evalEnabled) {
+        return { error: 'The page has not enabled eval: set window.__WHAT_UNSAFE_EVAL__ = true in the page as well.' };
       }
-
+      const code = String(args.code || '').trim();
+      // An expression returns its value; statements need an explicit return.
+      let fn;
+      try {
+        fn = new Function(`return (${code}\n);`);
+      } catch {
+        fn = new Function(code);
+      }
       const start = performance.now();
       try {
-        // Execute the SAME validated string that passed the safe-read check
-        // above (not the untrimmed args.code) to avoid a validate-one/run-another
-        // mismatch. (AUDIT-2026-06-06 m10)
-        // eslint-disable-next-line no-new-func
-        const fn = new Function(code);
-        const raw = fn();
-        const elapsed = performance.now() - start;
+        const raw = await fn();
         return {
-          result: devtools?.safeSerialize ? devtools.safeSerialize(raw) : raw,
-          type: typeof raw,
-          executionTime: Math.round(elapsed * 100) / 100,
+          result: devtools?.preview ? devtools.preview(raw, 4000) : String(raw),
+          type: raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw,
+          executionTime: Math.round((performance.now() - start) * 100) / 100,
         };
       } catch (e) {
-        return {
-          error: e.message,
-          stack: e.stack,
-        };
+        return { error: e?.message || String(e), stack: e?.stack ? String(e.stack).slice(0, 2000) : undefined };
       }
     }
 
@@ -259,6 +205,8 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       return {
         componentName: entry.name,
+        owner: entry.owner,
+        loc: entry.loc,
         componentId,
         html,
         structure,
@@ -266,47 +214,20 @@ export async function handleExtendedCommand(command, args, devtools) {
     }
 
     // -------------------------------------------------------------------------
-    // get-route — Return current route information
+    // route — the address bar and the router's own state, separately
     // -------------------------------------------------------------------------
-    case 'get-route': {
-      const loc = typeof window !== 'undefined' ? window.location : {};
-      const result = {
-        path: loc.pathname || '/',
-        query: Object.fromEntries(new URLSearchParams(loc.search || '')),
-        hash: loc.hash || '',
-        fullUrl: loc.href || '',
-      };
-
-      // Try to get What Router state if available
-      try {
-        const core = window.__WHAT_CORE__;
-        if (core?.routerState) {
-          const state = typeof core.routerState === 'function'
-            ? core.routerState()
-            : core.routerState;
-          if (state) {
-            result.params = state.params || {};
-            result.matchedRoute = state.pattern || state.route || null;
-          }
-        }
-      } catch {
-        // Router state not available — that's fine, we have window.location
-      }
-
-      return result;
-    }
+    case 'route':
+      return routeState(devtools);
 
     // -------------------------------------------------------------------------
-    // navigate — Programmatically change the route
+    // navigate — change the URL the way back/forward does, so what-router runs
+    // its guards and loaders, then wait (bounded) until the router has settled
     // -------------------------------------------------------------------------
     case 'navigate': {
-      const { path, replace } = args || {};
+      const { path, replace } = args;
+      if (!path) return { error: 'No path provided' };
 
-      if (!path) {
-        return { error: 'No path provided' };
-      }
-
-      // Validate URL — reject dangerous protocols (server-side + browser-side defense)
+      // Reject dangerous protocols (the MCP server checks too).
       const trimmedPath = String(path).trim();
       const normalizedUrl = trimmedPath.replace(/[\s\x00-\x1f]/g, '').toLowerCase();
       const isRelativePath = /^[/.#?]/.test(trimmedPath) || !trimmedPath.includes(':');
@@ -314,152 +235,40 @@ export async function handleExtendedCommand(command, args, devtools) {
         return { error: `Blocked navigation to unsafe URL: "${path}"` };
       }
 
-      try {
-        // Prefer What Router's navigate() if available
-        const core = window.__WHAT_CORE__;
-        if (core?.navigate) {
-          core.navigate(path, { replace: !!replace });
-        } else if (replace) {
-          history.replaceState(null, '', path);
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        } else {
-          history.pushState(null, '', path);
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        }
-
-        return {
-          navigatedTo: path,
-          currentPath: window.location.pathname,
-          method: replace ? 'replaceState' : 'pushState',
-          usedWhatRouter: !!(core?.navigate),
-          success: true,
-        };
-      } catch (e) {
-        return { error: e.message };
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // validate-code — Compile or statically analyse a code snippet
-    // -------------------------------------------------------------------------
-    case 'validate-code': {
-      const { code, format } = args || {};
-      if (!code) return { valid: false, errors: [{ message: 'No code provided' }], warnings: [] };
-
-      const errors = [];
-      const warnings = [];
-
-      // 1. Try the Babel/What compiler if available on window
-      if (typeof window !== 'undefined' && window.__WHAT_COMPILER__) {
-        try {
-          const result = window.__WHAT_COMPILER__.compile(code, { format: format || 'jsx' });
-          return {
-            valid: !result.errors || result.errors.length === 0,
-            output: result.output || result.code || null,
-            errors: result.errors || [],
-            warnings: result.warnings || [],
-          };
-        } catch (e) {
-          // Compiler threw — fall through to static analysis
-          errors.push({ message: `Compiler error: ${e.message}` });
-        }
+      // No client router to claim it (a full-stack page that loads no
+      // what-router on the client): the browser loads the URL, as a link
+      // click would. The answer goes out first; the page that loads is a new
+      // session.
+      if (!routeState(devtools).router) {
+        setTimeout(() => (replace ? location.replace(trimmedPath) : location.assign(trimmedPath)), 0);
+        return { requested: trimmedPath, router: false, document: true, settled: true, note: 'No client router: the browser loads the URL, and the page that loads connects as a new session.' };
       }
 
-      // 2. Static analysis fallback
+      if (replace) history.replaceState(null, '', trimmedPath);
+      else history.pushState(null, '', trimmedPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
 
-      // --- Bracket/brace matching ---
-      const brackets = { '(': ')', '[': ']', '{': '}' };
-      const closers = new Set([')', ']', '}']);
-      const stack = [];
-      // Strip string literals and comments to avoid false positives
-      const stripped = code
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/(["'`])(?:\\[\s\S]|(?!\1)[^\\])*\1/g, '');
-      for (let i = 0; i < stripped.length; i++) {
-        const ch = stripped[i];
-        if (brackets[ch]) {
-          stack.push({ char: ch, pos: i });
-        } else if (closers.has(ch)) {
-          const last = stack.pop();
-          if (!last) {
-            errors.push({ message: `Unexpected '${ch}' at position ${i}`, pos: i });
-          } else if (brackets[last.char] !== ch) {
-            errors.push({ message: `Mismatched '${last.char}' at position ${last.pos} and '${ch}' at position ${i}`, pos: i });
-          }
-        }
+      const deadline = Date.now() + Math.min(Math.max(Number(args.timeout) || 3000, 0), 10000);
+      let state = routeState(devtools);
+      // The router claims the navigation synchronously in its popstate handler.
+      while (state.router && !state.settled && Date.now() < deadline) {
+        await wait(16);
+        state = routeState(devtools);
       }
-      if (stack.length > 0) {
-        for (const item of stack) {
-          errors.push({ message: `Unclosed '${item.char}' at position ${item.pos}`, pos: item.pos });
-        }
-      }
-
-      // --- Common import errors ---
-      const importFromWhat = code.match(/import\s*\{([^}]+)\}\s*from\s*['"]what['"]/g);
-      if (importFromWhat) {
-        warnings.push({ message: "Import from 'what' detected. Use 'what-framework' instead.", rule: 'import-path' });
-      }
-
-      // --- Lint patterns ---
-
-      // 1. Signal read without () — look for JSX expressions like {count} where count is likely a signal
-      const signalWithoutCall = stripped.match(/\{(\s*[a-z][a-zA-Z0-9_]*\s*)\}/g);
-      if (signalWithoutCall) {
-        for (const match of signalWithoutCall) {
-          const name = match.replace(/[{}\s]/g, '');
-          // Heuristic: if the same name appears with () elsewhere, it's a signal used without ()
-          if (stripped.includes(`${name}(`) && !match.includes('(')) {
-            warnings.push({ message: `Possible signal '${name}' used without () — renders as [Function]. Use {${name}()}.`, rule: 'signal-read-without-call' });
-          }
-        }
-      }
-
-      // 2. innerHTML without __html marker
-      if (/innerHTML\s*=/.test(stripped) && !/__html/.test(stripped)) {
-        warnings.push({ message: 'innerHTML set without __html safety marker. XSS risk. Use { __html: content }.', rule: 'unsafe-innerhtml' });
-      }
-
-      // 3. Effect cycle — effect that reads and writes the same signal
-      const effectBodies = code.matchAll(/effect\s*\(\s*\(\s*\)\s*=>\s*\{([^}]+)\}/g);
-      for (const m of effectBodies) {
-        const body = m[1];
-        // Find signal names that appear as both read sig() and write sig(value)
-        const reads = [...body.matchAll(/(\w+)\(\)/g)].map(r => r[1]);
-        const writes = [...body.matchAll(/(\w+)\([^)]+\)/g)].map(r => r[1]);
-        for (const name of reads) {
-          if (writes.includes(name) && name !== 'untrack') {
-            warnings.push({ message: `Potential effect cycle: '${name}' is both read and written inside effect. Use untrack() for the read.`, rule: 'effect-cycle' });
-          }
-        }
-      }
-
-      // 4. Missing cleanup — effect with addEventListener but no removeEventListener
-      if (/effect\s*\(/.test(code) && /addEventListener/.test(code) && !/removeEventListener/.test(code)) {
-        warnings.push({ message: 'Effect adds event listener but no cleanup detected (missing removeEventListener). Return a cleanup function.', rule: 'missing-cleanup' });
-      }
-
-      return {
-        valid: errors.length === 0,
-        output: null,
-        errors,
-        warnings,
-      };
+      const target = new URL(trimmedPath, window.location.href);
+      const arrived = window.location.pathname + window.location.search + window.location.hash === target.pathname + target.search + target.hash;
+      return { requested: trimmedPath, ...state, ...(state.settled && !arrived ? { cancelled: true } : {}) };
     }
 
     // -------------------------------------------------------------------------
     // get-app-info — Return app metadata for bootstrap
     // -------------------------------------------------------------------------
-    case 'get-app-info': {
+    case 'app-info': {
       return {
         url: window.location.href,
         title: document.title,
+        route: window.location.pathname + window.location.search + window.location.hash,
         viewport: { width: window.innerWidth, height: window.innerHeight },
-        // Try to detect framework version
-        version: window.__WHAT_CORE__?.version || window.__WHAT_DEVTOOLS__?.version || 'unknown',
-        // Get the entry point from Vite's module graph if available
-        entryPoint: document.querySelector('script[type="module"][src]')?.getAttribute('src') ||
-                    document.querySelector('script[type="module"]')?.textContent?.match(/from ['"]([^'"]+)['"]/)?.[1] || 'unknown',
       };
     }
 
@@ -544,6 +353,8 @@ export async function handleExtendedCommand(command, args, devtools) {
 
       return {
         componentName: entry.name,
+        owner: entry.owner,
+        loc: entry.loc,
         componentId,
         boundingRect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
         styles,
@@ -636,6 +447,8 @@ export async function handleExtendedCommand(command, args, devtools) {
           components.push({
             id,
             name: entry.name,
+            owner: entry.owner,
+            loc: entry.loc,
             rect: compEl ? rectOf(compEl) : { x: 0, y: 0, w: 0, h: 0 },
             hasElement: !!compEl,
           });
@@ -649,44 +462,6 @@ export async function handleExtendedCommand(command, args, devtools) {
         headings,
         components,
         totalElements: landmarks.length + interactives.length + headings.length + components.length,
-      };
-    }
-
-    // -------------------------------------------------------------------------
-    // get-signal-writers — Correlate signal writes with effect runs
-    // Uses the module-level ring buffer populated by initEventTracking().
-    // -------------------------------------------------------------------------
-    case 'get-signal-writers': {
-      const { signalId } = args || {};
-      const registries = devtools?._registries;
-
-      if (!registries?.signals) {
-        return { error: 'DevTools registries not available' };
-      }
-
-      const sigEntry = registries.signals.get(signalId);
-      if (!sigEntry) {
-        return { error: `Signal ${signalId} not found` };
-      }
-
-      // Lazily initialize event tracking on first call
-      initEventTracking(devtools);
-
-      // Filter the write log for this signal
-      const writes = _signalWriteLog
-        .filter(w => w.signalId === signalId)
-        .slice(-20); // Last 20 writes
-
-      const totalWrites = _signalWriteLog.filter(w => w.signalId === signalId).length;
-
-      return {
-        signalId,
-        signalName: sigEntry.name,
-        currentValue: devtools.safeSerialize
-          ? devtools.safeSerialize(sigEntry.ref.peek())
-          : sigEntry.ref.peek(),
-        recentWrites: writes,
-        totalWrites,
       };
     }
 
@@ -773,19 +548,17 @@ export async function handleExtendedCommand(command, args, devtools) {
         const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
         ctx.scale(scale * dpr, scale * dpr);
 
-        // Load SVG blob as image
+        // A data: URL, not a blob: URL. Chromium taints the canvas when it
+        // draws an SVG with a <foreignObject> loaded from a blob: URL, even on
+        // a page with no external resources, and toDataURL then throws.
         const img = new Image();
-        const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-
         await new Promise((resolve, reject) => {
           img.onload = resolve;
           img.onerror = () => reject(new Error('SVG rendering failed — component may contain cross-origin resources'));
-          img.src = url;
+          img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgData)}`;
         });
 
         ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
 
         // Export to base64
         const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
@@ -821,6 +594,8 @@ export async function handleExtendedCommand(command, args, devtools) {
           height: Math.round(svgHeight * scale),
           sizeBytes,
           componentName: entry.name,
+          owner: entry.owner,
+          loc: entry.loc,
         };
       } catch (e) {
         return {

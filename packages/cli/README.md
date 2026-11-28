@@ -27,7 +27,7 @@ what dev --host 0.0.0.0
 ```
 
 Features:
-- WebSocket-based HMR with automatic reconnection (same-origin only)
+- WebSocket-based HMR with automatic reconnection. The socket accepts a browser page only from loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`), the exact `--host`, or a name in `allowedHosts` / `--allowed-hosts`, at the dev port (`allowedHosts: true` accepts any origin). An IP-literal page on another address is refused, though its IP is a Host the server answers. With `--host 0.0.0.0` (or `::`) the machine's own addresses are accepted too, so a phone on the LAN gets live reload from `http://<this machine's IP>:<port>`; otherwise pass the IP itself as `--host`. A refused page is named once in the terminal.
 - Bare import transforms (`what-framework`, `what-framework/router`, `what-framework/server` -> `/@what/*.js`)
 - File-based routing from `src/pages/`
 - SPA fallback for client-side routing
@@ -35,7 +35,7 @@ Features:
 
 ### `what build`
 
-Create a production build with minification, content hashing, and gzip compression.
+Create a production build: minified JavaScript, content hashing, and gzip compression. HTML files are copied as authored.
 
 ```bash
 what build
@@ -102,10 +102,19 @@ export default {
 
 ## Options
 
+`what dev` and `what preview` answer only requests whose Host is localhost (or
+`*.localhost`), an IP address, their `--host`, or a name in `allowedHosts`
+(`what.config.js`, a list, or `true` for any) or `--allowed-hosts`; any other
+Host, and a value that is not a host name or address at all, gets 403. A page
+on another site that points its own domain at your machine (DNS rebinding)
+cannot read your sources or your build through it. The HMR WebSocket answers a
+page's Origin by the same list, at the dev server's port.
+
 | Flag | Description | Default |
 |---|---|---|
 | `--port` | Server port | `3000` (dev), `4000` (preview) |
 | `--host` | Server host | `localhost` |
+| `--allowed-hosts` | `what dev` and `what preview`: more Host names to answer, comma-separated (`true` for any) | |
 | `--version` | Print the CLI version | |
 
 ## Links

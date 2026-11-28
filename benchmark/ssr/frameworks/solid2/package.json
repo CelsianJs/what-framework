@@ -1,0 +1,12 @@
+{
+  "name": "ssr-bench-solid2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Solid 2.0 side of the SSR benchmark. A workspace so its solid-js resolves independently of Solid 1.x's.",
+  "devDependencies": {
+    "@solidjs/babel-plugin": "2.0.2",
+    "@solidjs/web": "2.0.3",
+    "solid-js": "2.0.3"
+  }
+}

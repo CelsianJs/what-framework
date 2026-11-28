@@ -32,7 +32,8 @@ artifacts/
 benchmark/apps/
 benchmark/results/
 
-# Lockfiles: ignore everywhere except the repo root and the krausest benchmark.
+# Lockfiles: ignore everywhere except the repo root and the projects below,
+# which CI installs with `npm ci`.
 # krausest is exempt because its CI job runs `npm ci --prefix benchmark/krausest`,
 # and `npm ci` hard-fails without a lockfile. While the file was ignored, the job
 # passed locally (where the untracked lockfile exists) and failed on every clean
@@ -42,6 +43,15 @@ benchmark/results/
 **/package-lock.json
 !/package-lock.json
 !/benchmark/krausest/package-lock.json
+# The React package matrix is exempt for the same reason: its CI jobs install
+# it with `npm ci --prefix packages/react-compat/test/fixtures/matrix`, and the versions
+# REACT-COMPAT.md's table names are the ones this lockfile pins. Left floating,
+# a package's new release would change what the matrix tests between two runs
+# of the same commit.
+!/packages/react-compat/test/fixtures/matrix/package-lock.json
+# The size workflow installs the mixed fixture with `npm ci` for the
+# mixed-recharts scenario, so its lockfile is tracked too.
+!/packages/react-compat/test/fixtures/mixed/package-lock.json
 
 .npmrc
 
@@ -53,3 +63,5 @@ packages/devtools-mcp/test/.tmp-build-*
 # (the JS createProgram API is gone; probes are written next to the test and
 # compiled with tsc, then removed in a finally).
 **/.what-tsc-*
+packages/react-compat/test/fixtures/mixed/node_modules/
+packages/react-compat/test/fixtures/mixed/dist/

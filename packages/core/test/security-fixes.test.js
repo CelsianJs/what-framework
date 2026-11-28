@@ -7,7 +7,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 // Set up DOM globals before importing framework modules
 installDOM();
 
-const { setProp } = await import('../src/render.js');
+const { setProp, spread } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
 const { mount } = await import('../src/dom.js');
 const { flushSync } = await import('../src/reactive.js');
@@ -25,33 +25,6 @@ async function flush() { flushSync(); await new Promise(r => setTimeout(r, 10));
 // =========================================================================
 
 describe('HIGH-1: innerHTML XSS prevention in dom.js', () => {
-  it('blocks raw string innerHTML — prevents XSS', () => {
-    const el = document.createElement('div');
-    el.innerHTML = 'original';
-    setProp(el, 'innerHTML', '<script>alert("xss")</script>');
-    assert.equal(el.innerHTML, 'original', 'raw string innerHTML must be rejected');
-  });
-
-  it('allows { __html } wrapper for innerHTML', () => {
-    const el = document.createElement('div');
-    setProp(el, 'innerHTML', { __html: '<b>safe</b>' });
-    assert.equal(el.innerHTML, '<b>safe</b>');
-  });
-
-  it('allows dangerouslySetInnerHTML with { __html }', () => {
-    const el = document.createElement('div');
-    setProp(el, 'dangerouslySetInnerHTML', { __html: '<em>ok</em>' });
-    assert.equal(el.innerHTML, '<em>ok</em>');
-  });
-
-  it('handles null innerHTML gracefully', () => {
-    const el = document.createElement('div');
-    el.innerHTML = 'content';
-    setProp(el, 'innerHTML', null);
-    // null should not change content — just a no-op
-    assert.equal(el.innerHTML, 'content');
-  });
-
   it('handles empty __html in wrapper', () => {
     const el = document.createElement('div');
     el.innerHTML = 'old';
@@ -155,17 +128,9 @@ describe('MEDIUM-1: template() compiler-internal safety', () => {
     assert.equal(el.textContent, 'test');
   });
 
-  it('_template legacy alias still works', async () => {
-    const render = await import('../src/render.js');
-    assert.equal(typeof render._template, 'function');
-    const factory = render._template('<p>legacy</p>');
-    const el = factory();
-    assert.equal(el.tagName.toLowerCase(), 'p');
-  });
-
-  it('_$template is exported from index.js', async () => {
-    const core = await import('../src/index.js');
-    assert.equal(typeof core._$template, 'function');
+  it('_$template is exported from what-framework/render, where compiled output imports it', async () => {
+    const render = await import('../../what/src/render.js');
+    assert.equal(typeof render._$template, 'function');
   });
 });
 
@@ -197,16 +162,34 @@ describe('LOW-1: meta name key escaping in wrapDocument', () => {
 // =========================================================================
 
 describe('LOW-2: SSR error messages in production mode', () => {
-  it('includes error details in dev mode stream SSR', async () => {
-    // In dev mode (NODE_ENV !== 'production'), errors should include details
-    function BadComponent() { throw new Error('test-error-message'); }
-    const chunks = [];
-    for await (const chunk of renderToStream(h(BadComponent, null))) {
-      chunks.push(chunk);
+  // Details reach the page only when development is positively established:
+  // NODE_ENV exactly 'development'. No NODE_ENV (a server started bare) is
+  // production, like any other value.
+  async function streamedError(nodeEnv) {
+    const saved = process.env.NODE_ENV;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+    try {
+      function BadComponent() { throw new Error('test-error-message'); }
+      const chunks = [];
+      for await (const chunk of renderToStream(h(BadComponent, null), { onError: () => {} })) chunks.push(chunk);
+      return chunks.join('');
+    } finally {
+      if (saved === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved;
     }
-    const html = chunks.join('');
-    // In test env (dev mode), error message should be included
-    assert.ok(html.includes('test-error-message'), 'dev mode should include error details');
+  }
+
+  it('includes error details when NODE_ENV is development', async () => {
+    assert.ok((await streamedError('development')).includes('test-error-message'));
+  });
+
+  it('leaves them out with no NODE_ENV, or any other value', async () => {
+    for (const nodeEnv of [undefined, 'staging', 'production', 'test']) {
+      const html = await streamedError(nodeEnv);
+      assert.ok(!html.includes('test-error-message'), `NODE_ENV=${nodeEnv}: ${html}`);
+      assert.match(html, /<!-- SSR Error -->/);
+    }
   });
 });
 
@@ -220,3 +203,64 @@ describe('MEDIUM-2: CSRF enforcement', () => {
     assert.equal(typeof islands.enhanceForms, 'function');
   });
 });
+
+// =========================================================================
+// An untrusted props object on an element that has a parent
+// =========================================================================
+// `<section><div {...block.attrs} /></section>` with attributes from a CMS:
+// setProp's property fall-through wrote any key the element has as a property,
+// and `outerHTML` replaced the element with its value parsed as live markup.
+// The full matrix of markup and URL properties is in attr-sanitization.test.js.
+
+describe('untrusted props objects reach no markup or script sink', () => {
+  const HOSTILE = {
+    outerHTML: '<img id="pwn-outer" src="x" onerror="window.__pwned=1">',
+    ONCLICK: 'window.__pwned=2',
+    onClick: 'window.__pwned=3',
+    SrcDoc: '<script>parent.__pwned=4</script>',
+    'xlink:href': 'javascript:alert(1)',
+    HREF: ' jAvAsCrIpT:alert(1)',
+    formAction: 'javascript:alert(1)',
+  };
+
+  function probe(apply) {
+    const host = getContainer();
+    const section = host.appendChild(document.createElement('section'));
+    const out = {};
+    for (const [key, value] of Object.entries(HOSTILE)) {
+      const el = section.appendChild(document.createElement(key === 'formAction' ? 'button' : 'a'));
+      const warn = console.warn;
+      console.warn = () => {};
+      try { apply(section, el, key, value); } finally { console.warn = warn; }
+      const live = section.querySelector('a, button') || section.firstElementChild;
+      out[key] = section.querySelector('#pwn-outer') ? 'replaced by markup'
+        : live && [...live.attributes].some(a => a.value === value || /javascript:|__pwned/i.test(a.value)) ? 'live attribute'
+          : 'blocked';
+      section.textContent = '';
+    }
+    host.remove();
+    return out;
+  }
+
+  const blocked = Object.fromEntries(Object.keys(HOSTILE).map(k => [k, 'blocked']));
+
+  it('spread()', () => {
+    assert.deepEqual(probe((section, el, key, value) => spread(el, { [key]: value })), blocked);
+  });
+
+  it('setProp()', () => {
+    assert.deepEqual(probe((section, el, key, value) => setProp(el, key, value)), blocked);
+  });
+
+  it('setProp() with a reactive accessor', () => {
+    assert.deepEqual(probe((section, el, key, value) => setProp(el, key, () => value)), blocked);
+  });
+
+  it('h()', () => {
+    assert.deepEqual(probe((section, el, key, value) => {
+      el.remove();
+      mount(h(key === 'formAction' ? 'button' : 'a', { [key]: value }), section);
+    }), blocked);
+  });
+});
+

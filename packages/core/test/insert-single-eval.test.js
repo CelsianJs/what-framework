@@ -1,4 +1,4 @@
-// SPRINT v0.11 C3 — insert() must evaluate a function child exactly ONCE at
+// insert() must evaluate a function child exactly ONCE at
 // mount. The old implementation called child() outside the effect (to choose
 // the text fast path) and then AGAIN inside the effect's first run — double
 // work, and double side effects: a child that builds DOM created a discarded

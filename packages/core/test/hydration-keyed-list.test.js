@@ -19,12 +19,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDOM } from '../../../test-utils/dom.js';
+import { loadCompiled } from '../../../test-utils/load-compiled.js';
 
 installDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>');
 
 const { signal, flushSync } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
-const { hydrate, mapArray, insert } = await import('../src/render.js');
+const { hydrate, mapArray, insert, _rowKeyDigest } = await import('../src/render.js');
+// The keys comment `html` carries for `keys`: each key's digest under the
+// render's salt, which the comment writes first.
+const keysComment = (html, ...keys) => {
+  const salt = /<!--k:([^:>]+):/.exec(html)?.[1];
+  return `<!--k:${salt}:${keys.map((key) => _rowKeyDigest(key, salt)).join('')}-->`;
+};
 const { renderToString, renderToHydratableString, renderToStream } = await import('what-server');
 
 const root = () => document.getElementById('root');
@@ -141,5 +148,93 @@ describe('a keyed list renders its rows on every server path', () => {
     } finally {
       console.warn = originalWarn;
     }
+  });
+});
+
+// The server writes a digest of each keyed row's key after the list's opening
+// marker (<!--k:…-->), so hydrate() takes each server row as the row of its
+// key, and the page carries no key itself.
+// Server and client data that differ are a mismatch, reported; but a server
+// row, and what the user typed into it before hydration, never becomes the
+// row of another key.
+const SOURCE = `
+    import { signal } from 'what-framework';
+    export function make(initial) {
+      const rows = signal(initial);
+      function View() {
+        return <ul>{rows().map(row => <li key={row.id} data-row={row.id}>{row.label}<input /></li>)}</ul>;
+      }
+      return View;
+    }
+  `;
+const server = await loadCompiled(SOURCE, { pluginOptions: { generate: 'ssr' } });
+const client = await loadCompiled(SOURCE, { pluginOptions: { hydratable: true } });
+
+describe('hydration never adopts a server row as the row of another key', () => {
+  const ALICE_BOB = [{ id: 'a', label: 'Alice' }, { id: 'b', label: 'Bob' }];
+  const typed = () => [...root().querySelectorAll('li')].map((li) => [li.dataset.row, li.textContent, li.querySelector('input').value]);
+
+  it('the same rows in another order: each server row is adopted by its key, moved, and reported', () => {
+    root().innerHTML = renderToHydratableString(h(server.make(ALICE_BOB)));
+    assert.ok(root().innerHTML.includes(keysComment(root().innerHTML, 'a', 'b')), 'the server writes the keys\' digests');
+    const alice = root().querySelector('[data-row=a] input');
+    alice.value = 'draft for Alice';
+    const reports = [];
+    const stop = hydrate(h(client.make(ALICE_BOB.toReversed())), root(), { onHydrationError: (r) => reports.push(r) });
+    assert.deepEqual(typed(), [['b', 'Bob', ''], ['a', 'Alice', 'draft for Alice']]);
+    assert.equal(root().querySelector('[data-row=a] input'), alice, 'the server node stays with its key');
+    assert.deepEqual(reports.map((r) => [r.kind, r.expected, r.found, r.recovery]), [['key', 'b,a', 'a,b', 'move']]);
+    assert.ok(!root().innerHTML.includes('<!--k'), 'the keys are not left in the page');
+    stop();
+  });
+
+  it('a server row whose key the client does not render: no server row is taken, the client builds the list', () => {
+    root().innerHTML = renderToHydratableString(h(server.make([{ id: 'a', label: 'Alice' }, { id: 'c', label: 'Cy' }])));
+    const serverRows = [...root().querySelectorAll('li')];
+    serverRows[0].querySelector('input').value = 'draft for Alice';
+    const reports = [];
+    const stop = hydrate(h(client.make([{ id: 'c', label: 'Cy' }, { id: 'b', label: 'Bob' }])), root(), { onHydrationError: (r) => reports.push(r) });
+    assert.deepEqual(typed(), [['c', 'Cy', ''], ['b', 'Bob', '']]);
+    assert.ok([...root().querySelectorAll('li')].every((li) => !serverRows.includes(li)), 'every row was built by the client');
+    assert.deepEqual(reports.map((r) => [r.kind, r.recovery]), [['key', 'client-render']]);
+    stop();
+  });
+
+  it('the same keys in the same order adopt in place and report nothing', () => {
+    root().innerHTML = renderToHydratableString(h(server.make(ALICE_BOB)));
+    const nodes = [...root().querySelectorAll('li')];
+    const reports = [];
+    const stop = hydrate(h(client.make(ALICE_BOB)), root(), { onHydrationError: (r) => reports.push(r) });
+    assert.deepEqual([...root().querySelectorAll('li')], nodes);
+    assert.deepEqual(reports, []);
+    stop();
+  });
+
+  it('h() keyed rows of a reactive child, from the string and the stream renderers', async () => {
+    const tree = (items) => h('ul', {}, () => items.map((it) => h('li', { key: it.id }, it.label, h('input', {}))));
+    for (const render of [renderToHydratableString, async (vnode) => { let html = ''; for await (const chunk of renderToStream(vnode, {})) html += chunk; return html; }]) {
+      const html = await render(tree(ALICE_BOB));
+      assert.ok(html.includes(keysComment(html, 'a', 'b')), html);
+      root().innerHTML = html.includes('<ul>') ? html.slice(html.indexOf('<ul>'), html.indexOf('</ul>') + 5) : html;
+      const alice = root().querySelectorAll('input')[0];
+      alice.value = 'draft for Alice';
+      const reports = [];
+      const stop = hydrate(tree(ALICE_BOB.toReversed()), root(), { onHydrationError: (r) => reports.push(r) });
+      assert.deepEqual([...root().querySelectorAll('li')].map((li) => [li.textContent, li.querySelector('input').value]), [['Bob', ''], ['Alice', 'draft for Alice']]);
+      assert.equal(root().querySelectorAll('input')[1], alice);
+      assert.deepEqual(reports.map((r) => [r.kind, r.recovery]), [['key', 'move']]);
+      stop();
+    }
+  });
+
+  it('a compiled keyed list rendered by the runtime renderer writes its keys too', () => {
+    const html = renderToHydratableString(h('ul', {}, mapArray(ITEMS, (it) => h('li', {}, () => it().t), { key: (x) => x.id })));
+    assert.ok(html.includes(keysComment(html, 1, 2, 3)), html);
+    root().innerHTML = html;
+    const reports = [];
+    const stop = hydrate(clientTree([ITEMS[2], ITEMS[1], ITEMS[0]]), root(), { onHydrationError: (r) => reports.push(r) });
+    assert.deepEqual(rows(), ['c', 'b', 'a']);
+    assert.deepEqual([reports[0].kind, reports[0].recovery], ['key', 'move']);
+    stop();
   });
 });

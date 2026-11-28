@@ -23,7 +23,7 @@ validateLearning(STARTERS);
 
 // ---------------------------------------------------------------------------
 // Version, read from the framework source of truth at BUILD time so the nav
-// badge / footer can never drift from the released package again (audit #5).
+// badge / footer cannot drift from the released package.
 // ---------------------------------------------------------------------------
 function readVersion() {
   const candidates = [
@@ -117,14 +117,12 @@ function extract(srcHtml) {
 // that loads the REAL What global (built to /what.global.js). The demo scripts
 // (which read window.What synchronously) then run on the real framework.
 //
-// This ran on `trailing` only, and non-globally, until 2026-08-12. A page whose
-// demo <script> sits inside <main> is in `layoutInner`, not `trailing`, so the
-// substitution never reached it: docs/learn/animation and docs/learn/accessibility
-// shipped their "Live Demo" running on a 15-line hand-written signal/effect
-// reimplementation while the two pages that happened to put the script after
-// </div> got the real framework. A docs site whose demos are not the product is
-// the one kind of drift nobody thinks to check for, so this now runs over both
-// regions and replaces every occurrence.
+// This runs over both regions (`layoutInner` and `trailing`) and replaces
+// every occurrence. A page whose demo <script> sits inside <main> is in
+// `layoutInner`, so a substitution over `trailing` alone would leave its "Live
+// Demo" running on a hand-written signal/effect reimplementation instead of the
+// real framework. A docs site whose demos are not the product is the one kind
+// of drift nobody thinks to check for.
 function useRealWhat(html) {
   return html.replace(
     /<script>(?:(?!<\/script>)[\s\S])*?window\.What\s*=(?:(?!<\/script>)[\s\S])*?<\/script>/g,

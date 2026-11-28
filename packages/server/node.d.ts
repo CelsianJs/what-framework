@@ -7,9 +7,15 @@ export * from './index.js';
 import type { RequestHandlerOptions, RenderRequestContext, DocumentOptions } from './index.js';
 
 
-/** Convert a Web-Fetch handler into a Node (req, res) listener. */
+/**
+ * Convert a Web-Fetch handler into a Node (req, res) listener. It reads each
+ * request body before the handler, up to `options.bodyLimit`, else the
+ * handler's own (createRequestHandler sets it), else 1 MB: pass the limit here
+ * when you wrap the handler in a function of yours.
+ */
 export function toNodeListener(
-  handler: (request: Request) => Promise<Response> | Response,
+  handler: ((request: Request) => Promise<Response> | Response) & { bodyLimit?: number },
+  options?: { bodyLimit?: number },
 ): (req: any, res: any) => Promise<void>;
 
 /** connect/express middleware. Calls next() on a 404 so other routes can answer. */
@@ -111,7 +117,28 @@ export interface ExportStaticOptions {
   outDir: string;
   render?: (pageModule: any, reqCtx: RenderRequestContext) => Promise<string> | string;
   documentOptions?: DocumentOptions;
+  /**
+   * The path the site is served below (`'/app'`, or `'/app/'` as Vite writes
+   * it): each page is rendered for its URL below it, so a `<Router>` with the
+   * same base (what-router `setBase`, or Vite's `base`) shows the page and
+   * links below the base. Files are still written to `outDir/<path>/`.
+   */
+  basePath?: string;
 }
 
-/** Pre-render every `static` and `hybrid` route to files under `outDir`. */
-export function exportStatic(options?: ExportStaticOptions): Promise<string[]>;
+export interface ExportStaticResult {
+  /** URL paths written as pages. */
+  pages: string[];
+  /** Pages whose loader or components redirected, written as redirect stubs. */
+  redirects: Array<{ path: string; location: string; status: number }>;
+  /** Pages that set a status other than 200; nothing was written for them. */
+  skipped: Array<{ path: string; status: number }>;
+}
+
+/**
+ * Pre-render every `static` and `hybrid` route to files under `outDir`. Each
+ * page gets a `request` (a GET of its URL, so a `<Router>` in it shows its
+ * route) and a `response` as on a server: a redirect is written as a redirect
+ * stub, any other status but 200 skips the page.
+ */
+export function exportStatic(options?: ExportStaticOptions): Promise<ExportStaticResult>;

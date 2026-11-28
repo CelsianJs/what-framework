@@ -1,6 +1,6 @@
 {
   "name": "what-devtools-mcp",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "MCP server bridging AI agents to live What Framework app state via WebSocket",
   "type": "module",
   "bin": {
@@ -22,15 +22,19 @@
     }
   },
   "files": [
-    "src"
+    "src",
+    "TOOL-PIPELINES.md"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "ws": "^8.21.3",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "what-core": "^0.15.0"
   },
   "peerDependencies": {
-    "what-devtools": ">=0.7.0"
+    "what-devtools": "^0.15.0",
+    "what-compiler": "^0.15.0",
+    "@babel/core": "^7.0.0"
   },
   "keywords": [
     "what-framework",
@@ -41,6 +45,9 @@
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"
@@ -51,6 +58,12 @@
   "homepage": "https://whatfw.com",
   "peerDependenciesMeta": {
     "what-devtools": {
+      "optional": true
+    },
+    "what-compiler": {
+      "optional": true
+    },
+    "@babel/core": {
       "optional": true
     }
   }

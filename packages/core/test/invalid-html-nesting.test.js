@@ -6,6 +6,9 @@
 // code, naming nothing the author wrote.
 //
 // Found by packages/compiler/test/lowering-parity-fuzz.test.js on its first run.
+//
+// _$template parses on first use, so the check fires on the first clone rather
+// than when the template is defined (at module import).
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +22,7 @@ const { _$template } = await import('../src/render.js');
 describe('invalid HTML nesting', () => {
   it('names the offending pair instead of dying on a null firstChild', () => {
     assert.throws(
-      () => _$template('<p>a<div><!--$--></div>c</p>'),
+      () => _$template('<p>a<div><!></div>c</p>')(),
       err => {
         assert.equal(err.code, 'ERR_INVALID_HTML_NESTING');
         assert.match(err.message, /<p> cannot contain <div>/);
@@ -33,7 +36,7 @@ describe('invalid HTML nesting', () => {
     // closes the <p> — which is exactly why a static parent/child check on the
     // immediate pair would miss it.
     assert.throws(
-      () => _$template('<p>a<span><div>x</div></span></p>'),
+      () => _$template('<p>a<span><div>x</div></span></p>')(),
       { code: 'ERR_INVALID_HTML_NESTING' },
     );
   });
@@ -46,10 +49,17 @@ describe('invalid HTML nesting', () => {
     assert.equal(el.childNodes[1].nodeName, 'DIV');
   });
 
-  it('leaves the table wrappers alone, which legitimately reparent', () => {
-    // <tr> is parsed inside a <table><tbody> wrapper and extracted, so it never
-    // reaches the single-root check. Guarding it would have broken every table.
-    const build = _$template('<tr><td>a</td></tr>');
-    assert.equal(build().nodeName, 'TR');
+  it('defers the check to the first clone, so defining a template touches no DOM', () => {
+    const build = _$template('<p>a<div>b</div></p>');
+    assert.throws(() => build(), { code: 'ERR_INVALID_HTML_NESTING' });
+  });
+
+  it('parses table parts at the root without a wrapper', () => {
+    // A <template> element parses <tr> and <td> where they stand, so these
+    // never reach the single-root check and need no runtime table wrapping.
+    const row = _$template('<tr><td>a</td></tr>')();
+    assert.equal(row.nodeName, 'TR');
+    assert.equal(row.firstChild.nodeName, 'TD');
+    assert.equal(_$template('<td>a</td>')().nodeName, 'TD');
   });
 });

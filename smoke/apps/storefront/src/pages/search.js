@@ -5,7 +5,9 @@
 // that prefix. The prefix behaviour is the part worth proving, because passing
 // an array key used to silently do nothing at all.
 
-import { h, Head, signal, useQuery, invalidateQueries, debounce } from 'what-framework';
+import { h, Head, signal } from 'what-framework';
+import { useQuery, invalidateQueries } from 'what-framework/data';
+import { debounce } from 'what-framework/dom';
 import { Header, Footer } from '../components/chrome.js';
 import { formatPrice } from '../store/cart.js';
 
@@ -23,15 +25,17 @@ export default function Search() {
   const term = signal('', 'search:term');
   const refetches = signal(0, 'search:refetches');
 
-  // Key is an ARRAY: ['products', 'search', term]. invalidateQueries(['products'])
-  // must reach it as a prefix.
+  // Key is an ARRAY: ['products', 'search', term], read through a function so
+  // each term has its own entry. invalidateQueries(['products']) must reach it
+  // as a prefix.
   const query = useQuery({
-    queryKey: ['products', 'search', () => term()],
-    queryFn: async () => {
-      refetches((n) => n + 1);
-      return fetchSearch(term());
-    },
+    queryKey: () => ['products', 'search', term()],
+    queryFn: ({ queryKey }) => fetchSearch(queryKey[2]),
     staleTime: 0,
+    // Counted as each fetch settles. The fetcher runs inside the query's
+    // computed, the first time while the page hydrates, so a write from it
+    // would be a write in a computed and a count the server's HTML lacks.
+    onSettled: () => refetches((n) => n + 1),
   });
 
   const onInput = debounce((event) => term(event.target.value), 80);

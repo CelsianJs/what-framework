@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -63,10 +63,14 @@ test('fullstack scaffold declares the Vura build', async () => {
     assert.match(build, /from '\.\/client-files\.js'/);
     assert.doesNotMatch(server, /new Set\(\['\/src\/entry-client\.js'/, 'server.js no longer hard-codes its own list');
 
-    // The Function reuses server.js's handler instead of re-wiring SSR + ISR.
+    // The Function reuses server.js's handler instead of re-wiring SSR + ISR,
+    // with the import map build.js derived (it has no node_modules to read).
     assert.match(fn, /import \{ createHandler \} from '\.\/server\.js'/);
-    assert.match(fn, /createVuraHandler\(createHandler\(\)\)/);
+    assert.match(fn, /import importMap from '\.\/import-map\.json'/);
+    assert.match(fn, /createVuraHandler\(createHandler\(\{ importMap \}\)\)/);
     assert.match(build, /buildVuraOutput/);
+    assert.match(build, /writeFileSync\(join\(projectRoot, 'import-map\.json'\)/);
+    assert.match(await read('.gitignore'), /^import-map\.json$/m, 'the generated map is not committed');
 
     assert.doesNotMatch(config, /`what build` \/ `what start` read this to pick a\s+\/\/ deploy adapter/, 'the false claim is gone');
     assert.match(config, /npm run build/);
@@ -99,7 +103,8 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
     assert.equal(manifest.api[0].filePath, 'function.js');
     assert.ok(existsSync(join(appDir, 'dist', 'functions', '_', 'index.js')));
 
-    // Static: exactly the client allowlist plus public/, never server code.
+    // Static: exactly the client allowlist, the client packages and public/,
+    // never the app's server code or the dev-only devtools.
     const s = join(appDir, 'dist', 'static');
     for (const f of [
       'favicon.svg',
@@ -108,14 +113,32 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
       'src/pages/home.js',
       'src/pages/post.js',
       'src/pages/new.js',
-      'node_modules/what-framework/src/index.js',
-      'node_modules/what-core/src/index.js',
+      'node_modules/what-framework/dist/index.min.js',
+      'node_modules/what-core/dist/index.min.js',
     ]) {
       assert.ok(existsSync(join(s, f)), `dist/static/${f} is published`);
     }
-    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp', 'node_modules/what-server']) {
+    // The packages' production builds only: no development tier in the payload.
+    for (const f of ['src/db.js', 'src/routes.js', 'src/actions', 'server.js', 'function.js', 'import-map.json', 'node_modules/what-devtools', 'node_modules/what-devtools-mcp', 'node_modules/what-core/src', 'node_modules/what-framework/src']) {
       assert.equal(existsSync(join(s, f)), false, `dist/static/${f} must not be published`);
     }
+    // Of each package, the production build's files alone: not the
+    // development build beside them, not the source maps.
+    const published = (await readdir(join(s, 'node_modules'), { recursive: true })).filter((f) => /\.(js|map)$/.test(f));
+    assert.ok(published.length > 0);
+    assert.deepEqual(published.filter((f) => !f.endsWith('.min.js')), [], 'only *.min.js under node_modules');
+    // Every URL in the page's import map is a published file, what-framework's
+    // router and server subpaths among them.
+    const { imports, scopes } = JSON.parse(await readFile(join(appDir, 'import-map.json'), 'utf8'));
+    for (const specifier of ['what-framework/router', 'what-framework/server', 'what-framework/render', 'what-core/internal']) {
+      assert.ok(imports[specifier], `the import map names ${specifier}`);
+    }
+    assert.equal(imports['what-core'], '/node_modules/what-core/dist/index.min.js', 'each package maps to its production build');
+    assert.equal(scopes['/node_modules/what-core/'], undefined, 'which imports no #env');
+    for (const [specifier, url] of [...Object.entries(imports), ...Object.values(scopes).flatMap((scope) => Object.entries(scope))]) {
+      assert.ok(existsSync(join(s, url)), `${specifier} -> dist/static${url} is published`);
+    }
+    assert.equal(Object.keys(imports).some((k) => k.startsWith('what-devtools')), false, 'the production map has no devtools');
 
     // Run the Function the way the platform does: dist/ alone, NODE_ENV=production,
     // no WHAT_REVALIDATE_SECRET, behind the edge's forwarded headers.
@@ -136,8 +159,9 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
         const webhook = await fn.fetch(new Request('http://10.1.2.3:3001/__what_revalidate', {
           method: 'POST', headers: { ...edge, 'content-type': 'application/json' }, body: '{"paths":["/"]}',
         }), env);
+        const importMap = JSON.parse(html.match(/<script type="importmap">(.*?)<\\/script>/)[1]);
         console.log(JSON.stringify({
-          home: home.status, cookie: home.headers.get('set-cookie'), listsPosts: html.includes('/blog/hello-world'),
+          home: home.status, cookie: home.headers.get('set-cookie'), listsPosts: html.includes('/blog/hello-world'), importMap,
           post: post.status, missing: missing.status, webhook: webhook.status,
         }));
       `);
@@ -147,9 +171,17 @@ test('fullstack scaffold `npm run build` writes Vura output that runs with no no
         env: { PATH: process.env.PATH, NODE_ENV: 'production' },
       });
       assert.equal(run.status, 0, `Function failed:\n${run.stdout}\n${run.stderr}`);
+      // The build baked its mode in: a host that leaves NODE_ENV unset runs
+      // the same production Function.
+      const unset = spawnSync(process.execPath, [probe], { cwd: isolated, encoding: 'utf8', env: { PATH: process.env.PATH } });
+      assert.equal(unset.status, 0, `Function failed without NODE_ENV:\n${unset.stdout}\n${unset.stderr}`);
+      // Each run mints its own CSRF cookie; everything else is the same.
+      const answers = (out) => ({ ...JSON.parse(out.trim().split('\n').pop()), cookie: null });
+      assert.deepEqual(answers(unset.stdout), answers(run.stdout));
       const got = JSON.parse(run.stdout.trim().split('\n').pop());
       assert.equal(got.home, 200);
       assert.ok(got.listsPosts, 'SSR lists the posts');
+      assert.deepEqual(got.importMap, { imports, scopes }, 'the Function renders the import map the build derived');
       assert.match(got.cookie || '', /what-csrf=[^;]+;.*Secure/);
       assert.equal(got.post, 200);
       assert.equal(got.missing, 404);

@@ -12,7 +12,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,5 +67,37 @@ describe('vite-plugin degrades gracefully when what-devtools is not installed', 
     assert.equal(resolved, '\0virtual:what-devtools-mcp/bootstrap');
     const code = plugin.load(resolved);
     assert.match(code, /connectDevToolsMCP\(/);
+  });
+});
+
+describe('vite-plugin finds what-devtools the way Vite resolves the bootstrap import', () => {
+  it('ignores a what-devtools reachable only through NODE_PATH (pnpm bin shims set it to the hidden store)', async () => {
+    const { default: whatDevToolsMCP } = await import('../src/vite-plugin.js');
+    const plugin = whatDevToolsMCP();
+    // A pnpm-like layout: the app has no what-devtools, the hidden store does.
+    const base = mkdtempSync(join(tmpdir(), 'what-node-path-'));
+    const store = join(base, 'store', 'node_modules', 'what-devtools');
+    const app = join(base, 'app');
+    mkdirSync(store, { recursive: true });
+    mkdirSync(app, { recursive: true });
+    writeFileSync(join(store, 'package.json'), JSON.stringify({ name: 'what-devtools', main: 'index.js' }));
+    writeFileSync(join(store, 'index.js'), 'module.exports = {};');
+    const savedNodePath = process.env.NODE_PATH;
+    const origInfo = console.info;
+    console.info = () => {};
+    try {
+      process.env.NODE_PATH = join(base, 'store', 'node_modules');
+      // Node's CommonJS resolution reads NODE_PATH when it initializes paths.
+      createRequire(import.meta.url)('module')._initPaths();
+      assert.ok(createRequire(join(app, 'noop.js')).resolve('what-devtools'), 'require.resolve finds it through NODE_PATH');
+      plugin.configResolved({ command: 'serve', root: app });
+      assert.equal(plugin.transformIndexHtml(), undefined, 'no bootstrap: Vite could not resolve its import');
+      assert.equal(plugin.resolveId('virtual:what-devtools-mcp/bootstrap'), null);
+    } finally {
+      console.info = origInfo;
+      if (savedNodePath === undefined) delete process.env.NODE_PATH; else process.env.NODE_PATH = savedNodePath;
+      createRequire(import.meta.url)('module')._initPaths();
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

@@ -37,10 +37,10 @@ globalThis.__WHAT_DEV__ = MODE !== 'production';
 
 installDOM('<!DOCTYPE html><html><head></head><body></body></html>');
 
-const { signal, flushSync } = await import('../src/reactive.js');
+const { signal, flushSync, createRoot } = await import('../src/reactive.js');
 const { h } = await import('../src/h.js');
 const { hydrate } = await import('../src/render.js');
-const { mount, disposeTree } = await import('../src/dom.js');
+const { mount } = await import('../src/dom.js');
 const { renderToString } = await import('what-server');
 
 const CASES = 400;
@@ -163,23 +163,28 @@ if (!MODE) {
       document.body.append(client, host);
       const clientSignals = sig(CLIENT_VALUES);
       const hydrationSignals = sig(CLIENT_VALUES);
+      // Each tree is built under a root of its own; disposing it stops the
+      // tree and leaves its DOM in place, so a write after disposal that
+      // changes the DOM is a binding that outlived its owner.
+      let disposeClient = () => {};
+      let disposeHydrated = () => {};
       let ssr;
       try {
         // Only shapes valid for both rendering APIs belong to the oracle.
         // The minimum count below prevents generation failures from vacuously
         // passing, and cleanup still runs for every excluded shape.
-        quiet(() => mount(factory(clientSignals), client));
+        disposeClient = createRoot((d) => { quiet(() => mount(factory(clientSignals), client)); return d; });
         flushSync();
         ssr = renderToString(factory(sig(SERVER_VALUES)));
       } catch {
-        disposeTree(client);
+        disposeClient();
         client.remove();
         host.remove();
         continue; // a tree the client cannot render is not a hydration case
       }
       host.innerHTML = ssr;
       try {
-        quiet(() => hydrate(factory(hydrationSignals), host));
+        disposeHydrated = createRoot((d) => { quiet(() => hydrate(factory(hydrationSignals), host)); return d; });
         flushSync();
         const context = `seed ${SEED} case ${n} mode ${MODE}; SSR ${JSON.stringify(ssr)}`;
         assert.deepEqual(normalize(host), normalize(client), `initial DOM: ${context}`);
@@ -189,8 +194,8 @@ if (!MODE) {
           flushSync();
           assert.deepEqual(normalize(host), normalize(client), `after write ${JSON.stringify(values)}: ${context}`);
         }
-        disposeTree(client);
-        disposeTree(host);
+        disposeClient();
+        disposeHydrated();
         const disposedClient = normalize(client);
         const disposedHydrated = normalize(host);
         clientSignals.forEach((s, i) => s(CLIENT_VALUES[i]));
@@ -200,8 +205,8 @@ if (!MODE) {
         assert.deepEqual(normalize(host), disposedHydrated, `hydrated DOM mutated after disposal: ${context}`);
         checked++;
       } finally {
-        disposeTree(client);
-        disposeTree(host);
+        disposeClient();
+        disposeHydrated();
         client.remove();
         host.remove();
       }

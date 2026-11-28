@@ -1,0 +1,28 @@
+:root { --ink: #1d232b; --muted: #687384; --line: #e3e7ee; --accent: #2f6fdf; --bg: #fafbfc; font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink); background: var(--bg); }
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.layout { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
+.sidebar { border-right: 1px solid var(--line); padding: 20px 16px; background: #fff; position: sticky; top: 0; height: 100vh; overflow: auto; }
+.brand { font-weight: 700; font-size: 18px; color: var(--ink); display: block; margin-bottom: 16px; }
+.chapters { list-style: decimal; padding-left: 22px; margin: 0 0 16px; line-height: 1.9; }
+.chapters a.active { font-weight: 600; color: var(--ink); }
+.tick { color: #2a9d5b; margin-left: 6px; }
+.desk-link { display: block; margin-top: 8px; }
+.who { color: var(--muted); font-size: 13px; margin-top: 20px; }
+.page { position: relative; padding: 32px 48px; max-width: 760px; }
+.page[aria-busy='true'] .chapter, .page[aria-busy='true'] .home { opacity: 0.6; transition: opacity 0.2s 0.1s; }
+.loading-bar { position: absolute; top: 0; left: 0; height: 3px; width: 40%; background: var(--accent); animation: slide 1s infinite linear; }
+@keyframes slide { from { left: -40%; } to { left: 100%; } }
+.eyebrow { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+.meta, .muted, .lede { color: var(--muted); }
+.body p { line-height: 1.6; }
+.read { display: block; margin: 20px 0 12px; }
+.note { display: grid; gap: 6px; color: var(--muted); }
+.note textarea { font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+.toc { line-height: 1.9; }
+.failed { border: 1px solid #f0c4c4; background: #fff6f6; padding: 16px 20px; border-radius: 8px; }
+button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.desk table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+.desk td, .desk th { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }

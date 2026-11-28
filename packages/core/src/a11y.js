@@ -1,25 +1,35 @@
 // What Framework - Accessibility Utilities
 // Focus management, ARIA helpers, screen reader announcements
 
-import { signal, effect } from './reactive.js';
+import { signal, effect, onCleanup } from './reactive.js';
 import { h } from './h.js';
-import { getCurrentComponent } from './dom.js';
 import { getServerContext } from './server-context.js';
 
 // --- Focus Management ---
 
-// Track currently focused element
-const focusedElement = signal(null);
+// The focused element, tracked from the first useFocus() call on. Until then
+// nothing listens, so a program that never asks pays nothing.
+/** @type {any} */
+let focusedElement = null;
 
-if (typeof document !== 'undefined') {
-  document.addEventListener('focusin', (e) => {
-    focusedElement.set(e.target);
-  });
+function trackFocus() {
+  if (focusedElement === null) {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    focusedElement = signal(active && active !== document.body ? active : null);
+    if (typeof document !== 'undefined') {
+      // focusout clears it and the next focusin, if focus moves on, sets it:
+      // focus that leaves for nothing (the body) is no element.
+      document.addEventListener('focusin', (e) => focusedElement.set(e.target));
+      document.addEventListener('focusout', () => focusedElement.set(null));
+    }
+  }
+  return focusedElement;
 }
 
 export function useFocus() {
+  const focused = trackFocus();
   return {
-    current: () => focusedElement(),
+    current: () => focused(),
     focus: (element) => element?.focus(),
     blur: () => /** @type {HTMLElement | null} */ (document.activeElement)?.blur(),
   };
@@ -71,27 +81,24 @@ export function useFocusTrap(containerRef) {
     // Focus first element
     focusables[0].focus();
 
-    // Handle Tab key
+    // Tab and Shift+Tab move focus through the trap's own list, in document
+    // order, wrapping at both ends. The trap makes every move itself because
+    // browsers disagree on what Tab reaches: Safari by default skips buttons
+    // and links, so from the last field it reaches the browser would carry
+    // focus out of the container.
     function handleKeydown(e) {
       if (e.key !== 'Tab') return;
 
       const focusables = getFocusableElements(container);
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
+      e.preventDefault();
+      if (focusables.length === 0) return;
 
-      if (e.shiftKey) {
-        // Shift+Tab: if on first, go to last
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        // Tab: if on last, go to first
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      const at = focusables.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+      const last = focusables.length - 1;
+      const next = e.shiftKey
+        ? focusables[at <= 0 ? last : at - 1]
+        : focusables[at === -1 || at === last ? 0 : at + 1];
+      next.focus();
     }
 
     container.addEventListener('keydown', handleKeydown);
@@ -128,7 +135,11 @@ function getFocusableElements(container) {
 // --- Focus Scope ---
 // Component wrapper that traps focus
 
-export function FocusTrap({ children, active = true }) {
+// These place their children in an element of their own, so compiled
+// children arrive unbuilt (`_deferChildren`, dom.js _installLazyChildren)
+// and are built there: while hydrating, children built while the component
+// runs would claim the server's nodes before its element does.
+export const FocusTrap = /* @__PURE__ */ Object.assign(function FocusTrap({ children, active = true }) {
   const containerRef = { current: null };
   const refVersion = signal(0);
   const trap = useFocusTrap(containerRef);
@@ -140,8 +151,8 @@ export function FocusTrap({ children, active = true }) {
     refVersion.set(v => v + 1);
   };
 
-  // Scope the effect to the component lifecycle so it disposes on unmount
-  const dispose = effect(() => {
+  // The effect belongs to the component and is disposed on unmount.
+  effect(() => {
     // Re-run activation after the ref element is attached/updated.
     refVersion();
 
@@ -161,20 +172,14 @@ export function FocusTrap({ children, active = true }) {
     }
   });
 
-  // Register cleanup on component context
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      dispose();
-      trapCleanup?.();
-      trapCleanup = null;
-      trap.deactivate();
-    });
-  }
+  onCleanup(() => {
+    trapCleanup?.();
+    trapCleanup = null;
+    trap.deactivate();
+  });
 
   return h('div', { ref: setRef }, children);
-}
+}, { _deferChildren: true });
 
 // --- Screen Reader Announcements ---
 
@@ -238,7 +243,7 @@ export function announceAssertive(message) {
 // --- Skip Link ---
 // Accessible skip navigation
 
-export function SkipLink({ href = '#main', children = 'Skip to content' }) {
+export const SkipLink = /* @__PURE__ */ Object.assign(function SkipLink({ href = '#main', children = 'Skip to content' }) {
   return h('a', {
     href,
     class: 'what-skip-link',
@@ -267,7 +272,7 @@ export function SkipLink({ href = '#main', children = 'Skip to content' }) {
       e.target.style.top = '-40px';
     },
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- ARIA Helpers ---
 
@@ -408,7 +413,7 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
   // accept an object and only two accept a function: render.js spread() treats
   // any function-valued prop as a reactive accessor and would CALL a callback
   // ref with no arguments. An object is assigned `.current` by dom.js
-  // applyProps (h()), render.js setProp() (compiled spread) and
+  // createElementFromVNode (h()), render.js setProp() (compiled spread) and
   // hydrateElementProps() (SSR) alike, and renderToString() skips `ref`
   // entirely, so nothing lands in the HTML and there is no hydration mismatch
   // to have.
@@ -500,9 +505,9 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
   }
 
   // Out-of-range indexes handed in from application code are REFUSED rather
-  // than clamped. focusItem(99) used to write 99 into the signal and return
-  // null: no item matched, so every item went to tabindex="-1" and the widget
-  // dropped out of the tab order entirely. Clamping instead would move focus
+  // than clamped. Writing focusItem(99) into the signal would match no item,
+  // so every item would go to tabindex="-1" and the widget would drop out of
+  // the tab order entirely. Clamping instead would move focus
   // somewhere the caller never asked for, which is a worse surprise than
   // ignoring an index that does not exist.
   function isValidIndex(i) {
@@ -588,7 +593,7 @@ export function useRovingTabIndex(itemCountOrSignal, options = {}) {
 // --- Visually Hidden ---
 // Hide content visually but keep accessible to screen readers
 
-export function VisuallyHidden({ children, as = 'span' }) {
+export const VisuallyHidden = /* @__PURE__ */ Object.assign(function VisuallyHidden({ children, as = 'span' }) {
   return h(as, {
     style: {
       position: 'absolute',
@@ -602,16 +607,16 @@ export function VisuallyHidden({ children, as = 'span' }) {
       border: '0',
     },
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- Live Region Component ---
 
-export function LiveRegion({ children, priority = 'polite', atomic = true }) {
+export const LiveRegion = /* @__PURE__ */ Object.assign(function LiveRegion({ children, priority = 'polite', atomic = true }) {
   return h('div', {
     'aria-live': priority,
     'aria-atomic': atomic,
   }, children);
-}
+}, { _deferChildren: true });
 
 // --- ID Generator ---
 // Generate unique IDs for ARIA attributes
@@ -649,9 +654,9 @@ export function __resetIdCounter() {
   idCounter = 0;
 }
 
+// A string, as in React: the component runs once, so the id never changes.
 export function useId(prefix = 'what') {
-  const id = `${prefix}-${nextIdSuffix()}`;
-  return () => id;
+  return `${prefix}-${nextIdSuffix()}`;
 }
 
 export function useIds(count, prefix = 'what') {
@@ -671,14 +676,14 @@ export function useDescribedBy(description) {
   return {
     descriptionId: id,
     descriptionProps: () => ({
-      id: id(),
+      id,
       style: { display: 'none' },
     }),
     describedByProps: () => ({
-      'aria-describedby': id(),
+      'aria-describedby': id,
     }),
     Description: () => h('div', {
-      id: id(),
+      id,
       style: { display: 'none' },
     }, description),
   };
@@ -692,10 +697,10 @@ export function useLabelledBy(_label) {
   return {
     labelId: id,
     labelProps: () => ({
-      id: id(),
+      id,
     }),
     labelledByProps: () => ({
-      'aria-labelledby': id(),
+      'aria-labelledby': id,
     }),
   };
 }

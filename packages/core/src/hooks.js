@@ -3,10 +3,13 @@
 // Components run ONCE. Hooks return signal accessors (functions) so the
 // fine-grained runtime handles reactive updates automatically via effects.
 
-import { signal, computed, effect, batch, untrack, __DEV__ } from './reactive.js';
-import { getCurrentComponent } from './dom.js';
+import { signal, computed, effect, untrack, getOwner, onCleanup as onOwnerCleanup, _userEffect, _currentComponent, _contextOf, _devAsyncWork, _devCallSite, _devStackLoc, _asyncComputed, _asyncStatus, _asyncError, _refresh, _setAsyncValue, _installSeedOps, __DEV__ } from './reactive.js';
 import { getServerContext, isServerRender } from './server-context.js';
-import { getLoaderData as _getLoaderData, getResource as _getResource } from './hydration-data.js';
+import { getLoaderData as _getLoaderData, getResource as _getResource, getResourceError as _getResourceError, _seedFor, _errorFromRecord } from './hydration-data.js';
+import { computed as asyncComputed } from './async.js';
+import { _enableSuspense } from './render.js';
+import { _isLiveProp } from './dom.js';
+import { report, _thrownMessage } from './diagnostics.js';
 
 // --- useLoaderData ---
 // Returns the current page's server loader data. Works during SSR (reads the
@@ -33,19 +36,22 @@ export function useLoaderData() {
   return _getLoaderData();
 }
 
+// The component a hook belongs to: the nearest component owner above the
+// current owner (reactive.js _componentOwner).
 function getCtx(hookName) {
-  const ctx = getCurrentComponent();
+  const ctx = _currentComponent();
   if (!ctx) {
-    throw new Error(
-      `[what] ${hookName || 'Hook'}() can only be called inside a component function. ` +
-      `Did you call it outside of a component or in an async callback? ` +
-      `If you need reactive state outside a component, use signal() directly.`
-    );
+    // The production tier keeps the code and the first sentence; the
+    // catalogue (ERR_HOOK_OUTSIDE_COMPONENT) has the rest.
+    throw Object.assign(new Error(__DEV__
+      ? _thrownMessage('ERR_HOOK_OUTSIDE_COMPONENT', `${hookName || 'Hook'}() can only be called inside a component function. Did you call it outside of a component or in an async callback? If you need reactive state outside a component, use signal() directly.`)
+      : `[what] ${hookName || 'Hook'}() can only be called inside a component function.`), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' });
   }
   return ctx;
 }
 
 function getHook(ctx) {
+  if (ctx.hooks === null) ctx.hooks = [];
   const index = ctx.hookIndex++;
   return { index, exists: index < ctx.hooks.length };
 }
@@ -56,12 +62,13 @@ function getHook(ctx) {
 // via insert()'s effect wrapper. For interpolation, use count() explicitly.
 // This matches Solid's API and works with the run-once component model.
 
-export function useState(initial) {
+// `debugName` is the development name what-compiler passes ("count@src/App.jsx:4:27").
+export function useState(initial, debugName) {
   const ctx = getCtx('useState');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    const s = signal(typeof initial === 'function' ? initial() : initial);
+    const s = signal(typeof initial === 'function' ? initial() : initial, debugName);
     ctx.hooks[index] = s;
   }
 
@@ -73,119 +80,126 @@ export function useState(initial) {
 // Returns the raw signal. More powerful: read with sig(), write with sig.set(v).
 // Avoids array destructuring overhead.
 
-export function useSignal(initial) {
+export function useSignal(initial, debugName) {
   const ctx = getCtx('useSignal');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = signal(typeof initial === 'function' ? initial() : initial);
+    ctx.hooks[index] = signal(typeof initial === 'function' ? initial() : initial, debugName);
   }
 
   return ctx.hooks[index];
 }
 
 // --- useComputed ---
-// Derived value. Only recomputes when signal deps change.
+// computed() as a hook: a derived value, which may be async (see async.js).
 
 export function useComputed(fn) {
   const ctx = getCtx('useComputed');
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = computed(fn);
+    ctx.hooks[index] = asyncComputed(fn);
   }
 
   return ctx.hooks[index];
 }
 
 // --- useEffect ---
-// Side effect that runs after mount. In the run-once model, deps-based
-// re-running only works if deps are signal accessors. The implementation:
-// - No deps (undefined): wrap in effect() that auto-tracks signals
-// - Empty deps []: run once on mount, cleanup on unmount
-// - Deps [a, b]: create effect() that reads each dep (calling signal functions
-//   to establish tracking), then runs the callback when any dep changes
+// Side effect that runs after mount, in the user phase: after the render-phase
+// effects (the DOM bindings) of the same flush, so it sees settled DOM. The
+// first run is on the microtask after the component body (or at the end of
+// the batch, or in the flush, that builds the component). In the run-once
+// model, deps-based re-running only works if deps are signal accessors:
+// - No deps (undefined): re-runs whenever a signal it read changes
+// - Empty deps []: runs once on mount, cleanup on unmount
+// - Deps [a, b]: re-runs when a signal or computed among the deps changes;
+//   what the callback reads is untracked. Any other function in the array is
+//   not called (reportPlainDeps)
+// A returned function is the cleanup, run before each re-run and on unmount.
+// The effect belongs to the component: unmounting disposes it.
 
-export function useEffect(fn, deps) {
+// Dev-mode: a value in the deps array (count() rather than count) is read once
+// and never changes. Kept out of line: written inline after another statement,
+// esbuild folds `if (seq, false) { loop }` without dropping the loop, which
+// kept this report() call and the whole catalogue in production bundles.
+//
+// A function that is not a signal or a computed is not called for what it
+// reads: a deps array written by React habit holds setters and callbacks
+// (`[setCount]`, `[load]`, `[props.onClose]`), and calling those as getters
+// would write state or start work on every run. One that takes no argument
+// may have been meant as a getter (`[() => props.count]`), so it is reported:
+// the effect never re-runs for it. One that takes arguments cannot be a
+// getter, and listing it is harmless (a component runs once, so a callback
+// never changes).
+// The component is the report's subject, so the same mistake in two
+// components is two reports, each with its own owner, and the rows of one
+// component's list are one. The report is at the useEffect call: `at`, the
+// location what-compiler gave it, else the caller's frame of the stack.
+function reportPlainDeps(deps, ctx, at) {
+  const subject = { kind: 'component', name: ctx.Component?.displayName || ctx.Component?.name || 'anonymous' };
+  /** @type {string | null | undefined} */
+  let loc;
+  const where = () => (loc === undefined ? (loc = at ?? _devStackLoc(useEffect)) : loc);
+  for (let i = 0; i < deps.length; i++) {
+    const dep = deps[i];
+    if (dep == null) continue;
+    if (typeof dep !== 'function') report('ERR_EFFECT_DEP_NOT_FUNCTION', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` }, loc: where() });
+    else if (!dep._signal && dep.length === 0) report('ERR_EFFECT_DEP_NOT_SIGNAL', { data: { index: i }, subject: { ...subject, id: `${subject.name}#${i}` }, loc: where() });
+  }
+}
+
+// "name@path:line:column" (what-compiler's development metadata) as its location.
+function devLoc(meta) {
+  const at = typeof meta === 'string' ? meta.indexOf('@') : -1;
+  return at === -1 ? null : meta.slice(at + 1);
+}
+
+// A callback's result as an effect's: a function is the cleanup. In
+// development, a thenable (an async callback) is work the component started,
+// so an effect created after its `await`, under no owner, is reported; an
+// async useEffect callback is reported itself, since its promise is not a
+// cleanup and its runs can finish out of order (an async onMount, which runs
+// once, passes `mounting`).
+function cleanupOf(result, ctx, mounting) {
+  if (typeof result === 'function') return result;
+  if (__DEV__ && result != null && typeof result.then === 'function') {
+    _devAsyncWork(ctx, result);
+    if (!mounting) report('ERR_ASYNC_EFFECT', { data: { effectName: 'useEffect' } });
+  }
+  return undefined;
+}
+
+// `debugName` is what-compiler's development metadata for the call
+// ("useEffect@src/App.jsx:10:3"), in development builds only.
+export function useEffect(fn, deps, debugName) {
   const ctx = getCtx('useEffect');
-  const { index, exists } = getHook(ctx);
+  getHook(ctx);
+  const at = __DEV__ ? devLoc(debugName) : null;
+  if (__DEV__ && Array.isArray(deps)) reportPlainDeps(deps, ctx, at);
+  // A server render never mounts.
+  if (isServerRender()) return;
 
-  if (!exists) {
-    ctx.hooks[index] = { cleanup: null, dispose: null };
-  }
-
-  // Dev-mode: warn when deps array contains non-function values that look like signals
-  if (__DEV__ && Array.isArray(deps) && deps.length > 0) {
-    for (let i = 0; i < deps.length; i++) {
-      const dep = deps[i];
-      if (dep != null && typeof dep !== 'function') {
-        console.warn(
-          `[what] useEffect dep at index ${i} is not a function. ` +
-          `Did you mean to pass a signal? Use count instead of count()`
-        );
-      }
-    }
-  }
-
-  const hook = ctx.hooks[index];
-
-  // Only set up once — component runs once
-  if (hook.dispose) return;
-
+  let run;
   if (deps === undefined) {
-    // No deps array: wrap in effect() that auto-tracks signal reads inside fn
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      hook.dispose = effect(() => {
-        if (hook.cleanup) {
-          try { hook.cleanup(); } catch { /* cleanup error */ }
-          hook.cleanup = null;
-        }
-        const result = fn();
-        if (typeof result === 'function') hook.cleanup = result;
-      });
-      // Register disposal with component lifecycle
-      ctx.effects = ctx.effects || [];
-      ctx.effects.push(hook.dispose);
-    });
+    run = () => cleanupOf(fn(), ctx);
   } else if (deps.length === 0) {
-    // Empty deps []: run once on mount, cleanup on unmount
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      const result = fn();
-      if (typeof result === 'function') hook.cleanup = result;
-    });
-    // Mark as set up so we don't re-run
-    hook.dispose = true;
+    run = () => cleanupOf(untrack(fn), ctx);
   } else {
-    // Deps array with values: create a reactive effect that reads each dep.
-    // If a dep is a signal function, calling it establishes tracking.
-    // When any tracked signal changes, the effect re-runs the callback.
-    queueMicrotask(() => {
-      if (ctx.disposed) return;
-      hook.dispose = effect(() => {
-        // Read all deps to establish signal tracking
-        for (let i = 0; i < deps.length; i++) {
-          const dep = deps[i];
-          if (typeof dep === 'function' && dep._signal) {
-            dep(); // Read signal to track it
-          }
-        }
-
-        // Run cleanup from previous execution
-        if (hook.cleanup) {
-          try { hook.cleanup(); } catch { /* cleanup error */ }
-          hook.cleanup = null;
-        }
-
-        // Run the effect callback
-        const result = untrack(() => fn());
-        if (typeof result === 'function') hook.cleanup = result;
-      });
-      // Register disposal with component lifecycle
-      ctx.effects = ctx.effects || [];
-      ctx.effects.push(hook.dispose);
-    });
+    run = () => {
+      for (let i = 0; i < deps.length; i++) {
+        const dep = deps[i];
+        if (typeof dep === 'function' && dep._signal) dep();
+      }
+      return cleanupOf(untrack(fn), ctx);
+    };
+  }
+  if (__DEV__) {
+    /** @type {any} */ (run).inner = fn;
+    const name = fn.name || 'useEffect';
+    /** @type {any} */ (_userEffect)(run, at !== null ? `${name}@${at}` : _devCallSite(name, useEffect));
+  } else {
+    _userEffect(run);
   }
 }
 
@@ -200,10 +214,22 @@ export function useMemo(fn, _deps) {
   const { index, exists } = getHook(ctx);
 
   if (!exists) {
-    ctx.hooks[index] = { computed: computed(fn) };
+    ctx.hooks[index] = { computed: computed(__DEV__ ? devMemo(fn) : fn) };
   }
 
   return ctx.hooks[index].computed;
+}
+
+// Development: useMemo keeps a promise its function returns as the value, as
+// React's does; one that does is almost always meant to be an async value.
+function devMemo(fn) {
+  const memo = () => {
+    const value = fn();
+    if (value != null && typeof value.then === 'function') report('ERR_ASYNC_MEMO');
+    return value;
+  };
+  memo.inner = fn;
+  return memo;
 }
 
 // --- useCallback ---
@@ -238,64 +264,69 @@ export function useRef(initial) {
 }
 
 // --- useContext ---
-// Read from the nearest Provider in the component tree, or the default value.
-// Uses _parentCtx chain (persistent tree) instead of componentStack (runtime stack)
-// so context works correctly in effects and event handlers.
-// Returns the signal itself (not its value) so that consumers get reactive updates.
+// Read from the nearest Provider above the current owner, or the default
+// value. Providers keep their values on their component's owner, and the walk
+// goes up the owner tree, so context resolves the same way in a component
+// body, in an effect or region that re-runs long after it, and in a list row.
+// A stored signal is read, so the reader subscribes to it.
 
 export function useContext(context) {
-  // Walk up the _parentCtx chain to find the nearest provider
-  let ctx = getCurrentComponent();
-  if (__DEV__ && !ctx) {
-    console.warn(
-      `[what] useContext(${context?.displayName || 'Context'}) called outside of component render. ` +
-      'useContext must be called during component rendering, not inside effects or event handlers. ' +
-      'Store the context value in a variable during render and use that variable in your callback.'
-    );
+  const map = _contextOf(context);
+  if (map !== null) {
+    const val = map.get(context);
+    return (val && val._signal) ? val() : val;
   }
-  while (ctx) {
-    if (ctx._contextValues && ctx._contextValues.has(context)) {
-      const val = ctx._contextValues.get(context);
-      // If the stored value is a signal, read it to subscribe
-      return (val && val._signal) ? val() : val;
+  if (__DEV__) {
+    if (!_currentComponent()) {
+      report('ERR_HOOK_OUTSIDE_COMPONENT', { data: { hookName: 'useContext', context: context?.displayName || 'Context' } });
+    } else if (!context._hasDefault) {
+      // createContext() with no argument means the value must come from a provider.
+      report('ERR_CONTEXT_NOT_PROVIDED', { data: { context: context.displayName || 'Context' } });
     }
-    ctx = ctx._parentCtx;
   }
   return context._defaultValue;
 }
 
 // --- createContext ---
-// Tree-scoped context: Provider sets value for its subtree only.
+// Tree-scoped context: a provider sets the value for its subtree only.
 // Multiple providers can coexist — each subtree sees its own value.
 // Context values are wrapped in signals so consumers re-render when values change.
+// The context is its own provider, as in React 19 and Solid 2: <Ctx value={v}>
+// and <Ctx.Provider value={v}> render the same component.
+//
+// A provider follows its `value` prop as any component follows a prop:
+// compiled JSX hands `value={theme()}` over as a live prop (a getter, dom.js
+// _isLiveProp), which an effect of the provider reads, so the readers below
+// see each new value. The value is read once per change, not once per reader,
+// so `value={{ user: user(), setUser }}` is one object for all of them until
+// `user` changes. A value that is not live (a signal handed over as it is,
+// `value={theme}`; a constant; an h() call's argument) is stored as it is and
+// costs no effect.
 
 export function createContext(defaultValue) {
-  const context = {
-    _defaultValue: defaultValue,
-    Provider: ({ value, children }) => {
-      const ctx = getCtx('Context.Provider');
-      if (!ctx._contextValues) ctx._contextValues = new Map();
-      if (!ctx._contextSignals) ctx._contextSignals = new Map();
-
-      // Create or update the context signal
-      if (!ctx._contextSignals.has(context)) {
-        const s = signal(value);
-        ctx._contextSignals.set(context, s);
-        ctx._contextValues.set(context, s);
-      } else {
-        ctx._contextSignals.get(context).set(value);
-      }
-      return children;
-    },
-    // React-compatible Consumer: <Context.Consumer>{value => ...}</Context.Consumer>
-    Consumer: ({ children }) => {
-      const value = useContext(context);
-      return typeof children === 'function' ? children(value) : children;
-    },
+  function context(props) {
+    const ctx = getCtx('Context.Provider');
+    const values = ctx.context || (ctx.context = new Map());
+    const current = values.get(context);
+    if (current !== undefined) current.set(props.value);
+    else {
+      const held = signal(props.value);
+      values.set(context, held);
+      if (_isLiveProp(props, 'value')) effect(() => held.set(props.value), __DEV__ ? { name: 'context value' } : undefined);
+    }
+    return props.children;
+  }
+  context._defaultValue = defaultValue;
+  context._hasDefault = arguments.length > 0;
+  context.Provider = context;
+  // React-compatible Consumer: <Context.Consumer>{value => ...}</Context.Consumer>
+  context.Consumer = ({ children }) => {
+    const value = useContext(context);
+    return typeof children === 'function' ? children(value) : children;
   };
   // The context value is only published once the provider body runs, so
   // compiled children must not be built during this call. See createComponent.
-  /** @type {any} */ (context.Provider)._deferChildren = true;
+  context._deferChildren = true;
   return context;
 }
 
@@ -321,134 +352,80 @@ export function useReducer(reducer, initialState, init) {
 }
 
 // --- onMount ---
-// Run callback once when component mounts. SolidJS-style lifecycle.
+// Run callback once when the component mounts, in the user phase of the flush
+// that follows its creation (see useEffect), so it sees settled DOM. Disposed
+// with the component if that comes first.
 
 export function onMount(fn) {
   const ctx = getCtx('onMount');
-  if (!ctx.mounted) {
-    ctx._mountCallbacks = ctx._mountCallbacks || [];
-    ctx._mountCallbacks.push(fn);
-  }
+  if (isServerRender()) return;
+  _userEffect(() => { cleanupOf(untrack(fn), ctx, true); });
 }
 
 // --- onCleanup ---
-// Register cleanup function to run when component unmounts.
+// Run `fn` when the current owner goes away: the component being rendered (on
+// unmount), the effect whose run is executing (before it runs again, and when
+// it is disposed), or the root, list row or region around the call.
 
 export function onCleanup(fn) {
-  const ctx = getCtx('onCleanup');
-  ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-  ctx._cleanupCallbacks.push(fn);
+  if (getOwner() !== null) onOwnerCleanup(fn);
+  else if (__DEV__) report('ERR_CLEANUP_WITHOUT_OWNER');
 }
 
 // --- createResource ---
-// Reactive data fetching primitive (SolidJS-style).
-// Returns [data, { loading, error, refetch, mutate }]
+// createResource(fetcher, options) -> [data, { loading, error, refetch, mutate }].
+// `data` is an async computed (async.js): reading it before the first value
+// lands holds the reader, as any async value does, and a <Suspense> above it
+// shows its fallback. `fetcher(source, { signal })` runs untracked: the
+// resource fetches when it is created and on refetch(source), not when a
+// signal the fetcher reads changes. On the server it takes part in the
+// hydration data channel like any async value made in a component, under
+// `options.key` when it has one: the client adopts the value (or the error)
+// instead of fetching. `initialValue` starts it with a value and no fetch.
 
 export function createResource(fetcher, options = {}) {
-  // --- Server branch: run the fetcher, cache by key on the render context, and
-  // suspend (throw the promise) so the nearest Suspense shows its fallback until
-  // the data resolves. On re-render the cached value is returned synchronously.
-  //
-  // Gated on the render scope for the same reason as useLoaderData above: under
-  // a DOM shim a server render used to fall into the CLIENT branch, which starts
-  // a browser-style fetch, returns null immediately and never suspends. The
-  // server then emitted the empty state as final HTML and renderToStringAsync
-  // had nothing pending to await, so the resolve loop exited after one pass.
-  if (isServerRender()) {
-    const ctx = getServerContext();
-    if (ctx) {
-      const key = options.key != null ? options.key : `__r${ctx.resourceCounter++}`;
-      const cached = ctx.resources.get(key);
-      if (cached && cached.status === 'ready') {
-        const accessor = () => cached.value;
-        return [accessor, { loading: () => false, error: () => null, refetch: () => {}, mutate: () => {} }];
-      }
-      if (cached && cached.status === 'error') {
-        const accessor = () => undefined;
-        return [accessor, { loading: () => false, error: () => cached.error, refetch: () => {}, mutate: () => {} }];
-      }
-      if (!cached) {
-        const promise = Promise.resolve()
-          .then(() => fetcher(options.source ?? true, {}))
-          .then((v) => { ctx.resources.set(key, { status: 'ready', value: v }); })
-          .catch((e) => { ctx.resources.set(key, { status: 'error', error: e }); });
-        ctx.resources.set(key, { status: 'pending', promise });
-        throw promise; // caught by the nearest Suspense boundary
-      }
-      // pending (shouldn't normally re-reach here within one pass)
-      throw cached.promise;
-    }
-    // No active render context (bare synchronous renderToString): suspend so the
-    // nearest Suspense boundary shows its fallback. There's no cache to resolve
-    // into here — use renderToStringAsync / renderToStream for resolved data.
-    if (options.initialValue != null) {
-      const accessor = () => options.initialValue;
-      return [accessor, { loading: () => false, error: () => null, refetch: () => {}, mutate: () => {} }];
-    }
-    throw Promise.resolve().then(() => fetcher(options.source ?? true, {}));
+  _enableSuspense();
+  _installSeedOps();
+  let source = options.source;
+  const ctx = isServerRender() ? getServerContext() : null;
+  const keyed = options.key != null;
+  /** @type {any} */
+  let seed;
+  if (ctx !== null) {
+    seed = _seedFor(options.key, false);
+  } else if (keyed) {
+    // A keyed value is adopted wherever it is read, not only while hydrating.
+    const value = options.initialValue != null ? options.initialValue : _getResource(options.key);
+    const record = value === undefined ? _getResourceError(options.key) : undefined;
+    seed = value !== undefined ? { value, track: false } : record ? { error: _errorFromRecord(record), track: false } : null;
+  } else {
+    // Asked even with an initialValue: every keyless value consumes its owner key.
+    seed = _seedFor(null, false);
+    if (options.initialValue != null) seed = { value: options.initialValue, track: false };
   }
+  const data = _asyncComputed(({ signal }) => untrack(() => (ctx !== null
+    ? fetcher(source ?? true, { signal: ctx.signal, request: ctx.request })
+    : fetcher(source, { signal }))), seed);
+  // A server render suspends the component that makes it until it settles,
+  // and finds it in the render's store when the component runs again.
+  if (ctx !== null && _asyncStatus(data) === 'unresolved') data();
 
-  // --- Client branch: seed from the hydration payload so SSR'd resources don't
-  // refetch on hydrate.
-  let seeded = options.initialValue;
-  if (seeded == null && options.key != null) {
-    const fromPayload = _getResource(options.key);
-    if (fromPayload !== undefined) seeded = fromPayload;
-  }
-
-  const data = signal(seeded ?? null);
-  const loading = signal(seeded == null);
-  const error = signal(null);
-
-  /** @type {AbortController | null} */
-  let controller = null;
-
-  const refetch = async (source) => {
-    // Abort previous request
-    if (controller) controller.abort();
-    controller = new AbortController();
-    const { signal: abortSignal } = controller;
-
-    loading.set(true);
-    error.set(null);
-
-    try {
-      const result = await fetcher(source, { signal: abortSignal });
-
-      // Only update if not aborted
-      if (!abortSignal.aborted) {
-        batch(() => {
-          data.set(result);
-          loading.set(false);
-        });
-      }
-    } catch (e) {
-      if (!abortSignal.aborted) {
-        batch(() => {
-          error.set(e);
-          loading.set(false);
-        });
-      }
-    }
+  const loading = () => {
+    const status = _asyncStatus(data);
+    return status === 'unresolved' || status === 'pending';
   };
-
+  const error = () => {
+    _asyncStatus(data);
+    return _asyncError(data);
+  };
+  // Never rejects: a failed refetch shows in error().
+  const refetch = (next) => {
+    source = next;
+    return _refresh(data).then(() => undefined, () => undefined);
+  };
   const mutate = (value) => {
-    data.set(typeof value === 'function' ? value(data()) : value);
+    _setAsyncValue(data, typeof value === 'function' ? value(data.peek()) : value);
   };
-
-  // Register cleanup with component lifecycle: abort on unmount
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    ctx._cleanupCallbacks = ctx._cleanupCallbacks || [];
-    ctx._cleanupCallbacks.push(() => {
-      if (controller) controller.abort();
-    });
-  }
-
-  // Initial fetch only if we have no value (initial or hydrated from payload)
-  if (seeded == null) {
-    refetch(options.source);
-  }
 
   return [data, { loading, error, refetch, mutate }];
 }

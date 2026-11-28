@@ -1,4 +1,5 @@
-import { signal, effect, mount, __setDevToolsHooks } from 'what-core';
+import { signal, effect, mount } from 'what-core';
+import { __setDevToolsHooks } from 'what-core/internal';
 import { installDevTools, getSnapshot, subscribe } from 'what-devtools';
 import { DevPanel } from 'what-devtools/panel';
 
@@ -9,6 +10,9 @@ installDevTools({ __setDevToolsHooks });
 const count = signal(0);
 const name = signal('hello');
 const items = signal([1, 2, 3]);
+// A signal whose value is itself a signal: the panel previews it, never
+// stringifies it (that would be the coercion ERR_MISSING_SIGNAL_READ reports).
+const holder = signal(signal(0, 'inner'), 'holder');
 
 // Create an effect. Read count() unconditionally: the element doesn't exist
 // yet at module-eval time, and an effect whose first run tracks zero signals
@@ -38,4 +42,4 @@ function App() {
 mount(App, '#app');
 
 // Expose for Playwright
-window.__TEST__ = { count, name, items, getSnapshot, subscribe };
+window.__TEST__ = { count, name, items, holder, getSnapshot, subscribe };

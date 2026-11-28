@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="./" class="active">Learn</a>
         <a href="../reference/">Reference</a>
@@ -106,7 +106,7 @@ export const createPostAction = action(
           <p>The client imports this module to dispatch the action, and nothing strips the server half of it out of the client bundle: there is no <code>'use server'</code> directive. Bundle this module for the browser and the action body ships with it, along with every module it imports, dynamically or not. Never put an API key, a database password, or any other secret in an action module or in anything it imports.</p>
 
           <h2 id="serve">Serving actions</h2>
-          <p>Actions are dispatched over <code>POST /__what_action</code>. The deploy adapters mount this for you; importing the action module (e.g. from your routes file) registers it. With a manual server, mount the adapter for your runtime:</p>
+          <p>Actions are dispatched over <code>POST /__what_action</code>. The deploy adapters mount this for you; importing the action module (e.g. from your routes file) registers it. Action IDs belong to the JavaScript realm: one realm serves one app's actions, and an ID registered twice warns in development (<code>ERR_DUPLICATE_ACTION_ID</code>), the later registration being the one called. Two apps served from one process need distinct IDs. With a manual server, mount the adapter for your runtime:</p>
 <pre><code>import { nodeActionMiddleware, fetchActionHandler } from 'what-framework/server';
 
 // The session token to compare the request's against. This is what the
@@ -140,27 +140,31 @@ export function NewPostForm({ csrfToken }) {
     h('button', {}, 'Publish'),
   );
 }</code></pre>
-          <p>That renders hidden <code>_action</code>, <code>what-csrf-token</code> and <code>_redirect</code> inputs, then your children. Pass the action <em>function</em>, not its id string, so the two can never drift apart. On success the endpoint answers 303 and the browser follows <code>_redirect</code>.</p>
-          <p>On the client, <code>&lt;Form&gt;</code> finds the token itself (the <code>what-csrf-token</code> meta tag, else the <code>what-csrf</code> cookie). On the server there is no <code>document</code>, so a server-rendered form must be handed <code>csrfToken</code> explicitly; without it the double-submit check rejects the POST and nothing on the page says why. Note that cached pages (<code>mode: 'static'</code> or <code>'hybrid'</code>) deliberately carry no per-visitor token, because that HTML is shared between visitors: a form there still works with JavaScript on, since the enhancer falls back to the cookie, but it cannot submit with scripting off. Put those forms on a <code>mode: 'server'</code> page.</p>
-          <p>Or call the action and use its return value. On the client the wrapper posts to the same endpoint and attaches the token from the page:</p>
-<pre><code>import { createPostAction } from '../actions/posts.js';
+          <p>That renders hidden <code>_action</code> and <code>_redirect</code> inputs (and <code>what-csrf-token</code> when the form has a token), then your children. Pass the action <em>function</em>, not its id string, so the two can never drift apart. Without JavaScript, the endpoint answers 303 on success and the browser follows <code>_redirect</code>. On a mounted page the form runs its own submit instead: it calls the action as a transition, <code>useFormStatus()</code> inside it reads the submission, and the form is reset once the action has succeeded: its uncontrolled fields clear, and a controlled one (a <code>value</code> or <code>checked</code> prop) keeps what its prop holds, as in React 19. <code>action</code> may also be a client function, such as the dispatch <code>useActionState</code> returns, which receives the <code>FormData</code>.</p>
+          <p>A form needs no token to post from a page the browser opened: the endpoint accepts a request the browser marks same-origin (<code>Sec-Fetch-Site</code>, or an <code>Origin</code> header), which every current browser sends with a form post. That is how a form on a cached page (<code>mode: 'static'</code> or <code>'hybrid'</code>), whose shared HTML can never carry a visitor's token, submits with scripting off. The token still covers browsers that send neither header: on an uncached page, hand the loader's <code>ctx.csrfToken</code> to <code>&lt;Form csrfToken&gt;</code> (on the client it finds the token itself, in the <code>what-csrf-token</code> meta tag or the <code>what-csrf</code> cookie).</p>
+          <p>Or call the action and use its return value. On the client the call is a transition (or joins the one it is called in): it posts to the same endpoint, then refetches what the action revalidates, inside that transition, and resolves once that has landed:</p>
+<pre><code>import { useActionState } from 'what-framework';
+import { createPostAction } from '../actions/posts.js';
 
-const { slug } = await createPostAction({ title, body });</code></pre>
+export function useCreatePost() {
+  // [result, create, isPending]: the result commits with the refetched data
+  return useActionState((previous, post) => createPostAction(post), null);
+}</code></pre>
           <p>A hand-rolled <code>fetch</code> has to supply everything the wrapper does: the <code>X-What-Action</code> header, a JSON body shaped <code>{ args: [...] }</code>, <code>credentials: 'same-origin'</code>, and the <code>X-CSRF-Token</code> header. Omit the token and the endpoint answers 403.</p>
 
           <h2 id="revalidate">Revalidating after a mutation</h2>
-          <p>The <code>revalidate</code> / <code>revalidateTags</code> options fire after the action resolves, purging the origin ISR cache (and any CDN) so the next request re-renders with fresh data. Two conditions apply. They run only on the dispatched path, so calling the action function directly on the server (from a loader, a route, or another action) runs the function and revalidates nothing. And they need a bound cache engine: the deploy adapters bind whichever <code>what-isr</code> engine you hand them, and a manual server binds one itself with <code>setRevalidationHandler(engine)</code>. Unbound, both helpers are no-ops that log a dev warning. For the direct-call case, purge by hand:</p>
+          <p>On the client, <code>revalidate: [path]</code> calls <code>invalidatePath(path)</code> inside the action's transition: the queries and route data read on that path refetch, and the screen goes from the old data to the new in one commit. <code>invalidates: [key]</code> does the same for query keys (see <a href="./data-fetching.html#cache-management">Data Fetching</a>). On the server, the <code>revalidate</code> / <code>revalidateTags</code> options fire after the action resolves, purging the origin ISR cache (and any CDN) so the next request re-renders with fresh data. Two conditions apply to that. They run only on the dispatched path, so calling the action function directly on the server (from a loader, a route, or another action) runs the function and revalidates nothing. And they need a bound cache engine: the deploy adapters bind whichever <code>what-isr</code> engine you hand them, and a manual server binds one itself with <code>setRevalidationHandler(engine)</code>. Unbound, both helpers are no-ops that log a dev warning. For the direct-call case, purge by hand:</p>
 <pre><code>import { revalidatePath, revalidateTag } from 'what-framework/server';
 
 await revalidatePath('/');          // purge one path
 await revalidateTag('posts');       // purge everything tagged 'posts'</code></pre>
           <div class="callout callout-note">
             <p class="callout-title">Two revalidates, on purpose</p>
-            <p><code>revalidatePath</code>/<code>revalidateTag</code> (cache) are distinct from <code>invalidatePath</code> (in-memory pub-sub). All three come from <code>what-framework/server</code>, not the router. The first pair purges the rendered cache through the bound engine; <code>invalidatePath</code> calls the callbacks you registered with <code>onRevalidate(path, cb)</code>, and nothing else. See <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
+            <p><code>revalidatePath</code>/<code>revalidateTag</code> (the server's rendered cache) are distinct from <code>invalidatePath</code> (the client's query cache). The first pair purges the rendered cache through the bound engine; <code>invalidatePath</code>, from <code>what-framework/data</code> (what-server re-exports it), refetches what was read on the path and calls the callbacks you registered with <code>onRevalidate(path, cb)</code>. See <a href="./caching-isr.html">Caching &amp; ISR</a>.</p>
           </div>
 
           <h2 id="security">CSRF &amp; error masking</h2>
-          <p>The handler validates a CSRF token by default (inject one via <code>getCsrfToken</code>; a meta tag is emitted into uncached documents). It fails closed: a missing or bad token is rejected. Fetch clients send it as the <code>X-CSRF-Token</code> header, plain form posts as the <code>_csrf</code> or <code>what-csrf-token</code> field, and the header wins when both are present. Thrown errors are masked to a generic 500 so internal details never reach the client, and the real error is logged server-side.</p>
+          <p>The handler checks where a request comes from by default. A request the browser marks cross-site (<code>Sec-Fetch-Site</code>, or an <code>Origin</code> that is not this host) is refused with 403, and one it marks same-origin is accepted. A request with neither header must carry a CSRF token (inject the session's via <code>getCsrfToken</code>; a meta tag is emitted into uncached documents), and a token sent with any request must match. It fails closed: a missing or bad token is rejected. <code>trustedOrigins</code> lets other origins of the app post. An <code>Origin</code> is compared with this server's origin, scheme included: the scheme is the connection's (a TLS socket, or the URL the platform gives the handler), or <code>X-Forwarded-Proto</code> when a proxy sends it, which a page on another site cannot set. Behind a TLS-terminating proxy, have the proxy send <code>X-Forwarded-Proto</code>, or list the <code>https://</code> origin in <code>trustedOrigins</code>. Fetch clients send it as the <code>X-CSRF-Token</code> header, plain form posts as the <code>_csrf</code> or <code>what-csrf-token</code> field, and the header wins when both are present. Thrown errors are masked to a generic 500 so internal details never reach the client, and the real error is logged server-side.</p>
           <p>An action returns a value; it does not own the HTTP response. There is no channel for it to set headers, so anything that must issue <code>Set-Cookie</code> (sign-in, sign-out, session rotation) belongs in a normal route handler, not an action.</p>
 
           <div class="page-nav">

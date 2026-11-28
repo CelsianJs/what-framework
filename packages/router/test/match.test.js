@@ -1,4 +1,4 @@
-// Isomorphic matcher (Phase 6): match.js must work server-side with no DOM.
+// Isomorphic matcher: match.js must work server-side with no DOM.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,6 +38,107 @@ describe('isomorphic matcher', () => {
 
   it('compilePath exposes paramNames', () => {
     assert.deepEqual(compilePath('/a/:b/:c').paramNames, ['b', 'c']);
+  });
+});
+
+// A more specific route wins whatever the order the routes are listed in,
+// and whichever syntax names its params: a static segment before a param,
+// fewer params before more, a catch-all last, and of two catch-alls the one
+// below more static segments.
+describe('route specificity', () => {
+  it('ranks [param] and [...rest] as it ranks :param and *', () => {
+    for (const [routes, path, winner] of [
+      [[{ path: '/u/[id]' }, { path: '/u/new' }], '/u/new', '/u/new'],
+      [[{ path: '/u/:id' }, { path: '/u/new' }], '/u/new', '/u/new'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/intro' }], '/docs/intro', '/docs/intro'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/[page]' }], '/docs/intro', '/docs/[page]'],
+      [[{ path: '/docs/*' }, { path: '/docs/:page' }], '/docs/intro', '/docs/:page'],
+      [[{ path: '/a/[x]/[y]' }, { path: '/a/[x]/b' }], '/a/1/b', '/a/[x]/b'],
+      [[{ path: '/docs/[...rest]' }, { path: '/docs/[page]' }], '/docs/a/b', '/docs/[...rest]'],
+      [[{ path: '*' }, { path: '/docs/*' }], '/docs/a/b', '/docs/*'],
+      [[{ path: '/*all' }, { path: '/docs/*slug' }], '/docs/a/b', '/docs/*slug'],
+      [[{ path: '/[...all]' }, { path: '/docs/[...rest]' }], '/docs/a', '/docs/[...rest]'],
+      [[{ path: '/*all' }, { path: '/docs/*slug' }], '/blog/a', '/*all'],
+    ]) {
+      assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
+    }
+  });
+
+  it('ranks a catch-all below a param before the catch-all of the root', () => {
+    for (const [routes, path, winner] of [
+      [[{ path: '*' }, { path: '/users/:id/*' }], '/users/7/posts', '/users/:id/*'],
+      [[{ path: '/*' }, { path: '/:lang/*' }], '/en/docs', '/:lang/*'],
+      [[{ path: '/[...all]' }, { path: '/blog/[cat]/[...slug]' }], '/blog/news/a/b', '/blog/[cat]/[...slug]'],
+      [[{ path: '/docs/*' }, { path: '/docs/:section/*' }], '/docs/intro/a', '/docs/:section/*'],
+      [[{ path: '/docs/:section/*' }, { path: '/docs/*' }], '/docs/intro', '/docs/*'],
+      [[{ path: '/:lang/*' }, { path: '/docs/*' }], '/docs/a', '/docs/*'],
+    ]) {
+      assert.equal(matchRoute(path, routes).route.path, winner, routes.map((r) => r.path).join(', '));
+    }
+  });
+
+  it('ranks a route in a group as the route without it, so the first listed wins a tie', () => {
+    assert.equal(matchRoute('/x', [{ path: '/:id' }, { path: '/(g)/:slug' }]).route.path, '/:id');
+    assert.equal(matchRoute('/x', [{ path: '/(g)/:slug' }, { path: '/:id' }]).route.path, '/(g)/:slug');
+  });
+});
+
+// The path a route matches is the URL's, which the URL parser percent-encodes
+// ('/café' is '/caf%C3%A9', '/a b' is '/a%20b'): a route written with those
+// characters matches it, and one written encoded still does.
+describe('a static segment the URL percent-encodes', () => {
+  it('matches the encoded path, written plain or encoded', () => {
+    const routes = [{ path: '/café' }, { path: '/hello world' }, { path: '/über-uns/:section' }, { path: '/caf%C3%A9-encoded' }, { path: '/naïve/[...rest]' }];
+    for (const [path, route, params] of [
+      [new URL('http://x/café').pathname, '/café', {}],
+      [new URL('http://x/hello world').pathname, '/hello world', {}],
+      [new URL('http://x/über-uns/team').pathname, '/über-uns/:section', { section: 'team' }],
+      ['/caf%C3%A9-encoded', '/caf%C3%A9-encoded', {}],
+      [new URL('http://x/naïve/a/b').pathname, '/naïve/[...rest]', { rest: 'a/b' }],
+    ]) {
+      const m = matchRoute(path, routes);
+      assert.equal(m && m.route.path, route, path);
+      assert.deepEqual(m.params, params, path);
+    }
+  });
+
+  // The URL parser keeps an escape as the address bar or the request wrote
+  // it, so '/caf%c3%a9' reaches the matcher in lower case.
+  it('matches a percent escape written in either case, and decodes a param the same', () => {
+    const routes = [{ path: '/café' }, { path: '/caf%c3%a9-lower' }, { path: '/50%off' }, { path: '/blog/:slug' }, { path: '/files/[...rest]' }];
+    for (const [path, route, params] of [
+      ['/caf%c3%a9', '/café', {}],
+      ['/caf%C3%a9', '/café', {}],
+      ['/caf%C3%A9', '/café', {}],
+      ['/caf%c3%a9-lower', '/caf%c3%a9-lower', {}],
+      ['/caf%C3%A9-lower', '/caf%c3%a9-lower', {}],
+      ['/50%off', '/50%off', {}],
+      ['/blog/caf%c3%a9', '/blog/:slug', { slug: 'café' }],
+      ['/files/caf%c3%a9/a%2fb', '/files/[...rest]', { rest: 'café/a/b' }],
+    ]) {
+      const m = matchRoute(path, routes);
+      assert.equal(m && m.route.path, route, path);
+      assert.deepEqual(m.params, params, path);
+    }
+    assert.equal(matchRoute('/caf%c3%a8', routes), null);
+  });
+
+  // Only an escape ('%' and two hex digits) is put in upper case: a '%' that
+  // starts none leaves the characters after it as they are, so a route with
+  // a literal '%' still names its params, and its own text, as written.
+  // Before, '%' and the two characters after it were upper-cased whatever
+  // they were: '/x%/about' gave the param 'About', and '/a%éb' matched no
+  // route at its own URL.
+  it('leaves the characters after a \'%\' that starts no escape as they are', () => {
+    const routes = [{ path: '/x%/:page' }, { path: '/a%éb' }];
+    assert.deepEqual(matchRoute('/x%/about', routes)?.params, { page: 'about' });
+    assert.equal(matchRoute(new URL('http://x/a%éb').pathname, routes)?.route.path, '/a%éb');
+  });
+
+  it('keeps an astral character and the URL parser\'s other encoded characters', () => {
+    for (const written of ['/emoji-😀', '/q"uote', '/a<b>', '/x{y}', '/tick`']) {
+      assert.ok(matchRoute(new URL('http://x' + written).pathname, [{ path: written }]), written);
+    }
   });
 });
 

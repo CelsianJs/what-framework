@@ -11,13 +11,15 @@
 //
 // A literal that drifts from the catalogue is invisible: the throw still works,
 // the code still looks plausible, and the catalogue simply stops describing it.
-// This asserts the two directions that matter:
+// This asserts:
 //
-//   1. every ERR_* literal thrown under packages/*/src exists in the catalogue
-//   2. every catalogue entry is complete and its code is unique
+//   1. every catalogue entry is complete and its code is unique
+//   2. every ERR_* code raised under packages/*/src exists in the catalogue
+//   3. the generated copies (docs/ERRORS.md, diagnostics.json, skills) are in sync
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, relative, resolve } from 'node:path';
+import { findRaiseSites } from './lib/error-raise-sites.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const packagesDir = join(root, 'packages');
@@ -47,41 +49,27 @@ for (const [key, def] of Object.entries(ERROR_CODES)) {
   seenCodes.set(def.code, key);
 }
 
-// --- 2. Literals in source match the catalogue ------------------------------
+// --- 2. Raised codes match the catalogue -------------------------------------
+// A raise site is a thrown or reported code (see scripts/lib/error-raise-sites.mjs);
+// a code named in a comment or a suggestion string is documentation, not a claim.
 
-function* sourceFiles(dir) {
-  for (const entry of readdirSync(dir)) {
-    if (entry === 'node_modules' || entry === 'dist') continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) yield* sourceFiles(full);
-    else if (entry.endsWith('.js')) yield full;
+for (const { code, file } of findRaiseSites(packagesDir)) {
+  if (!seenCodes.has(code)) {
+    problems.push(
+      `${relative(root, file)} raises "${code}", which is not in what-core's ERROR_CODES. ` +
+      'Add it to packages/core/src/errors.js with a suggestion and an example.',
+    );
   }
 }
 
-// Only `code:` properties and quoted bare codes count. A code named inside a
-// comment or a suggestion string is documentation, not a claim.
-const CODE_PROP = /\bcode:\s*['"`](ERR_[A-Z0-9_]+)['"`]/g;
+// --- 3. Generated catalogue copies are in sync --------------------------------
+// docs/ERRORS.md, packages/what/diagnostics.json and the shipped skills are
+// generated from the catalogue; a drifted copy fails here too, so one command
+// gates the catalogue and everything derived from it.
 
-for (const pkg of readdirSync(packagesDir)) {
-  const srcDir = join(packagesDir, pkg, 'src');
-  try {
-    if (!statSync(srcDir).isDirectory()) continue;
-  } catch {
-    continue;
-  }
-  for (const file of sourceFiles(srcDir)) {
-    // The catalogue itself defines them; it is not a consumer.
-    if (file.endsWith(join('core', 'src', 'errors.js'))) continue;
-    const text = readFileSync(file, 'utf8');
-    for (const [, code] of text.matchAll(CODE_PROP)) {
-      if (!seenCodes.has(code)) {
-        problems.push(
-          `${relative(root, file)} throws "${code}", which is not in what-core's ERROR_CODES. ` +
-          'Add it to packages/core/src/errors.js with a suggestion and an example.',
-        );
-      }
-    }
-  }
+const docs = spawnSync(process.execPath, [join(root, 'scripts', 'generate-error-docs.mjs'), '--check'], { encoding: 'utf8' });
+if (docs.status !== 0) {
+  problems.push(`generated catalogue copies drifted:\n${(docs.stderr || docs.stdout).trim()}`);
 }
 
 if (problems.length) {
@@ -91,5 +79,5 @@ if (problems.length) {
 }
 
 console.log(
-  `[error-codes] OK: ${seenCodes.size} codes catalogued, every ERR_* literal under packages/*/src is one of them.`,
+  `[error-codes] OK: ${seenCodes.size} codes catalogued, every ERR_* code raised under packages/*/src is one of them, generated copies in sync.`,
 );

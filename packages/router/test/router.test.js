@@ -163,6 +163,25 @@ describe('URL sanitization', () => {
     assert.equal(isSafeUrl(null), false);
   });
 
+  // An absolute URL the URL parser rejects is no destination, so a Link to it
+  // renders blocked instead of throwing out of the page's mount.
+  it('should reject an absolute URL the URL parser rejects, and a Link to one still mounts', () => {
+    const hostile = ['http://[', 'http://', 'https://%zz.example', 'http://a:b:c/', 'https://ada example.org'];
+    for (const href of hostile) assert.equal(isSafeUrl(href), false, href);
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      for (const href of hostile) {
+        const container = getContainer();
+        assert.doesNotThrow(() => mount(h('p', null, h(Link, { href }, 'site'), ' footer'), container), href);
+        assert.equal(container.textContent, 'site footer', href);
+        assert.equal(container.querySelector('a').getAttribute('href'), 'about:blank', href);
+      }
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it('the blocked-navigation warning does not throw on a non-coercible target', () => {
     // isSafeUrl() rejects non-strings, so the warning path is reached with
     // exactly the values that cannot go through a template literal.
@@ -411,6 +430,26 @@ describe('Router middleware', () => {
     }
   });
 
+  // A server action that redirects navigates through the mounted Router's
+  // registration. Unmounting a Router removes its own registration only:
+  // another copy of what-router mounted since (a second bundle) keeps its
+  // own, and its redirects keep navigating instead of loading the page.
+  it('takes away only its own navigate registration when it unmounts', async () => {
+    const NAVIGATOR = Symbol.for('what.router.navigate.v1');
+    const unmount = mount(h(Router, { routes: [{ path: '/', component: () => h('p', null, 'home') }] }), getContainer());
+    await flush();
+    assert.equal(typeof globalThis[NAVIGATOR], 'function');
+    const other = () => {};
+    globalThis[NAVIGATOR] = other;
+    unmount();
+    assert.equal(globalThis[NAVIGATOR], other, 'the other copy\'s registration stays');
+    delete globalThis[NAVIGATOR];
+    const again = mount(h(Router, { routes: [{ path: '/', component: () => h('p', null, 'home') }] }), getContainer());
+    await flush();
+    again();
+    assert.equal(globalThis[NAVIGATOR], undefined, 'its own goes');
+  });
+
   it('should render 403 when middleware returns false', async () => {
     const container = getContainer();
     history.pushState(null, '', '/protected');
@@ -515,6 +554,29 @@ describe('Link component', () => {
     assert.ok(a, 'Should render an <a> element');
     // The class prop is a reactive function — the DOM runtime resolves it via effect
     // In jsdom with our runtime, the class should contain 'active' and 'exact-active'
+  });
+
+  it('reads a class passed as an accessor, and follows it', async () => {
+    const { signal, flushSync } = await import('../../core/src/reactive.js');
+    const { capture } = await import('../../core/src/diagnostics.js');
+    const container = getContainer();
+    await navigate('/elsewhere', { replace: true, transition: false });
+    await flush();
+
+    const tone = signal('primary', 'tone');
+    const cap = capture({ quiet: true });
+    try {
+      mount(h(Link, { href: '/about', class: tone }, 'About'), container);
+      await flush();
+      const a = container.querySelector('a');
+      assert.equal(a.getAttribute('class'), 'primary');
+      tone('secondary');
+      flushSync();
+      assert.equal(a.getAttribute('class'), 'secondary');
+    } finally {
+      cap.stop();
+    }
+    assert.deepEqual(cap.events.map((e) => e.code), [], 'the accessor is read, never stringified');
   });
 });
 

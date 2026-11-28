@@ -10,6 +10,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Workspace dir -> published package name. Everything an app can reach,
 // directly or transitively, so npm never silently falls back to the registry
@@ -24,6 +25,7 @@ export const WORKSPACE_PACKAGES = {
   'packages/devtools': 'what-devtools',
   'packages/devtools-mcp': 'what-devtools-mcp',
   'packages/eslint-plugin': 'eslint-plugin-what',
+  'packages/react-compat': 'what-react',
 };
 
 const children = new Set();
@@ -165,7 +167,56 @@ export function verifyInstalledSource(appDir, { kind, version }) {
   if (problems.length) throw new Error(`installed tree does not match the requested source:\n  ${problems.join('\n  ')}`);
 }
 
-export async function launchBrowser({ required = true, browserName = process.env.WHAT_SMOKE_BROWSER || 'chromium' } = {}) {
+/** The browser a run drives: WHAT_SMOKE_BROWSER, chromium by default. */
+export function smokeBrowserName() {
+  return process.env.WHAT_SMOKE_BROWSER || 'chromium';
+}
+
+/**
+ * How a run serves the Vite apps: WHAT_SMOKE_MODE, `build` by default.
+ *   build -> `vite build`, then `vite preview`: the production bundle.
+ *   dev   -> the app's Vite dev server, as `npm run dev` serves it.
+ */
+export function smokeMode() {
+  const mode = process.env.WHAT_SMOKE_MODE || 'build';
+  if (!['build', 'dev'].includes(mode)) {
+    throw new Error(`WHAT_SMOKE_MODE must be "build" or "dev" (got "${mode}")`);
+  }
+  return mode;
+}
+
+const VITE_DEV_SERVER = fileURLToPath(new URL('./vite-dev-server.mjs', import.meta.url));
+
+/**
+ * Serve a Vite app on appPort the way the run's mode says, and wait until it
+ * answers at `ready` (a path). In build mode the build is a check of its own;
+ * in dev mode so is the dev server's start. `configFile` names a config other
+ * than vite.config.js for the dev server.
+ */
+export async function serveViteApp({ mode, workDir, appPort, run, reporter, ready = '/', configFile, buildName = 'vite build produced a bundle' }) {
+  const base = `http://127.0.0.1:${appPort}`;
+  if (mode === 'dev') {
+    const started = Date.now();
+    const server = startProcess(process.execPath, [VITE_DEV_SERVER, workDir, String(appPort), ...(configFile ? [configFile] : [])], {
+      cwd: workDir,
+      env: { ...process.env },
+    });
+    await waitForHttp(`${base}${ready}`, { child: server });
+    reporter.ok('the vite dev server answered', `${server.logs.trim().split('\n').pop()} after ${Date.now() - started} ms`);
+    return { base, server };
+  }
+  const buildLog = run('npm', ['run', 'build'], { cwd: workDir });
+  reporter.assert(/built in/.test(buildLog), buildName, buildLog.trim().split('\n').pop());
+  const server = startProcess(
+    'npx',
+    ['vite', 'preview', '--port', String(appPort), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: workDir, env: { ...process.env } },
+  );
+  await waitForHttp(`${base}${ready}`, { child: server });
+  return { base, server };
+}
+
+export async function launchBrowser({ required = true, browserName = smokeBrowserName() } = {}) {
   if (!['chromium', 'firefox', 'webkit'].includes(browserName)) {
     throw new Error(`Unsupported smoke browser "${browserName}"; use chromium, firefox or webkit.`);
   }
@@ -216,6 +267,39 @@ export async function withPage(browser, url, fn, { context } = {}) {
   }
 }
 
+/**
+ * The browser a check gets, with every page it opens watched for What's
+ * development diagnostics: a console warning or error that starts with
+ * `[what]`, as diagnostics.js prints one, or `[vite]`. Each lands in `seen`
+ * as `{ text, url }`, whichever way the check opens its pages.
+ */
+export function watchDiagnostics(browser) {
+  const seen = [];
+  const attach = (page) => {
+    page.on('console', (m) => {
+      if (m.type() !== 'warning' && m.type() !== 'error') return;
+      const text = m.text();
+      if (/^\[(?:what|vite)\]/.test(text)) seen.push({ text, url: page.url() });
+    });
+    return page;
+  };
+  const watched = new Proxy(browser, {
+    get(target, key) {
+      if (key === 'newPage') return async (...args) => attach(await target.newPage(...args));
+      if (key === 'newContext') {
+        return async (...args) => {
+          const context = await target.newContext(...args);
+          context.on('page', attach);
+          return context;
+        };
+      }
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { browser: watched, seen };
+}
+
 /** Collector so one app's failure does not hide the rest of its checks. */
 export function createReporter(appName) {
   const results = [];
@@ -233,6 +317,13 @@ export function createReporter(appName) {
       if (cond) this.ok(name, detail);
       else this.fail(name, detail);
       return !!cond;
+    },
+    // A check this browser cannot run at all (a Chromium-only API). The reason
+    // is required: a skip is reported with it, never counted as a pass.
+    skip(name, reason) {
+      if (!reason) throw new Error(`skip of "${name}" needs a reason`);
+      results.push({ app: appName, name, passed: true, skipped: true, detail: reason });
+      console.log(`    skip ${name} (${reason})`);
     },
     get failures() { return results.filter((r) => !r.passed); },
   };

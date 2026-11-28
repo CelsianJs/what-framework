@@ -1,0 +1,148 @@
+// A keyed row moved in the DOM keeps the focus of the field being edited in
+// it, where the browser can move a node without taking it out
+// (Element.moveBefore, in Chromium and Firefox). insertBefore takes the node
+// out and puts it back: the field loses the focus and its caret, and
+// Chromium fires blur, which a form validating on blur takes for the visitor
+// leaving the field (the wizard smoke app: a vehicle moved up with Alt+ArrowUp
+// while its model was being typed).
+//
+// jsdom has no moveBefore; the test gives Element one that records the nodes
+// it moves, so it can tell which call moved each row, and keeps the focus of
+// a field in the node it moves, as the browser's does (jsdom's insertBefore
+// blurs it).
+
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { installDOM } from '../../../test-utils/dom.js';
+
+installDOM();
+
+const { signal, flushSync } = await import('../src/reactive.js');
+const { mapArray } = await import('../src/render.js');
+const { h, mount } = await import('../src/index.js');
+
+const moved = [];
+const inserted = [];
+let realInsertBefore;
+
+before(() => {
+  realInsertBefore = Node.prototype.insertBefore;
+  Node.prototype.insertBefore = function insertBefore(node, ref) {
+    if (node.isConnected) inserted.push(node);
+    return realInsertBefore.call(this, node, ref);
+  };
+  // As the first browsers to ship it did, it refuses a parent that is not in a document.
+  Element.prototype.moveBefore = function moveBefore(node, ref) {
+    if (!this.isConnected) throw new DOMException('moveBefore needs a connected parent', 'HierarchyRequestError');
+    if (!node.isConnected) throw new DOMException('moveBefore needs a connected node', 'HierarchyRequestError');
+    moved.push(node);
+    const focused = document.activeElement;
+    realInsertBefore.call(this, node, ref);
+    if (focused !== null && node.contains(focused)) focused.focus();
+    return node;
+  };
+});
+
+after(() => {
+  Node.prototype.insertBefore = realInsertBefore;
+  delete Element.prototype.moveBefore;
+});
+
+function list(ids) {
+  const el = document.getElementById('app');
+  el.textContent = '';
+  const items = signal(ids.map((id) => ({ id })));
+  const Row = (item) => {
+    const row = document.createElement('p');
+    row.dataset.id = item.id;
+    row.appendChild(document.createElement('input')).name = item.id;
+    return row;
+  };
+  mapArray(items, Row, { key: (item) => item.id, raw: true })(el, null);
+  flushSync();
+  const byId = new Map(items.peek().map((item) => [item.id, item]));
+  return {
+    el,
+    order: () => [...el.children].map((n) => n.dataset.id),
+    show(next) {
+      moved.length = 0;
+      inserted.length = 0;
+      items(next.map((id) => byId.get(id)));
+      flushSync();
+    },
+  };
+}
+
+const rowsMovedBy = (calls) => calls.filter((n) => n.nodeType === 1 && n.localName === 'p').map((n) => n.dataset.id);
+
+describe('a keyed row moved where the browser has moveBefore', () => {
+  const cases = [
+    ['two rows swapped', ['a', 'b', 'c'], ['b', 'a', 'c']],
+    ['two rows far apart swapped', ['a', 'b', 'c', 'd', 'e'], ['a', 'd', 'c', 'b', 'e']],
+    ['one row moved up', ['a', 'b', 'c', 'd', 'e'], ['a', 'd', 'b', 'c', 'e']],
+    ['one row moved to the end', ['a', 'b', 'c', 'd'], ['b', 'c', 'd', 'a']],
+    ['a shuffle', ['a', 'b', 'c', 'd', 'e', 'f'], ['f', 'c', 'a', 'e', 'b', 'd']],
+  ];
+  for (const [name, from, to] of cases) {
+    it(`${name}: each row moves with moveBefore, none is taken out`, () => {
+      const l = list(from);
+      l.show(to);
+      assert.deepEqual(l.order(), to);
+      assert.ok(rowsMovedBy(moved).length > 0, 'a row moved');
+      assert.deepEqual(rowsMovedBy(inserted), [], `rows taken out and put back: ${rowsMovedBy(inserted).join(', ')}`);
+    });
+  }
+});
+
+describe('a keyed list in a parent that is not in a document', () => {
+  it('reorders with insertBefore, where moveBefore would refuse it', () => {
+    const el = document.createElement('div');
+    const items = signal(['a', 'b', 'c'].map((id) => ({ id })));
+    mapArray(items, (item) => {
+      const row = document.createElement('p');
+      row.dataset.id = item.id;
+      return row;
+    }, { key: (item) => item.id, raw: true })(el, null);
+    flushSync();
+    const [a, b, c] = items.peek();
+    items([c, a, b]);
+    flushSync();
+    assert.deepEqual([...el.children].map((n) => n.dataset.id), ['c', 'a', 'b']);
+  });
+});
+
+describe('an h() keyed row moved where the browser has moveBefore', () => {
+  for (const [name, from, to] of [
+    ['two rows swapped', ['a', 'b', 'c'], ['b', 'a', 'c']],
+    ['a row moved to the end, one added', ['a', 'b', 'c'], ['a', 'c', 'n', 'b']],
+    ['a shuffle', ['a', 'b', 'c', 'd', 'e'], ['e', 'c', 'a', 'd', 'b']],
+  ]) {
+    it(`${name}: the field being edited keeps the focus`, () => {
+      const el = document.getElementById('app');
+      el.textContent = '';
+      const ids = signal(from);
+      const stop = mount(h(() => h('div', null, () => ids().map((id) => h('p', { key: id, 'data-id': id }, h('input', { name: id }))))), el);
+      const input = el.querySelector('input[name="b"]');
+      input.focus();
+      moved.length = 0;
+      inserted.length = 0;
+      ids(to);
+      flushSync();
+      assert.deepEqual([...el.querySelectorAll('p')].map((p) => p.dataset.id), to);
+      assert.ok(rowsMovedBy(moved).length > 0, 'a row moved');
+      assert.deepEqual(rowsMovedBy(inserted), [], `rows taken out and put back: ${rowsMovedBy(inserted).join(', ')}`);
+      assert.equal(document.activeElement, input);
+      stop();
+    });
+  }
+
+  it('in a parent that is not in a document, reorders with insertBefore', () => {
+    const el = document.createElement('div');
+    const ids = signal(['a', 'b', 'c']);
+    const stop = mount(h(() => h('div', null, () => ids().map((id) => h('p', { key: id, 'data-id': id })))), el);
+    ids(['c', 'a', 'b']);
+    flushSync();
+    assert.deepEqual([...el.querySelectorAll('p')].map((p) => p.dataset.id), ['c', 'a', 'b']);
+    stop();
+  });
+});

@@ -1,5 +1,5 @@
-import { _$template, effect as _$effect, setProp as _$setProp } from "what-framework/render";
-const _tmpl$0 = /* @__PURE__ */_$template("<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M4 12h16\"></path></svg>");
+import { _$template, effect as _$effect, _$setProp } from "what-framework/render";
+const _tmpl$0 = /* @__PURE__ */_$template("<svg viewBox=\"0 0 24 24\"width=24 height=24><circle cx=12 cy=12 r=10></circle><path d=\"M4 12h16\">");
 import { signal } from 'what-framework';
 export function Icon() {
   const active = signal(false);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -165,6 +165,9 @@ test('what build emits a runnable artifact (runtime present, no bare imports)', 
     // Cross-package runtime imports must be relative, not bare.
     const router = readFileSync(join(cwd, 'dist/@what/router/index.js'), 'utf8');
     assert.match(router, /from '\.\.\/core\/index\.js'/);
+    // So is what-core's own #env import (package.json `imports`).
+    const reactive = readFileSync(join(cwd, 'dist/@what/core/reactive.js'), 'utf8');
+    assert.match(reactive, /from '\.\.\/core\/env\.js'/);
     // Minification must not eat URLs inside string literals.
     const dom = readFileSync(join(cwd, 'dist/@what/core/dom.js'), 'utf8');
     assert.match(dom, /http:\/\/www\.w3\.org\/2000\/svg/);
@@ -215,13 +218,18 @@ test('what generate pre-renders pages to HTML', () => {
   const cwd = mkdtempDir('what-cli-generate-');
   try {
     mkdirSync(join(cwd, 'src/pages/blog'), { recursive: true });
+    // A page renders vnodes made by the framework's h(): an object shaped like
+    // one renders as text. The project has the framework installed, as an app
+    // does (the monorepo's copy, the one the CLI's server renders with).
+    mkdirSync(join(cwd, 'node_modules'));
+    symlinkSync(resolve(repoRoot, 'packages/what'), join(cwd, 'node_modules/what-framework'), 'dir');
     writeFileSync(
       join(cwd, 'src/pages/index.js'),
-      "export default function Home() {\n  return { tag: 'h1', props: {}, children: ['Hello SSG'] };\n}\n"
+      "import { h } from 'what-framework';\nexport default function Home() {\n  return h('h1', null, 'Hello SSG');\n}\n"
     );
     writeFileSync(
       join(cwd, 'src/pages/blog/[id].js'),
-      "export default function Post() {\n  return { tag: 'p', props: {}, children: ['Post'] };\n}\n"
+      "import { h } from 'what-framework';\nexport default function Post() {\n  return h('p', null, 'Post');\n}\n"
     );
 
     const result = spawnSync(process.execPath, [cli, 'generate'], { cwd, encoding: 'utf8' });

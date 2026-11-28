@@ -58,11 +58,10 @@ describe('JSX text whitespace', () => {
         return <p>{a()} {b()}</p>;
       }
     `);
-    // The compiler emits markers for expressions, and the literal space
-    // between them lives inside the template HTML between the markers.
-    assert.ok(
-      /<!--\$-->\s+<!--\$-->/.test(code) || code.includes('" "') || code.includes(`' '`),
-      `space between expressions was dropped:\n${code}`
-    );
+    // The space is a text node in the template; the first expression is
+    // inserted before it and the second appended after it.
+    assert.match(code, /_\$template\("<p> "\)/, `space between expressions was dropped:\n${code}`);
+    assert.match(code, /_\$insert\(_el\$0, \(\) => a\(\), _el\$0\.firstChild\)/, code);
+    assert.match(code, /_\$insert\(_el\$0, \(\) => b\(\), null\)/, code);
   });
 });

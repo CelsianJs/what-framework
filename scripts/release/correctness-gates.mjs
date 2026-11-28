@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 // One ordering contract for local verification and the publisher. Pack checks
 // run again after building; app smokes then consume those fresh artifacts.
+// The build comes before the tests: some of them bundle the packages through
+// the `production` export condition (dist/*.min.js), which a clean checkout,
+// the publisher's, does not have.
 export const CORRECTNESS_GATES = [
-  'hygiene:publish', 'test', 'build', 'hygiene:publish', 'hygiene:types',
-  'check:error-codes', 'check:error-docs', 'typecheck', 'typecheck:src', 'lint',
+  'hygiene:publish', 'build', 'test', 'hygiene:publish', 'hygiene:types',
+  'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint',
   'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps',
 ];
 

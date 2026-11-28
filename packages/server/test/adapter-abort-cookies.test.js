@@ -1,0 +1,274 @@
+// Deploy adapters: cookies, disconnects and streamed bodies.
+//
+//   R5a  A client that disconnected did not stop anything: the Node adapter's
+//        Request had no live signal, so the loader, the render and every
+//        server fetcher ran to completion for nobody.
+//   R5b  The CSRF cookie was assigned over the route's own Set-Cookie on a
+//        visitor's first request, so a login route's session cookie was lost.
+//   R5c  The Node adapter copied headers with setHeader one at a time, which
+//        replaces, so only the last Set-Cookie reached the client.
+//   The Node adapter also buffered every body with `await webRes.text()`, so
+//   nothing streamed to a Node client, and it had no backpressure.
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import net from 'node:net';
+import { EventEmitter } from 'node:events';
+import { h, Suspense, createResource } from 'what-core';
+import { createRequestHandler } from '../src/index.js';
+import { createServer, toNodeListener, whatMiddleware } from '../src/node.js';
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function listen(server) {
+  await new Promise((resolve) => server.listen(0, resolve));
+  return server.address().port;
+}
+
+describe('a client disconnect stops the work (R5a)', () => {
+  // Ordered by the loader's own progress, not by timers: the client goes away
+  // once the loader has started, and the loader returns once it is aborted (a
+  // server that never aborts it fails on the timeout).
+  it('aborts the loader signal and never renders', { timeout: 20000 }, async () => {
+    const log = [];
+    let loaderSignal;
+    let entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    let stopped;
+    const aborted = new Promise((resolve) => { stopped = resolve; });
+    const routes = [{
+      path: '/slow',
+      page: { mode: 'server' },
+      loader: async ({ signal }) => {
+        loaderSignal = signal;
+        signal.addEventListener('abort', () => { log.push('loader aborted'); stopped(); });
+        entered();
+        await aborted;
+        return { n: 1 };
+      },
+      component: () => { log.push('render ran'); return h('p', null, 'slow'); },
+    }];
+    const server = createServer({ routes, csrf: false });
+    const port = await listen(server);
+    try {
+      const req = http.get({ port, path: '/slow' });
+      req.on('error', () => {});
+      await started;
+      req.destroy();
+      await aborted;
+      // What follows the loader's return (the render, when it is not
+      // stopped) runs in the promise jobs after it: let them all run.
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(loaderSignal.aborted, true);
+      assert.deepEqual(log, ['loader aborted']);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('hands every server resource fetcher a signal that follows the request', async () => {
+    let fetcherSignal;
+    let fetcherRequest;
+    let release;
+    const started = new Promise((resolve) => { release = resolve; });
+    function Data() {
+      const [v] = createResource((_source, { signal, request }) => {
+        fetcherSignal = signal;
+        fetcherRequest = request;
+        release();
+        return new Promise(() => {});
+      });
+      return h('b', null, () => v());
+    }
+    const handle = createRequestHandler({
+      routes: [{ path: '/', page: { mode: 'server' }, component: () => h(Suspense, { fallback: '...' }, h(Data, {})) }],
+      csrf: false,
+    });
+    const controller = new AbortController();
+    const request = new Request('http://x/', { signal: controller.signal });
+    const res = await handle(request);
+    await started;
+    assert.ok(fetcherSignal instanceof AbortSignal);
+    assert.equal(fetcherSignal.aborted, false);
+    controller.abort();
+    assert.equal(fetcherSignal.aborted, true, 'the client going away reaches the fetcher while the render runs');
+    assert.equal(fetcherRequest, request);
+    await res.text();
+  });
+});
+
+describe('every Set-Cookie reaches the client', () => {
+  it('keeps a route cookie next to the CSRF cookie (R5b)', async () => {
+    const handle = createRequestHandler({
+      routes: [{ path: '/', page: { mode: 'server' }, component: () => h('p', null, 'x') }],
+      render: async () => ({ html: '<p>x</p>', status: 200, headers: { 'set-cookie': ['session=abc; Path=/; HttpOnly', 'theme=dark; Path=/'] } }),
+    });
+    const res = await handle(new Request('http://localhost/'));
+    const cookies = res.headers.getSetCookie();
+    assert.equal(cookies.length, 3, JSON.stringify(cookies));
+    assert.ok(cookies.some((c) => c.startsWith('session=abc')));
+    assert.ok(cookies.some((c) => c.startsWith('theme=dark')));
+    assert.ok(cookies.some((c) => c.startsWith('what-csrf=')));
+  });
+
+  it('a malformed CSRF cookie (one a sibling subdomain set) is replaced, not a 500 on every page', async () => {
+    const handle = createRequestHandler({
+      routes: [{ path: '/', page: { mode: 'server' }, component: () => h('p', null, 'x') }],
+    });
+    const res = await handle(new Request('http://localhost/', { headers: { cookie: 'what-csrf=%E0%A4' } }));
+    assert.equal(res.status, 200);
+    const fresh = res.headers.getSetCookie().find((c) => c.startsWith('what-csrf='));
+    assert.ok(fresh && !fresh.startsWith('what-csrf=%E0%A4'), 'a fresh token is set');
+  });
+
+  it('keeps cookies from a cache engine result too', async () => {
+    const handle = createRequestHandler({
+      routes: [{ path: '/', page: { mode: 'static' }, component: () => h('p', null, 'x') }],
+      cache: { handle: async () => ({ html: '<p>x</p>', status: 200, headers: { 'set-cookie': 'ab=1; Path=/', 'x-cache': 'HIT' } }) },
+    });
+    const res = await handle(new Request('http://localhost/'));
+    assert.equal(res.headers.get('x-cache'), 'HIT');
+    assert.equal(res.headers.getSetCookie().length, 2);
+  });
+
+  it('the Node adapter sends all of them (R5c)', async () => {
+    const server = http.createServer(toNodeListener(async () => {
+      const headers = new Headers({ 'content-type': 'text/plain' });
+      headers.append('set-cookie', 'a=1; Path=/');
+      headers.append('set-cookie', 'b=2; Path=/');
+      return new Response('ok', { headers });
+    }));
+    const port = await listen(server);
+    try {
+      const res = await fetch(`http://localhost:${port}/`);
+      assert.deepEqual(res.headers.getSetCookie(), ['a=1; Path=/', 'b=2; Path=/']);
+      assert.equal(await res.text(), 'ok');
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('the Node adapter streams the body', () => {
+  it('sends the first chunk before the body has finished', async () => {
+    let release;
+    const server = http.createServer(toNodeListener(async () => new Response(new ReadableStream({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode('<p>shell</p>'));
+        await new Promise((resolve) => { release = resolve; });
+        controller.enqueue(new TextEncoder().encode('<p>late</p>'));
+        controller.close();
+      },
+    }))));
+    const port = await listen(server);
+    try {
+      const res = await fetch(`http://localhost:${port}/`);
+      const reader = res.body.getReader();
+      const first = await reader.read();
+      assert.equal(new TextDecoder().decode(first.value), '<p>shell</p>');
+      release();
+      let rest = '';
+      for (let r = await reader.read(); !r.done; r = await reader.read()) rest += new TextDecoder().decode(r.value);
+      assert.equal(rest, '<p>late</p>');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('stops reading while the socket is full and resumes on drain', async () => {
+    let pulls = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        pulls++;
+        if (pulls > 5) controller.close();
+        else controller.enqueue(new Uint8Array([pulls]));
+      },
+    }, { highWaterMark: 0 });
+    const res = Object.assign(new EventEmitter(), {
+      statusCode: 0,
+      headersSent: false,
+      destroyed: false,
+      writableFinished: false,
+      writes: [],
+      ended: false,
+      setHeader() {},
+      write(chunk) { this.writes.push(chunk); return false; },
+      end() { this.ended = true; this.writableFinished = true; },
+    });
+    const req = Object.assign(new EventEmitter(), { method: 'GET', url: '/', headers: { host: 'x' } });
+    const done = toNodeListener(async () => new Response(body))(req, res);
+    await delay(20);
+    assert.equal(res.writes.length, 1, 'kept writing into a full socket');
+    res.emit('drain');
+    await delay(20);
+    assert.equal(res.writes.length, 2);
+    for (let i = 0; i < 5; i++) { res.emit('drain'); await delay(5); }
+    await done;
+    assert.equal(res.writes.length, 5);
+    assert.equal(res.ended, true);
+  });
+
+  it('cancels the body when the client goes away', async () => {
+    let cancelled = false;
+    const server = http.createServer(toNodeListener(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('x'.repeat(1024))); },
+      cancel() { cancelled = true; },
+    }))));
+    const port = await listen(server);
+    try {
+      const req = http.get({ port, path: '/' }, (res) => {
+        res.once('data', () => req.destroy());
+      });
+      req.on('error', () => {});
+      for (let i = 0; i < 50 && !cancelled; i++) await delay(10);
+      assert.equal(cancelled, true);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+// A visitor who cancels an upload (closes the tab, loses the connection)
+// stops the body half way: nobody is left to answer, and that is no server
+// error to log, for the listener and for the middleware alike.
+describe('a client that goes away while sending the body', () => {
+  async function cancelUpload(port) {
+    const sock = net.connect(port, '127.0.0.1');
+    await new Promise((resolve) => sock.on('connect', resolve));
+    sock.write('POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 100000\r\n\r\n');
+    sock.write('a'.repeat(1000));
+    await delay(30);
+    sock.destroy();
+    await delay(100);
+  }
+
+  for (const [name, make] of [
+    ['toNodeListener', (handler) => toNodeListener(handler)],
+    // Express hands an error given to next() to its error handler, which logs it.
+    ['whatMiddleware', () => {
+      const middleware = whatMiddleware({ routes: [], csrf: false });
+      return (req, res) => middleware(req, res, (err) => {
+        if (err) console.error('next(err):', err);
+        res.destroy();
+      });
+    }],
+  ]) {
+    it(`${name} logs nothing and runs nothing`, async () => {
+      let handled = 0;
+      const server = http.createServer(make(async (request) => { handled++; await request.text(); return new Response('ok'); }));
+      const port = await listen(server);
+      const logged = [];
+      const realError = console.error;
+      console.error = (...args) => logged.push(args.map(String).join(' '));
+      try {
+        await cancelUpload(port);
+      } finally {
+        console.error = realError;
+        server.close();
+      }
+      assert.deepEqual(logged, []);
+      assert.equal(handled, 0);
+    });
+  }
+});

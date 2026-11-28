@@ -34,13 +34,43 @@ installDOM(
     '</body></html>'
 );
 
-const { useLoaderData, createResource, runWithServerContext } = await import('../src/index.js');
+const { useLoaderData, createResource } = await import('../src/index.js');
+const { runWithServerContext } = await import('../src/entries/internal.js');
 
 // Mirrors what-server's createRenderContext(loaderData) closely enough for the
 // hooks that read it. Kept local so this file never imports what-server.
 function renderContext(loaderData) {
   return { head: null, loaderData, resources: new Map(), islandStores: new Map(), resourceCounter: 0 };
 }
+
+// First in the file: a page no render has touched yet. isServerRender() reads
+// the process's render store without making it, so a browser bundle whose
+// hooks ask (useEffect, onMount) does not carry the store (feature-reach).
+describe('isServerRender() with a document', () => {
+  const STORE = Symbol.for('what.serverContext.v1');
+  it('is false on a page no render touched, and makes no render store', async () => {
+    const { isServerRender } = await import('../src/server-context.js');
+    assert.equal(globalThis[STORE], undefined);
+    assert.equal(isServerRender(), false);
+    assert.equal(globalThis[STORE], undefined, 'asking writes no global');
+  });
+
+  it('is true inside a render, from the render store, and false again after it', async () => {
+    const { isServerRender } = await import('../src/server-context.js');
+    assert.equal(runWithServerContext(renderContext({}), () => isServerRender()), true);
+    assert.equal(isServerRender(), false);
+    const storage = { store: undefined, getStore() { return this.store; } };
+    globalThis[STORE].storage = storage;
+    try {
+      storage.store = renderContext({});
+      assert.equal(isServerRender(), true, 'a render the async storage holds');
+      storage.store = undefined;
+      assert.equal(isServerRender(), false);
+    } finally {
+      globalThis[STORE].storage = null;
+    }
+  });
+});
 
 describe('useLoaderData under a DOM shim (jsdom present during a server render)', () => {
   it('returns THIS render context loaderData, not the stale hydration payload', () => {

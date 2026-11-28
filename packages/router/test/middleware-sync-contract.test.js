@@ -13,7 +13,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
 async function assertBlocked(middleware, verifyError = error => {
   assert.equal(error.code, 'ERR_ASYNC_MIDDLEWARE');
-  assert.match(error.message, /synchronous/i);
+  assert.match(error.message, /^\[what\] ERR_ASYNC_MIDDLEWARE Route middleware must be synchronous; received a promise or thenable\.\n {2}fix: what_fix\(\{ error: "ERR_ASYNC_MIDDLEWARE" \}\)/);
   assert.match(error.suggestion, /asyncGuard\(check\)\(Component\)/);
   assert.match(error.codeExample, /component: asyncGuard\(check\)\(Component\)/);
   assert.ok(getErrorDefinition(error.code), 'runtime error belongs to the catalogue');

@@ -1,295 +1,551 @@
 /**
- * Node.js WebSocket server + state bridge.
- * Receives state snapshots and events from the browser client,
- * provides query API for the MCP tools.
+ * Node side of the devtools bridge: the WebSocket server the page's client
+ * connects to, and a small HTTP control port the Vite plugin pairs through.
+ *
+ * Sessions. Each page load that connects is one session (s1, s2, …) with its
+ * own event log, diagnostics, errors, baseline and pending commands. A second
+ * tab never changes what another session's answers say, closing one tab never
+ * disconnects another, and when more than one is live the tools make the agent
+ * name one. A page whose socket drops and comes back keeps its session.
+ *
+ * Trust. A browser page is admitted only with a credential the bridge issued
+ * for that page's exact origin. Credentials come from pairing: the Vite plugin,
+ * running inside the dev server of this project, reads the pairing key the
+ * bridge wrote under the project's node_modules/.cache and asks for a
+ * credential for its own origin. The control port refuses anything a browser
+ * sends, so no page can read a key or a credential from it. One dev-server
+ * origin is served at a time: while it has a live page (and briefly after, so a
+ * reload keeps it), another origin is refused and the refusal is reported.
+ * Every inbound message is checked for shape and size, and a response is only
+ * accepted on the socket its command was sent on.
+ *
+ * Time. Every event gets a bridge-wide sequence number `seq`. The page flushes
+ * its event buffer before it answers a command, so when a response arrives the
+ * session's latest seq is exactly the state the response describes. Actions
+ * send a mark first, after flushing, so `since` is the cursor just before the
+ * action and (since, seq] is what it did.
  */
 
 import { WebSocketServer } from 'ws';
-import { randomBytes } from 'crypto';
-import { createServer } from 'http';
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join, relative, isAbsolute, resolve } from 'node:path';
 
-const MAX_EVENT_LOG = 1000;
+const MAX_EVENT_LOG = 2000;
 const MAX_ERROR_LOG = 100;
+const MAX_DIAGNOSTICS = 500;
+const MAX_PAYLOAD = 8 * 1024 * 1024;
+const MAX_BATCH = 2000;
+const MAX_CLOSED_SESSIONS = 4;
+const MAX_REFUSALS = 10;
+const ORIGIN_GRACE_MS = 10_000;
+const REFUSAL_TTL_MS = 10 * 60_000;
+const PAIR_BODY_LIMIT = 4096;
+
+const EVENT_NAMES = new Set([
+  'signal:created', 'signal:updated', 'signal:disposed',
+  'effect:created', 'effect:run', 'effect:disposed',
+  'component:mounted', 'component:unmounted',
+  'error:captured', 'diagnostic', 'action',
+  'async:start', 'async:land', 'async:unresolved', 'async:ready', 'async:errored',
+  'transition:open', 'transition:commit', 'transition:merged',
+  'optimistic:add', 'optimistic:drop',
+  'suspense:waiting', 'suspense:revealed', 'suspense:disposed', 'hydration:complete',
+]);
+
+// Diagnostics fold by code and subject in the page; the bridge keeps the latest
+// copy of each, keyed the same way, so a repeat updates its count in place.
+function diagnosticKey(d) {
+  const s = d.subject;
+  return s && typeof s === 'object' ? `${d.code}|${s.kind}|${s.id ?? s.name}` : `${d.code}|${d.message}`;
+}
+
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isShortString = (v, max) => typeof v === 'string' && v.length <= max;
+
+/** True for an http(s) origin on a loopback host, written exactly as browsers send it. */
+function isLoopbackOrigin(origin) {
+  if (typeof origin !== 'string') return false;
+  try {
+    const url = new URL(origin);
+    if (url.origin !== origin || !/^https?:$/.test(url.protocol)) return false;
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+function sameSecret(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+/** The file the bridge writes for the Vite plugin, relative to the project root. */
+export const BRIDGE_FILE = join('node_modules', '.cache', 'what-devtools-mcp', 'bridge.json');
 
 /**
  * @param {object} [options]
- * @param {number} [options.port]
+ * @param {number} [options.port] WebSocket port; the control port is port+1
  * @param {string} [options.host]
+ * @param {string} [options.projectRoot] Directory whose dev servers may pair (default: cwd)
  * @param {(err: any) => void} [options.onError]
  */
-export function createBridge({ port = 9229, host = '127.0.0.1', onError } = {}) {
-  let latestSnapshot = null;
-  const eventLog = [];
-  const errorLog = [];
-  /** @type {import('ws').WebSocket | null} */
-  let browserSocket = null;
+export function createBridge({ port = 9229, host = '127.0.0.1', projectRoot = process.cwd(), onError } = {}) {
+  const root = resolve(projectRoot);
+  // The pairing key: proof that a caller can read this project's files, or
+  // was given WHAT_MCP_TOKEN. It is never sent to a browser.
+  const pairingKey = process.env.WHAT_MCP_TOKEN || randomBytes(24).toString('hex');
+
+  let seq = 0;
+  let sessionCounter = 0;
   let correlationCounter = 0;
-  const pendingCommands = new Map();
+  /** @type {Map<string, any>} */
+  const sessions = new Map();
+  /** @type {Map<string, string>} credential → origin */
+  const credentials = new Map();
+  let boundOrigin = null;
+  let boundOriginReleasedAt = 0;
+  const refusals = [];
 
-  // Snapshot dedup cache (100ms)
-  let cachedSnapshot = null;
-  let cacheTime = 0;
-  const SNAPSHOT_CACHE_MS = 100;
+  function refuse(origin, reason) {
+    refusals.push({ origin: origin || null, reason, at: Date.now() });
+    if (refusals.length > MAX_REFUSALS) refusals.shift();
+  }
 
-  // Baseline snapshot for diff tool
-  /** @type {any} */
-  let baselineSnapshot = null;
+  function liveSessions() {
+    return [...sessions.values()].filter((s) => s.socket !== null);
+  }
 
-  // Use a fixed token from env if provided, otherwise generate a random one.
-  // Set WHAT_MCP_TOKEN to share the same token between bridge and Vite plugin.
-  const authToken = process.env.WHAT_MCP_TOKEN || randomBytes(24).toString('hex');
+  // A page origin may attach when no origin is bound, when it is the bound one,
+  // or when the bound one has had no live page for the grace period.
+  function originAvailable(origin) {
+    if (boundOrigin === null || boundOrigin === origin) return true;
+    if (liveSessions().some((s) => s.origin === boundOrigin)) return false;
+    return Date.now() - boundOriginReleasedAt > ORIGIN_GRACE_MS;
+  }
 
-  // Only browser pages served from a loopback origin may talk to the bridge.
-  // This is the key defense against the "confused deputy" attack where a page
-  // on evil.com (open in the same browser as `what dev`) steals the token and
-  // drives set-signal/navigate/eval against the live app. Requests with no
-  // Origin header come from non-browser local processes (the MCP server's own
-  // client, curl) and are gated by the token instead. (AUDIT-2026-06-06 C6)
-  function isAllowedOrigin(origin) {
-    if (!origin) return true; // non-browser client; token is the gate
-    try {
-      const { hostname } = new URL(origin);
-      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
-    } catch {
-      return false;
+  function bindOrigin(origin) {
+    if (boundOrigin === origin) return;
+    for (const [credential, credentialOrigin] of credentials) {
+      if (credentialOrigin !== origin) credentials.delete(credential);
+    }
+    boundOrigin = origin;
+  }
+
+  function issueCredential(origin) {
+    for (const [credential, credentialOrigin] of credentials) {
+      if (credentialOrigin === origin) return credential;
+    }
+    const credential = randomBytes(24).toString('hex');
+    credentials.set(credential, origin);
+    return credential;
+  }
+
+  // --- WebSocket server ------------------------------------------------------
+
+  const wss = new WebSocketServer({
+    host,
+    port,
+    maxPayload: MAX_PAYLOAD,
+    verifyClient: (info, done) => {
+      let url;
+      try { url = new URL(info.req.url, `http://${host}:${port}`); } catch { return done(false, 400, 'Bad request'); }
+      const token = url.searchParams.get('token') || '';
+      const origin = info.req.headers.origin;
+      if (origin === undefined) {
+        // A local process, not a browser: the pairing key is its credential.
+        return sameSecret(token, pairingKey) ? done(true) : done(false, 401, 'Unauthorized');
+      }
+      if (!isLoopbackOrigin(origin)) {
+        refuse(origin, 'not a loopback origin');
+        return done(false, 403, 'Forbidden origin');
+      }
+      const credentialOrigin = credentials.get(token);
+      const manual = sameSecret(token, pairingKey);
+      if (credentialOrigin !== origin && !manual) {
+        refuse(origin, credentialOrigin ? `credential issued for ${credentialOrigin}` : 'no credential for this origin');
+        return done(false, 401, 'Unauthorized');
+      }
+      if (!originAvailable(origin)) {
+        refuse(origin, `the bridge is serving ${boundOrigin}`);
+        return done(false, 409, 'Another dev server is attached');
+      }
+      bindOrigin(origin);
+      done(true);
+    },
+  });
+
+  function newSession(socket, origin, pageId) {
+    const session = {
+      id: `s${++sessionCounter}`,
+      pageId,
+      origin,
+      socket,
+      url: null,
+      title: null,
+      connectedAt: Date.now(),
+      closedAt: null,
+      events: [],
+      lostThrough: 0,
+      lastSeq: 0,
+      diagnostics: new Map(),
+      diagnosticsEvicted: 0,
+      diagnosticsLostThrough: 0,
+      pageDiagnosticsDropped: 0,
+      errors: [],
+      errorsEvicted: 0,
+      rejected: 0,
+      names: { signals: new Map(), effects: new Map(), components: new Set() },
+      baseline: null,
+      pending: new Map(),
+    };
+    sessions.set(session.id, session);
+    return session;
+  }
+
+  function record(session, event, data) {
+    const entry = { seq: ++seq, event, data, at: Date.now() };
+    session.events.push(entry);
+    session.lastSeq = entry.seq;
+    if (session.events.length > MAX_EVENT_LOG) session.lostThrough = session.events.shift().seq;
+    if (!isObject(data)) return;
+    if ((event === 'signal:created' || event === 'signal:updated') && typeof data.name === 'string') {
+      session.names.signals.set(data.id, data.name);
+    } else if ((event === 'effect:created' || event === 'effect:run') && typeof data.name === 'string') {
+      session.names.effects.set(data.id, data.name);
+    } else if (event === 'component:mounted' && typeof data.name === 'string') {
+      session.names.components.add(data.name);
+    } else if (event === 'error:captured') {
+      // A page that reconnects replays its error backlog; keep one copy.
+      if (session.errors.some((e) => e.timestamp === data.timestamp && e.message === data.message && e.type === data.type)) return;
+      session.errors.push({ ...data, seq: entry.seq });
+      if (session.errors.length > MAX_ERROR_LOG) {
+        session.errors.shift();
+        session.errorsEvicted++;
+      }
+    } else if (event === 'diagnostic' && typeof data.code === 'string') {
+      const key = diagnosticKey(data);
+      session.diagnostics.delete(key);
+      session.diagnostics.set(key, { ...data, seq: entry.seq });
+      if (session.diagnostics.size > MAX_DIAGNOSTICS) {
+        const oldest = session.diagnostics.keys().next().value;
+        session.diagnosticsLostThrough = session.diagnostics.get(oldest).seq;
+        session.diagnostics.delete(oldest);
+        session.diagnosticsEvicted++;
+      }
     }
   }
 
-  const wss = new WebSocketServer({ host, port, verifyClient: ({ req }) => {
-    // Require BOTH a loopback origin (defense in depth) AND a valid token.
-    try {
-      if (!isAllowedOrigin(req.headers.origin)) return false;
-      const url = new URL(req.url, `http://${host}:${port}`);
-      return url.searchParams.get('token') === authToken;
-    } catch {
-      return false;
-    }
-  }});
+  function validEvent(item) {
+    return isObject(item) && EVENT_NAMES.has(item.event) && (item.data === undefined || item.data === null || isObject(item.data));
+  }
 
-  // The WebSocketServer binds the port immediately on construction. Without an
-  // 'error' listener, an EADDRINUSE (very likely — 9229 is also Node's default
-  // --inspect port) is emitted as an unhandled 'error' event, which an
-  // EventEmitter rethrows and hard-crashes the whole process. The bridge IS the
-  // server, so unlike the optional HTTP discovery port we cannot silently carry
-  // on with a dead WS server. Strategy: gracefully exit(0) with an actionable
-  // message so the launcher (e.g. `what dev`) sees a clean shutdown rather than
-  // an uncaught-exception stack trace. Callers (tests) can pass `onError` to
-  // intercept instead of exiting.
-  wss.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      const inspectNote = port === 9229 ? ' (note: 9229 is also Node\'s default --inspect port)' : '';
-      console.error(`[what-devtools-mcp] port ${port} in use — set WHAT_MCP_PORT to a free port or stop the process using it${inspectNote}.`);
-    } else {
-      console.error(`[what-devtools-mcp] bridge WebSocket server error: ${err && err.message ? err.message : err}`);
+  function onMessage(session, socket, raw) {
+    let msg;
+    try { msg = JSON.parse(String(raw)); } catch { session.rejected++; return; }
+    if (!isObject(msg)) { session.rejected++; return; }
+    switch (msg.type) {
+      case 'hello':
+        if (!isShortString(msg.url, 4096) || !isShortString(msg.title ?? '', 1024)) { session.rejected++; return; }
+        session.url = msg.url;
+        session.title = msg.title ?? '';
+        if (Number.isInteger(msg.diagnosticsDropped) && msg.diagnosticsDropped >= 0) session.pageDiagnosticsDropped = msg.diagnosticsDropped;
+        return;
+      case 'event':
+        if (!validEvent(msg)) { session.rejected++; return; }
+        record(session, msg.event, msg.data ?? {});
+        return;
+      case 'events':
+        if (!Array.isArray(msg.batch) || msg.batch.length > MAX_BATCH) { session.rejected++; return; }
+        for (const item of msg.batch) {
+          if (validEvent(item)) record(session, item.event, item.data ?? {});
+          else session.rejected++;
+        }
+        return;
+      case 'mark':
+      case 'response': {
+        const pending = isShortString(msg.correlationId, 64) ? session.pending.get(msg.correlationId) : undefined;
+        if (!pending || pending.socket !== socket) { session.rejected++; return; }
+        if (msg.type === 'mark') {
+          pending.since = session.lastSeq;
+          return;
+        }
+        session.pending.delete(msg.correlationId);
+        pending.settle({ data: msg.data, seq: session.lastSeq, since: pending.since });
+        return;
+      }
+      default:
+        session.rejected++;
     }
-    if (typeof onError === 'function') {
-      onError(err);
+  }
+
+  wss.on('connection', (socket, req) => {
+    const origin = req.headers.origin ?? null;
+    /** @type {string | null} */
+    let pageId = null;
+    try { pageId = new URL(req.url || '/', `http://${host}:${port}`).searchParams.get('page'); } catch { pageId = null; }
+    if (pageId !== null && !/^[\w-]{1,64}$/.test(pageId)) pageId = null;
+
+    let session = pageId === null ? null
+      : [...sessions.values()].find((s) => s.pageId === pageId && s.origin === origin && s.socket === null) || null;
+    if (session) {
+      session.socket = socket;
+      session.closedAt = null;
+      record(session, 'page:reconnected', {});
     } else {
-      // Graceful exit: the bridge cannot function without its WS port.
-      process.exit(0);
+      session = newSession(socket, origin, pageId);
+      record(session, 'page:connected', {});
     }
+    const current = session;
+
+    socket.on('message', (raw) => onMessage(current, socket, raw));
+    // An oversized or malformed frame makes ws emit 'error' and then close the
+    // socket; without a listener that error would crash the MCP server.
+    socket.on('error', () => { current.rejected++; });
+    socket.on('close', () => {
+      if (current.socket !== socket) return;
+      current.socket = null;
+      current.closedAt = Date.now();
+      if (current.origin === boundOrigin) boundOriginReleasedAt = current.closedAt;
+      record(current, 'page:closed', {});
+      for (const [id, pending] of current.pending) {
+        pending.fail(new Error('The page disconnected before answering'));
+        current.pending.delete(id);
+      }
+      const closed = [...sessions.values()].filter((s) => s.socket === null).sort((a, b) => a.closedAt - b.closedAt);
+      while (closed.length > MAX_CLOSED_SESSIONS) sessions.delete(closed.shift().id);
+    });
   });
 
-  // --- Token Discovery ---
-  // Two mechanisms so the browser client can find the token automatically:
+  // --- Control port -----------------------------------------------------------
   //
-  // 1. HTTP endpoint: GET http://localhost:{port+1}/__what_mcp_token returns the token
-  //    The client fetches this on startup before connecting the WebSocket.
-  //
-  // 2. File: writes token to node_modules/.cache/what-devtools-mcp/token
-  //    The Vite plugin reads this at transform time.
+  //   GET  /__what_mcp_probe  → { bridge: true, wsPort }   (no secret; lets the
+  //        browser client check the bridge is up before it opens a socket)
+  //   POST /__what_mcp_pair   → { credential, wsPort }     (Node callers only)
 
-  const discoveryPort = port + 1;
+  const controlPort = port + 1;
   const httpServer = createServer((req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const origin = req.headers.origin;
-    // NEVER use a wildcard ACAO here — it would let any website read the token
-    // and then connect to the bridge. Echo the origin back only for loopback
-    // origins; reject token reads from any other origin. (AUDIT-2026-06-06 C6)
-    if (!isAllowedOrigin(origin)) {
-      res.writeHead(403);
-      res.end('Forbidden origin');
+    const path = (req.url || '').split('?')[0];
+
+    if (req.method === 'GET' && path === '/__what_mcp_probe') {
+      if (origin !== undefined) {
+        if (!isLoopbackOrigin(origin)) { res.writeHead(403); res.end('Forbidden origin'); return; }
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ bridge: true, wsPort: port }));
       return;
     }
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    res.setHeader('Cache-Control', 'no-store');
 
-    if (req.url === '/__what_mcp_token') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ token: authToken, wsPort: port }));
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
-    }
-  });
-
-  httpServer.listen(discoveryPort, host, () => {
-    console.error(`[what-devtools-mcp] Token discovery on http://${host}:${discoveryPort}/__what_mcp_token`);
-  });
-  httpServer.on('error', () => {
-    // Discovery port unavailable — not critical, file-based fallback still works
-    console.error(`[what-devtools-mcp] Token discovery port ${discoveryPort} unavailable (non-fatal)`);
-  });
-
-  // Write token to a well-known file path for Vite plugin to read
-  try {
-    const cacheDir = join(process.cwd(), 'node_modules', '.cache', 'what-devtools-mcp');
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(join(cacheDir, 'token'), JSON.stringify({ token: authToken, port, discoveryPort }));
-  } catch {
-    // Non-fatal — HTTP discovery is the primary mechanism
-  }
-
-  console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
-  console.error(`[what-devtools-mcp] Bridge started on port ${port} (auth enabled)`);
-
-  wss.on('connection', (ws) => {
-    browserSocket = ws;
-
-    ws.on('message', (raw) => {
-      let msg;
-      try { msg = JSON.parse(raw); } catch { return; }
-
-      switch (msg.type) {
-        case 'snapshot':
-          latestSnapshot = msg.data;
-          break;
-        case 'event':
-          eventLog.push({ event: msg.event, data: msg.data, timestamp: Date.now() });
-          if (eventLog.length > MAX_EVENT_LOG) eventLog.shift();
-          // Track errors separately
-          if (msg.event === 'error:captured') {
-            errorLog.push({ ...msg.data, timestamp: Date.now() });
-            if (errorLog.length > MAX_ERROR_LOG) errorLog.shift();
-          }
-          break;
-        case 'events':
-          for (const item of msg.batch || []) {
-            eventLog.push({ event: item.event, data: item.data, timestamp: Date.now() });
-            if (eventLog.length > MAX_EVENT_LOG) eventLog.shift();
-            if (item.event === 'error:captured') {
-              errorLog.push({ ...item.data, timestamp: Date.now() });
-              if (errorLog.length > MAX_ERROR_LOG) errorLog.shift();
-            }
-          }
-          break;
-        case 'response': {
-          const pending = pendingCommands.get(msg.correlationId);
-          if (pending) {
-            pendingCommands.delete(msg.correlationId);
-            pending.resolve(msg.data);
-          }
-          break;
-        }
+    if (req.method === 'POST' && path === '/__what_mcp_pair') {
+      // Browsers send Origin on every cross-origin POST and Sec-Fetch-Site on
+      // every request; the Vite plugin, a Node process, sends neither.
+      if (origin !== undefined || req.headers['sec-fetch-site'] !== undefined) {
+        res.writeHead(403); res.end('Pairing is not available to browsers'); return;
       }
-    });
-
-    ws.on('close', () => {
-      if (browserSocket === ws) browserSocket = null;
-      // Reject all pending commands
-      for (const [id, pending] of pendingCommands) {
-        pending.reject(new Error('Browser disconnected'));
-        pendingCommands.delete(id);
-      }
-    });
-  });
-
-  function isConnected() {
-    return browserSocket !== null && browserSocket.readyState === 1; // WebSocket.OPEN
-  }
-
-  function sendCommand(command, args = {}, timeout = 5000) {
-    return new Promise((resolve, reject) => {
-      if (!isConnected()) {
-        return reject(new Error('No browser connected'));
-      }
-      const correlationId = `cmd_${++correlationCounter}`;
-      const timer = setTimeout(() => {
-        pendingCommands.delete(correlationId);
-        reject(new Error(`Command '${command}' timed out after ${timeout}ms`));
-      }, timeout);
-
-      pendingCommands.set(correlationId, {
-        resolve: (data) => { clearTimeout(timer); resolve(data); },
-        reject: (err) => { clearTimeout(timer); reject(err); },
+      let body = '';
+      let tooLarge = false;
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > PAIR_BODY_LIMIT) { tooLarge = true; req.destroy(); }
       });
+      req.on('end', () => {
+        if (tooLarge) return;
+        const reply = (status, payload) => {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(payload));
+        };
+        let request;
+        try { request = JSON.parse(body); } catch { reply(400, { error: 'Body must be JSON' }); return; }
+        if (!isObject(request) || !sameSecret(request.key, pairingKey)) { reply(401, { error: 'Wrong pairing key' }); return; }
+        if (!isLoopbackOrigin(request.origin)) { reply(400, { error: 'origin must be a loopback http(s) origin' }); return; }
+        if (typeof request.root !== 'string' || !isAbsolute(request.root)) { reply(400, { error: 'root must be an absolute path' }); return; }
+        const inside = relative(root, resolve(request.root));
+        if (inside.startsWith('..') || isAbsolute(inside)) {
+          refuse(request.origin, `dev server root ${request.root} is outside ${root}`);
+          reply(403, { error: `This bridge serves ${root}` });
+          return;
+        }
+        if (!originAvailable(request.origin)) {
+          refuse(request.origin, `the bridge is serving ${boundOrigin}`);
+          reply(409, { error: `The bridge is attached to ${boundOrigin}`, boundOrigin });
+          return;
+        }
+        bindOrigin(request.origin);
+        reply(200, { credential: issueCredential(request.origin), wsPort: port });
+      });
+      return;
+    }
 
-      browserSocket.send(JSON.stringify({ command, correlationId, args }));
+    res.writeHead(404);
+    res.end('Not found');
+  });
+
+  const bridgeFile = join(root, BRIDGE_FILE);
+  let wroteFile = false;
+  let closed = false;
+
+  function listen(server, listenPort) {
+    return new Promise((resolveListen, rejectListen) => {
+      server.once('listening', resolveListen);
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          let saved;
+          try { saved = JSON.parse(readFileSync(bridgeFile, 'utf8')); } catch { /* no discovery file */ }
+          const known = saved?.root === root && (saved.port === listenPort || saved.controlPort === listenPort)
+            && Number.isSafeInteger(saved.pid) && saved.pid > 0;
+          const hint = known
+            ? `Discovery lists What MCP PID ${saved.pid} for this project. Verify that session and stop it if stale, or set WHAT_MCP_PORT to two free consecutive ports.`
+            : 'Stop the process using it, or set WHAT_MCP_PORT to two free consecutive ports.';
+          console.error(`[what-devtools-mcp] port ${listenPort} in use. ${hint}`);
+        } else {
+          console.error(`[what-devtools-mcp] bridge port ${listenPort}: ${err.message}`);
+        }
+        onError?.(err);
+        rejectListen(err);
+      });
     });
   }
 
-  async function refreshSnapshot() {
-    const data = await sendCommand('get-snapshot');
-    latestSnapshot = data;
-    return data;
-  }
-
-  async function getOrRefreshSnapshot() {
-    const now = Date.now();
-    if (cachedSnapshot && now - cacheTime < SNAPSHOT_CACHE_MS) return cachedSnapshot;
+  const ready = Promise.all([listen(wss, port), listen(httpServer, controlPort)]).then(() => {
+    if (closed) return;
     try {
-      cachedSnapshot = await refreshSnapshot();
-      cacheTime = now;
-      return cachedSnapshot;
+      mkdirSync(join(bridgeFile, '..'), { recursive: true });
+      writeFileSync(bridgeFile, JSON.stringify({ port, controlPort, key: pairingKey, root, pid: process.pid }), { mode: 0o600 });
+      wroteFile = true;
     } catch {
-      return latestSnapshot;
+      // Without the file a dev server can still pair through WHAT_MCP_TOKEN.
     }
+    console.error(`[what-devtools-mcp] Bridge listening on ws://${host}:${port}`);
+    console.error(`[what-devtools-mcp] Pairing on http://${host}:${controlPort}`);
+  });
+  ready.catch(close);
+  httpServer.listen(controlPort, host);
+
+  // --- Query API ---------------------------------------------------------------
+
+  function describeSession(s) {
+    return {
+      id: s.id,
+      url: s.url,
+      title: s.title,
+      live: s.socket !== null,
+      ...(s.socket === null ? { closedAt: s.closedAt } : {}),
+    };
   }
 
-  async function getCacheSnapshot() {
-    return sendCommand('get-cache');
+  /**
+   * The session a tool call is about. Without an id, the one live session;
+   * with several live, the caller must choose. Closed sessions answer only
+   * when `allowClosed` (buffered history).
+   * @param {string | undefined} id
+   * @param {{ allowClosed?: boolean }} [opts]
+   */
+  function resolveSession(id, { allowClosed = false } = {}) {
+    const live = liveSessions();
+    if (id) {
+      const s = sessions.get(id);
+      if (!s) return { problem: 'unknown', sessions: [...sessions.values()].map(describeSession) };
+      if (s.socket === null && !allowClosed) return { problem: 'closed', sessions: live.map(describeSession) };
+      return { session: s };
+    }
+    if (live.length === 1) return { session: live[0] };
+    if (live.length > 1) return { problem: 'ambiguous', sessions: live.map(describeSession) };
+    if (allowClosed && sessions.size) {
+      const last = [...sessions.values()].sort((a, b) => b.closedAt - a.closedAt)[0];
+      return { session: last };
+    }
+    return { problem: 'none', sessions: [] };
   }
 
-  function getSnapshot() {
-    return latestSnapshot;
+  /**
+   * Send a command to one session's page. Resolves with the page's answer,
+   * `seq` (the session's watermark when the answer arrived) and, for actions,
+   * `since` (the watermark just before the action ran).
+   */
+  function request(session, command, args = {}, { timeout = 5000 } = {}) {
+    return new Promise((resolvePromise, rejectPromise) => {
+      const socket = session.socket;
+      if (!socket || socket.readyState !== 1) {
+        rejectPromise(new Error('The page is not connected'));
+        return;
+      }
+      const correlationId = `c${++correlationCounter}`;
+      const timer = setTimeout(() => {
+        session.pending.delete(correlationId);
+        rejectPromise(new Error(`Command '${command}' timed out after ${timeout}ms`));
+      }, timeout);
+      session.pending.set(correlationId, {
+        socket,
+        since: undefined,
+        settle: (answer) => { clearTimeout(timer); resolvePromise(answer); },
+        fail: (err) => { clearTimeout(timer); rejectPromise(err); },
+      });
+      socket.send(JSON.stringify({ command, correlationId, args }));
+    });
   }
 
-  function saveBaseline() {
-    baselineSnapshot = latestSnapshot ? JSON.parse(JSON.stringify(latestSnapshot)) : null;
-    if (baselineSnapshot) baselineSnapshot._savedAt = Date.now();
-    return !!baselineSnapshot;
+  /**
+   * Events of one session after a cursor, oldest first. `next` is the cursor
+   * for the following read: the last returned seq when `more`, else the
+   * session watermark, so reading from `next` never repeats or skips.
+   * `lostThrough` > after means events at or before it were evicted unread.
+   */
+  function getEvents(session, { after = 0 } = {}) {
+    return {
+      events: session.events.filter((e) => e.seq > after),
+      watermark: session.lastSeq,
+      lostThrough: session.lostThrough > after ? session.lostThrough : 0,
+    };
   }
 
-  function getBaseline() {
-    return baselineSnapshot;
+  function getDiagnostics(session, { after = 0 } = {}) {
+    return [...session.diagnostics.values()].filter((d) => d.seq > after);
   }
 
-  function getEvents(since) {
-    if (since) return eventLog.filter(e => e.timestamp > since);
-    return eventLog.slice();
-  }
-
-  function getErrors(since) {
-    if (since) return errorLog.filter(e => e.timestamp > since);
-    return errorLog.slice();
+  function getErrors(session, { after = 0 } = {}) {
+    return session.errors.filter((e) => e.seq > after);
   }
 
   function close() {
-    for (const [id, pending] of pendingCommands) {
-      pending.reject(new Error('Bridge closing'));
-      pendingCommands.delete(id);
+    if (closed) return;
+    closed = true;
+    for (const s of sessions.values()) {
+      for (const [id, pending] of s.pending) {
+        pending.fail(new Error('Bridge closing'));
+        s.pending.delete(id);
+      }
     }
+    for (const client of wss.clients) client.terminate();
     wss.close();
     httpServer.close();
+    httpServer.closeAllConnections();
+    // Remove the pairing file only while it is still this bridge's.
+    if (!wroteFile) return;
+    try {
+      const saved = JSON.parse(readFileSync(bridgeFile, 'utf8'));
+      if (saved.pid === process.pid && saved.port === port && saved.key === pairingKey) rmSync(bridgeFile, { force: true });
+    } catch { /* already gone */ }
   }
 
   return {
-    getSnapshot,
-    getOrRefreshSnapshot,
+    ready,
+    isConnected: () => liveSessions().length > 0,
+    listSessions: () => [...sessions.values()].map(describeSession),
+    resolveSession,
+    request,
     getEvents,
+    getDiagnostics,
     getErrors,
-    isConnected,
-    sendCommand,
-    refreshSnapshot,
-    getCacheSnapshot,
-    saveBaseline,
-    getBaseline,
+    refusals: () => refusals.filter((r) => Date.now() - r.at < REFUSAL_TTL_MS),
+    boundOrigin: () => boundOrigin,
     close,
-    authToken,
+    pairingKey,
+    port,
+    controlPort,
   };
 }

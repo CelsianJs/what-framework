@@ -1,11 +1,8 @@
 // What Kanban — multi-board kanban with HTML5 drag-and-drop,
 // what-router routes, and localStorage persistence.
 
-import {
-  mount,
-  useSignal, useEffect, useRef,
-  cls,
-} from 'what-framework';
+import { mount, useSignal, useEffect, useRef } from 'what-framework';
+import { cls } from 'what-framework/dom';
 import { Router, Link, navigate, route } from 'what-router';
 
 import { useKanban } from './store.js';
@@ -42,11 +39,6 @@ function Card({ card, columnId, boardId, index }) {
   const dragging = useSignal(false);
   const dragOverPos = useSignal(null); // 'before' | 'after' | null
   let dragLeaveTimer = null;
-
-  // Keep local edit buffer in sync if card was renamed elsewhere.
-  if (title() !== card.title && !editing()) {
-    title.set(card.title);
-  }
 
   const commitEdit = () => {
     const t = title().trim();
@@ -152,11 +144,6 @@ function Column({ board, column }) {
   const name = useSignal(column.name);
   const dropAtEnd = useSignal(false);
   const inputRef = useRef(null);
-
-  // Keep local edit buffer in sync.
-  if (name() !== column.name && !renaming()) {
-    name.set(column.name);
-  }
 
   useEffect(() => {
     if (adding() && inputRef.current) inputRef.current.focus();
@@ -383,8 +370,6 @@ function BoardTitle({ board }) {
   const name = useSignal(board.name);
   const store = useKanban();
 
-  if (!editing() && name() !== board.name) name.set(board.name);
-
   const commit = () => {
     const t = name().trim();
     if (t && t !== board.name) store.renameBoard(board.id, t);
@@ -392,21 +377,25 @@ function BoardTitle({ board }) {
     editing.set(false);
   };
 
-  return (() => editing() ? (
-    <input
-      class="board__title-input"
-      autofocus
-      value={() => name()}
-      onInput={e => name.set(e.target.value)}
-      onBlur={commit}
-      onKeydown={e => {
-        if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') { name.set(board.name); editing.set(false); }
-      }}
-    />
-  ) : (
-    <h1 class="board__title" onDblclick={() => editing.set(true)}>{board.name}</h1>
-  ))();
+  return (
+    <>
+      {editing() ? (
+        <input
+          class="board__title-input"
+          autofocus
+          value={() => name()}
+          onInput={e => name.set(e.target.value)}
+          onBlur={commit}
+          onKeydown={e => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') { name.set(board.name); editing.set(false); }
+          }}
+        />
+      ) : (
+        <h1 class="board__title" onDblclick={() => editing.set(true)}>{board.name}</h1>
+      )}
+    </>
+  );
 }
 
 // --- BoardList (/) ----------------------------------------

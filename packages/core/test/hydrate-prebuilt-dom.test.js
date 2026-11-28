@@ -1,24 +1,24 @@
 // hydrate() of an already-built DOM tree must not blank the page.
 //
-// hydrateNode's DOM-node branch returned the node without inserting it and
-// without claiming anything, so hydrate()'s own trimUnclaimed then deleted every
-// server child it found: an empty container, a dead button, and no warning at
-// all.
+// hydrate() used to return a built node without inserting it or claiming
+// anything, then delete every server child it had not claimed: an empty
+// container, a dead button, and no warning at all.
 //
-// That branch is not an exotic path. Compiled JSX used to make it the NATURAL
+// Built DOM is not an exotic input. Compiled JSX used to make it the NATURAL
 // spelling of a hydrate root, because the compiler lowered `hydrate(<App />)` to
 // `hydrate(_$createComponent(App, ...))`, which has already run the component
-// and built its DOM. An app following the SSR guide with what-compiler on the
-// client got a blank page. That call site now lowers to the unbuilt
-// _$componentVNode instead (see the compiler's hydrate-root-lowering tests), but
-// everything below still has to hold: a compiled component BODY returns a
-// template clone, and a caller can always build a tree before handing it over.
+// and built its DOM. That call site now lowers to the unbuilt _$componentVNode
+// (see the compiler's hydrate-root-lowering tests), and compiled JSX built with
+// the hydratable option claims the server's markup instead of cloning, but a
+// component compiled without that option still returns a template clone, and a
+// caller can always build a tree before handing it over.
 //
-// The fix is a client render, not real hydration: a built node's bindings are
-// already wired to itself, so it cannot adopt the server's markup. What these
-// tests pin is that the page ends up CORRECT and INTERACTIVE, that the loss of
-// reuse is announced once, and that the h() path still reuses server nodes (the
-// fallback must not have quietly become the only path).
+// A built node's bindings are already wired to itself, so it cannot adopt the
+// server's markup: it takes the place of the server's copy. What these tests pin
+// is that the page ends up CORRECT and INTERACTIVE, that the loss of reuse is
+// reported once (an ERR_HYDRATION_MISMATCH of kind not-hydratable), and that the
+// h() path still reuses server nodes (the replacement must not have quietly
+// become the only path).
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,6 +30,7 @@ globalThis.__WHAT_DEV__ = true;
 const { signal, flushSync } = await import('../src/reactive.js');
 const { _$template, insert, _$createComponent, hydrate, delegateEvents } = await import('../src/render.js');
 const { h } = await import('../src/h.js');
+const { clearDiagnostics, getDiagnostics } = await import('../src/diagnostics.js');
 
 delegateEvents(['click']);
 
@@ -65,6 +66,7 @@ let warnings;
 let realWarn;
 
 beforeEach(() => {
+  clearDiagnostics();
   document.body.innerHTML = `<div id="app">${SERVER_HTML}</div>`;
   warnings = [];
   realWarn = console.warn;
@@ -91,18 +93,28 @@ describe('hydrate() of already-built DOM', () => {
     assert.equal(app.textContent, 'Count: 6inceven');
   });
 
-  it('warns once, not once per node', () => {
-    hydrate(_$createComponent(compiledApp(signal(5)), null, []), document.getElementById('app'));
+  it('reports it once, as a not-hydratable ERR_HYDRATION_MISMATCH, not once per node', () => {
+    const reports = [];
+    const realError = console.error;
+    console.error = () => {};
+    try {
+      hydrate(_$createComponent(compiledApp(signal(5)), null, []), document.getElementById('app'), { onHydrationError: (info) => reports.push(info) });
+    } finally {
+      console.error = realError;
+    }
     flushSync();
 
-    assert.equal(warnings.length, 1, `expected one warning, got ${warnings.length}`);
-    assert.match(warnings[0], /already built/);
+    assert.deepEqual(reports.map((r) => [r.kind, r.found]), [['not-hydratable', '<h1>']]);
+    const events = getDiagnostics().events.filter((e) => e.code.startsWith('ERR_HYDRATION'));
+    assert.equal(events.length, 1, `expected one diagnostic, got ${events.length}`);
+    assert.equal(events[0].code, 'ERR_HYDRATION_MISMATCH');
+    assert.equal(warnings.length, 0);
   });
 
   it('replaces the server node rather than doubling it in <body>', () => {
-    // <body> is the one container trimUnclaimed refuses to tidy, because it also
-    // holds the scripts and the hydration payload. Without claiming the node it
-    // displaces, the client render simply stacked on top of the server's copy.
+    // <body> also holds the scripts and the hydration payload, which hydrate()
+    // leaves alone. Without claiming the node it displaces, the client render
+    // simply stacked on top of the server's copy.
     document.body.innerHTML = '<h1>Count: 0</h1><script id="payload"></script>';
     hydrate(_$createComponent(function App() {
       const heading = tmplH1();

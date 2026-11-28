@@ -24,6 +24,7 @@ export default {
     docs: {
       description: 'Disallow signal writes (.set()) inside computed() callbacks',
       recommended: true,
+      code: 'ERR_SIGNAL_WRITE_IN_COMPUTED',
     },
     messages: {
       setInComputed:

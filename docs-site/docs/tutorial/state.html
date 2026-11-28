@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -89,7 +89,7 @@
   <span class="keyword">const</span> count = <span class="function">signal</span>(<span class="number">0</span>);
   <span class="keyword">return</span> &lt;button onClick={() =&gt; count.set(<span class="number">1</span>)}&gt;Set&lt;/button&gt;;
 }</code></pre>
-            <p>The write that really does bite is one inside a <code>computed()</code>. That function re-runs whenever its dependencies change, so a write in there can feed itself. What logs a warning when it sees one.</p>
+            <p>The write that really does bite is one inside a <code>computed()</code>. That function re-runs whenever its dependencies change, so a write in there can feed itself. In development What reports <code>ERR_SIGNAL_WRITE_IN_COMPUTED</code> when it sees one.</p>
           </div>
 
           <h2 id="board-state">Adding State to the Board</h2>
@@ -149,7 +149,11 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
           <h2 id="reactive-rendering">Understanding Reactive Rendering</h2>
           <p>Notice this line in the Board:</p>
 
-<pre><code>{<span class="function">() =&gt;</span> squares().map((value, i) =&gt; ...</code></pre>
+<pre><code>&lt;div className=<span class="string">"board"</span>&gt;
+  {<span class="function">() =&gt;</span> squares().map((value, i) =&gt; (
+    &lt;Square key={i} value={value} onClick={() =&gt; handleClick(i)} /&gt;
+  ))}
+&lt;/div&gt;</code></pre>
 
           <p>The arrow function <code>() =></code> is important. It tells What to:</p>
           <ol>
@@ -169,11 +173,13 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
 <pre><code><span class="comment">// Good - create a copy</span>
 <span class="keyword">const</span> next = [...squares()];
 next[i] = <span class="string">'X'</span>;
-squares.set(next);
+squares.set(next);</code></pre>
 
-<span class="comment">// Bad - mutating directly won't work</span>
+          <p>Changing the array the signal already holds does not work:</p>
+
+<pre><code><span class="comment">// Mutating in place: What won't detect this change</span>
 <span class="keyword">const</span> current = squares();
-current[i] = <span class="string">'X'</span>;  <span class="comment">// Mutation - What won't detect this change</span></code></pre>
+current[i] = <span class="string">'X'</span>;</code></pre>
 
           <p>This is called <strong>immutability</strong>. When you create a new array, What knows something changed. If you mutate the existing array, it looks like the same object and What won't update the UI.</p>
 

@@ -1,15 +1,11 @@
 /**
- * The single source of truth for what tools this MCP server actually exposes.
+ * The single source of truth for what tools this MCP server actually exposes,
+ * derived from registration by wrapping `server.tool` once before the three
+ * register* functions run.
  *
- * `what_connection_status` is the tool CLAUDE.md tells every agent to call FIRST
- * to orient, and it used to answer with a hand-maintained literal array of 17
- * entries while 29 tools were registered. The product under-reported its own
- * differentiator by 41% at the moment of first contact, and the same catalogue
- * was hand-copied into CLAUDE.md, AGENTS.md and the docs, each free to drift.
- *
- * A framework whose thesis is machine-readable truth cannot hand-maintain its own
- * machine-readable index, so the catalogue is now derived from registration by
- * wrapping `server.tool` once before the three register* functions run.
+ * The client already has the full list from tools/list, so no tool resends it.
+ * What the registry answers is the one thing tools/list cannot: which tools can
+ * answer with no browser attached.
  */
 
 const registered = [];
@@ -17,10 +13,9 @@ const registered = [];
 // Tools that answer with no browser attached. Everything else needs a live page
 // on the bridge, which is a stronger requirement than "the dev server is up" and
 // is the single most common reason an agent's first call comes back empty.
-const OFFLINE_TOOLS = new Set([
+export const OFFLINE_TOOLS = new Set([
   'what_connection_status',
   'what_lint',
-  'what_validate',
   'what_scaffold',
   'what_fix',
 ]);
@@ -46,11 +41,8 @@ export function getRegisteredTools() {
 }
 
 /**
- * Split the catalogue by what can actually answer right now.
- *
- * No competitor's MCP server distinguishes "this tool exists" from "this tool can
- * answer in this session", which is the distinction that actually costs an agent
- * turns: it discovers the difference by calling and failing.
+ * Split the catalogue by what can answer right now. An agent that learns this
+ * by calling and failing pays a turn per tool.
  */
 export function describeToolAvailability(connected) {
   const all = getRegisteredTools();

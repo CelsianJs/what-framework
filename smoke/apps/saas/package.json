@@ -1,0 +1,22 @@
+{
+  "name": "smoke-saas",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Northstar, a multi-tenant SaaS console: file-router pages with a layout per section, server-rendered below /console and hydrated, URL-driven filters and an editor, useQuery over one shared cache, an optimistic server action with a redirect, a sign-in guard, a 2,000-member table.",
+  "scripts": {
+    "build": "vite build && vite build --ssr src/entry-server.jsx --outDir dist/server",
+    "start": "node server.js",
+    "dev": "node server.js --dev"
+  },
+  "dependencies": {
+    "what-framework": "0.15.0",
+    "what-router": "0.15.0",
+    "what-server": "0.15.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "vite": "^7.0.0",
+    "what-compiler": "0.15.0"
+  }
+}

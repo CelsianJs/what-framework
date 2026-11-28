@@ -1,0 +1,3818 @@
+{
+  "machine": {
+    "platform": "darwin",
+    "release": "25.5.0",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max"
+  },
+  "toolchain": {
+    "node": "v22.13.1",
+    "npm": "11.0.0",
+    "zlib": "1.3.0.1-motley-82a5fec",
+    "brotli": "1.1.0",
+    "solid1": "1.9.20",
+    "solid-js": "2.0.3",
+    "@solidjs/web": "2.0.3",
+    "@solidjs/signals": "2.0.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "7.3.8",
+    "esbuild": "0.28.2",
+    "rollup": "4.68.7",
+    "@babel/core": "7.29.0",
+    "babel-preset-solid": "1.9.19",
+    "@solidjs/babel-plugin": "2.0.2",
+    "playwright": "1.64.0",
+    "what-compiler": "0.14.0",
+    "chromium": "156.0.8078.4"
+  },
+  "whatRevision": "0731cbb80e4695de6d0a4039a1a855254ffdbcae",
+  "whatSourceChanges": "",
+  "results": [
+    {
+      "app": "hello",
+      "framework": "what",
+      "raw": 23795,
+      "gzip": 8113,
+      "brotli": 7267,
+      "frameworkBytes": 22874,
+      "unmappedBytes": 733,
+      "assets": [
+        {
+          "file": "assets/index-B-pi5-mj.js",
+          "sha256": "301918def96e435ae9952c5ee9bd5c9eb57eb23c5d02fcdb2371057dd9b655f8",
+          "raw": 23795,
+          "gzip": 8113,
+          "brotli": 7267
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11718,
+          "renderedLength": 43932,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 6518,
+          "renderedLength": 12137,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 4490,
+          "renderedLength": 10505,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/hello.jsx",
+          "minifiedBytes": 188,
+          "renderedLength": 588,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": true
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": true
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": true
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": true
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": true
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": true
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": true
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": true
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": true
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      },
+      "runtimeExports": [
+        {
+          "name": "_isEventProp",
+          "local": "_isEventProp",
+          "source": "packages/core/src/dom.js",
+          "line": 56,
+          "minifiedBytes": 123,
+          "rollupRendered": true,
+          "reason": "General VNode prop dispatch distinguishes event handlers from accessors."
+        },
+        {
+          "name": "_isUnsafeAttr",
+          "local": "_isUnsafeAttr",
+          "source": "packages/core/src/dom.js",
+          "line": 66,
+          "minifiedBytes": 101,
+          "rollupRendered": true,
+          "reason": "The VNode prop path screens URLs and unsafe attributes."
+        },
+        {
+          "name": "_isAriaAttr",
+          "local": "_isAriaAttr",
+          "source": "packages/core/src/dom.js",
+          "line": 87,
+          "minifiedBytes": 56,
+          "rollupRendered": true,
+          "reason": "The general VNode prop path preserves ARIA boolean syntax."
+        },
+        {
+          "name": "addHydrationDisposer",
+          "local": "addHydrationDisposer",
+          "source": "packages/core/src/dom.js",
+          "line": 150,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "addHydratedComponent",
+          "local": "addHydratedComponent",
+          "source": "packages/core/src/dom.js",
+          "line": 156,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "disposeTree",
+          "local": "disposeTree",
+          "source": "packages/core/src/dom.js",
+          "line": 163,
+          "minifiedBytes": 426,
+          "rollupRendered": true,
+          "reason": "Called by mount and generic DOM replacement. Cleans up components, effects and owned nodes."
+        },
+        {
+          "name": "_liveRegionNodes",
+          "local": "_liveRegionNodes",
+          "source": "packages/core/src/dom.js",
+          "line": 241,
+          "minifiedBytes": 209,
+          "rollupRendered": true,
+          "reason": "Called by reactive and generic replacement to walk live ranges between paired markers."
+        },
+        {
+          "name": "mount",
+          "local": "mount",
+          "source": "packages/core/src/dom.js",
+          "line": 265,
+          "minifiedBytes": 159,
+          "rollupRendered": true,
+          "reason": "Direct app entry. Disposes the previous tree and dispatches the input through createDOM."
+        },
+        {
+          "name": "createDOM",
+          "local": "createDOM",
+          "source": "packages/core/src/dom.js",
+          "line": 281,
+          "minifiedBytes": 1419,
+          "rollupRendered": true,
+          "reason": "Shared dispatcher for mount, compiled components and generic inserts. It handles DOM, VNodes, lists, accessors and fragments."
+        },
+        {
+          "name": "getCurrentComponent",
+          "local": "getCurrentComponent",
+          "source": "packages/core/src/dom.js",
+          "line": 488,
+          "minifiedBytes": 35,
+          "rollupRendered": true,
+          "reason": "Shared component stack lookup. dom.js:493 also registers it for error reporting."
+        },
+        {
+          "name": "getComponentStack",
+          "local": "getComponentStack",
+          "source": "packages/core/src/dom.js",
+          "line": 496,
+          "minifiedBytes": 23,
+          "rollupRendered": true,
+          "reason": "Compiled insert captures and restores the active component around an effect."
+        },
+        {
+          "name": "_beginComponentSSR",
+          "local": "_beginComponentSSR",
+          "source": "packages/core/src/dom.js",
+          "line": 527,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_endComponentSSR",
+          "local": "_endComponentSSR",
+          "source": "packages/core/src/dom.js",
+          "line": 544,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_installLazyChildren",
+          "local": "_installLazyChildren",
+          "source": "packages/core/src/dom.js",
+          "line": 574,
+          "minifiedBytes": 220,
+          "rollupRendered": true,
+          "reason": "General component instantiation can receive a deferred compiled child factory."
+        },
+        {
+          "name": "_handleNavigationSignal",
+          "local": "_handleNavigationSignal",
+          "source": "packages/core/src/dom.js",
+          "line": 608,
+          "minifiedBytes": 90,
+          "rollupRendered": true,
+          "reason": "General component error handling checks for router navigation before sending errors to a boundary."
+        },
+        {
+          "name": "_setSelectValue",
+          "local": "_setSelectValue",
+          "source": "packages/core/src/dom.js",
+          "line": 1025,
+          "minifiedBytes": 80,
+          "rollupRendered": true,
+          "reason": "The general VNode prop path handles single and multiple select values."
+        },
+        {
+          "name": "_setTextInsertHook",
+          "local": "_setTextInsertHook",
+          "source": "packages/core/src/render.js",
+          "line": 23,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_$componentVNode",
+          "local": "_$componentVNode",
+          "source": "packages/core/src/render.js",
+          "line": 45,
+          "minifiedBytes": 421,
+          "rollupRendered": true,
+          "reason": "Called by the compiler-emitted _$createComponent to normalize props and children."
+        },
+        {
+          "name": "_$createComponent",
+          "local": "_$createComponent",
+          "source": "packages/core/src/render.js",
+          "line": 82,
+          "minifiedBytes": 39,
+          "rollupRendered": true,
+          "reason": "Compiler-emitted component entry. Calls the general createDOM dispatcher."
+        },
+        {
+          "name": "template",
+          "local": "template",
+          "source": "packages/core/src/render.js",
+          "line": 176,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_$template",
+          "local": "_$templateImpl",
+          "source": "packages/core/src/render.js",
+          "line": 125,
+          "minifiedBytes": 696,
+          "rollupRendered": true,
+          "reason": "Compiler-emitted template used for the main element and its children."
+        },
+        {
+          "name": "_template",
+          "local": "template",
+          "source": "packages/core/src/render.js",
+          "line": 176,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "svgTemplate",
+          "local": "svgTemplate",
+          "source": "packages/core/src/render.js",
+          "line": 200,
+          "minifiedBytes": 318,
+          "rollupRendered": true,
+          "reason": "The same template implementation dispatches to SVG parsing based on the template string."
+        },
+        {
+          "name": "insert",
+          "local": "insert",
+          "source": "packages/core/src/render.js",
+          "line": 259,
+          "minifiedBytes": 778,
+          "rollupRendered": true,
+          "reason": "Compiler-emitted reactive counter binding. Text shares this helper with list and general value insertion."
+        },
+        {
+          "name": "mapArray",
+          "local": "mapArray",
+          "source": "packages/core/src/render.js",
+          "line": 601,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_mapArrayToArray",
+          "local": "_mapArrayToArray",
+          "source": "packages/core/src/render.js",
+          "line": 671,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "spread",
+          "local": "spread",
+          "source": "packages/core/src/render.js",
+          "line": 1459,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setProp",
+          "local": "setProp",
+          "source": "packages/core/src/render.js",
+          "line": 1527,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setClass",
+          "local": "setClass",
+          "source": "packages/core/src/render.js",
+          "line": 1639,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setStyle",
+          "local": "setStyle",
+          "source": "packages/core/src/render.js",
+          "line": 1649,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setAttr",
+          "local": "setAttr",
+          "source": "packages/core/src/render.js",
+          "line": 1681,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setValue",
+          "local": "setValue",
+          "source": "packages/core/src/render.js",
+          "line": 1692,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "setChecked",
+          "local": "setChecked",
+          "source": "packages/core/src/render.js",
+          "line": 1705,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "delegateEvents",
+          "local": "delegateEvents",
+          "source": "packages/core/src/render.js",
+          "line": 1717,
+          "minifiedBytes": 410,
+          "rollupRendered": true,
+          "reason": "Compiler-emitted click event registration executes at module load."
+        },
+        {
+          "name": "on",
+          "local": "on",
+          "source": "packages/core/src/render.js",
+          "line": 1749,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "classList",
+          "local": "classList",
+          "source": "packages/core/src/render.js",
+          "line": 1755,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "isHydrating",
+          "local": "isHydrating",
+          "source": "packages/core/src/render.js",
+          "line": 1774,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "hydrate",
+          "local": "hydrate",
+          "source": "packages/core/src/render.js",
+          "line": 1783,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "__DEV__",
+          "local": "__DEV__",
+          "source": "packages/core/src/reactive.js",
+          "line": 23,
+          "minifiedBytes": 94,
+          "rollupRendered": true,
+          "reason": "Runtime global override keeps the development condition live in framework modules."
+        },
+        {
+          "name": "__devtools",
+          "local": "__devtools",
+          "source": "packages/core/src/reactive.js",
+          "line": 35,
+          "minifiedBytes": 7,
+          "rollupRendered": true,
+          "reason": "The module-load development buffer and reachable signal, effect and component hooks share this binding."
+        },
+        {
+          "name": "__setDevToolsHooks",
+          "local": "__setDevToolsHooks",
+          "source": "packages/core/src/reactive.js",
+          "line": 38,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "signal",
+          "local": "signal",
+          "source": "packages/core/src/reactive.js",
+          "line": 77,
+          "minifiedBytes": 470,
+          "rollupRendered": true,
+          "reason": "App counter state. Also used within the reached DOM runtime."
+        },
+        {
+          "name": "computed",
+          "local": "computed",
+          "source": "packages/core/src/reactive.js",
+          "line": 167,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "effect",
+          "local": "effect",
+          "source": "packages/core/src/reactive.js",
+          "line": 333,
+          "minifiedBytes": 274,
+          "rollupRendered": true,
+          "reason": "Compiler insertion and general DOM binders use tracked effects."
+        },
+        {
+          "name": "batch",
+          "local": "batch",
+          "source": "packages/core/src/reactive.js",
+          "line": 387,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "memo",
+          "local": "memo",
+          "source": "packages/core/src/reactive.js",
+          "line": 693,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "flushSync",
+          "local": "flushSync",
+          "source": "packages/core/src/reactive.js",
+          "line": 755,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "untrack",
+          "local": "untrack",
+          "source": "packages/core/src/reactive.js",
+          "line": 785,
+          "minifiedBytes": 60,
+          "rollupRendered": true,
+          "reason": "Used for component execution and reconciliation reads that must avoid capturing dependencies."
+        },
+        {
+          "name": "getOwner",
+          "local": "getOwner",
+          "source": "packages/core/src/reactive.js",
+          "line": 799,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "runWithOwner",
+          "local": "runWithOwner",
+          "source": "packages/core/src/reactive.js",
+          "line": 803,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "createRoot",
+          "local": "createRoot",
+          "source": "packages/core/src/reactive.js",
+          "line": 821,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_createItemScope",
+          "local": "_createItemScope",
+          "source": "packages/core/src/reactive.js",
+          "line": 889,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "onCleanup",
+          "local": "onCleanup",
+          "source": "packages/core/src/reactive.js",
+          "line": 916,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "__drainPreinstallBuffer",
+          "local": "__drainPreinstallBuffer",
+          "source": "packages/core/src/reactive.js",
+          "line": 966,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "memo",
+          "local": "memo",
+          "source": "packages/core/src/components.js",
+          "line": 17,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_injectGetCurrentComponent",
+          "local": "_injectGetCurrentComponent",
+          "source": "packages/core/src/components.js",
+          "line": 29,
+          "minifiedBytes": 20,
+          "rollupRendered": true,
+          "reason": "dom.js:493 registers the stack lookup read by reportError."
+        },
+        {
+          "name": "shallowEqual",
+          "local": "shallowEqual",
+          "source": "packages/core/src/components.js",
+          "line": 31,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "lazy",
+          "local": "lazy",
+          "source": "packages/core/src/components.js",
+          "line": 45,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "Suspense",
+          "local": "Suspense",
+          "source": "packages/core/src/components.js",
+          "line": 83,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "ErrorBoundary",
+          "local": "ErrorBoundary",
+          "source": "packages/core/src/components.js",
+          "line": 130,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "reportError",
+          "local": "reportError",
+          "source": "packages/core/src/components.js",
+          "line": 162,
+          "minifiedBytes": 116,
+          "rollupRendered": true,
+          "reason": "General component and effect error handling can route errors through a context boundary."
+        },
+        {
+          "name": "Show",
+          "local": "Show",
+          "source": "packages/core/src/components.js",
+          "line": 190,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "For",
+          "local": "For",
+          "source": "packages/core/src/components.js",
+          "line": 206,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "Switch",
+          "local": "Switch",
+          "source": "packages/core/src/components.js",
+          "line": 240,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "Match",
+          "local": "Match",
+          "source": "packages/core/src/components.js",
+          "line": 264,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "_injectIslandRuntime",
+          "local": "_injectIslandRuntime",
+          "source": "packages/core/src/components.js",
+          "line": 292,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        },
+        {
+          "name": "Island",
+          "local": "Island",
+          "source": "packages/core/src/components.js",
+          "line": 314,
+          "minifiedBytes": 0,
+          "rollupRendered": false,
+          "reason": null
+        }
+      ],
+      "regions": [
+        {
+          "name": "Generic insertion, conversion and reconciliation",
+          "source": "packages/core/src/render.js",
+          "first": 235,
+          "last": 592,
+          "minifiedBytes": 3439
+        },
+        {
+          "name": "Fallback element creation and generic prop handling",
+          "source": "packages/core/src/dom.js",
+          "first": 977,
+          "last": 1300,
+          "minifiedBytes": 2794
+        },
+        {
+          "name": "VNode error/suspense boundaries and portal",
+          "source": "packages/core/src/dom.js",
+          "first": 773,
+          "last": 976,
+          "minifiedBytes": 2208
+        },
+        {
+          "name": "Compiled templates and SVG/table fallback",
+          "source": "packages/core/src/render.js",
+          "first": 94,
+          "last": 219,
+          "minifiedBytes": 2182
+        },
+        {
+          "name": "VNode class bridge, component context and lifecycle",
+          "source": "packages/core/src/dom.js",
+          "first": 616,
+          "last": 772,
+          "minifiedBytes": 1746
+        },
+        {
+          "name": "Generic VNode dispatcher",
+          "source": "packages/core/src/dom.js",
+          "first": 281,
+          "last": 456,
+          "minifiedBytes": 1419
+        },
+        {
+          "name": "Disposal and live range tracking",
+          "source": "packages/core/src/dom.js",
+          "first": 108,
+          "last": 263,
+          "minifiedBytes": 1156
+        },
+        {
+          "name": "Development-only preinstall buffer",
+          "source": "packages/core/src/reactive.js",
+          "first": 934,
+          "last": 960,
+          "minifiedBytes": 416
+        },
+        {
+          "name": "Keyed and unkeyed list reconciliation",
+          "source": "packages/core/src/render.js",
+          "first": 601,
+          "last": 1450,
+          "minifiedBytes": 0
+        },
+        {
+          "name": "Hydration entry, walker and boundaries",
+          "source": "packages/core/src/render.js",
+          "first": 1770,
+          "last": 2927,
+          "minifiedBytes": 0
+        }
+      ]
+    },
+    {
+      "app": "hello",
+      "framework": "solid1",
+      "raw": 8797,
+      "gzip": 3640,
+      "brotli": 3293,
+      "frameworkBytes": 7877,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-ocfXk8FW.js",
+          "sha256": "2f24163c0d63fe5d61e4e61a20a0def79dac01cb3c284316e15e9bccc1a51565",
+          "raw": 8797,
+          "gzip": 3640,
+          "brotli": 3293
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/solid1/dist/solid.js",
+          "minifiedBytes": 4016,
+          "renderedLength": 8983,
+          "renderedExports": [
+            "createComponent",
+            "createRenderEffect",
+            "createRoot",
+            "createSignal",
+            "equalFn",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/solid1/web/dist/web.js",
+          "minifiedBytes": 3861,
+          "renderedLength": 8616,
+          "renderedExports": [
+            "delegateEvents",
+            "insert",
+            "render",
+            "template"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/solid1/hello.jsx",
+          "minifiedBytes": 209,
+          "renderedLength": 472,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "runtimeEvidence": [
+        "benchmark/size/node_modules/solid1/dist/solid.js",
+        "benchmark/size/node_modules/solid1/web/dist/web.js"
+      ]
+    },
+    {
+      "app": "hello",
+      "framework": "solid2",
+      "raw": 28382,
+      "gzip": 11785,
+      "brotli": 10787,
+      "frameworkBytes": 27488,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-DMREQw9y.js",
+          "sha256": "5d157d01e92aa99e755cd9e45cfc32369e866436260b87e2e32631513307ff96",
+          "raw": 28382,
+          "gzip": 11785,
+          "brotli": 10787
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/core.js",
+          "minifiedBytes": 6428,
+          "renderedLength": 38486,
+          "renderedExports": [
+            "bornInto",
+            "computed",
+            "context",
+            "createEffectNode",
+            "creatorPass",
+            "effectStatusNotify",
+            "ext",
+            "isEqual",
+            "isSame",
+            "joinPass",
+            "markLateLinker",
+            "markUnflushedStaged",
+            "notePromotedWrite",
+            "prepareComputed",
+            "pullComputed",
+            "read",
+            "readerSeesCommitted",
+            "recompute",
+            "resyncUnflushedCompanions",
+            "runWithOwner",
+            "serve",
+            "setEffectStatusNotify",
+            "setMemo",
+            "setSignal",
+            "signal",
+            "spectating",
+            "stagedRead",
+            "stashFlushed",
+            "statusNotifierOf",
+            "tracking",
+            "unflushedStaged",
+            "unflushedValue",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/web/dist/web.js",
+          "minifiedBytes": 5902,
+          "renderedLength": 13683,
+          "renderedExports": [
+            "delegateEvents",
+            "effect",
+            "insert",
+            "registerDelegatedContainer",
+            "registerDelegatedRoot",
+            "render",
+            "template",
+            "unregisterDelegatedContainer",
+            "unregisterDelegatedRoot"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/scheduler.js",
+          "minifiedBytes": 4940,
+          "renderedLength": 42618,
+          "renderedExports": [
+            "GlobalQueue",
+            "MAINLINE_QUESTION",
+            "ROOT_ERROR_HOOK",
+            "applyStaged",
+            "blocked",
+            "bumpNotifyEpoch",
+            "clock",
+            "commitPendingNode",
+            "deferZombie",
+            "dirtyQueue",
+            "externalUntrackHook",
+            "flush",
+            "flushTransaction",
+            "freshHook",
+            "globalQueue",
+            "guessing",
+            "haltReactivity",
+            "heldTrim",
+            "holdNode",
+            "holdWorkHook",
+            "insertSubs",
+            "joinFuture",
+            "joinPassTx",
+            "laneServedHook",
+            "laneStageHook",
+            "list",
+            "liveTx",
+            "merge",
+            "newTransaction",
+            "notifyEpoch",
+            "observeFlightHook",
+            "passLane",
+            "passTx",
+            "pendingNodes",
+            "queueEffectRun",
+            "queuePendingNode",
+            "releaseQueues",
+            "reruns",
+            "resolveTx",
+            "revertHook",
+            "schedule",
+            "staleReader",
+            "transactions",
+            "txOf"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/async.js",
+          "minifiedBytes": 4013,
+          "renderedLength": 19970,
+          "renderedExports": [
+            "addPendingSource",
+            "clearInFlight",
+            "clearStatus",
+            "forEachDependent",
+            "handleAsync",
+            "isThenable",
+            "notifyStatus",
+            "parkLoadingWindow",
+            "propagateStatus",
+            "releaseFlightTeardown",
+            "releaseIfSettledUnobserved",
+            "releaseSettledDependents",
+            "removePendingSource",
+            "retryReaches",
+            "setPendingError",
+            "settleErroredDependents",
+            "settlePendingSource",
+            "stageError"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/owner.js",
+          "minifiedBytes": 1564,
+          "renderedLength": 12419,
+          "renderedExports": [
+            "cleanup",
+            "createOwner",
+            "createRoot",
+            "disposeChildren",
+            "getNextChildId",
+            "getOwner",
+            "inheritId",
+            "linkChild",
+            "markDisposal",
+            "rethrowCleanupError",
+            "runCleanup"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/heap.js",
+          "minifiedBytes": 1248,
+          "renderedLength": 5015,
+          "renderedExports": [
+            "deleteFromHeap",
+            "enqueueSub",
+            "insertIntoHeap",
+            "insertIntoHeapHeight",
+            "liftOwned",
+            "markHeap",
+            "markNode",
+            "runHeap"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/graph.js",
+          "minifiedBytes": 857,
+          "renderedLength": 6296,
+          "renderedExports": [
+            "clearDeps",
+            "deferReleases",
+            "deferredReleases",
+            "dormantNodes",
+            "link",
+            "slotUnobservedHook",
+            "sweepDormant",
+            "trimStaleDeps",
+            "unlinkSubs",
+            "unobserved"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/effect.js",
+          "minifiedBytes": 831,
+          "renderedLength": 6096,
+          "renderedExports": [
+            "effect"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/flatten.js",
+          "minifiedBytes": 670,
+          "renderedLength": 2162,
+          "renderedExports": [
+            "flatten"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/constants.js",
+          "minifiedBytes": 411,
+          "renderedLength": 12519,
+          "renderedExports": [
+            "$REFRESH",
+            "CAUGHT_REARMED",
+            "CONFIG_ASYNC",
+            "CONFIG_AUTO_DISPOSE",
+            "CONFIG_CHILDREN_FORBIDDEN",
+            "CONFIG_FRAME",
+            "CONFIG_FRESH_READ",
+            "CONFIG_GUESS",
+            "CONFIG_HAS_SNAPSHOT",
+            "CONFIG_HELD",
+            "CONFIG_HELD_FRAME",
+            "CONFIG_INPUTS_PUBLISHED",
+            "CONFIG_IN_SNAPSHOT_SCOPE",
+            "CONFIG_LAGS",
+            "CONFIG_NO_SNAPSHOT",
+            "CONFIG_OVERRIDE",
+            "CONFIG_OWNED_WRITE",
+            "CONFIG_PROMOTED",
+            "CONFIG_REDERIVE",
+            "CONFIG_SLOT_NODE",
+            "CONFIG_STAGED",
+            "CONFIG_STAGED_ERROR",
+            "CONFIG_SYNC",
+            "CONFIG_TRANSPARENT",
+            "CONFIG_VERDICT",
+            "EFFECT_RENDER",
+            "EFFECT_TRACKED",
+            "EFFECT_USER",
+            "NOT_PENDING",
+            "NewSet",
+            "REACTIVE_CHECK",
+            "REACTIVE_DIRTY",
+            "REACTIVE_DISPOSED",
+            "REACTIVE_FRAME_READ",
+            "REACTIVE_IN_HEAP",
+            "REACTIVE_IN_HEAP_HEIGHT",
+            "REACTIVE_JOINED",
+            "REACTIVE_LANE_DIRTY",
+            "REACTIVE_LANE_READ",
+            "REACTIVE_LAZY",
+            "REACTIVE_MANUAL_WRITE",
+            "REACTIVE_MISSED_WAKE",
+            "REACTIVE_NONE",
+            "REACTIVE_OWNER_READS",
+            "REACTIVE_PROBE_UNANSWERED",
+            "REACTIVE_REASK",
+            "REACTIVE_RECOMPUTING_DEPS",
+            "REACTIVE_RELEASE_AFTER",
+            "REACTIVE_SCREEN_READ",
+            "REACTIVE_SNAPSHOT_STALE",
+            "REACTIVE_STAGED_READ",
+            "REACTIVE_ZOMBIE",
+            "STATUS_ERROR",
+            "STATUS_NONE",
+            "STATUS_NO_VALUE",
+            "STATUS_PENDING",
+            "STATUS_UNINITIALIZED",
+            "defaultContext"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/error.js",
+          "minifiedBytes": 322,
+          "renderedLength": 2098,
+          "renderedExports": [
+            "NotReadyError",
+            "StatusError",
+            "unwrapStatusError"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/signals.js",
+          "minifiedBytes": 235,
+          "renderedLength": 1653,
+          "renderedExports": [
+            "accessor",
+            "createRenderEffect",
+            "createSignal"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/solid2/hello.jsx",
+          "minifiedBytes": 183,
+          "renderedLength": 421,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/solid-js/dist/solid.js",
+          "minifiedBytes": 67,
+          "renderedLength": 209,
+          "renderedExports": [
+            "createComponent",
+            "createRenderEffect",
+            "createRoot",
+            "createSignal"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "runtimeEvidence": [
+        "benchmark/size/node_modules/solid-js/dist/solid.js",
+        "benchmark/size/node_modules/@solidjs/web/dist/web.js",
+        "benchmark/size/node_modules/@solidjs/signals/dist/prod/signals.js"
+      ]
+    },
+    {
+      "app": "hello",
+      "framework": "react",
+      "raw": 222667,
+      "gzip": 69203,
+      "brotli": 59694,
+      "frameworkBytes": 221611,
+      "unmappedBytes": 797,
+      "assets": [
+        {
+          "file": "assets/index-atqNazuL.js",
+          "sha256": "3d119c43db465c104dad3bf936fd3786353dc57f3402e699e0ccc8efa181926a",
+          "raw": 222667,
+          "gzip": 69203,
+          "brotli": 59694
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom-client.production.js",
+          "minifiedBytes": 205078,
+          "renderedLength": 644593,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react.production.js",
+          "minifiedBytes": 7927,
+          "renderedLength": 19185,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom.production.js",
+          "minifiedBytes": 3689,
+          "renderedLength": 7918,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/cjs/scheduler.production.js",
+          "minifiedBytes": 3672,
+          "renderedLength": 11134,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react-jsx-runtime.production.js",
+          "minifiedBytes": 388,
+          "renderedLength": 1294,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/index.js",
+          "minifiedBytes": 277,
+          "renderedLength": 520,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/react/hello.jsx",
+          "minifiedBytes": 259,
+          "renderedLength": 495,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js",
+          "minifiedBytes": 247,
+          "renderedLength": 512,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js",
+          "minifiedBytes": 135,
+          "renderedLength": 194,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js",
+          "minifiedBytes": 102,
+          "renderedLength": 239,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/index.js",
+          "minifiedBytes": 96,
+          "renderedLength": 226,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom-client.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 35,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 29,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 36,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 27,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 29,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react-jsx-runtime.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 36,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 26,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 34,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 26,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 44,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 31,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/cjs/scheduler.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 30,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 30,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ]
+    },
+    {
+      "app": "todo",
+      "framework": "what",
+      "raw": 34132,
+      "gzip": 12033,
+      "brotli": 10753,
+      "frameworkBytes": 32471,
+      "unmappedBytes": 733,
+      "assets": [
+        {
+          "file": "assets/index-BwAGhAR1.js",
+          "sha256": "d73e8960fb277274ce1afa09f6bcd3c358f4d337dc07d7f0fe99d182f3ab638c",
+          "raw": 34132,
+          "gzip": 12033,
+          "brotli": 10753
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 14377,
+          "renderedLength": 33781,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "mapArray",
+            "setChecked",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11736,
+          "renderedLength": 43932,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 6210,
+          "renderedLength": 14699,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "_createItemScope",
+            "computed",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/todo.jsx",
+          "minifiedBytes": 928,
+          "renderedLength": 2540,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": true
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": true
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": true
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": true
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": true
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": true
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": true
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": true
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": true
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      },
+      "regions": [
+        {
+          "name": "Keyed and unkeyed list reconciliation",
+          "source": "packages/core/src/render.js",
+          "first": 601,
+          "last": 1450,
+          "minifiedBytes": 7269
+        },
+        {
+          "name": "Generic insertion, conversion and reconciliation",
+          "source": "packages/core/src/render.js",
+          "first": 235,
+          "last": 592,
+          "minifiedBytes": 3451
+        },
+        {
+          "name": "Fallback element creation and generic prop handling",
+          "source": "packages/core/src/dom.js",
+          "first": 977,
+          "last": 1300,
+          "minifiedBytes": 2796
+        },
+        {
+          "name": "VNode error/suspense boundaries and portal",
+          "source": "packages/core/src/dom.js",
+          "first": 773,
+          "last": 976,
+          "minifiedBytes": 2210
+        },
+        {
+          "name": "Compiled templates and SVG/table fallback",
+          "source": "packages/core/src/render.js",
+          "first": 94,
+          "last": 219,
+          "minifiedBytes": 2182
+        },
+        {
+          "name": "VNode class bridge, component context and lifecycle",
+          "source": "packages/core/src/dom.js",
+          "first": 616,
+          "last": 772,
+          "minifiedBytes": 1743
+        },
+        {
+          "name": "Generic VNode dispatcher",
+          "source": "packages/core/src/dom.js",
+          "first": 281,
+          "last": 456,
+          "minifiedBytes": 1422
+        },
+        {
+          "name": "Disposal and live range tracking",
+          "source": "packages/core/src/dom.js",
+          "first": 108,
+          "last": 263,
+          "minifiedBytes": 1161
+        },
+        {
+          "name": "Development-only preinstall buffer",
+          "source": "packages/core/src/reactive.js",
+          "first": 934,
+          "last": 960,
+          "minifiedBytes": 416
+        },
+        {
+          "name": "Hydration entry, walker and boundaries",
+          "source": "packages/core/src/render.js",
+          "first": 1770,
+          "last": 2927,
+          "minifiedBytes": 0
+        }
+      ]
+    },
+    {
+      "app": "todo",
+      "framework": "solid1",
+      "raw": 11243,
+      "gzip": 4684,
+      "brotli": 4226,
+      "frameworkBytes": 9571,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-BrmCIRlV.js",
+          "sha256": "22fc641afc7d3442d77167c0c9e3b93b3b9463e9f063d3712cd95d810c7f6485",
+          "raw": 11243,
+          "gzip": 4684,
+          "brotli": 4226
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/solid1/dist/solid.js",
+          "minifiedBytes": 5432,
+          "renderedLength": 12828,
+          "renderedExports": [
+            "$TRACK",
+            "For",
+            "createComponent",
+            "createMemo",
+            "createRenderEffect",
+            "createRoot",
+            "createSignal",
+            "equalFn",
+            "mapArray",
+            "onCleanup",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/solid1/web/dist/web.js",
+          "minifiedBytes": 4139,
+          "renderedLength": 8616,
+          "renderedExports": [
+            "delegateEvents",
+            "insert",
+            "render",
+            "template"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/solid1/todo.jsx",
+          "minifiedBytes": 961,
+          "renderedLength": 2326,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "runtimeEvidence": [
+        "benchmark/size/node_modules/solid1/dist/solid.js",
+        "benchmark/size/node_modules/solid1/web/dist/web.js"
+      ]
+    },
+    {
+      "app": "todo",
+      "framework": "solid2",
+      "raw": 34502,
+      "gzip": 14264,
+      "brotli": 13018,
+      "frameworkBytes": 32828,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-DpWNH5sX.js",
+          "sha256": "7c65780154fcbd1b83503c624dc65c7e36d67e0b2e567f58587c934768b79575",
+          "raw": 34502,
+          "gzip": 14264,
+          "brotli": 13018
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/core.js",
+          "minifiedBytes": 6434,
+          "renderedLength": 38486,
+          "renderedExports": [
+            "bornInto",
+            "computed",
+            "context",
+            "createEffectNode",
+            "creatorPass",
+            "effectStatusNotify",
+            "ext",
+            "isEqual",
+            "isSame",
+            "joinPass",
+            "markLateLinker",
+            "markUnflushedStaged",
+            "notePromotedWrite",
+            "prepareComputed",
+            "pullComputed",
+            "read",
+            "readerSeesCommitted",
+            "recompute",
+            "resyncUnflushedCompanions",
+            "runWithOwner",
+            "serve",
+            "setEffectStatusNotify",
+            "setMemo",
+            "setSignal",
+            "signal",
+            "spectating",
+            "stagedRead",
+            "stashFlushed",
+            "statusNotifierOf",
+            "tracking",
+            "unflushedStaged",
+            "unflushedValue",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/web/dist/web.js",
+          "minifiedBytes": 6180,
+          "renderedLength": 13683,
+          "renderedExports": [
+            "delegateEvents",
+            "effect",
+            "insert",
+            "registerDelegatedContainer",
+            "registerDelegatedRoot",
+            "render",
+            "template",
+            "unregisterDelegatedContainer",
+            "unregisterDelegatedRoot"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/scheduler.js",
+          "minifiedBytes": 4941,
+          "renderedLength": 42618,
+          "renderedExports": [
+            "GlobalQueue",
+            "MAINLINE_QUESTION",
+            "ROOT_ERROR_HOOK",
+            "applyStaged",
+            "blocked",
+            "bumpNotifyEpoch",
+            "clock",
+            "commitPendingNode",
+            "deferZombie",
+            "dirtyQueue",
+            "externalUntrackHook",
+            "flush",
+            "flushTransaction",
+            "freshHook",
+            "globalQueue",
+            "guessing",
+            "haltReactivity",
+            "heldTrim",
+            "holdNode",
+            "holdWorkHook",
+            "insertSubs",
+            "joinFuture",
+            "joinPassTx",
+            "laneServedHook",
+            "laneStageHook",
+            "list",
+            "liveTx",
+            "merge",
+            "newTransaction",
+            "notifyEpoch",
+            "observeFlightHook",
+            "passLane",
+            "passTx",
+            "pendingNodes",
+            "queueEffectRun",
+            "queuePendingNode",
+            "releaseQueues",
+            "reruns",
+            "resolveTx",
+            "revertHook",
+            "schedule",
+            "staleReader",
+            "transactions",
+            "txOf"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/map.js",
+          "minifiedBytes": 4794,
+          "renderedLength": 19200,
+          "renderedExports": [
+            "mapArray"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/async.js",
+          "minifiedBytes": 4014,
+          "renderedLength": 19970,
+          "renderedExports": [
+            "addPendingSource",
+            "clearInFlight",
+            "clearStatus",
+            "forEachDependent",
+            "handleAsync",
+            "isThenable",
+            "notifyStatus",
+            "parkLoadingWindow",
+            "propagateStatus",
+            "releaseFlightTeardown",
+            "releaseIfSettledUnobserved",
+            "releaseSettledDependents",
+            "removePendingSource",
+            "retryReaches",
+            "setPendingError",
+            "settleErroredDependents",
+            "settlePendingSource",
+            "stageError"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/owner.js",
+          "minifiedBytes": 1564,
+          "renderedLength": 12419,
+          "renderedExports": [
+            "cleanup",
+            "createOwner",
+            "createRoot",
+            "disposeChildren",
+            "getNextChildId",
+            "getOwner",
+            "inheritId",
+            "linkChild",
+            "markDisposal",
+            "rethrowCleanupError",
+            "runCleanup"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/heap.js",
+          "minifiedBytes": 1248,
+          "renderedLength": 5015,
+          "renderedExports": [
+            "deleteFromHeap",
+            "enqueueSub",
+            "insertIntoHeap",
+            "insertIntoHeapHeight",
+            "liftOwned",
+            "markHeap",
+            "markNode",
+            "runHeap"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/solid2/todo.jsx",
+          "minifiedBytes": 963,
+          "renderedLength": 2285,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/graph.js",
+          "minifiedBytes": 857,
+          "renderedLength": 6296,
+          "renderedExports": [
+            "clearDeps",
+            "deferReleases",
+            "deferredReleases",
+            "dormantNodes",
+            "link",
+            "slotUnobservedHook",
+            "sweepDormant",
+            "trimStaleDeps",
+            "unlinkSubs",
+            "unobserved"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/effect.js",
+          "minifiedBytes": 831,
+          "renderedLength": 6096,
+          "renderedExports": [
+            "effect"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/flatten.js",
+          "minifiedBytes": 670,
+          "renderedLength": 2162,
+          "renderedExports": [
+            "flatten"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/constants.js",
+          "minifiedBytes": 412,
+          "renderedLength": 12519,
+          "renderedExports": [
+            "$REFRESH",
+            "CAUGHT_REARMED",
+            "CONFIG_ASYNC",
+            "CONFIG_AUTO_DISPOSE",
+            "CONFIG_CHILDREN_FORBIDDEN",
+            "CONFIG_FRAME",
+            "CONFIG_FRESH_READ",
+            "CONFIG_GUESS",
+            "CONFIG_HAS_SNAPSHOT",
+            "CONFIG_HELD",
+            "CONFIG_HELD_FRAME",
+            "CONFIG_INPUTS_PUBLISHED",
+            "CONFIG_IN_SNAPSHOT_SCOPE",
+            "CONFIG_LAGS",
+            "CONFIG_NO_SNAPSHOT",
+            "CONFIG_OVERRIDE",
+            "CONFIG_OWNED_WRITE",
+            "CONFIG_PROMOTED",
+            "CONFIG_REDERIVE",
+            "CONFIG_SLOT_NODE",
+            "CONFIG_STAGED",
+            "CONFIG_STAGED_ERROR",
+            "CONFIG_SYNC",
+            "CONFIG_TRANSPARENT",
+            "CONFIG_VERDICT",
+            "EFFECT_RENDER",
+            "EFFECT_TRACKED",
+            "EFFECT_USER",
+            "NOT_PENDING",
+            "NewSet",
+            "REACTIVE_CHECK",
+            "REACTIVE_DIRTY",
+            "REACTIVE_DISPOSED",
+            "REACTIVE_FRAME_READ",
+            "REACTIVE_IN_HEAP",
+            "REACTIVE_IN_HEAP_HEIGHT",
+            "REACTIVE_JOINED",
+            "REACTIVE_LANE_DIRTY",
+            "REACTIVE_LANE_READ",
+            "REACTIVE_LAZY",
+            "REACTIVE_MANUAL_WRITE",
+            "REACTIVE_MISSED_WAKE",
+            "REACTIVE_NONE",
+            "REACTIVE_OWNER_READS",
+            "REACTIVE_PROBE_UNANSWERED",
+            "REACTIVE_REASK",
+            "REACTIVE_RECOMPUTING_DEPS",
+            "REACTIVE_RELEASE_AFTER",
+            "REACTIVE_SCREEN_READ",
+            "REACTIVE_SNAPSHOT_STALE",
+            "REACTIVE_STAGED_READ",
+            "REACTIVE_ZOMBIE",
+            "STATUS_ERROR",
+            "STATUS_NONE",
+            "STATUS_NO_VALUE",
+            "STATUS_PENDING",
+            "STATUS_UNINITIALIZED",
+            "defaultContext"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/error.js",
+          "minifiedBytes": 322,
+          "renderedLength": 2098,
+          "renderedExports": [
+            "NotReadyError",
+            "StatusError",
+            "unwrapStatusError"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/solid-js/dist/solid.js",
+          "minifiedBytes": 275,
+          "renderedLength": 657,
+          "renderedExports": [
+            "For",
+            "createComponent",
+            "createMemo",
+            "createRenderEffect",
+            "createRoot",
+            "createSignal"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/signals.js",
+          "minifiedBytes": 267,
+          "renderedLength": 1723,
+          "renderedExports": [
+            "accessor",
+            "createMemo",
+            "createRenderEffect",
+            "createSignal"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/store/types.js",
+          "minifiedBytes": 19,
+          "renderedLength": 89,
+          "renderedExports": [
+            "$TRACK"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/@solidjs/signals/dist/prod/core/attribution-hooks.js",
+          "minifiedBytes": 0,
+          "renderedLength": 21,
+          "renderedExports": [
+            "attrHooks"
+          ]
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "runtimeEvidence": [
+        "benchmark/size/node_modules/solid-js/dist/solid.js",
+        "benchmark/size/node_modules/@solidjs/web/dist/web.js",
+        "benchmark/size/node_modules/@solidjs/signals/dist/prod/signals.js"
+      ]
+    },
+    {
+      "app": "todo",
+      "framework": "react",
+      "raw": 223682,
+      "gzip": 69638,
+      "brotli": 60060,
+      "frameworkBytes": 221616,
+      "unmappedBytes": 795,
+      "assets": [
+        {
+          "file": "assets/index-BI1D9_qe.js",
+          "sha256": "2a7fbe99f20921096d194482000cb8bf74b550f020fc94987fbefb032e085611",
+          "raw": 223682,
+          "gzip": 69638,
+          "brotli": 60060
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom-client.production.js",
+          "minifiedBytes": 205082,
+          "renderedLength": 644593,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react.production.js",
+          "minifiedBytes": 7951,
+          "renderedLength": 19185,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom.production.js",
+          "minifiedBytes": 3680,
+          "renderedLength": 7918,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/cjs/scheduler.production.js",
+          "minifiedBytes": 3661,
+          "renderedLength": 11134,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/react/todo.jsx",
+          "minifiedBytes": 1271,
+          "renderedLength": 2526,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react-jsx-runtime.production.js",
+          "minifiedBytes": 385,
+          "renderedLength": 1294,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/index.js",
+          "minifiedBytes": 277,
+          "renderedLength": 520,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js",
+          "minifiedBytes": 247,
+          "renderedLength": 512,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js",
+          "minifiedBytes": 135,
+          "renderedLength": 194,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js",
+          "minifiedBytes": 102,
+          "renderedLength": 239,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/index.js",
+          "minifiedBytes": 96,
+          "renderedLength": 226,
+          "renderedExports": [
+            "__require"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom-client.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 35,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/cjs/react-dom.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 29,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 36,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/client.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 27,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react-dom/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 29,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react-jsx-runtime.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 36,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/cjs/react.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 26,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 34,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 26,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js?commonjs-es-import",
+          "minifiedBytes": 0,
+          "renderedLength": 44,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/size/node_modules/react/jsx-runtime.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 31,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/cjs/scheduler.production.js?commonjs-exports",
+          "minifiedBytes": 0,
+          "renderedLength": 30,
+          "renderedExports": [
+            "__exports"
+          ]
+        },
+        {
+          "source": "benchmark/size/node_modules/scheduler/index.js?commonjs-module",
+          "minifiedBytes": 0,
+          "renderedLength": 30,
+          "renderedExports": [
+            "__module"
+          ]
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ]
+    },
+    {
+      "app": "krausest",
+      "framework": "react",
+      "raw": 196314,
+      "gzip": 61526,
+      "brotli": 53062,
+      "frameworkBytes": null,
+      "unmappedBytes": 196314,
+      "assets": [
+        {
+          "file": "assets/index-DwiQS-eA.js",
+          "sha256": "133e9d04ff5353345c021ebd7e737e8dec6db3f1884dd456c29a15bcf7c057fb",
+          "raw": 196314,
+          "gzip": 61526,
+          "brotli": 53062
+        }
+      ],
+      "modules": [],
+      "runtimePackages": [
+        {
+          "name": "react",
+          "version": "19.2.7",
+          "dir": "node_modules/react",
+          "renderedBytes": 20048
+        },
+        {
+          "name": "react-dom",
+          "version": "19.2.7",
+          "dir": "node_modules/react-dom",
+          "renderedBytes": 561127
+        },
+        {
+          "name": "scheduler",
+          "version": "0.27.0",
+          "dir": "node_modules/scheduler",
+          "renderedBytes": 11360
+        },
+        {
+          "name": "what-krausest-benchmark",
+          "version": "0.0.0",
+          "dir": ".",
+          "renderedBytes": 5452
+        }
+      ]
+    },
+    {
+      "app": "krausest",
+      "framework": "solid",
+      "raw": 13224,
+      "gzip": 5441,
+      "brotli": 4921,
+      "frameworkBytes": null,
+      "unmappedBytes": 13224,
+      "assets": [
+        {
+          "file": "assets/index-NmXqJicj.js",
+          "sha256": "5c1743d4d9f8d9767b8f2db945f77f118cab8654e619f1ea444bf5ea7af411da",
+          "raw": 13224,
+          "gzip": 5441,
+          "brotli": 4921
+        }
+      ],
+      "modules": [],
+      "runtimePackages": [
+        {
+          "name": "solid-js",
+          "version": "1.9.20",
+          "dir": "node_modules/solid-js",
+          "renderedBytes": 22362
+        },
+        {
+          "name": "what-krausest-benchmark",
+          "version": "0.0.0",
+          "dir": ".",
+          "renderedBytes": 4372
+        }
+      ]
+    },
+    {
+      "app": "krausest",
+      "framework": "solid2",
+      "raw": 62145,
+      "gzip": 24083,
+      "brotli": 21988,
+      "frameworkBytes": 59554,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-BlrgQWL2.js",
+          "sha256": "15a2be0ab7272f49ac5277c8a0b2c79266bf91901ab4ac8bbd15ccc9d492f322",
+          "raw": 62145,
+          "gzip": 24083,
+          "brotli": 21988
+        }
+      ],
+      "modules": [
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/store.js",
+          "minifiedBytes": 17494,
+          "renderedLength": 85290,
+          "renderedExports": [
+            "$PROXY",
+            "$TARGET",
+            "$TRACK",
+            "adoptPB",
+            "arrayStructureChanged",
+            "cloneRaw",
+            "committed",
+            "containerEquals",
+            "createStore",
+            "getContainerNode",
+            "getHasNode",
+            "getNode",
+            "hasAccessorFlag",
+            "linkedTo",
+            "materializePB",
+            "membershipChanged",
+            "notifyFold",
+            "notifyFoldTail",
+            "notifyKeyDiff",
+            "notifyKeyValue",
+            "protoOf",
+            "resolveChainedRaw",
+            "runDirect",
+            "sameKey",
+            "sameRow",
+            "storeSetter",
+            "targetsEqual",
+            "unwrapValue",
+            "wrap"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/solid2/node_modules/@solidjs/web/dist/web.js",
+          "minifiedBytes": 8281,
+          "renderedLength": 16447,
+          "renderedExports": [
+            "className",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "readShallow",
+            "registerDelegatedContainer",
+            "registerDelegatedRoot",
+            "render",
+            "template",
+            "unregisterDelegatedContainer",
+            "unregisterDelegatedRoot"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/core.js",
+          "minifiedBytes": 6652,
+          "renderedLength": 39738,
+          "renderedExports": [
+            "bornInto",
+            "computed",
+            "context",
+            "createEffectNode",
+            "creatorPass",
+            "effectStatusNotify",
+            "ext",
+            "isEqual",
+            "isSame",
+            "joinPass",
+            "markLateLinker",
+            "markUnflushedStaged",
+            "notePromotedWrite",
+            "prepareComputed",
+            "pullComputed",
+            "read",
+            "readerSeesCommitted",
+            "recompute",
+            "resyncUnflushedCompanions",
+            "runWithOwner",
+            "serve",
+            "setEffectStatusNotify",
+            "setMemo",
+            "setSignal",
+            "signal",
+            "slotSignal",
+            "spectating",
+            "stagedRead",
+            "stagedScreen",
+            "stashFlushed",
+            "statusNotifierOf",
+            "tracking",
+            "unflushedStaged",
+            "unflushedValue",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/scheduler.js",
+          "minifiedBytes": 5066,
+          "renderedLength": 43918,
+          "renderedExports": [
+            "GlobalQueue",
+            "MAINLINE_QUESTION",
+            "ROOT_ERROR_HOOK",
+            "applyStaged",
+            "blocked",
+            "bumpNotifyEpoch",
+            "clock",
+            "commitPendingNode",
+            "deferZombie",
+            "dirtyQueue",
+            "externalUntrackHook",
+            "flush",
+            "flushTransaction",
+            "freshHook",
+            "globalQueue",
+            "guessing",
+            "haltReactivity",
+            "heldTrim",
+            "holdNode",
+            "holdWorkHook",
+            "insertSubs",
+            "installStoreHooks",
+            "joinFuture",
+            "joinPassTx",
+            "laneServedHook",
+            "laneStageHook",
+            "list",
+            "liveTx",
+            "merge",
+            "newTransaction",
+            "notifyEpoch",
+            "observeFlightHook",
+            "passLane",
+            "passTx",
+            "pendingNodes",
+            "question",
+            "queueEffectRun",
+            "queuePendingNode",
+            "releaseQueues",
+            "reruns",
+            "resolveTx",
+            "revertHook",
+            "schedule",
+            "setQuestion",
+            "staleReader",
+            "storeCommitHook",
+            "storeParkHook",
+            "transactions",
+            "txOf"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/map.js",
+          "minifiedBytes": 4811,
+          "renderedLength": 19229,
+          "renderedExports": [
+            "mapArray"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/async.js",
+          "minifiedBytes": 4208,
+          "renderedLength": 20866,
+          "renderedExports": [
+            "addPendingSource",
+            "clearInFlight",
+            "clearStatus",
+            "forEachDependent",
+            "handleAsync",
+            "isThenable",
+            "landBySetter",
+            "notifyStatus",
+            "parkLoadingWindow",
+            "propagateStatus",
+            "releaseFlightTeardown",
+            "releaseIfSettledUnobserved",
+            "releaseSettledDependents",
+            "removePendingSource",
+            "retryReaches",
+            "setPendingError",
+            "settleErroredDependents",
+            "settlePendingSource",
+            "stageError"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/reconcile.js",
+          "minifiedBytes": 2930,
+          "renderedLength": 10785,
+          "renderedExports": [
+            "reconcileState"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/projection.js",
+          "minifiedBytes": 2485,
+          "renderedLength": 15768,
+          "renderedExports": [
+            "createProjectionInternal",
+            "createStoreDerived",
+            "runProjectionComputed"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/solid2/main.jsx",
+          "minifiedBytes": 1880,
+          "renderedLength": 4448,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/owner.js",
+          "minifiedBytes": 1628,
+          "renderedLength": 13581,
+          "renderedExports": [
+            "cleanup",
+            "createOwner",
+            "createRoot",
+            "disposeChildren",
+            "getNextChildId",
+            "getObserver",
+            "getOwner",
+            "inheritId",
+            "isDisposed",
+            "linkChild",
+            "markDisposal",
+            "rethrowCleanupError",
+            "runCleanup"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/heap.js",
+          "minifiedBytes": 1257,
+          "renderedLength": 5015,
+          "renderedExports": [
+            "deleteFromHeap",
+            "enqueueSub",
+            "insertIntoHeap",
+            "insertIntoHeapHeight",
+            "liftOwned",
+            "markHeap",
+            "markNode",
+            "runHeap"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/graph.js",
+          "minifiedBytes": 879,
+          "renderedLength": 6367,
+          "renderedExports": [
+            "clearDeps",
+            "deferReleases",
+            "deferredReleases",
+            "dormantNodes",
+            "link",
+            "setSlotUnobserved",
+            "slotUnobservedHook",
+            "sweepDormant",
+            "trimStaleDeps",
+            "unlinkSubs",
+            "unobserved"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/effect.js",
+          "minifiedBytes": 834,
+          "renderedLength": 6096,
+          "renderedExports": [
+            "effect"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/types.js",
+          "minifiedBytes": 691,
+          "renderedLength": 2513,
+          "renderedExports": [
+            "$PATCH",
+            "$PROXY",
+            "$RECORD",
+            "$TARGET",
+            "$TRACK",
+            "installShallowView",
+            "isRawValue",
+            "isWrappable",
+            "markRawIngest",
+            "markRawOne",
+            "rawValuesUsed",
+            "setWriteOverride",
+            "shallowView",
+            "writeOverride"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/flatten.js",
+          "minifiedBytes": 670,
+          "renderedLength": 2162,
+          "renderedExports": [
+            "flatten"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/constants.js",
+          "minifiedBytes": 423,
+          "renderedLength": 12815,
+          "renderedExports": [
+            "$REFRESH",
+            "CAUGHT_REARMED",
+            "CONFIG_ASYNC",
+            "CONFIG_AUTO_DISPOSE",
+            "CONFIG_CHILDREN_FORBIDDEN",
+            "CONFIG_FRAME",
+            "CONFIG_FRESH_READ",
+            "CONFIG_GUESS",
+            "CONFIG_HAS_SNAPSHOT",
+            "CONFIG_HELD",
+            "CONFIG_HELD_FRAME",
+            "CONFIG_INPUTS_PUBLISHED",
+            "CONFIG_IN_SNAPSHOT_SCOPE",
+            "CONFIG_LAGS",
+            "CONFIG_MANUAL_WRITE",
+            "CONFIG_NO_SNAPSHOT",
+            "CONFIG_OVERRIDE",
+            "CONFIG_OWNED_WRITE",
+            "CONFIG_PROMOTED",
+            "CONFIG_REDERIVE",
+            "CONFIG_SLOT_NODE",
+            "CONFIG_STAGED",
+            "CONFIG_STAGED_ERROR",
+            "CONFIG_SYNC",
+            "CONFIG_TRANSPARENT",
+            "CONFIG_VERDICT",
+            "EFFECT_RENDER",
+            "EFFECT_TRACKED",
+            "EFFECT_USER",
+            "NOT_PENDING",
+            "NewSet",
+            "REACTIVE_CHECK",
+            "REACTIVE_DIRTY",
+            "REACTIVE_DISPOSED",
+            "REACTIVE_FRAME_READ",
+            "REACTIVE_IN_HEAP",
+            "REACTIVE_IN_HEAP_HEIGHT",
+            "REACTIVE_JOINED",
+            "REACTIVE_LANE_DIRTY",
+            "REACTIVE_LANE_READ",
+            "REACTIVE_LAZY",
+            "REACTIVE_MANUAL_WRITE",
+            "REACTIVE_MISSED_WAKE",
+            "REACTIVE_NONE",
+            "REACTIVE_OWNER_READS",
+            "REACTIVE_PROBE_UNANSWERED",
+            "REACTIVE_REASK",
+            "REACTIVE_RECOMPUTING_DEPS",
+            "REACTIVE_RELEASE_AFTER",
+            "REACTIVE_SCREEN_READ",
+            "REACTIVE_SNAPSHOT_STALE",
+            "REACTIVE_STAGED_READ",
+            "REACTIVE_ZOMBIE",
+            "STATUS_ERROR",
+            "STATUS_NONE",
+            "STATUS_NO_VALUE",
+            "STATUS_PENDING",
+            "STATUS_UNINITIALIZED",
+            "defaultContext"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/solid2/node_modules/solid-js/dist/solid.js",
+          "minifiedBytes": 370,
+          "renderedLength": 850,
+          "renderedExports": [
+            "For",
+            "createComponent",
+            "createRenderEffect",
+            "createRoot",
+            "createSignal",
+            "createStore",
+            "sharedConfig"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/error.js",
+          "minifiedBytes": 322,
+          "renderedLength": 2098,
+          "renderedExports": [
+            "NotReadyError",
+            "StatusError",
+            "unwrapStatusError"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/target.js",
+          "minifiedBytes": 241,
+          "renderedLength": 1665,
+          "renderedExports": [
+            "$OWNER",
+            "isOwned",
+            "lookupTarget",
+            "markDescendants",
+            "setLookup",
+            "storeLookup"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/signals.js",
+          "minifiedBytes": 235,
+          "renderedLength": 1653,
+          "renderedExports": [
+            "accessor",
+            "createRenderEffect",
+            "createSignal"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/index.js",
+          "minifiedBytes": 65,
+          "renderedLength": 136,
+          "renderedExports": [
+            "createStore"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/store/hooks.js",
+          "minifiedBytes": 12,
+          "renderedLength": 180,
+          "renderedExports": [
+            "optHooks"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/solid2/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/krausest/node_modules/@solidjs/signals/dist/prod/core/attribution-hooks.js",
+          "minifiedBytes": 0,
+          "renderedLength": 21,
+          "renderedExports": [
+            "attrHooks"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/shared/main.css",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "runtimePackages": [
+        {
+          "name": "@solidjs/signals",
+          "version": "2.0.3",
+          "dir": "node_modules/@solidjs/signals",
+          "renderedBytes": 289896
+        },
+        {
+          "name": "@solidjs/web",
+          "version": "2.0.3",
+          "dir": "frameworks/solid2/node_modules/@solidjs/web",
+          "renderedBytes": 16447
+        },
+        {
+          "name": "solid-js",
+          "version": "2.0.3",
+          "dir": "frameworks/solid2/node_modules/solid-js",
+          "renderedBytes": 850
+        },
+        {
+          "name": "what-krausest-solid2",
+          "version": "0.0.0",
+          "dir": "frameworks/solid2",
+          "renderedBytes": 4448
+        }
+      ],
+      "attribution": "byte-identical shadow rebuild"
+    },
+    {
+      "app": "krausest",
+      "framework": "vanilla",
+      "raw": 3936,
+      "gzip": 1602,
+      "brotli": 1384,
+      "frameworkBytes": null,
+      "unmappedBytes": 3936,
+      "assets": [
+        {
+          "file": "assets/index-DvBdPFUR.js",
+          "sha256": "c9a66aca793d0cdf6169e8774ce2245cc90d19eb08faa13c08176a09b5202e3f",
+          "raw": 3936,
+          "gzip": 1602,
+          "brotli": 1384
+        }
+      ],
+      "modules": [],
+      "runtimePackages": [
+        {
+          "name": "what-krausest-benchmark",
+          "version": "0.0.0",
+          "dir": ".",
+          "renderedBytes": 4723
+        }
+      ]
+    },
+    {
+      "app": "krausest",
+      "framework": "what",
+      "raw": 34297,
+      "gzip": 12100,
+      "brotli": 10793,
+      "frameworkBytes": 31779,
+      "unmappedBytes": 733,
+      "assets": [
+        {
+          "file": "assets/index-BTYPuCNn.js",
+          "sha256": "be9d40363440980d78733d9338584ccb7f3f16aaa08cd809fd071b8f83f6c3c0",
+          "raw": 34297,
+          "gzip": 12100,
+          "brotli": 10793
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 14732,
+          "renderedLength": 32484,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "mapArray",
+            "setClass",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11737,
+          "renderedLength": 43932,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 5162,
+          "renderedLength": 12035,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "_createItemScope",
+            "batch",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/what/main.jsx",
+          "minifiedBytes": 1785,
+          "renderedLength": 4810,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/krausest/frameworks/what/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "benchmark/krausest/shared/main.css",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": true
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": true
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": true
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": true
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": true
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": true
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": true
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": true
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": true
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      },
+      "runtimePackages": [
+        {
+          "name": "what-core",
+          "version": "0.14.0",
+          "dir": "../../packages/core",
+          "renderedBytes": 89134
+        },
+        {
+          "name": "what-krausest-benchmark",
+          "version": "0.0.0",
+          "dir": ".",
+          "renderedBytes": 4810
+        }
+      ],
+      "attribution": "byte-identical shadow rebuild"
+    }
+  ],
+  "diagnostics": [
+    {
+      "app": "hello",
+      "framework": "what-static-dev-flag",
+      "raw": 21058,
+      "gzip": 7161,
+      "brotli": 6438,
+      "frameworkBytes": 20159,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-DLbWDxb-.js",
+          "sha256": "f6735dbdf98d69bede2c9d3c9be4fbec4b5fc5bed6622056b6ee379f0a99ee3d",
+          "raw": 21058,
+          "gzip": 7161,
+          "brotli": 6438
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11046,
+          "renderedLength": 43029,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 6106,
+          "renderedLength": 11543,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 2859,
+          "renderedLength": 7601,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/hello.jsx",
+          "minifiedBytes": 188,
+          "renderedLength": 588,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": false
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": false
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": false
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": false
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": false
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": false
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": false
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": false
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": false
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      }
+    },
+    {
+      "app": "hello",
+      "framework": "what-without-island-registration",
+      "raw": 23795,
+      "gzip": 8113,
+      "brotli": 7267,
+      "frameworkBytes": 22874,
+      "unmappedBytes": 733,
+      "assets": [
+        {
+          "file": "assets/index-B-pi5-mj.js",
+          "sha256": "301918def96e435ae9952c5ee9bd5c9eb57eb23c5d02fcdb2371057dd9b655f8",
+          "raw": 23795,
+          "gzip": 8113,
+          "brotli": 7267
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11718,
+          "renderedLength": 43932,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 6518,
+          "renderedLength": 12137,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 4490,
+          "renderedLength": 10505,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/hello.jsx",
+          "minifiedBytes": 188,
+          "renderedLength": 588,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": true
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": true
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": true
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": true
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": true
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": true
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": true
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": true
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": true
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      }
+    },
+    {
+      "app": "todo",
+      "framework": "what-static-dev-flag",
+      "raw": 31163,
+      "gzip": 10989,
+      "brotli": 9838,
+      "frameworkBytes": 29524,
+      "unmappedBytes": 711,
+      "assets": [
+        {
+          "file": "assets/index-BWRA1ARK.js",
+          "sha256": "3204a981811ab10b61e9ce5e86171fad2361e92be5fc4cf52b0c2b686514fc81",
+          "raw": 31163,
+          "gzip": 10989,
+          "brotli": 9838
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 13960,
+          "renderedLength": 33187,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "mapArray",
+            "setChecked",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11064,
+          "renderedLength": 43029,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 4352,
+          "renderedLength": 11340,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "_createItemScope",
+            "computed",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/todo.jsx",
+          "minifiedBytes": 928,
+          "renderedLength": 2540,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": false
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": false
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": false
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": false
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": false
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": false
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": false
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": false
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": false
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      }
+    },
+    {
+      "app": "todo",
+      "framework": "what-without-island-registration",
+      "raw": 34132,
+      "gzip": 12033,
+      "brotli": 10753,
+      "frameworkBytes": 32471,
+      "unmappedBytes": 733,
+      "assets": [
+        {
+          "file": "assets/index-BwAGhAR1.js",
+          "sha256": "d73e8960fb277274ce1afa09f6bcd3c358f4d337dc07d7f0fe99d182f3ab638c",
+          "raw": 34132,
+          "gzip": 12033,
+          "brotli": 10753
+        }
+      ],
+      "modules": [
+        {
+          "source": "packages/core/src/render.js",
+          "minifiedBytes": 14377,
+          "renderedLength": 33781,
+          "renderedExports": [
+            "_$componentVNode",
+            "_$createComponent",
+            "_$template",
+            "delegateEvents",
+            "effect",
+            "insert",
+            "mapArray",
+            "setChecked",
+            "svgTemplate",
+            "untrack"
+          ]
+        },
+        {
+          "source": "packages/core/src/dom.js",
+          "minifiedBytes": 11736,
+          "renderedLength": 43932,
+          "renderedExports": [
+            "_handleNavigationSignal",
+            "_installLazyChildren",
+            "_isAriaAttr",
+            "_isEventProp",
+            "_isUnsafeAttr",
+            "_liveRegionNodes",
+            "_setSelectValue",
+            "createDOM",
+            "disposeTree",
+            "getComponentStack",
+            "getCurrentComponent",
+            "mount"
+          ]
+        },
+        {
+          "source": "packages/core/src/reactive.js",
+          "minifiedBytes": 6210,
+          "renderedLength": 14699,
+          "renderedExports": [
+            "__DEV__",
+            "__devtools",
+            "_createItemScope",
+            "computed",
+            "effect",
+            "signal",
+            "untrack"
+          ]
+        },
+        {
+          "source": "benchmark/size/apps/what/todo.jsx",
+          "minifiedBytes": 928,
+          "renderedLength": 2540,
+          "renderedExports": []
+        },
+        {
+          "source": "packages/core/src/components.js",
+          "minifiedBytes": 148,
+          "renderedLength": 683,
+          "renderedExports": [
+            "_injectGetCurrentComponent",
+            "reportError"
+          ]
+        },
+        {
+          "source": "benchmark/size/index.html",
+          "minifiedBytes": 0,
+          "renderedLength": 0,
+          "renderedExports": []
+        },
+        {
+          "source": "vite/modulepreload-polyfill.js",
+          "minifiedBytes": 0,
+          "renderedLength": 1168,
+          "renderedExports": []
+        }
+      ],
+      "markers": {
+        "Runtime development override": {
+          "needle": "__WHAT_DEV__",
+          "source": "reactive.js:23",
+          "present": true
+        },
+        "WeakRef devtools preinstall buffer": {
+          "needle": "__isPreinstallBuffer",
+          "source": "reactive.js:934",
+          "present": true
+        },
+        "Signal update hook": {
+          "needle": "onSignalUpdate",
+          "source": "reactive.js:106",
+          "present": true
+        },
+        "Effect run hook": {
+          "needle": "onEffectRun",
+          "source": "reactive.js:353",
+          "present": true
+        },
+        "Component mount/unmount hooks": {
+          "needle": "onComponentUnmount",
+          "source": "dom.js:142",
+          "present": true
+        },
+        "Invalid template nesting diagnostic": {
+          "needle": "ERR_INVALID_HTML_NESTING",
+          "source": "render.js:157",
+          "present": true
+        },
+        "Invalid insertion parent warning": {
+          "needle": "reconcileInsert called with invalid parent",
+          "source": "render.js:495",
+          "present": true
+        },
+        "Potential XSS warning for raw HTML": {
+          "needle": "dangerouslySetInnerHTML contains potential XSS",
+          "source": "dom.js:1127",
+          "present": true
+        },
+        "Effect loop developer guidance": {
+          "needle": "Looping effects:",
+          "source": "reactive.js:667",
+          "present": true
+        },
+        "Unsafe URL warning and block": {
+          "needle": "Blocked unsafe URL",
+          "source": "dom.js:1089",
+          "present": true
+        },
+        "Uncaught reactive-update error reporting": {
+          "needle": "Uncaught error in effect during update",
+          "source": "reactive.js:610",
+          "present": true
+        },
+        "Production effect-loop warning": {
+          "needle": "Possible infinite effect loop detected",
+          "source": "reactive.js:677",
+          "present": true
+        },
+        "Hydration diagnostic": {
+          "needle": "hydrate() was given DOM",
+          "source": "render.js:1955",
+          "present": false
+        }
+      }
+    }
+  ]
+}

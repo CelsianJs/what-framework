@@ -11,62 +11,258 @@ export {};
 
 declare global {
   /**
-   * The devtools hook surface. `__devtools` in core/src/reactive.js is null in
-   * production, a buffering placeholder in dev before install, and the real
-   * hooks after `__setDevToolsHooks`. All three shapes satisfy this.
+   * The development flag's input, read by core/src/env.js and
+   * core/src/env-development.js (what-core's `#env` import). scripts/build.js
+   * (dist/*.min.js) and what-compiler/vite (production builds) define it as
+   * `false`. In src/, it is an optional global: set before the framework
+   * loads, it forces the development or production tier. The bundler tier
+   * (dist/*.js) reads process.env.NODE_ENV instead.
+   */
+  var __WHAT_DEV__: boolean | undefined;
+
+  /**
+   * The devtools hook surface. `__devtools` in core/src/reactive.js is null
+   * until `__setDevToolsHooks` installs hooks (always null in production);
+   * every hook is optional.
+   *
+   * Signals are handed out as their function; computeds and effects as their
+   * node (`WhatComputedNode`, `WhatEffectNode`).
    */
   interface WhatDevToolsHooks {
     onSignalCreate?(sig: any): void;
+    /** Called after the write, with the new and the previous value. */
     onSignalUpdate?(sig: any, next?: any, prev?: any): void;
-    onEffectCreate?(effect: any): void;
-    onEffectDispose?(effect: any): void;
-    onEffectRun?(effect: any, ...rest: any[]): void;
-    onError?(err: any, ...rest: any[]): void;
+    /** Effects and computeds. */
+    onEffectCreate?(node: any): void;
+    onEffectDispose?(node: any): void;
+    /**
+     * After every run of an effect or a computed. Re-runs pass `causes`: the
+     * dependencies whose value changed since the node's previous run (signal
+     * functions and computed nodes), i.e. why it ran.
+     */
+    onEffectRun?(node: any, info?: { causes: any[] | null }): void;
+    trace?: boolean;
+    onRecord?(type: string, subject: any, state?: any): void;
+    /**
+     * Once per thrown error: an effect's run or cleanup ('effect',
+     * 'effect-cleanup', with the effect), a cleanup an owner held ('cleanup'),
+     * or a component that threw while it was built ('component', with the
+     * owner it was built under).
+     */
+    onError?(err: any, context?: { type: 'effect' | 'effect-cleanup' | 'cleanup' | 'component'; effect?: any; owner?: any }): void;
     onComponentMount?(ctx: any): void;
     onComponentUnmount?(ctx: any): void;
-    /** Marks the pre-install buffering placeholder, not the real hooks. */
-    __isPreinstallBuffer?: boolean;
-    /** The placeholder's weak-ref buffer, drained on late install. */
-    __buffer?: { signals: Set<any>; effects: Set<any>; components: any[] };
     [key: string]: any;
   }
 
   /**
-   * The reactive graph's effect node, created in core/src/reactive.js. The
-   * literal is written out in full at creation so every node shares one hidden
-   * class; the fields that start as null are filled in later by `computed()`
-   * and by the effect runner, which is why they are unions rather than plain
-   * nulls here.
+   * Development-only exports of core/src/reactive.js (re-exported by
+   * what-core/internal) for tools that inspect the reactive graph. Production builds
+   * return empty results. Nodes are reported the way the devtools hooks hand
+   * them out: a signal as its function, a computed or an effect as its node.
+   */
+  interface WhatDevApi {
+    /**
+     * The dependencies `x` read in its latest run, without duplicates, in read
+     * order. `x` is a signal or computed function, or a computed or effect
+     * node. A signal has none.
+     */
+    __depsOf(x: any): any[];
+    /** The computed and effect nodes subscribed to a signal or computed. */
+    __subsOf(x: any): Array<WhatComputedNode | WhatEffectNode>;
+    /**
+     * The effect whose function is executing (untrack() does not hide it), or
+     * null. Called from `onSignalUpdate`, it names the effect that wrote.
+     */
+    __currentEffect(): WhatEffectNode | null;
+    /**
+     * The owner of an effect or computed node (or computed function), of an
+     * owner, or of a DOM node: the component whose output holds it.
+     */
+    __ownerOf(x: any): WhatOwner | WhatEffectNode | WhatComputedNode | null;
+    /**
+     * The scopes holding `x`, root first ('<App>', 'effect "sync"'), with the
+     * innermost source location the compiler supplied as `loc`.
+     */
+    __ownerPath(x: any): string[] & { loc: string | null };
+  }
+
+  /**
+   * A signal function from core/src/reactive.js: `s()` reads (and tracks),
+   * `s(v)` writes. `set`, `peek` and `subscribe` come from a shared prototype
+   * and become own properties on first access, so they can be detached or
+   * replaced.
+   */
+  interface WhatSignalFunction {
+    (): any;
+    (next: any): void;
+    set(next: any): void;
+    peek(): any;
+    subscribe(fn: (value: any) => void): () => void;
+    mutate(fn: (value: any) => void): void;
+    _signal: true;
+    /** Development only. */
+    _debugName?: string;
+    _devLoc?: string | null;
+    /** Set by what-devtools on registration. */
+    _devId?: number;
+  }
+
+  /** A computed (or memo) reader from core/src/reactive.js. */
+  interface WhatComputedFunction {
+    (): any;
+    peek(): any;
+    _signal: true;
+  }
+
+  /**
+   * A dependency edge, created in core/src/reactive.js. It sits in the
+   * subscriber's dependency list (`prevDep`/`nextDep`) and the dependency's
+   * subscriber list (`prevSub`/`nextSub`) at once. `version` is the run that
+   * last read it, or -1 once the edge is removed from both lists.
+   */
+  interface WhatLink {
+    dep: WhatSignalNode | WhatComputedNode | WhatKeyNode;
+    sub: WhatComputedNode | WhatEffectNode | WhatSelectorNode;
+    version: number;
+    prevDep: WhatLink | null;
+    nextDep: WhatLink | null;
+    prevSub: WhatLink | null;
+    nextSub: WhatLink | null;
+  }
+
+  /**
+   * The state behind a signal function (core/src/reactive.js). `flags` is 0.
+   * The dev fields are attached only in the development tier.
+   */
+  interface WhatSignalNode {
+    value: any;
+    subHead: WhatLink | null;
+    subTail: WhatLink | null;
+    flags: number;
+    devOwnerRef?: WeakRef<WhatOwner | WhatEffectNode | WhatComputedNode>;
+    /** Dev: the signal function and its last write stamp. */
+    sig?: any;
+    devSeq?: number;
+  }
+
+  /**
+   * A computed (also what memo() creates). `value` holds the thrown error
+   * while the ERRORED flag is set. `owner` is the owner record it was created
+   * under; `owned` is the owner record of its latest evaluation, made the
+   * first time an evaluation creates something, and disposed before the next.
+   */
+  interface WhatComputedNode {
+    value: any;
+    subHead: WhatLink | null;
+    subTail: WhatLink | null;
+    depHead: WhatLink | null;
+    depTail: WhatLink | null;
+    flags: number;
+    fn: () => any;
+    owner: WhatOwner | null;
+    owned: WhatOwner | null;
+    /** Dev: what-compiler's "name@path:line:column". */
+    devName?: string;
+    /** Dev: the reader function and its change stamps. */
+    sig?: any;
+    devSeq?: number;
+    devSeen?: number;
+    /** Set by what-devtools on registration. */
+    _devId?: number;
+  }
+
+  /**
+   * The computed behind a createSelector (core/src/reactive.js,
+   * `_createSelector`): `fn` is the selector's source, `value` its current
+   * value. `keys` holds one key node per key a tracked read asked about.
+   */
+  interface WhatSelectorNode extends WhatComputedNode {
+    keys: Map<any, WhatKeyNode>;
+  }
+
+  /**
+   * One key of a selector: a dependency node, like a signal's, whose readers
+   * re-run when the selector's value leaves or enters `value` (the key).
+   * `sel` is its selector, which drops the key once it has no readers.
+   */
+  interface WhatKeyNode {
+    value: any;
+    subHead: WhatLink | null;
+    subTail: WhatLink | null;
+    flags: number;
+    sel: WhatSelectorNode;
+  }
+
+  /**
+   * An effect node. `owner` is the owner record it is registered with (during
+   * its first run, whatever was current when it was created); `parent` is the
+   * effect that was running when it was created, which is always queued
+   * before it. `owned` is the owner record of its latest run, made the first
+   * time a run creates something, and disposed before the next run.
    */
   interface WhatEffectNode {
-    fn: any;
-    deps: any[];
-    lazy: boolean;
-    disposed: boolean;
-    _pending: boolean;
-    _stable: boolean;
-    _level: number;
-    _computed: boolean;
-    _epoch: number;
-    _onNotify: null | (() => void);
-    _computedSubs: null | Set<any>;
-    _isDirty: null | (() => boolean);
-    _markDirty: null | (() => void);
-    _cleanup: null | (() => void);
-    /** Dev-only extras (`_debugName`, `_stack`) and future fields. */
-    [key: string]: any;
+    fn: () => any;
+    depHead: WhatLink | null;
+    depTail: WhatLink | null;
+    flags: number;
+    cleanup: null | (() => void);
+    owner: WhatOwner | WhatEffectNode | WhatComputedNode | null;
+    parent: WhatEffectNode | null;
+    owned: WhatOwner | null;
+    /** A useEffect's or onMount's (_userEffect): the order it was first queued in, 0 until then. */
+    queued?: number;
+    /** Dev: what-compiler's "name@path:line:column". */
+    devName?: string;
+    devBinding?: Node;
+    /** Dev: change stamp of the last run. */
+    devSeen?: number;
+    /** Dev: this run shows something else than the last (_devNewContent). */
+    devNew?: boolean;
+    /** Set by what-devtools on registration. */
+    _devId?: number;
   }
 
   /**
-   * Ownership / root scope created by `createRoot` and `_createItemScope`
-   * in core/src/reactive.js. `owner` is the parent scope (null at the
-   * outermost root and on item scopes, which do not register with a parent).
+   * Owner record (core/src/reactive.js): a root (`createRoot`), a list row
+   * (`_createItemScope`), a component (`_componentOwner`), or the record of an
+   * effect's or computed's run (`owned`). `owner` is what it was created under:
+   * an owner record, or for the record of a run, its effect or computed.
+   * Roots and components are linked into their parent's child list
+   * (`firstChild`…`lastChild` through `prevSibling`/`nextSibling`); rows keep
+   * `owner` for lookups but are not linked, because the list reconciler
+   * disposes them. `disposals` holds cleanup functions and effect and
+   * computed nodes; `dropped` counts the entries disposed one by one since the
+   * list was last swept. `flags` carries DISPOSED, as every owner does.
+   *
+   * Handlers: `_onError` (an error boundary installs it on the root of its
+   * children) receives errors from effect re-runs and cleanups, bindings, rows
+   * and components built later under this owner while it is not disposed;
+   * `_onPending` (a Suspense boundary installs it) receives the thenables a
+   * component throws while it is built.
+   *
+   * A component's owner also carries `Component`, its hook slots (`hooks`,
+   * `hookIndex`) and its context values (`context`), and in development its
+   * compiler location (`devLoc`), its parent component (`_parentCtx`) and the
+   * node that opens its output (`_wrapper`). A server component frame carries
+   * `_parentCtx` and the owner to restore when it ends (`_outer`).
    */
   interface WhatOwner {
-    disposals: Array<() => void>;
-    owner: WhatOwner | null;
-    children: WhatOwner[];
-    _disposed: boolean;
+    devScope?: string;
+    flags: number;
+    disposals: Array<(() => void) | WhatEffectNode | WhatComputedNode>;
+    owner: WhatOwner | WhatEffectNode | WhatComputedNode | null;
+    firstChild: WhatOwner | null;
+    lastChild: WhatOwner | null;
+    prevSibling: WhatOwner | null;
+    nextSibling: WhatOwner | null;
+    dropped: number;
+    _onError?: (error: any) => void;
+    _onPending?: (thenable: any) => void;
+    Component?: any;
+    hooks?: any[] | null;
+    hookIndex?: number;
+    context?: Map<any, any> | null;
     [key: string]: any;
   }
 
@@ -96,19 +292,6 @@ declare global {
 
   interface Set<T> {
     /**
-     * Set by `effect()` in core/src/reactive.js. A dependency Set owned by an
-     * effect points back at it so disposal can unsubscribe. Signal subscriber
-     * Sets deliberately leave this `undefined`; see the invariant documented at
-     * reactive.js:50, where `_owner === undefined` is what marks level 0.
-     */
-    _owner?: any;
-    /**
-     * Set by `signal()` in core/src/reactive.js under `__DEV__` only. Points a
-     * subscriber Set back at the signal that owns it so `trackSignals()` can
-     * follow reads transitively.
-     */
-    _signalOwner?: any;
-    /**
      * Set by the JSX transform in compiler/src/babel-plugin.js. Hangs the set
      * of names destructured out of a component's props parameter off the
      * signal-name set, so a prop identifier can be told apart from a signal.
@@ -117,15 +300,11 @@ declare global {
   }
 
   interface Comment {
-    /** Set by core/src/dom.js and core/src/render.js on range-marker comments. */
-    _dispose?: () => void;
-    /** Set by core/src/dom.js on the marker that anchors a component's range. */
-    _componentCtx?: any;
-  }
-
-  interface DocumentFragment {
-    /** Set by core/src/dom.js on the fragment a component renders into. */
-    _componentCtx?: any;
+    /**
+     * Set by core/src/render.js on the start comment of a component built
+     * under no owner, until mount() or hydrate() adopts the component.
+     */
+    _owner?: WhatOwner;
   }
 
   interface ImportMeta {
@@ -142,7 +321,5 @@ declare global {
     __WHAT_UNSAFE_EVAL__?: boolean;
     /** Reconnect handle the MCP client exposes for manual retries. */
     __WHAT_MCP_RECONNECT__?: () => void;
-    /** Verbose-logging flag for the devtools client. */
-    __WHAT_DEVTOOLS_DEBUG__?: boolean;
   }
 }

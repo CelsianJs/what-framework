@@ -1,44 +1,40 @@
 /**
  * Rule: what/signal-call-in-jsx
  *
- * Warn when a signal is used in JSX as a bare reference instead of being
- * called. The What compiler auto-wraps bare signals ({count} works when the
- * code is compiled), but explicit reads ({count()}) are clearer, lint-safe,
- * and don't depend on compiler magic — e.g. they keep working in plain
- * h()/runtime-only code paths.
+ * Warn when a signal is used as a condition in JSX without being called. A
+ * signal function is always truthy, so {isLoading && <Spinner />} always
+ * renders the spinner and {open ? <Menu /> : null} always renders the menu.
  *
- * This rule specifically targets JSX expression containers, complementing
- * the broader no-uncalled-signals rule with JSX-specific messaging.
+ * A signal that is the whole JSX child or attribute value ({count},
+ * value={count}) is a live binding, with or without the compiler, and is not
+ * reported.
  *
- * Implicit: <span>{count}</span>          — relies on compiler auto-wrapping
- * Bad:      <p>{isLoading && <Spinner />}</p> — signal fn is always truthy
- *
- * Explicit: <span>{count()}</span>
- * Good:     <p>{isLoading() && <Spinner />}</p>
+ * Bad:  <p>{isLoading && <Spinner />}</p>
+ * Good: <p>{isLoading() && <Spinner />}</p>
  */
 
 import { createSignalTracker, SIGNAL_METHODS } from '../utils/signal-tracking.js';
+import { declaredAsSignal } from '../utils/what-state.js';
 
 export default {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Require calling signals in JSX expressions — catch missing ()',
+      description: 'Require calling a signal used as a condition in JSX — a signal function is always truthy',
       recommended: true,
+      code: 'ERR_MISSING_SIGNAL_READ',
     },
     messages: {
-      signalNotCalledInJsx:
-        '"{{name}}" is a signal used in JSX as a bare reference. ' +
-        'Prefer {{{name}}()} for an explicit read — bare signals rely on the compiler auto-wrapping them.',
       signalNotCalledInJsxLogical:
         '"{{name}}" is a signal used in a JSX conditional without calling it. ' +
-        'A signal function is always truthy — use {{{name}}() && ...} instead.',
+        'A signal function is always truthy — call it: {{name}}().',
     },
     schema: [],
   },
 
   create(context) {
     const tracker = createSignalTracker();
+    const sourceCode = context.sourceCode ?? context.getSourceCode?.();
 
     function isInsideJSXExpression(node) {
       let current = node.parent;
@@ -103,25 +99,20 @@ export default {
         if (isJSXAttributeValue(node)) return;
 
         // Only check signals inside JSX expressions
-        if (!tracker.isSignalLike(node.name)) return;
+        // The name's own declaration made the signal (not React's useState,
+        // not a same-named variable of another scope)
+        if (!tracker.isSignalLike(node.name) || !declaredAsSignal(sourceCode, node)) return;
         if (!isInsideJSXExpression(node)) return;
 
-        // Check if inside a logical expression (&&, ||) — likely a conditional render
-        if (
-          parent.type === 'LogicalExpression' &&
-          parent.left === node
-        ) {
-          context.report({
-            node,
-            messageId: 'signalNotCalledInJsxLogical',
-            data: { name: node.name },
-          });
-          return;
-        }
+        // A condition: {isLoading && …}, {open ? … : …}
+        const isCondition =
+          (parent.type === 'LogicalExpression' && parent.left === node) ||
+          (parent.type === 'ConditionalExpression' && parent.test === node);
+        if (!isCondition) return;
 
         context.report({
           node,
-          messageId: 'signalNotCalledInJsx',
+          messageId: 'signalNotCalledInJsxLogical',
           data: { name: node.name },
         });
       },

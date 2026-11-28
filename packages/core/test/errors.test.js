@@ -2,16 +2,13 @@
  * Tests for the structured error system (packages/core/src/errors.js).
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WhatError,
   ERROR_CODES,
   createWhatError,
   classifyError,
-  collectError,
-  getCollectedErrors,
-  clearCollectedErrors,
 } from '../src/errors.js';
 
 describe('WhatError', () => {
@@ -144,30 +141,37 @@ describe('createWhatError', () => {
 });
 
 describe('classifyError', () => {
-  it('classifies infinite effect loop', () => {
-    const err = classifyError(new Error('Possible infinite effect loop detected (25 iterations)'));
-    assert.equal(err.code, 'ERR_INFINITE_EFFECT');
+  // classifyError used to guess codes from message text, and the guesses sent
+  // agents to the wrong fix ("Signal.set() called inside a computed" became
+  // ERR_SIGNAL_WRITE_IN_RENDER). Framework checks now report coded events
+  // through diagnostics.js, so text is never matched.
+  it('does not guess a code from message text', () => {
+    for (const msg of [
+      'Possible infinite effect loop detected (25 iterations)',
+      'Hydration mismatch in component',
+      'Signal.set() called inside a computed function (signal: count)',
+    ]) {
+      assert.equal(classifyError(new Error(msg)).code, 'ERR_RUNTIME', msg);
+    }
   });
 
-  it('classifies hydration mismatch', () => {
-    const err = classifyError(new Error('Hydration mismatch in component'));
-    assert.equal(err.code, 'ERR_HYDRATION_MISMATCH');
+  it('resolves a code the error already carries', () => {
+    const err = classifyError(Object.assign(new Error('[what] useState() can only be called inside a component function.'), { code: 'ERR_HOOK_OUTSIDE_COMPONENT' }));
+    assert.equal(err.code, 'ERR_HOOK_OUTSIDE_COMPONENT');
+    assert.equal(err.severity, 'error');
+    assert.equal(err.suggestion, ERROR_CODES.HOOK_OUTSIDE_COMPONENT.suggestion);
+    assert.ok(err.message.includes('useState()'), 'keeps the specific thrown message');
   });
 
-  it('classifies signal write in computed', () => {
-    const err = classifyError(new Error('Signal.set() called inside a computed function (signal: count)'));
-    assert.equal(err.code, 'ERR_SIGNAL_WRITE_IN_RENDER');
-    assert.equal(err.signal, 'count');
-  });
-
-  it('returns generic for unknown errors', () => {
+  it('returns generic for unknown errors with the catalogue fallback text', () => {
     const err = classifyError(new Error('Something unexpected happened'));
     assert.equal(err.code, 'ERR_RUNTIME');
     assert.ok(err.message.includes('Something unexpected'));
+    assert.equal(err.suggestion, ERROR_CODES.RUNTIME.suggestion);
   });
 
   it('preserves context from caller', () => {
-    const err = classifyError(new Error('infinite effect loop'), {
+    const err = classifyError(new Error('boom'), {
       component: 'App',
       file: 'app.js',
     });
@@ -176,42 +180,28 @@ describe('classifyError', () => {
   });
 });
 
-describe('Error collector', () => {
-  beforeEach(() => {
-    clearCollectedErrors();
+describe('WhatError severity', () => {
+  it('serializes the catalogue severity', () => {
+    assert.equal(createWhatError('MISSING_SIGNAL_READ', { signalName: 'n' }).toJSON().severity, 'warning');
+    assert.equal(createWhatError('INFINITE_EFFECT', {}).toJSON().severity, 'error');
   });
 
-  it('collects errors', () => {
-    const err = new WhatError({ code: 'ERR_TEST', message: 'test' });
-    collectError(err);
-    const errors = getCollectedErrors();
-    assert.equal(errors.length, 1);
-    assert.equal(errors[0].code, 'ERR_TEST');
+  // The class is a root export used for `instanceof`; a catalogue lookup in it
+  // kept all of ERROR_CODES in every app that imported it (check-size's
+  // what-error scenario). Only the factories read the entry.
+  it('takes severity from its caller, not from the catalogue', () => {
+    assert.equal(new WhatError({ code: 'ERR_MISSING_SIGNAL_READ', message: 'm' }).severity, 'error');
+    assert.equal(new WhatError({ code: 'ERR_MISSING_SIGNAL_READ', severity: 'warning', message: 'm' }).severity, 'warning');
   });
 
-  it('adds timestamp to collected errors', () => {
-    const err = new WhatError({ code: 'ERR_TEST', message: 'test' });
-    const before = Date.now();
-    collectError(err);
-    const errors = getCollectedErrors();
-    assert.ok(errors[0].timestamp >= before);
+  it('is filled from the entry by classifyError for a coded throw', () => {
+    const err = classifyError(Object.assign(new Error('read without ()'), { code: 'ERR_MISSING_SIGNAL_READ' }));
+    assert.equal(err.severity, 'warning');
+    assert.equal(err.codeExample, ERROR_CODES.MISSING_SIGNAL_READ.codeExample);
   });
 
-  it('filters by since', () => {
-    const err1 = new WhatError({ code: 'ERR_1', message: 'old' });
-    collectError(err1);
-    const midpoint = Date.now();
-    const err2 = new WhatError({ code: 'ERR_2', message: 'new' });
-    collectError(err2);
-
-    const recent = getCollectedErrors(midpoint - 1);
-    assert.ok(recent.length >= 1);
-  });
-
-  it('clears collected errors', () => {
-    collectError(new WhatError({ code: 'ERR_TEST', message: 'test' }));
-    assert.equal(getCollectedErrors().length, 1);
-    clearCollectedErrors();
-    assert.equal(getCollectedErrors().length, 0);
+  it('is filled from the fallback entries', () => {
+    assert.equal(createWhatError('NONEXISTENT_CODE').severity, ERROR_CODES.UNKNOWN.severity);
+    assert.equal(classifyError(new Error('boom')).severity, ERROR_CODES.RUNTIME.severity);
   });
 });

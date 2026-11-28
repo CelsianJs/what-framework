@@ -11,6 +11,7 @@ import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';
+import { networkInterfaces } from 'os';
 
 // Security: Prevent path traversal attacks. `userPath` is a URL pathname, so it
 // starts with '/', so it must be joined onto the base as a RELATIVE path, otherwise
@@ -59,28 +60,126 @@ function isInside(target, base) {
   return target === base || target.startsWith(base + sep);
 }
 
+// The path of a request target, or null for one that is not a path (`*`, an
+// absolute URL) or that the URL parser rejects. `//x` is the path `//x`:
+// resolving the target against a base would read it as another host. A
+// target holding a dot segment (literal or percent-encoded) or a backslash is
+// refused too: the parser resolves it to a path other than the one sent, as
+// what-server's requestUrl refuses it.
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
+function targetPath(target) {
+  if (typeof target !== 'string' || !target.startsWith('/')) return null;
+  const end = target.search(/[?#]/);
+  const raw = end < 0 ? target : target.slice(0, end);
+  if (raw.includes('\\') || DOT_SEGMENT.test(raw)) return null;
+  try {
+    return new URL(`http://localhost${target}`).pathname;
+  } catch {
+    return null;
+  }
+}
+
+// The hosts `what dev` and `what preview` answer: a page on another site that
+// rebinds its own domain to this machine (DNS rebinding) sends its own name as
+// the Host, and would read the sources or the build. Allowed, as Vite allows
+// them: localhost and *.localhost, an IP address, the --host the server
+// listens on, and the config's `allowedHosts` (a list of names, or true for
+// any) with --allowed-hosts (comma-separated). Any other Host is answered 403.
+// The value is read as a host first (what-server's request-url.js grammar: a
+// name or an IP literal, an optional port), so a name that is not one
+// (`evil.test/.localhost`, `evil.test:1#.localhost`) is no host at all.
+const HOST = /^(?:[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_.])?|\[[0-9A-Fa-f:.]+\])(?::(\d{1,5}))?$/;
+
+function hostAllowance(host, config, flag = getFlag('--allowed-hosts', '')) {
+  if (config.allowedHosts === true || flag === 'true') return (header) => typeof header === 'string' && HOST.test(header);
+  const names = new Set(['localhost', host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+    .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  return (header) => {
+    if (typeof header !== 'string' || !HOST.test(header)) return false;
+    const value = header.toLowerCase();
+    const name = value.startsWith('[') ? value.slice(0, value.indexOf(']') + 1) : value.replace(/:\d*$/, '');
+    return names.has(name) || name.endsWith('.localhost') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name) || name.startsWith('[');
+  };
+}
+
 // WS handshakes are exempt from the same-origin policy, so any page the developer
 // browses could otherwise subscribe to the HMR stream (a live feed of edited file
-// paths). Non-browser clients send no Origin at all; browsers always do.
-function isAllowedOrigin(origin, allowedHosts) {
-  if (!origin) return true;
+// paths), and the Origin is the only check. It is narrower than the Host's: an
+// IP literal is a safe Host (no other site can rebind it), but any site can
+// serve its page from an IP of its own. Allowed, at this server's port:
+// loopback (localhost, *.localhost, 127.0.0.0/8, [::1]), the exact --host, and
+// the config's `allowedHosts` names with --allowed-hosts (true: any origin).
+// Bound to every interface (`--host 0.0.0.0` or `::`), the machine's own
+// addresses are allowed too: a page can carry one of them as its Origin only if
+// this machine served it, which is how a phone on the LAN opens the dev server.
+// Non-browser clients send no Origin at all; browsers always do.
+// The machine's addresses are read at each check, so an address it gave up is
+// refused and one it gained is allowed.
+function originAllowance(host, config, flag = getFlag('--allowed-hosts', ''), interfaces = networkInterfaces) {
+  if (config.allowedHosts === true || flag === 'true') return () => true;
+  const everywhere = host === '0.0.0.0' || host === '::' || host === '[::]';
+  const names = new Set([host, ...(Array.isArray(config.allowedHosts) ? config.allowedHosts : []), ...flag.split(',')]
+    .map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  // Node 18.0-18.3 gave `family` as a number.
+  const own = (hostname) => Object.values(interfaces()).flat().some((a) => a
+    && (String(a.family) === 'IPv6' || String(a.family) === '6' ? `[${a.address}]` : a.address).toLowerCase() === hostname);
+  return (hostname) => names.has(hostname) || hostname === 'localhost' || hostname.endsWith('.localhost')
+    || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname) || (everywhere && own(hostname));
+}
+
+// Why a live-reload Origin is refused, or null when it is allowed: the
+// server's own scheme, port and an allowed host. No Origin (a client that is
+// not a browser) is allowed.
+function originRefusal(origin, originAllowed, port) {
+  if (!origin) return null;
+  let url;
   try {
-    const { hostname, port } = new URL(origin);
-    return allowedHosts.has(`${hostname}:${port}`);
+    url = new URL(origin);
   } catch {
-    return false;
+    return 'it is not an http(s) origin';
   }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'it is not an http(s) origin';
+  if (!originAllowed(url.hostname.toLowerCase())) return 'add its host to allowedHosts (or --allowed-hosts), or pass it as --host';
+  const at = url.port || (url.protocol === 'https:' ? '443' : '80');
+  return at === String(port) ? null : `its port ${at} is not this dev server's (${port})`;
+}
+
+function isAllowedOrigin(origin, originAllowed, port) {
+  return originRefusal(origin, originAllowed, port) === null;
+}
+
+// A refused live-reload origin is named once, so a page that loads but never
+// reloads says why. The Origin is client data: every character outside
+// printable ASCII is written as \uXXXX, so none reaches the terminal as a
+// control (a C1 byte such as CSI passes Node's header parser as latin-1). The
+// first 32 are named; then one line says the rest are not.
+const refusedOrigins = new Set();
+const ORIGINS_NAMED = 32;
+function warnRefusedOrigin(origin, reason) {
+  if (!origin || refusedOrigins.has(origin) || refusedOrigins.size > ORIGINS_NAMED) return;
+  refusedOrigins.add(origin);
+  if (refusedOrigins.size > ORIGINS_NAMED) {
+    console.warn(`[what dev] live reload refused for ${ORIGINS_NAMED} origins: further refused origins are not listed one by one`);
+    return;
+  }
+  console.warn(`[what dev] live reload refused for the page at ${printable(String(origin).slice(0, 200))}: ${reason}`);
+}
+
+function printable(text) {
+  return `"${text.replace(/[^\x20-\x7e]|["\\]/g, (c) => (c === '"' || c === '\\' ? `\\${c}` : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`))}"`;
 }
 
 // Simple WebSocket implementation using native Node.js APIs (no external deps)
 class SimpleWebSocketServer {
-  constructor({ server, allowedHosts = new Set() }) {
+  constructor({ server, originAllowed, port }) {
     this.clients = new Set();
     server.on('upgrade', (req, socket, _head) => {
       if (req.headers.upgrade?.toLowerCase() !== 'websocket') return;
 
       const key = req.headers['sec-websocket-key'];
-      if (!key || !isAllowedOrigin(req.headers.origin, allowedHosts)) {
+      const refusal = originRefusal(req.headers.origin, originAllowed, port);
+      if (!key || refusal !== null) {
+        if (refusal !== null) warnRefusedOrigin(req.headers.origin, refusal);
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
@@ -254,9 +353,30 @@ function isMainModule() {
 
 if (isMainModule()) main();
 
-export { safePath, isAllowedOrigin, transformImports, fileToRoute };
+export { safePath, isAllowedOrigin, originRefusal, warnRefusedOrigin, hostAllowance, originAllowance, targetPath, transformImports, fileToRoute, resolveFrameworkModule, guarded };
 
 // --- Dev Server ---
+
+// A request listener no request can end the process with: a throw or a
+// rejection answers 500, or closes the connection once the response began.
+function guarded(listener) {
+  return (req, res) => {
+    const fail = (error) => {
+      console.error(`[what] ${req.method} ${String(req.url).slice(0, 200)} failed: ${error && error.message}`);
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Internal Server Error');
+    };
+    try {
+      Promise.resolve(listener(req, res)).catch(fail);
+    } catch (error) {
+      fail(error);
+    }
+  };
+}
 
 async function dev() {
   const port = getFlag('--port', 3000);
@@ -264,9 +384,19 @@ async function dev() {
   const config = await loadConfigAsync();
   const runtimeDirs = requireRuntimeDirs('what dev');
 
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${host}:${port}`);
-    let pathname = url.pathname;
+  const hostAllowed = hostAllowance(host, config);
+  const server = createServer(guarded(async (req, res) => {
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end(`Host not allowed. Add it to allowedHosts in what.config.js, or pass --allowed-hosts.`);
+      return;
+    }
+    let pathname = targetPath(req.url);
+    if (pathname === null) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
 
     // Handle server actions
     if (pathname === '/__what_action' && req.method === 'POST') {
@@ -366,7 +496,7 @@ async function dev() {
 
     res.writeHead(404);
     res.end('Not found');
-  });
+  }));
 
   // WebSocket server for HMR (zero dependencies)
   const wsClients = new Set();
@@ -411,10 +541,7 @@ async function dev() {
   });
 
   // Initialize WebSocket server
-  const allowedHosts = new Set(
-    ['localhost', '127.0.0.1', '::1', host].map((h) => `${h}:${port}`)
-  );
-  const wss = new SimpleWebSocketServer({ server, allowedHosts });
+  const wss = new SimpleWebSocketServer({ server, originAllowed: originAllowance(host, config), port });
   wss.on('connection', (ws) => {
     wsClients.add(ws);
     ws.onclose = () => wsClients.delete(ws);
@@ -502,8 +629,9 @@ async function build() {
       writeFileSync(outPath + '.gz', gzipped);
       gzipSize += gzipped.length;
     } else if (ext === '.html') {
+      // Written as authored: whitespace inside an attribute value, a <pre> or a
+      // <textarea>, or between inline elements, is content.
       let html = readFileSync(file, 'utf-8');
-      html = minifyHTML(html);
 
       // Replace references with hashed versions
       if (useHash) {
@@ -580,8 +708,19 @@ async function preview() {
     process.exit(1);
   }
 
-  const server = createServer((req, res) => {
-    let pathname = new URL(req.url || '/', `http://localhost:${port}`).pathname;
+  const hostAllowed = hostAllowance(getFlag('--host', 'localhost'), config);
+  const server = createServer(guarded((req, res) => {
+    if (!hostAllowed(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end(`Host not allowed. Add it to allowedHosts in what.config.js, or pass --allowed-hosts.`);
+      return;
+    }
+    let pathname = targetPath(req.url);
+    if (pathname === null) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
     if (pathname === '/') pathname = '/index.html';
 
     // Security: Prevent path traversal
@@ -598,7 +737,7 @@ async function preview() {
         res.end('Not found');
       }
     }
-  });
+  }));
 
   server.listen(port, () => {
     console.log(`\n  what preview\n`);
@@ -1016,6 +1155,11 @@ const RUNTIME_ENTRIES = {
   'jsx-dev-runtime.js': "export * from './core/jsx-dev-runtime.js';",
 };
 
+// what-core's subpath entries, which live in src/entries/ rather than src/:
+// the domain kits apps import, and the internal entry what-server imports.
+const KITS = ['a11y', 'ui', 'motion', 'dom', 'form', 'data'];
+const CORE_ENTRIES = [...KITS, 'internal'];
+
 // App-facing specifier -> served URL. 'what' is the pre-0.11 package name, kept
 // so older apps keep building.
 const IMPORT_MAP = {
@@ -1024,6 +1168,10 @@ const IMPORT_MAP = {
   'what-framework/server': '/@what/server.js',
   'what-framework/jsx-runtime': '/@what/jsx-runtime.js',
   'what-framework/jsx-dev-runtime': '/@what/jsx-dev-runtime.js',
+  ...Object.fromEntries(KITS.flatMap((kit) => [
+    [`what-framework/${kit}`, `/@what/core/entries/${kit}.js`],
+    [`what-core/${kit}`, `/@what/core/entries/${kit}.js`],
+  ])),
   'what-core': '/@what/core.js',
   'what-router': '/@what/router.js',
   'what-server': '/@what/server.js',
@@ -1035,12 +1183,15 @@ const IMPORT_MAP = {
 
 const SPECIFIER_RE = /(from\s*|import\s*\(\s*)(['"])([^'"]+)\2/g;
 
+// Own entries only: a name from the URL (`/@what/__proto__`) must not reach
+// what an object inherits.
 function resolveFrameworkModule(name, runtimeDirs) {
-  if (RUNTIME_ENTRIES[name]) return RUNTIME_ENTRIES[name];
+  if (Object.hasOwn(RUNTIME_ENTRIES, name)) return RUNTIME_ENTRIES[name];
 
   const slash = name.indexOf('/');
   if (slash === -1) return null;
-  const dir = runtimeDirs[name.slice(0, slash)];
+  const pkg = name.slice(0, slash);
+  const dir = Object.hasOwn(runtimeDirs, pkg) ? runtimeDirs[pkg] : null;
   if (!dir) return null;
   const file = safePath(dir, '/' + name.slice(slash + 1));
   if (!file || !existsSync(file) || extname(file) !== '.js') return null;
@@ -1066,15 +1217,23 @@ function rewriteRuntimeImports(code, depth) {
   });
 }
 
+function coreTarget(sub) {
+  return CORE_ENTRIES.includes(sub) ? `core/entries/${sub}.js` : `core/${sub}.js`;
+}
+
 function runtimeTarget(spec) {
+  // what-core's own import of its development flag (package.json `imports`):
+  // the default target, which a buildless page switches with __WHAT_DEV__.
+  if (spec === '#env') return 'core/env.js';
   if (spec === 'what-framework') return 'core/index.js';
   if (spec.startsWith('what-framework/')) {
     const sub = spec.slice('what-framework/'.length);
     if (sub === 'router' || sub === 'server') return `${sub}/index.js`;
-    return `core/${sub}.js`;
+    return coreTarget(sub);
   }
   const m = /^what-(core|router|server)(?:\/(.+))?$/.exec(spec);
-  return m ? `${m[1]}/${m[2] || 'index'}.js` : null;
+  if (!m) return null;
+  return m[1] === 'core' && m[2] ? coreTarget(m[2]) : `${m[1]}/${m[2] || 'index'}.js`;
 }
 
 function findBareSpecifiers(dir) {
@@ -1102,14 +1261,6 @@ function minifyJS(code) {
     .replace(/^[ \t]*\/\/[^\n]*$/gm, '')       // line comments
     .replace(/^\s+/gm, '')                     // leading whitespace
     .replace(/\n\s*\n/g, '\n')                 // empty lines
-    .trim();
-}
-
-function minifyHTML(html) {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')           // comments
-    .replace(/\s{2,}/g, ' ')                   // collapse whitespace
-    .replace(/>\s+</g, '><')                   // between tags
     .trim();
 }
 

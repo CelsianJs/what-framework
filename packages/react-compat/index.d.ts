@@ -23,7 +23,7 @@ export interface RefObject<T> {
 export interface MutableRefObject<T> {
   current: T;
 }
-export type RefCallback<T> = (instance: T | null) => void;
+export type RefCallback<T> = (instance: T | null) => void | (() => void);
 export type Ref<T> = RefCallback<T> | RefObject<T> | null;
 
 export interface ReactElement<P = any, T = any> {
@@ -138,9 +138,27 @@ export function useSyncExternalStore<T>(
   getServerSnapshot?: () => T,
 ): T;
 
-export function useTransition(): [boolean, (callback: () => void) => void];
-export function startTransition(scope: () => void): void;
-export function useDeferredValue<T>(value: T): T;
+// A transition's callback may be async (a React 19 action): isPending stays
+// true, and the state updates made inside it are held, until its promise settles.
+export function useTransition(): [boolean, (callback: () => void | Promise<void>) => void];
+export function startTransition(scope: () => void | Promise<void>): void;
+export function useDeferredValue<T>(value: T, initialValue?: T): T;
+export function useOptimistic<S>(passthrough: S): [S, (action: S | ((pending: S) => S)) => void];
+export function useOptimistic<S, A>(
+  passthrough: S,
+  reducer: (state: S, action: A) => S,
+): [S, (action: A) => void];
+export function useActionState<S>(
+  action: (state: Awaited<S>) => S | Promise<S>,
+  initialState: Awaited<S>,
+  permalink?: string,
+): [state: Awaited<S>, dispatch: () => void, isPending: boolean];
+export function useActionState<S, P>(
+  action: (state: Awaited<S>, payload: P) => S | Promise<S>,
+  initialState: Awaited<S>,
+  permalink?: string,
+): [state: Awaited<S>, dispatch: (payload: P) => void, isPending: boolean];
+export function useEffectEvent<T extends (...args: any[]) => any>(callback: T): T;
 export function useId(): string;
 export function useDebugValue<T>(value?: T, format?: (value: T) => any): void;
 export function use<T>(usable: Promise<T> | Context<T>): T;
@@ -208,14 +226,31 @@ export function createFactory(
 export function isValidElement(object: unknown): object is ReactElement;
 
 export function StrictMode(props: { children?: ReactNode }): ReactElement | null;
+// Renders its children; nothing is measured, onRender is never called.
+export function Profiler(props: {
+  id: string;
+  onRender?: (...args: any[]) => void;
+  children?: ReactNode;
+}): ReactElement | null;
+// mode="hidden" renders nothing here (React keeps the hidden tree's state).
+export function Activity(props: {
+  mode?: 'visible' | 'hidden';
+  name?: string;
+  children?: ReactNode;
+}): ReactElement | null;
+export const unstable_Activity: typeof Activity;
+// Outside server components cache() memoizes nothing, as in React.
+export function cache<T extends (...args: any[]) => any>(fn: T): T;
+export function captureOwnerStack(): string | null;
 
 export function act(callback: () => void | Promise<void>): Promise<void>;
 
 // Class components are shimmed but expose the familiar base-class surface.
 export class Component<P = {}, S = {}> {
-  constructor(props: P);
+  constructor(props: P, context?: any);
   props: Readonly<P> & { children?: ReactNode };
   state: Readonly<S>;
+  context: unknown;
   setState(
     state: Partial<S> | ((prev: Readonly<S>, props: Readonly<P>) => Partial<S>),
     callback?: () => void,
@@ -264,9 +299,17 @@ declare const React: {
   useTransition: typeof useTransition;
   useDeferredValue: typeof useDeferredValue;
   startTransition: typeof startTransition;
+  useOptimistic: typeof useOptimistic;
+  useActionState: typeof useActionState;
+  useEffectEvent: typeof useEffectEvent;
   useId: typeof useId;
   useDebugValue: typeof useDebugValue;
   use: typeof use;
+  Profiler: typeof Profiler;
+  Activity: typeof Activity;
+  unstable_Activity: typeof Activity;
+  cache: typeof cache;
+  captureOwnerStack: typeof captureOwnerStack;
   version: string;
 };
 export default React;

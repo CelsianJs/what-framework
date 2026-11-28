@@ -1,0 +1,19 @@
+{
+  "name": "what-reactivity-benchmark",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "bench": "NODE_ENV=production node bench.mjs"
+  },
+  "dependencies": {
+    "@preact/signals-core": "1.14.5",
+    "@solidjs/signals": "2.0.3",
+    "alien-signals": "3.2.1",
+    "js-reactivity-benchmark-root": "git+https://github.com/milomg/js-reactivity-benchmark.git#56eb45e84b3f6fcfa867840725e66b59a9b7467a",
+    "solid-js": "1.9.20"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -1,57 +1,72 @@
 #!/usr/bin/env node
-// Publish the ERROR_CODES catalogue as human-readable reference.
+// Publish the ERROR_CODES catalogue everywhere it is read.
 //
 //   node scripts/generate-error-docs.mjs           # write
-//   node scripts/generate-error-docs.mjs --check    # fail if the checked-in copy drifted
+//   node scripts/generate-error-docs.mjs --check    # fail if a checked-in copy drifted
 //
-// Until now the only way to read a code's suggestion and worked example was to
-// call the `what_errors` MCP tool, which means running the framework. A
-// developer who hits ERR_ISR_VARY_UNRESOLVED and pastes it into a search engine
-// found nothing at all. Both outputs below are DERIVED from
-// `packages/core/src/errors.js`; nothing here is hand-maintained, and
-// `check:error-docs` fails the build if the checked-in copies drift.
+// Outputs, all DERIVED (nothing here is hand-maintained):
+//   docs/ERRORS.md and docs-site/docs/reference/errors.html   people
+//   packages/what/diagnostics.json                             agents and tools, offline
+//   packages/what/skills/what-diagnostics/SKILL.md             agents: one line per code
+//   packages/what/skills/what/SKILL.md                         agents: the scaffold's instructions
+//   the hooks-contract block in the docs listed in SHARED_BLOCKS, and
+//   packages/devtools-mcp/src/agent-docs.js                    the MCP resources' copy
+// from packages/core/src/errors.js and packages/create-what/agent-instructions.js.
+// `check:error-docs` and `check:error-codes` fail the build if any copy drifts.
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { findRaiseSites } from './lib/error-raise-sites.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const packagesDir = join(root, 'packages');
 const check = process.argv.includes('--check');
 
 const { ERROR_CODES } = await import(join(packagesDir, 'core/src/errors.js'));
+const agent = await import(join(packagesDir, 'create-what/agent-instructions.js'));
 
-// --- Which package raises each code ----------------------------------------
-// Derived by scanning source, the same way check-error-codes.mjs does, so a
-// code that moves package is re-attributed without anyone editing a list.
+// --- Which package raises each code, and how it reaches you -------------------
+// From the raise sites in package sources (scripts/lib/error-raise-sites.mjs),
+// so a code that moves package is re-attributed without anyone editing a list.
+//
+//   reported  the running app reports it on the development diagnostics
+//             channel: what_errors and what_events show it live,
+//             getDiagnostics() and captureDiagnostics() return it
+//   thrown    the app throws an error carrying it in the browser: what_errors
+//             shows it when it escapes (uncaught, in an event handler or a
+//             promise) or is thrown by an effect; a test sees the throw
+//   server    the server, the build or the CLI raises it: logs and responses,
+//             never what_errors
+//   compile   what-compiler warns at build time (what_lint's compile check too)
+//   lint      an eslint-plugin-what rule finds it (what_lint runs the same rules)
+//   mcp       an MCP server answers with it (a rejected tool call)
 
-function sourceFiles(dir, acc = []) {
-  for (const entry of readdirSync(dir)) {
-    if (entry === 'node_modules' || entry === 'dist') continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) sourceFiles(full, acc);
-    else if (/\.(js|jsx|mjs)$/.test(entry) && !/\.test\.js$/.test(entry)) acc.push(full);
-  }
-  return acc;
+const KINDS = ['reported', 'thrown', 'server', 'compile', 'lint', 'mcp'];
+const PACKAGE_KIND = {
+  'what-compiler': 'compile',
+  'eslint-plugin-what': 'lint',
+  'what-mcp': 'mcp',
+  'what-devtools-mcp': 'mcp',
+  'what-server': 'server',
+  'what-isr': 'server',
+  'what-framework-cli': 'server',
+};
+
+function kindOf({ pkg, how }) {
+  if (how === 'report') return 'reported';
+  if (how === 'warning') return 'compile';
+  return PACKAGE_KIND[pkg] || 'thrown';
 }
 
 const raisedBy = new Map(); // code -> Set<package name>
-for (const pkgDir of readdirSync(packagesDir)) {
-  const srcDir = join(packagesDir, pkgDir, 'src');
-  let files;
-  try { files = sourceFiles(srcDir); } catch { continue; }
-  let name = pkgDir;
-  try { name = JSON.parse(readFileSync(join(packagesDir, pkgDir, 'package.json'), 'utf8')).name || pkgDir; } catch {}
-  for (const file of files) {
-    const text = readFileSync(file, 'utf8');
-    for (const def of Object.values(ERROR_CODES)) {
-      // The catalogue itself is not a raise site.
-      if (file.endsWith(join('core', 'src', 'errors.js'))) continue;
-      if (text.includes(`'${def.code}'`) || text.includes(`"${def.code}"`)) {
-        if (!raisedBy.has(def.code)) raisedBy.set(def.code, new Set());
-        raisedBy.get(def.code).add(name);
-      }
-    }
+const detects = new Map(); // code -> Set<kind>
+for (const site of findRaiseSites(packagesDir)) {
+  if (!raisedBy.has(site.code)) {
+    raisedBy.set(site.code, new Set());
+    detects.set(site.code, new Set());
   }
+  raisedBy.get(site.code).add(site.pkg);
+  detects.get(site.code).add(kindOf(site));
 }
 
 // Four templates are little more than a placeholder — ERR_ACTION_FAILED's is
@@ -70,6 +85,7 @@ const entries = Object.entries(ERROR_CODES)
     ...def,
     summary: summarize(def),
     packages: [...(raisedBy.get(def.code) || [])].sort(),
+    detects: KINDS.filter((k) => detects.get(def.code)?.has(k)),
   }))
   .sort((a, b) => a.code.localeCompare(b.code));
 
@@ -84,11 +100,46 @@ function markdown() {
   out.push('');
   out.push('# Error codes');
   out.push('');
-  out.push(`Every diagnostic What can raise, all ${entries.length} of them: ${errors} errors and ${warnings} warnings.`);
+  out.push(`Every code in What's error catalogue, all ${entries.length} of them: ${errors} errors and ${warnings} warnings.`);
   out.push('');
-  out.push('Each one carries a suggestion and a worked example, and the same catalogue');
-  out.push('backs the `what_errors` MCP tool, so an agent debugging your app reads exactly');
-  out.push('what you read here.');
+  out.push('Each one carries a suggestion and a worked example, and says how it reaches you.');
+  out.push('The same catalogue backs the `what_errors` and `what_fix` MCP tools and ships as');
+  out.push('`node_modules/what-framework/diagnostics.json`, so an agent debugging your app reads');
+  out.push('exactly what you read here.');
+  out.push('');
+  out.push('**Detected** says how a code reaches you:');
+  out.push('');
+  out.push('- `reported`: the running app reports it in development. `what_errors` and `what_events` show it live; `getDiagnostics()` and `captureDiagnostics()` return it.');
+  out.push('- `thrown`: the app throws an error carrying the code in the browser. `what_errors` shows it when it escapes (uncaught, in an event handler or a promise) or is thrown by an effect.');
+  out.push('- `server`: the server, the build or the CLI raises it. It shows in logs and responses, never in `what_errors`.');
+  out.push('- `compile`: what-compiler warns at build time; `what_lint` runs the same compile.');
+  out.push('- `lint`: an eslint-plugin-what rule finds it; `what_lint` runs the same rules.');
+  out.push('- `mcp`: an MCP server answers a tool call with it.');
+  out.push('');
+  out.push('**Production builds** carry none of the `reported` codes, their text or the console pointer:');
+  out.push('every report sits behind `if (__DEV__)`, and every production build that resolves the');
+  out.push('package exports removes it. A bundler resolves one of three files per export:');
+  out.push('');
+  out.push('- `production` (`dist/*.min.js`, the flag already `false`): what-compiler/vite, webpack 5,');
+  out.push('  Rollup with @rollup/plugin-node-resolve, and esbuild given `--conditions=production`.');
+  out.push('- `module` (`dist/*.js`, each check spelled `process.env.NODE_ENV !== "production"`): esbuild');
+  out.push('  and rolldown with their default conditions, and `bun build --production`. Each defines');
+  out.push('  `process.env.NODE_ENV` itself, `"production"` only when it minifies (Bun: with `--production`), so');
+  out.push('  an unminified build with no `NODE_ENV` of your own is a development build: it keeps the reports.');
+  out.push('  A production build minifies or defines `process.env.NODE_ENV` as `"production"`. The');
+  out.push('  `__WHAT_DEV__` global does not apply to this file.');
+  out.push('- `development`, `node`, `import` and `default` (`src/`): dev servers, Node, server bundles and');
+  out.push('  tests. The source reads the flag through what-core\'s `#env` import, by the same conditions:');
+  out.push('  under `development` it is on, so Vite\'s dev server, webpack\'s development mode, Rollup with');
+  out.push('  node-resolve and `NODE_ENV=development`, and `bun build` without `--production` (`--minify` alone');
+  out.push('  included) report in development wherever');
+  out.push('  the page runs. Otherwise it is decided at runtime (`__WHAT_DEV__`, then Vite\'s');
+  out.push('  `import.meta.env.DEV`, then a server runtime\'s `process.env.NODE_ENV`, never one a page\'s markup');
+  out.push('  names), and a browser with none of them runs production. A production build that resolves `src/`');
+  out.push('  (a bundler given custom conditions without `production` or `module`) keeps the development tier\'s');
+  out.push('  code; what-compiler/vite is the exception, because it folds the flag in the source too. A bundle');
+  out.push('  built for Node and served to a browser (esbuild `--platform=node`) resolves `src/` without');
+  out.push('  `development`: give it `--conditions=development` to report, `--conditions=production` to ship.');
   out.push('');
   out.push('| Code | Severity | What it means |');
   out.push('|---|---|---|');
@@ -102,6 +153,7 @@ function markdown() {
     out.push('');
     out.push(`**Severity:** ${e.severity}`);
     if (e.packages.length) out.push(`  ·  **Raised by:** ${e.packages.map(p => `\`${p}\``).join(', ')}`);
+    out.push(`  ·  **Detected:** ${e.detects.length ? e.detects.join(', ') : 'not yet (catalogued only)'}`);
     out.push('');
     out.push(`> ${e.template}`);
     out.push('');
@@ -175,7 +227,7 @@ ${e.codeExample ? `<pre><code>${esc(e.codeExample.trimEnd())}</code></pre>` : ''
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error codes · What Framework</title>
-  <meta name="description" content="Every diagnostic the What Framework can raise, with the suggestion and worked example for each of the ${entries.length} codes.">
+  <meta name="description" content="Every code in the What Framework error catalogue, with the suggestion and worked example for each of the ${entries.length} codes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -193,7 +245,7 @@ ${sidebarFor('./errors.html')}
       <div class="content-wrapper">
         <div class="content-inner">
           <h1>Error codes</h1>
-          <p class="subtitle">Every diagnostic What can raise, all ${entries.length} of them: ${errors} errors and ${warnings} warnings.</p>
+          <p class="subtitle">Every code in What's error catalogue, all ${entries.length} of them: ${errors} errors and ${warnings} warnings.</p>
 
           <p>Each code carries a suggestion and a worked example. The same catalogue backs
           the <code>what_errors</code> MCP tool, so an agent debugging your app reads exactly
@@ -213,11 +265,120 @@ ${body}
 `;
 }
 
+// --- packages/what/diagnostics.json ------------------------------------------
+
+function diagnosticsJson() {
+  return `${JSON.stringify({
+    $comment: 'GENERATED by scripts/generate-error-docs.mjs from packages/core/src/errors.js. Do not edit by hand.',
+    detectsKinds: {
+      reported: 'reported live by the running app in development: what_errors, what_events, getDiagnostics(), captureDiagnostics()',
+      thrown: 'thrown in the browser as an error carrying the code: what_errors when it escapes or an effect throws it',
+      server: 'raised by the server, the build or the CLI: logs and responses, never what_errors',
+      compile: 'warned by what-compiler at build time, and by what_lint\'s compile check',
+      lint: 'found by an eslint-plugin-what rule, and by what_lint, which runs the same rules',
+      mcp: 'answered by an MCP server to a rejected tool call',
+    },
+    codes: entries.map((e) => ({
+      code: e.code,
+      severity: e.severity,
+      detects: e.detects,
+      raisedBy: e.packages,
+      trigger: e.template,
+      fix: e.suggestion,
+      example: e.codeExample || null,
+    })),
+  }, null, 2)}\n`;
+}
+
+// --- packages/what/skills/*/SKILL.md ------------------------------------------
+// Small on purpose: an index an agent can read in one go, with the per-code
+// depth one what_fix call away. SKILL_LIMIT is enforced below.
+
+const SKILL_LIMIT = 8 * 1024;
+
+function oneLine(text, max) {
+  const flat = text.replace(/\{\{(\w+)\}\}/g, '$1').replace(/^\[[\w-]+\]\s*/, '').replace(/\s+/g, ' ');
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+}
+
+function diagnosticsSkill() {
+  const live = (e) => e.detects.includes('reported') || e.detects.includes('thrown');
+  const groups = [
+    ['Reported live by the running app (`what_errors`, `what_events`)', (e) => e.detects.includes('reported')],
+    ['Thrown in the browser (`what_errors` when it escapes or an effect throws it)', (e) => !e.detects.includes('reported') && e.detects.includes('thrown')],
+    ['Raised on the server, at build time or by the CLI', (e) => !live(e) && (e.detects.includes('server') || e.detects.includes('compile'))],
+    ['Found by lint (`what_lint`, eslint-plugin-what)', (e) => !live(e) && !e.detects.includes('server') && !e.detects.includes('compile') && e.detects.includes('lint')],
+    ['Raised by the MCP servers (rejected tool calls)', (e) => e.detects.length === 1 && e.detects[0] === 'mcp'],
+    ['Catalogued, no detector yet', (e) => e.detects.length === 0],
+  ];
+  const out = [
+    '---',
+    'name: what-diagnostics',
+    'description: Fix a What Framework diagnostic, an ERR_* code from the console, a test or an MCP tool. One line per code; what_fix returns the worked example.',
+    '---',
+    '<!-- GENERATED by scripts/generate-error-docs.mjs from packages/core/src/errors.js. Do not edit by hand. -->',
+    '',
+    '# What Framework diagnostics',
+    '',
+    'A diagnostic prints as `[what] ERR_CODE message`, then `in <App> › <Row>` (owner path) and `at file:line:col` when known. It reaches `what_errors` (MCP), `getDiagnostics()` (page) and `captureDiagnostics()` (tests). Repeats fold into one event with a `count`.',
+    '',
+    'To fix one, call `what_fix({ error: "ERR_CODE" })` (MCP, offline) for the fix and a bad/good example, or read `node_modules/what-framework/diagnostics.json`.',
+  ];
+  for (const [title, test] of groups) {
+    const list = entries.filter(test);
+    if (!list.length) continue;
+    out.push('', `## ${title}`, '');
+    for (const e of list) out.push(`- \`${e.code}\` ${e.severity === 'error' ? 'error' : 'warn'}: ${oneLine(e.summary, 58)}`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+function frameworkSkill() {
+  return `---
+name: what
+description: Write and debug What Framework apps (signals, components that run once) and inspect the running app with the what-devtools-mcp tools.
+---
+<!-- GENERATED by scripts/generate-error-docs.mjs from packages/create-what/agent-instructions.js. Do not edit by hand. -->
+
+# What Framework
+
+## Writing code
+
+${agent.FRAMEWORK_BASICS}
+
+### Buildless full-stack
+
+Use \`h()\` with a function child for reactive text and import server actions
+from a browser-served module. The scaffold's CLAUDE.md and AGENTS.md show the
+buildless examples.
+
+${agent.FULLSTACK_ACTIONS}
+
+## MCP DevTools
+
+\`what-devtools-mcp\` connects to the app running in the browser: the Vite plugin from \`what-devtools-mcp/vite\` injects the client in development, and \`.mcp.json\` starts the server (\`npx what-devtools-mcp\`).
+
+${agent.MCP_GUIDE}
+
+${agent.SHIPPED_REFERENCES}
+`;
+}
+
+const skillsDir = join(packagesDir, 'what', 'skills');
+const diagnosticsSkillText = diagnosticsSkill();
+if (Buffer.byteLength(diagnosticsSkillText) > SKILL_LIMIT) {
+  console.error(`[error-docs] skills/what-diagnostics/SKILL.md is ${Buffer.byteLength(diagnosticsSkillText)} B, over the ${SKILL_LIMIT} B limit. Shorten the catalogue templates or the index lines.`);
+  process.exit(1);
+}
+
 // --- write or check ---------------------------------------------------------
 
 const outputs = [
   [join(root, 'docs/ERRORS.md'), markdown()],
   [join(referenceDir, 'errors.html'), html()],
+  [join(packagesDir, 'what', 'diagnostics.json'), diagnosticsJson()],
+  [join(skillsDir, 'what-diagnostics', 'SKILL.md'), diagnosticsSkillText],
+  [join(skillsDir, 'what', 'SKILL.md'), frameworkSkill()],
 ];
 
 // Every other reference page needs the sidebar link, or the new page is
@@ -230,6 +391,42 @@ for (const file of readdirSync(referenceDir)) {
   outputs.push([path, src.replace('    </aside>', `${ERRORS_SIDEBAR_SECTION}    </aside>`)]);
 }
 
+// --- Text shared with hand-written documents ---------------------------------
+// A document carries a block between `<!-- <name>:start … -->` and
+// `<!-- <name>:end -->`; everything between the markers is rendered from
+// agent-instructions.js, so the statement reads the same wherever it appears.
+
+const SHARED_BLOCKS = {
+  'hooks-contract': {
+    text: agent.HOOKS_CONTRACT,
+    docs: ['packages/what/README.md', 'docs/API.md', 'docs/UPGRADING.md', 'docs/MIGRATION-FROM-REACT.md', 'docs-site/llms-full.txt'],
+  },
+};
+
+function renderBlock(path, name, text) {
+  const start = `<!-- ${name}:start (generated by scripts/generate-error-docs.mjs from packages/create-what/agent-instructions.js) -->`;
+  const end = `<!-- ${name}:end -->`;
+  const src = readFileSync(path, 'utf8');
+  const from = src.indexOf(start);
+  const to = src.indexOf(end);
+  if (from === -1 || to === -1) {
+    console.error(`[error-docs] ${path.slice(root.length + 1)} has no ${name} markers.`);
+    process.exit(1);
+  }
+  return `${src.slice(0, from)}${start}\n\n${text}\n\n${src.slice(to)}`;
+}
+
+for (const [name, { text, docs }] of Object.entries(SHARED_BLOCKS)) {
+  for (const doc of docs) outputs.push([join(root, doc), renderBlock(join(root, doc), name, text)]);
+}
+
+outputs.push([join(packagesDir, 'devtools-mcp', 'src', 'agent-docs.js'), `// GENERATED by scripts/generate-error-docs.mjs from packages/create-what/agent-instructions.js. Do not edit by hand.
+// The statements what-devtools-mcp's resources share with the scaffold
+// instructions, the shipped skill and the docs.
+
+export const HOOKS_CONTRACT = ${JSON.stringify(agent.HOOKS_CONTRACT)};
+`]);
+
 let drifted = 0;
 for (const [path, content] of outputs) {
   let current = null;
@@ -239,6 +436,7 @@ for (const [path, content] of outputs) {
   if (check) {
     console.error(`[error-docs] out of date: ${path.slice(root.length + 1)}`);
   } else {
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
     console.log(`[error-docs] wrote ${path.slice(root.length + 1)}`);
   }

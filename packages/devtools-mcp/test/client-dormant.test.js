@@ -2,20 +2,20 @@
  * Dormant-by-default gating in the browser client (T3-04).
  *
  * The audit finding: every fresh scaffold logged
- * `net::ERR_CONNECTION_REFUSED @ localhost:9230/__what_mcp_token` on load,
- * because the client probed the bridge's cross-origin discovery port even
- * when no bridge was configured — and the browser's network layer logs that
- * failure unsuppressibly.
+ * `net::ERR_CONNECTION_REFUSED` on load, because the client probed the
+ * bridge's cross-origin port even when no bridge was configured — and the
+ * browser's network layer logs that failure unsuppressibly.
  *
  * Contract pinned here:
- *  - default (no token, no discoveryUrl, no debug flag): DORMANT — zero
- *    fetches, zero WebSockets;
- *  - explicit `token`: direct probe of localhost:{port+1} (a bridge is
- *    expected, noise is acceptable);
+ *  - default (no token, no discoveryUrl): DORMANT — zero fetches, zero
+ *    WebSockets. The old window.__WHAT_DEVTOOLS_DEBUG__ opt-in is gone: the
+ *    bridge never hands a browser a credential, so probing without one could
+ *    not connect anyway (security review #11);
+ *  - explicit `token`: direct probe of localhost:{port+1}/__what_mcp_probe
+ *    (no secret in the answer), then the token is the credential;
  *  - `discoveryUrl` (set by the Vite plugin): same-origin polling — probes
  *    the dev server, never the bridge port directly; opens the WebSocket
- *    only when discovery reports the bridge up;
- *  - `window.__WHAT_DEVTOOLS_DEBUG__ = true`: opts in to direct probing;
+ *    with the origin-bound credential discovery returns;
  *  - `reconnect()` (window.__WHAT_MCP_RECONNECT__) wakes a dormant client.
  *
  * Runs in Node with stubbed window/fetch/WebSocket globals.
@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 describe('dormant by default (the audit fix)', () => {
-  it('no token, no discoveryUrl, no debug flag → zero network activity', async () => {
+  it('no token, no discoveryUrl → zero network activity', async () => {
     const client = connectDevToolsMCP({ port: PORT });
     await settle();
     assert.equal(fetchCalls.length, 0, `expected zero fetches, got: ${fetchCalls.map(c => c.url)}`);
@@ -95,7 +95,7 @@ describe('dormant by default (the audit fix)', () => {
     client.reconnect();
     await settle();
     assert.equal(fetchCalls.length, 1, 'reconnect() must trigger exactly one probe');
-    assert.equal(fetchCalls[0].url, `http://localhost:${PORT + 1}/__what_mcp_token`);
+    assert.equal(fetchCalls[0].url, `http://localhost:${PORT + 1}/__what_mcp_probe`);
     client.disconnect();
   });
 
@@ -111,27 +111,27 @@ describe('explicit token → direct probing stays enabled', () => {
     const client = connectDevToolsMCP({ port: PORT, token: 'tok-123' });
     await settle();
     assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0].url, `http://localhost:${PORT + 1}/__what_mcp_token`);
+    assert.equal(fetchCalls[0].url, `http://localhost:${PORT + 1}/__what_mcp_probe`);
     client.disconnect();
   });
 
-  it('connects the WebSocket when the bridge answers the direct probe', async () => {
-    stubFetch(() => jsonResponse({ token: 'tok-456', wsPort: PORT }));
+  it('connects the WebSocket with the explicit token when the bridge answers the probe', async () => {
+    stubFetch(() => jsonResponse({ bridge: true, wsPort: PORT }));
     const client = connectDevToolsMCP({ port: PORT, token: 'tok-456' });
     await settle();
     assert.equal(wsInstances.length, 1);
-    assert.equal(wsInstances[0].url, `ws://localhost:${PORT}?token=tok-456`);
+    assert.match(wsInstances[0].url, new RegExp(`^ws://localhost:${PORT}/\\?token=tok-456&page=[\\w-]+$`));
     client.disconnect();
   });
 });
 
-describe('window.__WHAT_DEVTOOLS_DEBUG__ opt-in', () => {
-  it('debug flag enables direct probing without a token', async () => {
+describe('window.__WHAT_DEVTOOLS_DEBUG__ no longer probes', () => {
+  it('without a token or discoveryUrl the debug flag stays dormant', async () => {
     globalThis.window.__WHAT_DEVTOOLS_DEBUG__ = true;
     const client = connectDevToolsMCP({ port: PORT });
     await settle();
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0].url, `http://localhost:${PORT + 1}/__what_mcp_token`);
+    assert.equal(fetchCalls.length, 0);
+    assert.equal(wsInstances.length, 0);
     client.disconnect();
   });
 });
@@ -148,12 +148,12 @@ describe('same-origin discoveryUrl (Vite plugin mode)', () => {
     client.disconnect();
   });
 
-  it('opens the WebSocket with discovered token+wsPort when bridge is up', async () => {
-    stubFetch(() => jsonResponse({ bridge: true, token: 'disc-tok', wsPort: 4743 }));
+  it('opens the WebSocket with the discovered credential and wsPort when the bridge is up', async () => {
+    stubFetch(() => jsonResponse({ bridge: true, credential: 'disc-cred', wsPort: 4743 }));
     const client = connectDevToolsMCP({ port: PORT, discoveryUrl: '/__what_mcp_discovery' });
     await settle();
     assert.equal(wsInstances.length, 1);
-    assert.equal(wsInstances[0].url, 'ws://localhost:4743?token=disc-tok');
+    assert.match(wsInstances[0].url, /^ws:\/\/localhost:4743\/\?token=disc-cred&page=[\w-]+$/);
     client.disconnect();
   });
 

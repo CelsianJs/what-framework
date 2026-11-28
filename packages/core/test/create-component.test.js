@@ -11,19 +11,11 @@ before(() => {
 });
 
 describe('_$createComponent runtime', () => {
-  it('is exported from render.js', async () => {
-    const render = await import('../../core/src/render.js');
+  it('is exported from what-framework/render, where compiled output imports it', async () => {
+    const render = await import('../../what/src/render.js');
     assert.ok(
       typeof render._$createComponent === 'function',
-      '_$createComponent should be a function exported from render.js'
-    );
-  });
-
-  it('is exported from the main index', async () => {
-    const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core._$createComponent === 'function',
-      '_$createComponent should be exported from core index.js'
+      '_$createComponent should be exported from what-framework/render'
     );
   });
 
@@ -183,38 +175,6 @@ describe('_$createComponent runtime', () => {
   });
 });
 
-describe('h() is internal-only, not a public API', () => {
-  it('h exists in exports for internal package use but is not the compiler target', async () => {
-    const core = await import('../../core/src/index.js');
-    // h is still exported for internal packages (server, router, react-compat, jsx-runtime)
-    // but the compiler no longer emits h() calls — it uses _$createComponent instead
-    assert.ok(
-      typeof core.h === 'function',
-      'h should exist for internal package consumers'
-    );
-    assert.ok(
-      typeof core._$createComponent === 'function',
-      '_$createComponent should be the compiler target, not h'
-    );
-  });
-
-  it('Fragment IS still publicly exported', async () => {
-    const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core.Fragment === 'function',
-      'Fragment should still be exported from the public index'
-    );
-  });
-
-  it('html tagged template IS still publicly exported', async () => {
-    const core = await import('../../core/src/index.js');
-    assert.ok(
-      typeof core.html === 'function',
-      'html should still be exported from the public index'
-    );
-  });
-});
-
 describe('jsx-runtime still works', () => {
   it('jsx-runtime exports jsx, jsxs, Fragment', async () => {
     const runtime = await import('../../core/src/jsx-runtime.js');
@@ -246,7 +206,8 @@ describe('jsx-runtime still works', () => {
     assert.ok(vnode, 'jsx should return a vnode');
     assert.equal(vnode.tag, 'div', 'vnode tag should be div');
     assert.equal(vnode.props.className, 'test', 'vnode should carry props');
-    assert.ok(vnode._vnode, 'vnode should have _vnode marker');
+    const { isVNode } = await import('../src/vnode-renderer.js');
+    assert.ok(isVNode(vnode), 'vnode should carry the vnode brand');
   });
 
   it('jsx handles component types', async () => {

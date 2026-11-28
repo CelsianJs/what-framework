@@ -16,6 +16,8 @@
 // @property {number} [status]    HTTP status (for 404 stubs / fallback skeletons).
 // @property {boolean} [partial]  True for fallback skeletons (never durable).
 // @property {boolean} [private]  True for per-user renders (never stored/shared).
+// @property {Record<string,string>} [headers] The page's own response headers,
+//                                 replayed with the entry (headers.js).
 //
 // @typedef {Object} CacheStore
 // @property {(key:string)=>Promise<Entry|null>} get
@@ -26,6 +28,8 @@
 // @property {()=>Promise<void>} clear
 // @property {()=>Promise<string[]>} keys
 
+import { responseHeaderList, isPrivateResponse, storableHeaders } from '../headers.js';
+
 // A hybrid route renders per-request data, so an entry without an explicit
 // `revalidate` must NOT be fresh forever. Static routes are content-addressed by
 // their build and stay durable until an explicit purge.
@@ -33,9 +37,12 @@ const HYBRID_MAX_AGE = 60;
 
 /**
  * Fill an Entry's time fields from `now` + a route config. Used by the ISR
- * engine so every store receives consistent expiry metadata.
+ * engine so every store receives consistent expiry metadata. `out.headers`
+ * (the render's response headers) decides whether the render is private and
+ * which of them the entry keeps (headers.js).
  */
 export function makeEntry(out, config = {}, now = Date.now()) {
+  const headerList = responseHeaderList(out.headers);
   // `??`, not `||`: an explicit `revalidate: 0` is a real value and must not be
   // replaced by the hybrid default.
   const fallbackMaxAge = config.mode === 'hybrid' ? HYBRID_MAX_AGE : 0;
@@ -64,7 +71,8 @@ export function makeEntry(out, config = {}, now = Date.now()) {
     path: out.path || config.path,
     status: out.status || 200,
     partial: !!out.partial,
-    private: !!(out.private || out.usedRequestHeaders),
+    private: !!(out.private || out.usedRequestHeaders || isPrivateResponse(headerList)),
+    headers: storableHeaders(headerList),
     renderedAt: now,
     maxAge,
     swrWindow,

@@ -1,18 +1,13 @@
 // What Framework - Form Utilities
 // Controlled inputs, validation, and form state management
 
-import { signal, computed, batch, effect, __DEV__ } from './reactive.js';
-import { getCurrentComponent, _isEventProp } from './dom.js';
+import { signal, computed, batch, effect, onCleanup, untrack, __DEV__ } from './reactive.js';
+import { getCurrentComponent, _isEventProp, _markProps } from './dom.js';
 import { h } from './h.js';
+import { applyRef } from './render.js';
+import { report } from './diagnostics.js';
 
 // --- Registration plumbing ---
-
-// A ref can be a callback or a { current } box; both spellings are public API,
-// so anything that wants to install its OWN ref has to forward the caller's.
-function _applyRef(ref, el) {
-  if (typeof ref === 'function') ref(el);
-  else if (ref && typeof ref === 'object') ref.current = el;
-}
 
 // Run BOTH handlers when a registration and its caller want the same DOM event.
 // Registration first, caller second, so the caller's handler observes form state
@@ -50,6 +45,13 @@ function _mergeRegistration(props, registered) {
   }
 
   for (const key in registered) {
+    // A registration's `value` and `checked` are getters over the field; read
+    // here they would be its value at render, so they cross as functions,
+    // which the renderer binds live (a later setValue or reset shows).
+    if (Object.getOwnPropertyDescriptor(registered, key)?.get) {
+      merged[key] = () => registered[key];
+      continue;
+    }
     const value = registered[key];
     if (!_isEventProp(key)) {
       merged[key] = value;
@@ -68,57 +70,174 @@ function _mergeRegistration(props, registered) {
   return merged;
 }
 
+// --- Paths ---
+// A field's name is a path, as in React Hook Form: `vehicles.0.vin` is
+// `values.vehicles[0].vin`. A name without a dot is a key of its own.
+
+const isIndex = (segment) => /^\d+$/.test(segment);
+
+function isContainer(value) {
+  return Array.isArray(value) || (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype);
+}
+
+// Plain objects and arrays copied all the way down; anything else (a File,
+// a Date, a FileList) kept as it is.
+function clone(value) {
+  if (Array.isArray(value)) return value.map(clone);
+  if (!isContainer(value)) return value;
+  const out = {};
+  for (const key in value) out[key] = clone(value[key]);
+  return out;
+}
+
+// A map with no prototype, so a key named `constructor` or `__proto__` is
+// a key like any other.
+const map = () => Object.create(null);
+
+// obj[key], except a member obj inherits from Object.prototype, which is no
+// entry of its own: a field named `toString` with no default has none.
+const own = (obj, key) => (obj == null || (!Object.hasOwn(obj, key) && key in Object.prototype) ? undefined : obj[key]);
+
+const getIn = (obj, path) => path.split('.').reduce(own, obj);
+
+// Writes into an object getAllValues built, making an array where the next
+// segment is an index and an object anywhere else. A path through
+// `__proto__` writes nothing: it would write into Object.prototype, the
+// prototype of every object (React Hook Form's set refuses it too).
+function setIn(obj, path, value) {
+  const segments = path.split('.');
+  if (segments.includes('__proto__')) return;
+  const last = segments.length - 1;
+  let cur = obj;
+  for (let i = 0; i < last; i++) {
+    const segment = segments[i];
+    if (typeof (cur[segment] ?? 0) !== 'object') cur[segment] = isIndex(segments[i + 1]) ? [] : {};
+    cur = cur[segment];
+  }
+  cur[segments[last]] = value;
+}
+
+// A copy of `obj` without the path, copying only the plain objects and arrays
+// on it: every other value keeps its identity, which dirtyFields compares a
+// field's value with. An object the removal leaves empty goes too, as React
+// Hook Form's unset does.
+function unsetIn(obj, segments) {
+  const [segment, ...rest] = segments;
+  if (!isContainer(obj) || !Object.hasOwn(obj, segment)) return obj;
+  const out = Array.isArray(obj) ? [...obj] : { ...obj };
+  const inner = rest.length ? unsetIn(out[segment], rest) : undefined;
+  if (inner === undefined || (!Array.isArray(inner) && isContainer(inner) && !Object.keys(inner).length)) delete out[segment];
+  else out[segment] = inner;
+  return out;
+}
+
 // --- useForm Hook ---
 // Complete form state management with validation
 
-export function useForm(options = {}) {
-  // Hook-stable behavior inside components
-  const ctx = getCurrentComponent?.();
-  if (ctx) {
-    const index = ctx.hookIndex++;
-    if (!ctx.hooks[index]) {
-      ctx.hooks[index] = createFormController(options);
-    }
-    return ctx.hooks[index];
-  }
+const KEEP_DEFAULT = { keepDefaultValue: true };
 
-  // Standalone usage outside component scope
-  return createFormController(options);
+// One instance per call site of a component, made on its first run.
+function hookStable(make) {
+  const ctx = getCurrentComponent();
+  if (!ctx) return make();
+  if (ctx.hooks === null) ctx.hooks = [];
+  const index = ctx.hookIndex++;
+  return ctx.hooks[index] ||= make();
+}
+
+export function useForm(options = {}) {
+  return hookStable(() => createFormController(options));
 }
 
 function createFormController(options = {}) {
   const {
-    defaultValues = {},
     mode = 'onSubmit', // 'onSubmit' | 'onChange' | 'onBlur'
     reValidateMode = 'onChange',
     resolver,
+    shouldUnregister = false,
   } = options;
+  // The values a field starts from and dirtyFields measures from: useForm's
+  // defaultValues, then the values a reset() was last given (React Hook
+  // Form's reset makes them the defaults).
+  let defaultValues = options.defaultValues || {};
 
-  // Per-field signals for granular reactivity (avoids full-form re-renders on each keystroke)
-  const fieldSignals = {};
-  const errorSignals = {};
-  const touchedSignals = {};
+  // State is kept by key. A key is the field's name, except under a field
+  // array (useFieldArray), where an item's index is replaced by the item's
+  // own segment (`vehicles.<item>.vin`): its value, error and touched state
+  // stay with the item when it moves. `arrays` holds each field array's
+  // items. `ext`, the field array support, is installed by the first
+  // useFieldArray and replaces keyOf, nameOf and defaultAt with its own;
+  // until then a key is its name.
+  /** @type {Record<string, any>} */
+  const arrays = map();
+  /** @type {any} */
+  let ext;
+  let keyOf = (name) => name;
+  // The name a key has now, or null for a key of an item that was removed.
+  let nameOf = keyOf;
+  // The default at a key in the defaults, or in the item's values for a key
+  // under a field array item.
+  let defaultAt = getIn;
+
+  // Per-field signals for granular reactivity (avoids full-form re-renders
+  // on each keystroke), made by the first read or write of a field.
+  const fieldSignals = map();
+  // The fields written, which the values hold. A reader of a field nothing
+  // wrote yet (or that was unregistered) follows its signal, and the field
+  // joins the values when something writes it.
+  const known = map();
+  // Fields forgotten with their defaults kept: left out of the values until
+  // something writes them again.
+  const hidden = map();
+  const errorSignals = map();
+  const touchedSignals = map();
   const errorsState = signal({});
+  // Counts the field and touched signals made and forgotten so far. A reader
+  // of the whole form (values, watch(), dirtyFields, touched) reads it, so
+  // one that ran before a field existed (a summary rendered above the
+  // fields) runs again when the field comes into being and subscribes to it
+  // then. Only what writes a field (register, setValue, a blur) makes one
+  // known; a read of a field nothing wrote yet sees its default either way.
+  const fieldCount = signal(0);
+  const counted = () => fieldCount.set((n) => n + 1);
 
-  function getFieldSignal(name) {
-    if (!fieldSignals[name]) {
-      fieldSignals[name] = signal(defaultValues[name] ?? '');
+  const defaultOf = (key) => defaultAt(defaultValues, key) ?? '';
+
+  const signalOf = (key) => (fieldSignals[key] ||= signal(defaultOf(key)));
+
+  // A field's signal, the field written.
+  function getFieldSignal(key) {
+    const sig = signalOf(key);
+    if (!known[key]) {
+      known[key] = true;
+      delete hidden[key];
+      counted();
     }
-    return fieldSignals[name];
+    return sig;
   }
 
-  function getErrorSignal(name) {
-    if (!errorSignals[name]) {
-      errorSignals[name] = signal(null);
+  const readKey = (key) => signalOf(key)();
+
+  // A name that holds other fields (a field array, an object of fields) is
+  // read from the whole values; a field's own name from its signal.
+  function readName(key) {
+    if (!known[key] && (arrays[key] || isContainer(defaultOf(key)) || Object.keys(known).some((k) => k.startsWith(key + '.')))) {
+      const name = nameOf(key);
+      return name == null ? '' : getIn(getAllValues(), name) ?? '';
     }
-    return errorSignals[name];
+    return readKey(key);
   }
 
-  function getTouchedSignal(name) {
-    if (!touchedSignals[name]) {
-      touchedSignals[name] = signal(false);
+  function getErrorSignal(key) {
+    return errorSignals[key] ||= signal(null);
+  }
+
+  function getTouchedSignal(key) {
+    if (!touchedSignals[key]) {
+      touchedSignals[key] = signal(false);
+      counted();
     }
-    return touchedSignals[name];
+    return touchedSignals[key];
   }
 
   // Aggregate signals for bulk operations
@@ -128,91 +247,186 @@ function createFormController(options = {}) {
   const isValidating = signal(false);
   const submitCount = signal(0);
 
-  // Helper: get all current values as a plain object.
-  // tracked=true subscribes to all known fields; tracked=false is snapshot-only.
-  function getAllValues(tracked = false) {
-    const result = { ...defaultValues };
-    for (const [name, sig] of Object.entries(fieldSignals)) {
-      result[name] = tracked ? sig() : sig.peek();
+  // All current values as an object, nested by the fields' paths, read
+  // tracked: a snapshot reads them through untrack().
+  function getAllValues() {
+    fieldCount();
+    let result = clone(defaultValues);
+    ext?.v(result);
+    for (const key in hidden) {
+      const name = nameOf(key);
+      if (name != null) result = unsetIn(result, name.split('.'));
+    }
+    for (const key in known) {
+      const name = nameOf(key);
+      if (name != null) setIn(result, name, fieldSignals[key]());
     }
     return result;
   }
 
-  // Helper: get all current errors as a plain object.
-  // tracked=true subscribes to all known field errors; tracked=false is snapshot-only.
-  function getAllErrors(tracked = false) {
-    return tracked ? errorsState() : errorsState.peek();
+  // All current errors as an object keyed by field name, read tracked.
+  function getAllErrors() {
+    const errors = errorsState();
+    return ext ? ext.e(errors) : errors;
   }
 
-  function setFieldError(name, error) {
+  function setFieldError(key, error) {
     const nextError = error ?? null;
-    getErrorSignal(name).set(nextError);
+    getErrorSignal(key).set(nextError);
     errorsState.set((prev) => {
-      const prevError = prev[name];
+      const prevError = prev[key];
       if (prevError === nextError) return prev;
       if (nextError == null) {
-        if (!Object.prototype.hasOwnProperty.call(prev, name)) return prev;
+        if (!Object.hasOwn(prev, key)) return prev;
         const next = { ...prev };
-        delete next[name];
+        delete next[key];
         return next;
       }
-      return { ...prev, [name]: nextError };
+      return { ...prev, [key]: nextError };
     });
   }
 
-  function replaceAllErrors(nextErrors = {}) {
+  function replaceAllErrors(nextErrors) {
     const normalized = nextErrors || {};
     batch(() => {
-      for (const [name, sig] of Object.entries(errorSignals)) {
-        if (!Object.prototype.hasOwnProperty.call(normalized, name)) {
-          sig.set(null);
+      for (const key in errorSignals) {
+        if (!Object.hasOwn(normalized, key)) {
+          errorSignals[key].set(null);
         }
       }
-      for (const [name, err] of Object.entries(normalized)) {
-        getErrorSignal(name).set(err ?? null);
+      for (const key in normalized) {
+        getErrorSignal(key).set(normalized[key] ?? null);
       }
       errorsState.set({ ...normalized });
     });
   }
 
   // Computed states
-  const isValid = computed(() => Object.keys(getAllErrors(true)).length === 0);
+  const isValid = computed(() => Object.keys(getAllErrors()).length === 0);
 
+  // The fields whose value is not their default, by name.
   const dirtyFields = computed(() => {
-    const dirty = {};
-    for (const [name, sig] of Object.entries(fieldSignals)) {
-      if (sig() !== (defaultValues[name] ?? '')) {
-        dirty[name] = true;
-      }
+    fieldCount();
+    const out = {};
+    for (const key in known) {
+      if (fieldSignals[key]() === defaultOf(key)) continue;
+      const name = nameOf(key);
+      if (name != null) out[name] = true;
     }
-    return dirty;
+    return out;
   });
 
-  // Validation
+  // Validation. The resolver is handed every value, and, for a field's own
+  // validation, `{ names: [field] }` (React Hook Form's resolver options), so
+  // one that can (simpleResolver) checks only that field: a keystroke in a
+  // 300-field form runs one field's rules.
+  // Runs are numbered as they start, because an async resolver (a lookup on
+  // a server) answers them in any order: a field's answer is shown only when
+  // no later run of that field or of the whole form started before it
+  // landed, and a whole-form answer leaves alone a field validated since it
+  // started. A field unregistered or removed counts as validated when it
+  // goes, so no answer started before lands on it. A field's last number
+  // is kept: numbers only grow, so it never outranks a run that starts
+  // later. isValidating holds until the last run in flight lands.
+  let runCount = 0;
+  let formRun = 0;
+  const fieldRuns = map();
+  let inFlight = 0;
+
   async function validate(fieldName) {
     if (!resolver) return true;
 
-    isValidating.set(true);
+    const run = ++runCount;
+    const key = fieldName && keyOf(fieldName);
+    // Errors by name to errors by key, with the keys the names have now: the
+    // answer is about the items in the places they had when the run started.
+    const byKey = ext ? ext.s() : (errors) => ({ ...errors });
+    if (fieldName) fieldRuns[key] = run;
+    else formRun = run;
+    if (inFlight++ === 0) isValidating.set(true);
     try {
-      const result = await resolver(getAllValues(false));
+      const result = await resolver(untrack(getAllValues), undefined, fieldName ? { names: [fieldName] } : {});
       const nextErrors = result?.errors || {};
 
       if (fieldName) {
-        const nextError = nextErrors[fieldName] ?? null;
-        setFieldError(fieldName, nextError);
+        const nextError = own(nextErrors, fieldName) ?? null;
+        if (fieldRuns[key] === run && formRun < run) setFieldError(key, nextError);
         return !nextError;
-      } else {
-        replaceAllErrors(nextErrors);
-        return Object.keys(nextErrors).length === 0;
       }
+      if (formRun === run) {
+        const shown = byKey(nextErrors);
+        for (const at in fieldRuns) {
+          if (fieldRuns[at] < run) continue;
+          const latest = errorSignals[at]?.peek();
+          if (latest == null) delete shown[at];
+          else shown[at] = latest;
+        }
+        replaceAllErrors(shown);
+      }
+      return Object.keys(nextErrors).length === 0;
     } finally {
-      isValidating.set(false);
+      if (--inFlight === 0) isValidating.set(false);
     }
+  }
+
+  // Forget the field at `key` and every field under it: its value (and its
+  // default, unless options.keepDefaultValue or the form's shouldUnregister
+  // keeps it, so a field shown again starts from it), its error and its
+  // touched state, each unless options keeps it (React Hook Form's
+  // unregister options). A reader of the field (a mounted input, watch())
+  // keeps its signal, which shows the field's default now, and an edit in
+  // the input brings the field back. `gone` tells the keys of removed items
+  // (one of them `key`), which nothing can name again: their signals are
+  // dropped.
+  function forget(key, options = {}, gone) {
+    // Gives `fn` each key at or under `key` in `map`, or each key `gone`
+    // tells, and its entry; the entry goes from the map when the key is gone.
+    const each = (map, fn) => {
+      for (const k in map) {
+        if (gone ? !gone(k) : k !== key && !k.startsWith(key + '.')) continue;
+        fn(k, map[k]);
+        if (gone) delete map[k];
+      }
+    };
+    // Each field counts as validated now, so no answer in flight lands on it.
+    fieldRuns[key] = 0;
+    each(fieldRuns, (k) => (fieldRuns[k] = ++runCount));
+    batch(() => {
+      if (!options.keepValue) {
+        // A field array's name: its items go, each with its state.
+        if (arrays[key]) ext.a(key, []);
+        if (!gone && (options.keepDefaultValue || shouldUnregister)) {
+          if (!arrays[key]) hidden[key] = true;
+        } else if (!ext?.u(key)) defaultValues = unsetIn(defaultValues, key.split('.'));
+        each(hidden, () => {});
+        // Every field written has a signal, so one walk unmarks the fields
+        // and gives their signals the default.
+        each(fieldSignals, (k, sig) => {
+          delete known[k];
+          sig.set(defaultOf(k));
+        });
+      }
+      if (!options.keepError) each(errorSignals, (k) => setFieldError(k, null));
+      if (!options.keepTouched) each(touchedSignals, (k, sig) => sig.set(false));
+      counted();
+    });
+  }
+
+  // Forget fields by name (React Hook Form's unregister), or every field.
+  function unregister(names, options) {
+    const keys = names == null ? Object.keys(known) : [].concat(names).map(keyOf);
+    batch(() => { for (const key of keys) forget(key, options); });
   }
 
   // Register a field — only subscribes to THIS field's signal
   function register(name, options = {}) {
-    const fieldSig = getFieldSignal(name);
+    // Read untracked: compiled JSX reads `{...form.register(name)}` again
+    // when what the call read changes, and a move of the items must not
+    // hand the row the field of the item now at its first index.
+    const key = untrack(() => keyOf(name));
+    getFieldSignal(key);
+    const read = () => readKey(key);
+    if (options.shouldUnregister ?? shouldUnregister) onCleanup(() => forget(key, KEEP_DEFAULT));
     const isRadio = options.type === 'radio';
     const isCheckbox = options.type === 'checkbox';
     // A radio does NOT store its own checkedness: every radio in a group shares
@@ -247,16 +461,12 @@ function createFormController(options = {}) {
 
     const handler = (e) => {
       const target = e && e.target;
-      // NOT `|| {}`: a missing target used to read as `{}`, whose `.value` is
-      // undefined, so calling the handler without an event quietly OVERWROTE the
-      // field with undefined. Refuse instead — there is no value to apply.
+      // NOT `|| {}`: a missing target would read as `{}`, whose `.value` is
+      // undefined, so calling the handler without an event would quietly
+      // overwrite the field with undefined. Refuse instead — there is no value
+      // to apply.
       if (!target) {
-        if (__DEV__) {
-          console.warn(
-            `[what] register("${name}") change handler was called without an event. ` +
-            'Pass the DOM event through (or call form.setValue() directly). Ignoring.'
-          );
-        }
+        if (__DEV__) report('ERR_FORM_HANDLER_WITHOUT_EVENT', { data: { name } });
         return;
       }
       // options.type is the declared intent; target.type covers a bare
@@ -272,47 +482,58 @@ function createFormController(options = {}) {
           // Nothing identifies this radio, so any write would be a guess.
           if (__DEV__ && !warnedValuelessRadio) {
             warnedValuelessRadio = true;
-            console.warn(
-              `[what] register("${name}", { type: 'radio' }) cannot tell which value this radio ` +
-              'contributes: pass { value } or give the <input> a value attribute. Field left unchanged.'
-            );
+            report('ERR_FORM_RADIO_WITHOUT_VALUE', { data: { name } });
           }
           return;
         }
       } else if (type === 'checkbox') {
         value = target.checked;
+      } else if (type === 'file') {
+        // A file input's value is a fake path ("C:\fakepath\photo.png") that
+        // carries no file: the field holds its FileList, as React Hook Form
+        // registers one. Each choice is a new list, so it is always news.
+        value = target.files;
       } else {
-        value = target.value;
+        // A multiple select holds the values of its selected options.
+        value = type === 'select-multiple' ? Array.from(target.selectedOptions, (option) => option.value) : target.value;
       }
-      setValue(name, value);
+      // A `change` that brings what the form already holds is no news: a
+      // field registered as a value (below) takes its edit from `input`, and
+      // from `change` only what that did not bring (a listbox, a multiple
+      // select or one with a size, fires only `change` for a key typed).
+      if (e.type === 'change' && type !== 'file' && JSON.stringify(value) === JSON.stringify(getFieldSignal(key).peek())) return;
+      setKey(key, value);
 
-      if (mode === 'onChange' || (isSubmitted.peek() && reValidateMode === 'onChange')) {
-        validate(name);
-      }
+      validateOn('onChange', key);
     };
 
     const result = {
       name,
       onBlur: () => {
-        getTouchedSignal(name).set(true);
+        getTouchedSignal(key).set(true);
 
-        if (mode === 'onBlur' || (isSubmitted.peek() && reValidateMode === 'onBlur')) {
-          validate(name);
-        }
+        validateOn('onBlur', key);
       },
       onFocus: () => {},
       ref: options.ref,
+      onchange: handler,
     };
+    // The name of a field of a field array item follows the item's place (a
+    // radio's is written by its ref, below).
+    const moves = key !== name;
+    if (moves && !isRadio) Object.defineProperty(result, 'name', { get: () => nameOf(key) ?? name, enumerable: true });
 
     if (isRadio) {
-      // Without a declared value this thunk must report FALSE, never `!!field`:
-      // the contribution can only come from the element, which a prop thunk does
-      // not have, and `!!field` is true for every radio in the group at once, so
-      // picking any option rendered ALL of them checked. The ref below fixes up
-      // the real DOM once it does have the element.
+      // Without a declared value this thunk must report UNDEFINED, never
+      // `!!field`: the contribution can only come from the element, which a
+      // prop thunk does not have, and `!!field` is true for every radio in the
+      // group at once, so picking any option rendered ALL of them checked. Not
+      // false either: a false `checked` controls the radio unchecked, and the
+      // ref below is what checks it once it has the element. A server, which
+      // has no element, writes it unchecked.
       const isChecked = hasRadioValue
-        ? () => fieldSig() === options.value
-        : () => false;
+        ? () => read() === options.value
+        : () => undefined;
 
       if (hasRadioValue) result.value = options.value;
       // A FUNCTION, not the getter the checkbox branch uses: every consumer
@@ -322,9 +543,10 @@ function createFormController(options = {}) {
       // reactive-binding protocol — setProp() wraps it in an effect, and the SSR
       // serializer calls it — so one thunk covers both renderers.
       result.checked = isChecked;
-      result.onchange = handler;
       result.ref = (el) => {
-        _applyRef(options.ref, el);
+        // The caller's ref, a callback or a { current } box, is applied as
+        // the renderer applies a ref.
+        applyRef(options.ref, el);
         if (!el || typeof el !== 'object') return;
 
         // The reactive `checked` prop above only stamps the checked CONTENT
@@ -335,40 +557,43 @@ function createFormController(options = {}) {
         // screen. Writing the checked PROPERTY is what a controlled radio needs
         // (React and Solid do the same) and it also runs the DOM's radio-group
         // invariant that unchecks the siblings.
-        // Disposal rides on the el._propEffects convention that dom.js and
-        // render.js both walk on unmount; the ':property' suffix keeps it from
-        // colliding with setProp's own effect for the `checked` attribute.
-        if (!el._propEffects) el._propEffects = {};
-        const key = 'checked:property';
-        if (el._propEffects[key]) {
-          try { el._propEffects[key](); } catch { /* already disposed */ }
-        }
-        // radioValueOf(el) is re-read on every run rather than captured, so a
-        // registration without a declared value still binds correctly once the
-        // element's own value attribute is in place, and an unidentifiable radio
-        // is simply never checked instead of being checked alongside its
-        // siblings.
-        el._propEffects[key] = effect(() => {
+        // The effect belongs to the owner the ref runs under, like every
+        // binding of the element. radioValueOf(el) is re-read on every run
+        // rather than captured, so a registration without a declared value
+        // still binds correctly once the element's own value attribute is in
+        // place, and an unidentifiable radio is simply never checked instead of
+        // being checked alongside its siblings.
+        // A radio of a field array item takes its item's new place as its
+        // name here, then its checkedness: taking a name joins that radio
+        // group, which unchecks the group's checked radio (the radio of the
+        // item that held the place), and that radio's own run checks it
+        // again once it has its new name.
+        effect(() => {
+          if (moves) el.name = nameOf(key) ?? name;
           const own = radioValueOf(el);
-          el.checked = own !== undefined && fieldSig() === own;
+          el.checked = own !== undefined && read() === own;
         });
       };
     } else if (isCheckbox) {
       // Checkbox: use checked prop + onchange event
       Object.defineProperty(result, 'checked', {
-        get() { return !!fieldSig(); },
+        get() { return !!read(); },
         enumerable: true,
       });
-      result.onchange = handler;
     } else {
-      // Text/select/textarea: use value prop + oninput event
+      // Text/select/textarea: use value prop + onchange, React's change event,
+      // which a text field fires as the user types and a select when its
+      // choice changes (render.js listen).
       Object.defineProperty(result, 'value', {
-        get() { return fieldSig(); },
+        get: read,
         enumerable: true,
       });
-      result.oninput = handler;
+      // 0.14 code wires `oninput: register('x').oninput` by hand: it keeps the
+      // handler, not enumerable, so a spread attaches only `onchange` and
+      // the field is not handled twice per keystroke.
+      Object.defineProperty(result, 'oninput', { value: handler });
       result.ref = (el) => {
-        _applyRef(options.ref, el);
+        applyRef(options.ref, el);
         // An UNTYPED registration spread onto a radio cannot be rescued, and it
         // fails silently, so say so at mount. The `value` binding above resolves
         // during the spread and overwrites the input's own value with the FIELD's
@@ -387,45 +612,45 @@ function createFormController(options = {}) {
         // a radio's value.
         if (__DEV__ && !warnedUntypedRadio && el && el.type === 'radio') {
           warnedUntypedRadio = true;
-          console.warn(
-            `[what] register("${name}") was spread onto <input type="radio"> without a type. ` +
-            'Radios in a group share one field holding the SELECTED option, so the registration ' +
-            `must be told this radio's value: register("${name}", { type: 'radio', value: ... }), ` +
-            'or use <Radio name value register />. As written, the registration overwrote the ' +
-            "input's own value and the group cannot record a choice."
-          );
+          report('ERR_FORM_RADIO_UNTYPED', { data: { name } });
         }
       };
     }
 
-    return result;
+    // Marked as a props object of What's (dom.js PROPS): a spread binds its
+    // `value` and `checked` getters live, so `<input {...register('x')} />`
+    // shows setValue and reset however the call is written.
+    return _markProps(result);
+  }
+
+  // A field's own validation, by the name its key has now, when the event
+  // is the one the form validates on (reValidateMode's once submitted).
+  function validateOn(event, key) {
+    const name = nameOf(key);
+    if (name != null && (mode === event || (isSubmitted.peek() && reValidateMode === event))) validate(name);
+  }
+
+  // A field array's name takes new items, as its replace() gives them.
+  function setKey(key, value, shouldDirty = true) {
+    if (arrays[key]) ext.a(key, value);
+    else getFieldSignal(key).set(value);
+    if (shouldDirty) isDirty.set(true);
   }
 
   // Set single field value — only triggers re-render for components reading this field
   function setValue(name, value, options = {}) {
-    const { shouldValidate = false, shouldDirty = true } = options;
-
-    getFieldSignal(name).set(value);
-    if (shouldDirty) isDirty.set(true);
-
-    if (shouldValidate) {
-      validate(name);
-    }
+    setKey(keyOf(name), value, options.shouldDirty ?? true);
+    if (options.shouldValidate) validate(name);
   }
 
   // Get single field value
   function getValue(name) {
-    return getFieldSignal(name)();
-  }
-
-  // Set error for a field
-  function setError(name, error) {
-    setFieldError(name, error);
+    return readName(keyOf(name));
   }
 
   // Clear error for a field
   function clearError(name) {
-    setFieldError(name, null);
+    setFieldError(keyOf(name), null);
   }
 
   // Clear all errors
@@ -433,19 +658,25 @@ function createFormController(options = {}) {
     replaceAllErrors({});
   }
 
-  // Reset form
-  function reset(newValues = defaultValues) {
+  // Reset form: to the values given, which become the defaults, or to the
+  // defaults. The count moves so a whole-form reader (dirtyFields) measures
+  // again, a field that held its new default already included. A field
+  // array takes its items from the defaults again, each a new item.
+  function reset(newValues) {
+    if (newValues !== undefined) defaultValues = newValues;
     batch(() => {
-      for (const [name, sig] of Object.entries(fieldSignals)) {
-        sig.set(newValues[name] ?? '');
+      ext?.r(defaultValues);
+      for (const key in fieldSignals) {
+        if (nameOf(key) != null) fieldSignals[key].set(defaultOf(key));
+        else {
+          delete fieldSignals[key];
+          delete known[key];
+        }
       }
-      for (const sig of Object.values(errorSignals)) {
-        sig.set(null);
-      }
-      errorsState.set({});
-      for (const sig of Object.values(touchedSignals)) {
-        sig.set(false);
-      }
+      for (const key in hidden) delete hidden[key];
+      counted();
+      replaceAllErrors({});
+      for (const key in touchedSignals) touchedSignals[key].set(false);
       isDirty.set(false);
       isSubmitted.set(false);
     });
@@ -458,7 +689,7 @@ function createFormController(options = {}) {
 
       isSubmitting.set(true);
       isSubmitted.set(true);
-      submitCount.set(submitCount.peek() + 1);
+      submitCount.set((n) => n + 1);
 
       // try/finally, because anything that throws between here and the release
       // leaves isSubmitting stuck true forever, which in practice means a submit
@@ -469,9 +700,9 @@ function createFormController(options = {}) {
         const isFormValid = await validate();
 
         if (isFormValid) {
-          await onValid(getAllValues());
+          await onValid(untrack(getAllValues));
         } else if (onInvalid) {
-          onInvalid(getAllErrors(false));
+          onInvalid(untrack(getAllErrors));
         }
       } finally {
         isSubmitting.set(false);
@@ -479,37 +710,50 @@ function createFormController(options = {}) {
     };
   }
 
-  // Watch a field — returns a computed that subscribes only to this field
+  // Watch a field — returns a computed that subscribes only to this field.
+  // The name is taken now: a field of a field array item stays that item's.
   function watch(name) {
     if (name) {
-      return computed(() => getFieldSignal(name)());
+      const key = keyOf(name);
+      return computed(() => readName(key));
     }
     // Watch all: return a computed that reads all field signals
-    return computed(() => getAllValues(true));
+    return computed(getAllValues);
   }
 
   return {
     register,
+    unregister,
     handleSubmit,
     setValue,
     getValue,
-    setError,
+    // Set error for a field
+    setError: (name, error) => setFieldError(keyOf(name), error),
     clearError,
     clearErrors,
     reset,
     watch,
     validate,
+    // What useFieldArray works with: `x(make)` installs the field array
+    // support make() builds over this form's state, once.
+    control: {
+      x: (make) => ext ||= ({ k: keyOf, p: nameOf, d: defaultAt } = make(arrays, forget, getAllValues, isDirty, errorSignals, errorsState)),
+    },
     // Form state
     formState: {
-      get values() { return getAllValues(true); },
-      get errors() { return getAllErrors(true); },
-      error: (name) => getErrorSignal(name)(),
+      get values() { return getAllValues(); },
+      get errors() { return getAllErrors(); },
+      error: (name) => getErrorSignal(keyOf(name))(),
+      // The fields touched, by name.
       get touched() {
-        const result = {};
-        for (const [name, sig] of Object.entries(touchedSignals)) {
-          if (sig()) result[name] = true;
+        fieldCount();
+        const out = {};
+        for (const key in touchedSignals) {
+          if (!touchedSignals[key]()) continue;
+          const name = nameOf(key);
+          if (name != null) out[name] = true;
         }
-        return result;
+        return out;
       },
       isDirty: () => isDirty(),
       isValid,
@@ -520,6 +764,241 @@ function createFormController(options = {}) {
       dirtyFields,
     },
   };
+}
+
+// --- useFieldArray Hook ---
+// The items of an array field, as React Hook Form's useFieldArray has them:
+// `fields()` lists them with an id each for the row's key, and append,
+// prepend, insert, remove, move, swap, update and replace change the list.
+// An item's values, errors and touched state are kept under the item, not
+// its index, so they move with it; a removed item's state goes with it, and
+// a validation of it still in flight never lands.
+
+let itemCount = 0;
+
+// Field array support for one form, installed by its first useFieldArray.
+// An item's segment is '\0' and its id: no name a person writes has it.
+function fieldArrays(arrays, forget, getAllValues, isDirty, errorSignals, errorsState) {
+  // Each item's values as it was added, by its segment.
+  /** @type {Record<string, any>} */
+  const bases = {};
+  const add = (value) => {
+    const segment = '\0' + (++itemCount).toString(36);
+    bases[segment] = value ?? {};
+    return segment;
+  };
+  // The key of a name, taking an array's items from `items` (an array's key
+  // to its items), the arrays' current items by default.
+  const key = (name, items) => {
+    if (!name.includes('.')) return name;
+    let out = '';
+    for (const segment of name.split('.')) {
+      const list = out && (items ? items[out] : arrays[out]?.());
+      out += (out ? '.' : '') + (list && isIndex(segment) && list[segment] !== undefined ? list[segment] : segment);
+    }
+    return out;
+  };
+  // Each array's items by their place, so a key's name is found without
+  // searching the items: made once for each list the array holds, from the
+  // list as a read of it finds it. Not a computed, which would belong to the
+  // component that first used the array and go with it, while the array
+  // lives as long as the form.
+  const placeMaps = new WeakMap();
+  const places = (k) => {
+    const list = arrays[k]?.();
+    if (list === undefined) return undefined;
+    let map = placeMaps.get(list);
+    if (map === undefined) placeMaps.set(list, map = new Map(list.map((segment, i) => [segment, i])));
+    return map;
+  };
+  // Each key's name, and the arrays on its path, found once until an
+  // array's items change (seed and change start a new map). A read of a
+  // kept name still reads those arrays, so it follows them as before.
+  /** @type {Map<string, any[]>} */
+  let names = new Map();
+  const nameAt = (k) => {
+    if (!k.includes('\0')) return k;
+    let hit = names.get(k);
+    if (hit !== undefined) {
+      for (let i = 1; i < hit.length; i++) arrays[hit[i]]?.();
+      return hit[0];
+    }
+    names.set(k, hit = [null]);
+    let at = '';
+    let out = '';
+    for (const segment of k.split('.')) {
+      let part = segment;
+      if (segment[0] === '\0') {
+        hit.push(at);
+        part = places(at)?.get(segment);
+        if (part === undefined) return null;
+      }
+      at += (at ? '.' : '') + segment;
+      out += (out ? '.' : '') + part;
+    }
+    return (hit[0] = out);
+  };
+  // Forget the items of array `k` with these segments, and the field arrays
+  // inside them, in one pass over the form's fields; their errors leave the
+  // form's errors in one write.
+  const drop = (k, segments) => {
+    if (!segments.length) return;
+    const removed = new Set(segments);
+    const gone = (key) => key.startsWith(k + '.') && removed.has(key.slice(k.length + 1).split('.', 1)[0]);
+    const errors = { ...errorsState.peek() };
+    let cleared = false;
+    for (const key in errorSignals) {
+      if (!gone(key)) continue;
+      errorSignals[key].set(null);
+      delete errorSignals[key];
+      if (Object.hasOwn(errors, key)) cleared = delete errors[key];
+    }
+    if (cleared) errorsState.set(errors);
+    forget(k + '.' + segments[0], { keepError: true }, gone);
+    for (const segment of segments) delete bases[segment];
+    for (const inner in arrays) {
+      if (!gone(inner)) continue;
+      for (const segment of arrays[inner].peek()) delete bases[segment];
+      delete arrays[inner];
+    }
+  };
+  const seed = (k, items) => {
+    names = new Map();
+    if (arrays[k]) return arrays[k].set(items.map(add));
+    arrays[k] = signal(items.map(add));
+  };
+  // The last item segment of a key, and where it is.
+  const lastItem = (segments) => {
+    let at = segments.length;
+    while (at-- > 0 && segments[at][0] !== '\0');
+    return at;
+  };
+  return {
+    k: key,
+    p: nameAt,
+    // A key's default: under an item, from the item's values.
+    d(defaults, k) {
+      const segments = k.split('.');
+      const at = lastItem(segments);
+      return segments.slice(at + 1).reduce(own, at < 0 ? defaults : bases[segments[at]]);
+    },
+    // Forget the default of a key under an item, in the item's values.
+    u(k) {
+      const segments = k.split('.');
+      const at = lastItem(segments);
+      if (at < 0) return false;
+      if (!(segments[at] in bases)) return true;
+      if (at === segments.length - 1) delete bases[segments[at]];
+      else bases[segments[at]] = unsetIn(bases[segments[at]], segments.slice(at + 1));
+      return true;
+    },
+    // Each array's items, outer arrays first, replace what the defaults hold.
+    v(result) {
+      for (const k of Object.keys(arrays).sort((a, b) => a.length - b.length)) {
+        const name = nameAt(k);
+        if (name != null) setIn(result, name, arrays[k]().map((segment) => clone(bases[segment])));
+      }
+    },
+    // Errors by name to errors by key, with the items in their places now;
+    // an error of an item removed by the time it lands goes.
+    s() {
+      const items = map();
+      for (const k in arrays) items[k] = arrays[k].peek();
+      return (errors) => {
+        const out = {};
+        for (const name in errors) {
+          const k = key(name, items);
+          if (nameAt(k) != null) out[k] = errors[name];
+        }
+        return out;
+      };
+    },
+    e(errors) {
+      const out = {};
+      for (const k in errors) {
+        const name = nameAt(k);
+        if (name != null) out[name] = errors[k];
+      }
+      return out;
+    },
+    // An array's items replaced by new ones with these values.
+    a(k, values) {
+      const old = arrays[k].peek();
+      batch(() => {
+        seed(k, values || []);
+        drop(k, old);
+      });
+    },
+    // A reset gives each array its items from the defaults, as new items;
+    // an array inside an item goes with the item.
+    r(defaults) {
+      for (const k in arrays) {
+        for (const segment of arrays[k].peek()) delete bases[segment];
+        if (!k.includes('\0')) seed(k, getIn(defaults, k) || []);
+        else delete arrays[k];
+      }
+    },
+    // One field array's controls.
+    array(name) {
+      const k = key(name);
+      if (!arrays[k]) seed(k, getIn(getAllValues(), name) || []);
+      const items = arrays[k];
+      // One object per item for as long as it is in the list: a keyed row
+      // that took its item as a value is built again for a new one.
+      let shown = {};
+      const change = (next, removed = []) => batch(() => {
+        names = new Map();
+        items.set(next);
+        drop(k, removed);
+        isDirty.set(true);
+      });
+      const many = (value) => (Array.isArray(value) ? value : [value]).map(add);
+      const insert = (index, value) => {
+        const next = [...items.peek()];
+        next.splice(index, 0, ...many(value));
+        change(next);
+      };
+      return {
+        fields: computed(() => {
+          const now = {};
+          const list = items().map((segment) => (now[segment] = shown[segment] || { ...bases[segment], id: segment.slice(1) }));
+          shown = now;
+          return list;
+        }),
+        append: (value) => insert(items.peek().length, value),
+        prepend: (value) => insert(0, value),
+        insert,
+        remove(index) {
+          const list = items.peek();
+          const gone = index === undefined ? list : [].concat(index).map((i) => list[i]);
+          change(list.filter((segment) => !gone.includes(segment)), gone);
+        },
+        move(from, to) {
+          const next = [...items.peek()];
+          next.splice(to, 0, next.splice(from, 1)[0]);
+          change(next);
+        },
+        swap(a, b) {
+          const next = [...items.peek()];
+          [next[a], next[b]] = [next[b], next[a]];
+          change(next);
+        },
+        // The item at `index` becomes a new one with these values, as React
+        // Hook Form's update remounts it.
+        update(index, value) {
+          const next = [...items.peek()];
+          const old = next[index];
+          next[index] = add(value);
+          change(next, [old]);
+        },
+        replace: (values) => change(many(values), items.peek()),
+      };
+    },
+  };
+}
+
+export function useFieldArray({ control, form, name }) {
+  return hookStable(() => untrack(() => (control || form.control).x(fieldArrays).array(name)));
 }
 
 // --- Validation Resolvers ---
@@ -572,7 +1051,7 @@ export function zodResolver(schema) {
       const errors = {};
       for (const issue of issues) {
         const path = _issuePath(issue);
-        if (!errors[path]) {
+        if (!own(errors, path)) {
           errors[path] = { type: issue.code ?? 'validation', message: issue.message };
         }
       }
@@ -610,7 +1089,7 @@ export function yupResolver(schema) {
       const inner = Array.isArray(e.inner) && e.inner.length > 0 ? e.inner : [e];
       for (const err of inner) {
         const path = err.path ?? '';
-        if (!errors[path]) {
+        if (!own(errors, path)) {
           errors[path] = { type: err.type ?? 'validation', message: err.message };
         }
       }
@@ -619,13 +1098,17 @@ export function yupResolver(schema) {
   };
 }
 
-// Simple validation resolver
+// Simple validation resolver. Given `{ names }` (a field's own validation),
+// it runs the rules of those fields only; every rule still reads all values.
+// A rule's field is a name, so `'address.city'` reads `values.address.city`.
 export function simpleResolver(rules) {
-  return async (values) => {
+  return async (values, _context, options) => {
     const errors = {};
+    const names = options?.names;
 
     for (const [field, fieldRules] of Object.entries(rules)) {
-      const value = values[field];
+      if (names && !names.includes(field)) continue;
+      const value = getIn(values, field);
 
       for (const rule of fieldRules) {
         const error = rule(value, values);
@@ -638,6 +1121,17 @@ export function simpleResolver(rules) {
 
     return { values, errors };
   };
+}
+
+// The number a value stands for, for min and max: a number as it is, and a
+// numeric string as the number it spells, because a registered
+// <input type="number"> gives the form its value as a string. A blank or
+// non-numeric string stands for none; required and pattern judge those.
+function numberOf(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const n = Number(value);
+  return Number.isNaN(n) ? undefined : n;
 }
 
 // Built-in validation rules
@@ -661,13 +1155,15 @@ export const rules = {
   },
 
   min: (min, message) => (value) => {
-    if (typeof value === 'number' && value < min) {
+    const n = numberOf(value);
+    if (n !== undefined && n < min) {
       return message || `Must be at least ${min}`;
     }
   },
 
   max: (max, message) => (value) => {
-    if (typeof value === 'number' && value > max) {
+    const n = numberOf(value);
+    if (n !== undefined && n > max) {
       return message || `Must be at most ${max}`;
     }
   },
@@ -696,7 +1192,7 @@ export const rules = {
   },
 
   match: (field, message) => (value, values) => {
-    if (value !== values[field]) {
+    if (value !== getIn(values, field)) {
       return message || `Must match ${field}`;
     }
   },
@@ -757,13 +1253,15 @@ export function useField(name, options = {}) {
 
 // --- Controlled Input Components ---
 
+// The registration is merged into the caller's props (_mergeRegistration), so
+// a handler of the caller's for an event the registration listens for runs
+// too: an `onChange` of <Select> with the registration's `onchange`.
 export function Input(props) {
   const { register, error, ...rest } = props;
   const registered = register ? register(props.name) : {};
 
   return h('input', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   });
 }
@@ -773,33 +1271,33 @@ export function Textarea(props) {
   const registered = register ? register(props.name) : {};
 
   return h('textarea', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   });
 }
 
-export function Select(props) {
+// Compiled options arrive unbuilt (`_deferChildren`, dom.js
+// _installLazyChildren) and are built inside the <select>: while hydrating,
+// options built while Select runs would claim the server's nodes before the
+// select does.
+export const Select = /* @__PURE__ */ Object.assign(function Select(props) {
   const { register, error, children, ...rest } = props;
   const registered = register ? register(props.name) : {};
 
   return h('select', {
-    ...rest,
-    ...registered,
+    ..._mergeRegistration(rest, registered),
     'aria-invalid': error ? 'true' : undefined,
   }, children);
-}
+}, { _deferChildren: true });
 
+// Registered as a checkbox, so the field holds its checkedness: `checked`
+// follows the field (_mergeRegistration) and no `value` attribute is written,
+// so the form submits "on". An unregistered Checkbox takes `checked` from its
+// props.
 export function Checkbox(props) {
   const { register, ...rest } = props;
-  const registered = register ? register(props.name) : {};
-
-  return h('input', {
-    type: 'checkbox',
-    ...rest,
-    ...registered,
-    checked: registered.value,
-  });
+  if (!register) return h('input', { type: 'checkbox', ...rest });
+  return h('input', { type: 'checkbox', ..._mergeRegistration(rest, register(props.name, { type: 'checkbox' })) });
 }
 
 export function Radio(props) {
@@ -811,13 +1309,7 @@ export function Radio(props) {
   // form state and then check every radio in the group that reads it back.
   // Render a plain unregistered input instead: inert, but honest.
   if (radioValue === undefined) {
-    if (__DEV__) {
-      console.warn(
-        `[what] <Radio name="${props.name}"> is missing a \`value\` prop. Radios in a group share ` +
-        "one field holding the selected option's value, so a valueless radio has nothing to " +
-        'contribute and cannot be checked. Rendering it unregistered.'
-      );
-    }
+    if (__DEV__) report('ERR_FORM_RADIO_WITHOUT_VALUE', { data: { name: props.name } });
     return h('input', { type: 'radio', ...rest });
   }
 
@@ -847,21 +1339,27 @@ export function Radio(props) {
 
 // --- Form Error Display ---
 
+// The component runs once, so what it renders is a reactive function: the
+// field's error is read inside it, and the message appears, changes and goes
+// away with the error.
 export function ErrorMessage({ name, formState, errors, render }) {
-  const error = formState && typeof formState.error === 'function'
-    ? formState.error(name)
-    : (
-      (
-        formState?.errors != null
-          ? formState.errors
-          : (typeof errors === 'function' ? errors() : errors)
-      )?.[name] || null
-    );
-  if (!error) return null;
+  return () => {
+    const fieldError = formState && typeof formState.error === 'function'
+      ? formState.error(name)
+      : (
+        own(
+          formState?.errors != null
+            ? formState.errors
+            : (typeof errors === 'function' ? errors() : errors),
+          name,
+        ) || null
+      );
+    if (!fieldError) return null;
 
-  if (render) {
-    return render({ message: error.message, type: error.type });
-  }
+    if (render) {
+      return render({ message: fieldError.message, type: fieldError.type });
+    }
 
-  return h('span', { class: 'what-error', role: 'alert' }, error.message);
+    return h('span', { class: 'what-error', role: 'alert' }, fieldError.message);
+  };
 }

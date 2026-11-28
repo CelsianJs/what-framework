@@ -65,6 +65,9 @@ describe('jsxPreserveConfig (pure helper)', () => {
 
 describe('config() hook output', () => {
   const env = { mode: 'development', command: 'serve' };
+  // What the dev server's transformer is told: JSX preserved, and .jsx left
+  // to this plugin (see the next describe).
+  const DEV = { jsx: 'preserve', exclude: /\.jsx?$/ };
 
   it('uses each consuming project version when Vite 7 and 8 share the same compiler', async () => {
     const fixture = mkdtempSync(path.join(tmpdir(), 'what-vite-versions-'));
@@ -78,7 +81,7 @@ describe('config() hook output', () => {
       for (const major of [7, 8, 7]) {
         const cfg = await plugin.config.call({ meta: {} }, { root: path.join(fixture, String(major)) }, env);
         const key = major === 7 ? 'esbuild' : 'oxc';
-        assert.deepEqual(cfg[key], { jsx: 'preserve' }, `must configure the Vite ${major} consumer`);
+        assert.deepEqual(cfg[key], DEV, `must configure the Vite ${major} consumer`);
         assert.equal(cfg[major === 7 ? 'oxc' : 'esbuild'], undefined);
       }
     } finally {
@@ -89,11 +92,22 @@ describe('config() hook output', () => {
   it('emits oxc (and NO esbuild key) when the plugin context reports rolldown', async () => {
     const plugin = whatVitePlugin();
     const cfg = await plugin.config.call({ meta: { rolldownVersion: '1.0.0' } }, {}, env);
-    assert.deepEqual(cfg.oxc, { jsx: 'preserve' });
+    assert.deepEqual(cfg.oxc, DEV);
     assert.equal(cfg.esbuild, undefined, 'esbuild key must be absent on rolldown — it is what triggers the deprecation');
     // The rest of the config must survive the shape change
     assert.ok(Array.isArray(cfg.optimizeDeps.exclude));
     assert.ok(cfg.optimizeDeps.exclude.includes('what-framework'));
+  });
+
+  it('keeps JSX in the dependency scan on rolldown, so the scan never looks for react/jsx-dev-runtime', async () => {
+    // Vite 8's dependency scan transforms .jsx with optimizeDeps.rolldownOptions.transform,
+    // whose default is React's automatic runtime: a first `vite` run printed
+    // "(!) Failed to run dependency scan ... react/jsx-dev-runtime ... Are they installed?".
+    const plugin = whatVitePlugin();
+    const cfg = await plugin.config.call({ meta: { rolldownVersion: '1.0.0' } }, {}, env);
+    assert.deepEqual(cfg.optimizeDeps.rolldownOptions, { transform: { jsx: 'preserve' } });
+    const classic = jsxPreserveConfig({ viteVersion: '7.3.5' });
+    assert.equal(classic.optimizeDeps, undefined, 'Vite 7 has no rolldownOptions');
   });
 
   it('emits esbuild (and NO oxc key) under classic Vite (installed vite is ≤7)', async () => {
@@ -103,13 +117,13 @@ describe('config() hook output', () => {
       // helper tests above; here the hook must emit oxc instead.
       const plugin = whatVitePlugin();
       const cfg = await plugin.config.call({ meta: {} }, {}, env);
-      assert.deepEqual(cfg.oxc, { jsx: 'preserve' });
+      assert.deepEqual(cfg.oxc, DEV);
       assert.equal(cfg.esbuild, undefined);
       return;
     }
     const plugin = whatVitePlugin();
     const cfg = await plugin.config.call({ meta: {} }, {}, env);
-    assert.deepEqual(cfg.esbuild, { jsx: 'preserve' });
+    assert.deepEqual(cfg.esbuild, DEV);
     assert.equal(cfg.oxc, undefined, 'oxc key must be absent on Vite ≤7 — unknown root options warn');
     assert.ok(cfg.optimizeDeps.exclude.includes('what-core'));
   });
@@ -118,5 +132,26 @@ describe('config() hook output', () => {
     const plugin = whatVitePlugin();
     const cfg = await plugin.config.call({ meta: {} }, {}, { mode: 'production', command: 'build' });
     assert.deepEqual(cfg.resolve, { conditions: ['production'] });
+  });
+});
+
+describe('config() hook: what the dev server\'s transformer skips', () => {
+  const rolldown = { meta: { rolldownVersion: '1.0.0' } };
+
+  it('skips .jsx in development, which this plugin serves with its lines where the source has them', async () => {
+    const cfg = await whatVitePlugin().config.call(rolldown, {}, { mode: 'development', command: 'serve' });
+    assert.deepEqual(cfg.oxc, { jsx: 'preserve', exclude: /\.jsx?$/ });
+  });
+
+  it('leaves a build, a production dev server and an app\'s own exclude as they are', async () => {
+    for (const [plugin, config, env] of [
+      [whatVitePlugin(), {}, { mode: 'production', command: 'build' }],
+      [whatVitePlugin(), {}, { mode: 'development', command: 'build' }],
+      [whatVitePlugin({ production: true }), {}, { mode: 'development', command: 'serve' }],
+      [whatVitePlugin(), { oxc: { exclude: /\.mdx$/ } }, { mode: 'development', command: 'serve' }],
+    ]) {
+      const cfg = await plugin.config.call(rolldown, config, env);
+      assert.deepEqual(cfg.oxc, { jsx: 'preserve' }, JSON.stringify(env));
+    }
   });
 });

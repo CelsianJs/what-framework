@@ -2,7 +2,7 @@
 
 Get a WhatFW app running in under 2 minutes. This guide covers both human developers and AI agents.
 
-> **Want to skip setup?** [Try What Framework in the online playground →](https://playground-lilac-five.vercel.app)
+> **Want to skip setup?** [Try What Framework in the online playground →](https://playground.whatfw.com)
 
 ## 1. Scaffold and Run
 
@@ -36,9 +36,11 @@ If you are an AI agent (Claude Code, Cursor, etc.), add the MCP servers for docu
 }
 ```
 
-This gives you 29 live debugging tools for inspecting signals, effects, components, DOM, and more.
+This gives you 25 tools for inspecting signals, effects, components, DOM, and more.
 
-And add the Vite plugin to your app:
+A scaffolded app already connects to it: its `vite.config.js` has the
+what-devtools-mcp Vite plugin. In an app you set up by hand, install
+`what-devtools` and `what-devtools-mcp` as dev dependencies and add the plugin:
 
 ```js
 // vite.config.js
@@ -109,12 +111,12 @@ Or:
 </ul>
 ```
 
-`<For>` is also available for keyed list rendering with LIS-based reconciliation.
+`<For each={items}>` (the accessor, not `items()`) is also available for keyed list rendering with LIS-based reconciliation.
 
 ## 5. Forms
 
 ```jsx
-import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework';
+import { useForm, ErrorMessage, rules, simpleResolver } from 'what-framework/form';
 
 function Login() {
   const { register, handleSubmit, formState } = useForm({
@@ -131,7 +133,7 @@ function Login() {
       <ErrorMessage name="email" formState={formState} />
 
       <input {...register('password')} type="password" />
-      {formState.errors.password && (
+      {() => formState.errors.password && (
         <span>{formState.errors.password.message}</span>
       )}
 
@@ -141,7 +143,7 @@ function Login() {
 }
 ```
 
-`formState.errors` is a getter object. Do not call `formState.errors()`.
+`formState.errors` is a getter object. Do not call `formState.errors()`. Read it inside a function child (`{() => …}`) so the message appears and clears as the field is validated.
 
 ## 6. Styling
 
@@ -152,8 +154,13 @@ Default to CSS-first:
 - `style={{ ... }}` for dynamic runtime values only
 
 ```jsx
-<button className="btn btn-primary">Save</button>
-<div style={{ opacity: loading() ? 0.5 : 1 }} />
+function SaveButton({ loading }) {
+  return (
+    <div style={{ opacity: loading() ? 0.5 : 1 }}>
+      <button className="btn btn-primary">Save</button>
+    </div>
+  );
+}
 ```
 
 Avoid per-element JS hover mutation handlers.
@@ -163,7 +170,8 @@ Avoid per-element JS hover mutation handlers.
 Use `FocusTrap` for dialogs and `useFocusRestore` in parent logic:
 
 ```jsx
-import { useSignal, useFocusRestore, FocusTrap } from 'what-framework';
+import { useSignal } from 'what-framework';
+import { useFocusRestore, FocusTrap } from 'what-framework/a11y';
 
 function DialogExample() {
   const open = useSignal(false);
@@ -199,17 +207,23 @@ function DialogExample() {
 Both props are supported:
 
 ```jsx
-<div innerHTML={{ __html: '<strong>Hello</strong>' }} />
-<div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
+function RawHtml() {
+  return (
+    <>
+      <div innerHTML={{ __html: '<strong>Hello</strong>' }} />
+      <div dangerouslySetInnerHTML={{ __html: '<strong>Hello</strong>' }} />
+    </>
+  );
+}
 ```
 
 If either prop is set, it owns that element's children.
 
 ## 9. Decision Matrix
 
-- `useComputed(fn)`: derived from signals in a component.
+- `useComputed(fn)`: derived from signals in a component; returns an accessor.
+- `useMemo(fn)`: the same under React's name; returns an accessor and ignores a dependency array.
 - `derived(fn)`: derived fields inside `createStore(...)`.
-- `useMemo(fn, deps)`: dependency-array memo for non-signal values.
 
 ## 10. TypeScript
 
@@ -224,20 +238,22 @@ function Counter() {
 }
 ```
 
-Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`.
+Key tsconfig settings: `"jsx": "preserve"` (compiler handles JSX), `"jsxImportSource": "what-framework"`. `npm run typecheck` runs `tsc --noEmit`, and `npm run lint` checks `.ts` and `.tsx` files too: the scaffold's `eslint.config.js` parses them with typescript-eslint ([TYPESCRIPT.md, ESLint](./TYPESCRIPT.md#eslint)). Renaming `src/main.jsx`? Change the `<script src>` in `index.html` to `/src/main.tsx` with it.
 
 See [TYPESCRIPT.md](./TYPESCRIPT.md) for the full guide.
 
 ## 11. Tooling
 
-- **ESLint**: `npm i -D eslint-plugin-what` -- catches signal bugs, enforces patterns
-- **VS Code**: Install `eslint-plugin-what` for editor integration
+A scaffolded app has all of these installed and configured. In an app you set up by hand:
+
+- **ESLint**: `npm i -D eslint eslint-plugin-what` -- catches signal bugs, enforces patterns (`npm run lint` in a scaffold)
+- **Editor**: VS Code's ESLint extension shows eslint-plugin-what's warnings as you type
 - **DevTools**: `npm i -D what-devtools` -- signal inspector panel for development
 - **MCP DevTools**: `npx what-devtools-mcp` -- AI agent debugging bridge
 
 ## 12. Next Docs
 
-- `/.internal/Agents.md` -- Complete agent coding guide
+- `/CLAUDE.md` -- Agent coding guide
 - `/docs/API.md` -- Full API reference
 - `/docs/GOTCHAS.md` -- Common mistakes
 - `/docs/MCP-DEVTOOLS.md` -- MCP tools reference

@@ -1,0 +1,697 @@
+// List detection shared by both back ends: which `.map()` calls return JSX,
+// whether they carry a usable key, and the scope analysis the key function and
+// the auto-selector both need.
+
+import { t } from './types.js';
+import { controlFlowTag, getAttrName, getAttributeValue, helper, uniqueName } from './common.js';
+import { isPotentiallyReactive, isSignalIdentifier } from './reactivity.js';
+
+// Names bound by a parameter pattern. Destructuring counts, so
+// `({ id }, i) => <li key={id}>` binds `id` and a key of `id` resolves fine.
+export function collectPatternNames(node, out) {
+  if (!node || typeof node !== 'object') return out;
+  switch (node.type) {
+    case 'Identifier': out.add(node.name); break;
+    case 'AssignmentPattern': collectPatternNames(node.left, out); break;
+    case 'RestElement': collectPatternNames(node.argument, out); break;
+    case 'ArrayPattern':
+      for (const el of node.elements) collectPatternNames(el, out);
+      break;
+    case 'ObjectPattern':
+      for (const p of node.properties) {
+        collectPatternNames(p.type === 'RestElement' ? p.argument : p.value, out);
+      }
+      break;
+    default: break;
+  }
+  return out;
+}
+
+// The key function is extracted OUT of the map callback and rebuilt as
+// `(item) => keyExpr`, taking only the first parameter. So any name the key
+// expression gets from somewhere else inside the callback becomes a free
+// variable in the emitted code. This collects exactly those names: the
+// parameters after the first, and everything declared in the callback body
+// that is in scope at the return.
+//
+// Nested function bodies are deliberately not descended into. Their bindings
+// cannot reach the return expression, so counting them would reject keys that
+// are perfectly fine. A nested function's own name is hoisted, so that one
+// is collected.
+export function namesInvisibleToKeyFn(mapFn) {
+  const out = new Set();
+  for (let i = 1; i < mapFn.params.length; i++) collectPatternNames(mapFn.params[i], out);
+
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    switch (node.type) {
+      case 'VariableDeclaration':
+        for (const d of node.declarations) collectPatternNames(d.id, out);
+        return;
+      case 'FunctionDeclaration':
+      case 'ClassDeclaration':
+        if (node.id) out.add(node.id.name);
+        return; // body is its own scope
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+      case 'ClassExpression':
+        return; // own scope
+      case 'CatchClause':
+        collectPatternNames(node.param, out);
+        visit(node.body);
+        return;
+      case 'ForStatement':
+      case 'ForInStatement':
+      case 'ForOfStatement':
+        visit(node.init); visit(node.left); visit(node.body);
+        return;
+      default: break;
+    }
+    for (const k of Object.keys(node)) {
+      if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+          k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+      const v = node[k];
+      if (v && typeof v === 'object') visit(v);
+    }
+  };
+
+  if (t.isBlockStatement(mapFn.body)) visit(mapFn.body.body);
+
+  // The first parameter IS passed to the key function, so anything it binds
+  // stays visible even if a nested scope happens to reuse the name.
+  for (const name of collectPatternNames(mapFn.params[0], new Set())) out.delete(name);
+  return out;
+}
+
+// Does `node` reference any of `names` as a value? Property positions are
+// skipped so `item.i` does not look like a use of `i`, but the check is
+// otherwise deliberately generous: a false positive costs keyed
+// reconciliation, a false negative ships a ReferenceError.
+function referencesAny(node, names) {
+  if (names.size === 0) return null;
+  let found = null;
+  const visit = (n) => {
+    if (found || !n || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (n.type === 'Identifier') {
+      if (names.has(n.name)) found = n.name;
+      return;
+    }
+    for (const k of Object.keys(n)) {
+      if (k === 'loc' || k === 'start' || k === 'end' || k === 'type' ||
+          k === 'leadingComments' || k === 'trailingComments' || k === 'innerComments') continue;
+      if (n.type === 'MemberExpression' && k === 'property' && !n.computed) continue;
+      if ((n.type === 'ObjectProperty' || n.type === 'ObjectMethod') && k === 'key' && !n.computed) continue;
+      const v = n[k];
+      if (v && typeof v === 'object') visit(v);
+    }
+  };
+  visit(node);
+  return found;
+}
+
+// `source.map((item) => <Row key={...} />)`, or `source?.map(...)` (a nullish
+// source is an empty list): the callback, the JSX it returns and its key.
+// Returns null for anything else. With `requireKey` (the DOM back
+// end, which lowers only keyed lists) a missing or unusable key returns null
+// with a development warning; without it (the server back end, which renders
+// every JSX-returning callback the same way) the key is optional and nothing is
+// reported, because the client build of the same file already warned.
+export function findMappedJsx(mapCall, state, requireKey) {
+  // Check: something.map(fn) or something?.map(fn)
+  if (!t.isCallExpression(mapCall) && !(t.isOptionalCallExpression(mapCall) && !mapCall.optional)) return null;
+  const callee = mapCall.callee;
+  if (!t.isMemberExpression(callee) && !t.isOptionalMemberExpression(callee)) return null;
+  if (callee.computed || !t.isIdentifier(callee.property, { name: 'map' })) return null;
+  if (mapCall.arguments.length < 1) return null;
+
+  const mapFn = mapCall.arguments[0];
+  if (!t.isArrowFunctionExpression(mapFn) && !t.isFunctionExpression(mapFn)) return null;
+  nameRowParam(mapFn, state);
+
+  // Get the map callback's return expression
+  /** @type {any} */
+  let returnExpr = null;
+  if (t.isArrowFunctionExpression(mapFn)) {
+    if (t.isExpression(mapFn.body)) {
+      returnExpr = mapFn.body;
+    } else if (t.isBlockStatement(mapFn.body)) {
+      const ret = mapFn.body.body.find(s => t.isReturnStatement(s));
+      if (ret) returnExpr = ret.argument;
+    }
+  } else if (t.isFunctionExpression(mapFn)) {
+    const ret = mapFn.body.body.find(s => t.isReturnStatement(s));
+    if (ret) returnExpr = ret.argument;
+  }
+
+  if (!returnExpr) return null;
+
+  // Check if the return is JSX with a `key` prop
+  if (!t.isJSXElement(returnExpr)) return null;
+  const attrs = returnExpr.openingElement.attributes;
+  /** @type {any} */
+  let keyAttr = null;
+  for (const attr of attrs) {
+    if (t.isJSXAttribute(attr) && getAttrName(attr) === 'key') {
+      keyAttr = attr;
+      break;
+    }
+  }
+  if (!requireKey) return { mapFn, returnExpr, keyAttr, keyValue: keyAttr ? getAttributeValue(keyAttr.value) : null };
+  if (!keyAttr) {
+    // JSX returned without a key — bail out, but warn at compile time so
+    // users notice they're missing keyed reconciliation. Only warn in dev
+    // (production builds are noiseless).
+    //
+    // The message names ERR_MISSING_KEY because that is the code the docs and
+    // the MCP `what_fix` tool already publish for this exact mistake. Without
+    // the code in the text there was nothing anywhere in the toolchain that
+    // ever emitted it, so an agent reading the warning had no way to reach
+    // the diagnosis and the worked example filed under that name. This is a
+    // BUILD-time report, not a runtime one: whether a list has keys is
+    // settled by the source, and the compiler is the only place that sees it.
+    if (process.env.NODE_ENV !== 'production') {
+      const loc = returnExpr.loc;
+      const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+      const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+      console.warn(
+        `[what-compiler] ERR_MISSING_KEY: .map() returning JSX without a \`key\` prop at ${fileName}${lineInfo}. ` +
+        `Without a key, the list cannot use keyed reconciliation — items are re-created on every update. ` +
+        `Add key={...} to enable efficient updates. ` +
+        `Run what_fix({ error: 'ERR_MISSING_KEY' }) for the worked example.`
+      );
+    }
+    return null;
+  }
+
+  // Extract the key expression
+  const keyValue = getAttributeValue(keyAttr.value);
+  if (!keyValue) return null;
+
+  // The key function is rebuilt as `(item, index) => keyExpr` and hoisted out
+  // of the callback, so it sees the first two parameters only. A key built
+  // from a variable declared in the callback body compiled to a key function
+  // with that name free: the list rendered correctly the first time, then the
+  // reconciler threw `ReferenceError` inside its effect, which was swallowed
+  // to a single console.error, and the list stayed frozen on its first render.
+  // Such a key falls back to the unkeyed path, with a warning.
+  //
+  // A key that reads the index (`key={i}`, `key={`${t.term}-${i}`}`) is keyed
+  // by item and position, as React keys it: the key function is handed the
+  // index (keyIndex), so a row stays while its key does (an item replaced at
+  // its position, a refetch) and an item that moves is a new row.
+  const invisible = keyInvisibleNames(mapFn);
+  const unreachable = referencesAny(keyValue, invisible);
+  if (unreachable) {
+    if (process.env.NODE_ENV !== 'production') {
+      const loc = returnExpr.loc;
+      const fileName = state.filename || state.file?.opts?.filename || '<unknown>';
+      const lineInfo = loc ? `:${loc.start.line}:${loc.start.column}` : '';
+      console.warn(
+        `[what-compiler] key={...} at ${fileName}${lineInfo} reads \`${unreachable}\`, which is not available ` +
+        `to the key function (it receives the item and its index). \`${unreachable}\` is declared inside the map callback. ` +
+        `Falling back to an unkeyed list, built again on every update. Key by something on the item (key={item.id}) ` +
+        `or its index to get keyed reconciliation.`
+      );
+    }
+    return null;
+  }
+  return { mapFn, returnExpr, keyAttr, keyValue };
+}
+
+// A keyed `.map()` row reads its item through the runtime's item cell, so that
+// a row whose key persists while its item is replaced by another object (an
+// immutable update, a refetch) shows the new item and keeps its DOM: the
+// callback `(item, i) => …` becomes `(cell, i, item) => …`, every read of
+// `item` but the key expression becomes `read(cell)` (`read` is the runtime's
+// _$item), which the row's bindings track, and the key expression keeps
+// reading the item the row was built from, as a row's key cannot change while
+// it lives. Returns false and changes nothing when the row reads the item only
+// for its key (the row then gets the raw item), when the first parameter is
+// not a plain name, or when that name is assigned or bound again inside the
+// callback (rowItemUnread: the DOM target then builds the row again for a
+// replaced item).
+export function readItemThroughAccessor(mapFn, keyValue, read, cellName, indexName) {
+  const reads = rowItemReads(mapFn, keyValue);
+  if (reads === null || reads.length === 0) return false;
+  const itemName = mapFn.params[0].name;
+  for (const [holder, slot, field] of reads) {
+    const callee = read();
+    callee._whatRowItem = true;
+    // `row.name` reads the field `name`: a read while the row is built records
+    // that field, not the whole item (what-core _readRowItem), so a replaced
+    // item whose `name` is the same keeps the row.
+    const args = field !== undefined ? [t.identifier(cellName), t.stringLiteral(field)] : [t.identifier(cellName)];
+    const call = t.callExpression(callee, args);
+    // The item the row was built from, for the bindings of its plain fields.
+    call._whatRowItemName = itemName;
+    holder[slot] = call;
+  }
+  mapFn.params = [t.identifier(cellName), mapFn.params[1] || t.identifier(indexName), mapFn.params[0]];
+  return true;
+}
+
+// A plain field of a keyed row's item, read where the row renders text:
+// `row.label`, `row.a.b`, `row?.label`, `row['x']` or the item itself, and
+// nothing else (no call, no computed key that is not a literal). Returns the
+// read of the item at its root (the DOM target's `_$item(cell)` call, the
+// server target's marked name; see readItemThroughAccessor and
+// markRowItemReads), or null. Such a field is a text binding the row's item
+// cell writes (what-core render.js _$field), and the server writes it as plain
+// text, with no markers.
+export function rowField(expr) {
+  let node = expr;
+  while (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    if (node.computed && !t.isStringLiteral(node.property) && !t.isNumericLiteral(node.property)) return null;
+    node = node.object;
+  }
+  if (t.isCallExpression(node) && node.callee._whatRowItem === true) return node;
+  if (t.isIdentifier(node) && node._whatRowItem === true) return node;
+  return null;
+}
+
+// `expr` with its item read (`root`, from rowField) replaced by `replacement`.
+export function withItem(expr, root, replacement) {
+  if (expr === root) return replacement;
+  const copy = t.cloneNode(expr, false);
+  copy.object = withItem(expr.object, root, replacement);
+  return copy;
+}
+
+// The server target's half: the holes that read a keyed row's item are the
+// reactive children the DOM target makes them, so the server brackets them
+// with the markers the client's bindings claim. Marks each read (_whatRowItem).
+export function markRowItemReads(mapFn, keyValue) {
+  const reads = rowItemReads(mapFn, keyValue);
+  if (reads !== null) for (const [holder, slot] of reads) holder[slot]._whatRowItem = true;
+}
+
+// Whether a keyed row reads its item in a way the reads cannot be found in
+// (rowItemReads gives up): a parameter still destructured, or a name the
+// callback binds again, assigns or uses as a JSX tag. Such a row cannot read
+// its item through the cell, and a raw item would leave it showing the item it
+// was built from after the item is replaced under its key.
+export function rowItemUnread(mapFn, keyValue) {
+  return mapFn.params.length > 0 && rowItemReads(mapFn, keyValue) === null;
+}
+
+// --- A destructured row ---
+// `items().map(({ id, label }) => <li key={id}>{label}</li>)` destructured its
+// item where the row was built, so a row kept under its key (an item replaced
+// by another object, an immutable update) showed the first item's fields
+// forever; React renders the new item. The pattern becomes a parameter that
+// is read where each name is used (`label` is `item.label`, a default
+// `item.label === undefined ? 'x' : item.label`, a rest element a copy of the
+// item without the names, what-core render.js _$omit), so the row reads its
+// item like any other row does (readItemThroughAccessor). Both back ends make
+// the change before they lower the row, so the server's markers are the
+// client's. A pattern this cannot read the same way (an array pattern, a
+// computed key, a default that is not a literal, a nested rest) or whose names
+// the callback binds again or assigns keeps its destructuring.
+function nameRowParam(mapFn, state) {
+  const pattern = mapFn.params[0];
+  if (!t.isObjectPattern(pattern)) return;
+  /** @type {Map<string, (item: any) => any>} */
+  const reads = new Map();
+  const excluded = [];
+  /** @type {any} */
+  let rest = null;
+  const leaf = (value, path) => {
+    /** @type {any} */
+    let fallback = null;
+    if (t.isAssignmentPattern(value)) {
+      fallback = value.right;
+      value = value.left;
+      if (!(t.isStringLiteral(fallback) || t.isNumericLiteral(fallback) || t.isBooleanLiteral(fallback) || t.isNullLiteral(fallback)
+        || (t.isTemplateLiteral(fallback) && fallback.expressions.length === 0))) return false;
+    }
+    if (t.isObjectPattern(value)) return fallback === null && fields(value, path, false);
+    if (!t.isIdentifier(value) || reads.has(value.name)) return false;
+    const at = (item) => path.reduce((obj, key) => t.memberExpression(obj, t.isValidIdentifier(key) ? t.identifier(key) : t.stringLiteral(key), !t.isValidIdentifier(key)), item);
+    reads.set(value.name, fallback === null ? at
+      : (item) => t.conditionalExpression(t.binaryExpression('===', at(item), t.unaryExpression('void', t.numericLiteral(0))), t.cloneNode(fallback), at(item)));
+    return true;
+  };
+  const fields = (node, path, top) => {
+    for (const prop of node.properties) {
+      if (t.isRestElement(prop)) {
+        if (!top || !t.isIdentifier(prop.argument)) return false;
+        rest = prop.argument;
+        continue;
+      }
+      const key = t.isIdentifier(prop.key) && !prop.computed ? prop.key.name : t.isStringLiteral(prop.key) ? prop.key.value : null;
+      if (key === null) return false;
+      if (top) excluded.push(key);
+      if (!leaf(prop.value, [...path, key])) return false;
+    }
+    return true;
+  };
+  if (!fields(pattern, [], true)) return;
+  const names = new Set(reads.keys());
+  if (rest !== null) names.add(rest.name);
+  const refs = namedReads(mapFn, names);
+  if (refs === null) return;
+  const item = uniqueName(state, '_row$');
+  for (const [holder, slot, name] of refs) {
+    const read = reads.get(name);
+    if (read !== undefined) holder[slot] = read(t.identifier(item));
+  }
+  mapFn.params[0] = t.identifier(item);
+  // The rest element, once, where the row is built: a copy of its item
+  // without the names (the row is built again for another item).
+  if (rest !== null) {
+    const omit = state.ssr ? state.file.addHelper('objectWithoutProperties') : helper(state, '_$omit');
+    const decl = t.variableDeclaration('const', [t.variableDeclarator(t.identifier(rest.name),
+      t.callExpression(omit, [t.identifier(item), t.arrayExpression(excluded.map((k) => t.stringLiteral(k)))]))]);
+    if (!t.isBlockStatement(mapFn.body)) mapFn.body = t.blockStatement([t.returnStatement(mapFn.body)]);
+    mapFn.body.body.unshift(decl);
+  }
+}
+
+// The reads of `names` in a row callback, as [holder, slot, name], or null
+// when the callback binds one of them again, assigns one, or uses one as a
+// JSX tag.
+function namedReads(mapFn, names) {
+  const reads = [];
+  let unsafe = false;
+  const binds = (p) => [...collectPatternNames(p, new Set())].some((n) => names.has(n));
+  const visit = (node, holder, slot) => {
+    if (unsafe || !node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) visit(node[i], node, i);
+      return;
+    }
+    if (typeof node.type !== 'string') return;
+    switch (node.type) {
+      case 'Identifier':
+        if (names.has(node.name)) reads.push([holder, slot, node.name]);
+        return;
+      case 'JSXIdentifier':
+        if (names.has(node.name)) unsafe = true;
+        return;
+      case 'JSXAttribute':
+        visit(node.value, node, 'value');
+        return;
+      case 'MemberExpression':
+      case 'OptionalMemberExpression':
+        visit(node.object, node, 'object');
+        if (node.computed) visit(node.property, node, 'property');
+        return;
+      case 'ObjectProperty':
+        if (node.computed) visit(node.key, node, 'key');
+        if (node.shorthand && t.isIdentifier(node.value) && names.has(node.value.name)) {
+          node.shorthand = false;
+          node.value = t.cloneNode(node.value);
+        }
+        visit(node.value, node, 'value');
+        return;
+      case 'ObjectMethod':
+      case 'ClassMethod':
+      case 'ClassPrivateMethod':
+        if (node.params.some(binds)) { unsafe = true; return; }
+        if (node.computed) visit(node.key, node, 'key');
+        visit(node.body, node, 'body');
+        return;
+      case 'ClassProperty':
+      case 'ClassPrivateProperty':
+        if (node.computed) visit(node.key, node, 'key');
+        visit(node.value, node, 'value');
+        return;
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+      case 'FunctionDeclaration':
+        if ((node.id && names.has(node.id.name)) || node.params.some(binds)) { unsafe = true; return; }
+        visit(node.params, node, 'params');
+        visit(node.body, node, 'body');
+        return;
+      case 'ClassDeclaration':
+      case 'ClassExpression':
+        if (node.id && names.has(node.id.name)) { unsafe = true; return; }
+        visit(node.superClass, node, 'superClass');
+        visit(node.body, node, 'body');
+        return;
+      case 'VariableDeclarator':
+        if (binds(node.id)) { unsafe = true; return; }
+        visit(node.init, node, 'init');
+        return;
+      case 'CatchClause':
+        if (node.param && binds(node.param)) { unsafe = true; return; }
+        visit(node.body, node, 'body');
+        return;
+      case 'AssignmentExpression':
+        if (binds(node.left)) { unsafe = true; return; }
+        break;
+      case 'UpdateExpression':
+        if (t.isIdentifier(node.argument) && names.has(node.argument.name)) { unsafe = true; return; }
+        break;
+      case 'LabeledStatement':
+        visit(node.body, node, 'body');
+        return;
+      case 'BreakStatement':
+      case 'ContinueStatement':
+      case 'MetaProperty':
+        return;
+      default:
+        if (node.type.startsWith('TS') && node.type !== 'TSAsExpression' && node.type !== 'TSSatisfiesExpression' && node.type !== 'TSNonNullExpression') return;
+        break;
+    }
+    for (const field of Object.keys(node)) {
+      if (field === 'loc' || field === 'start' || field === 'end' || field === 'type' || field === 'extra'
+          || field === 'typeAnnotation' || field === 'returnType' || field === 'typeParameters'
+          || field === 'leadingComments' || field === 'trailingComments' || field === 'innerComments') continue;
+      const value = node[field];
+      if (value && typeof value === 'object') visit(value, node, field);
+    }
+  };
+  for (let i = 1; i < mapFn.params.length; i++) if (binds(mapFn.params[i])) return null;
+  visit(mapFn.body, mapFn, 'body');
+  return unsafe ? null : reads;
+}
+
+// The number of the keyed list (a `.map()` call, a <For>) or the component
+// written at `node`: where it starts in the source, the same for both
+// targets, so the server's and the client's have one place in their
+// component's output however many others are empty (what-core
+// hydration-data.js _enterRow, _assignOwnerPath). Null for a node no source
+// holds.
+export function listSlot(node) {
+  return typeof node.start === 'number' ? t.numericLiteral(node.start) : null;
+}
+
+// --- A key outside a list ---
+// A `key` on a component that is no list's row (`<Form key={user().id} />`)
+// is React's way to start it again: a new instance whenever the key's value
+// changes, the same key keeping the one it has. An element with one is built
+// again the same way (`<input key={id()} />`: a new input, its typing gone).
+
+// Before any JSX is lowered, on both targets: marks the key of a list's row
+// (the JSX a `.map()` or `.flatMap()` callback returns, an arm of it, or what
+// a <For>'s function returns), which the list reads, so that neither back
+// end takes it for one outside a list (liveKey).
+export function markRowKey(elPath, state) {
+  const key = elPath.node.openingElement.attributes.find((attr) => t.isJSXAttribute(attr) && getAttrName(attr) === 'key');
+  if (key === undefined) return;
+  let p = elPath;
+  for (;;) {
+    const parent = p.parentPath;
+    if (parent === null) return;
+    if ((parent.isConditionalExpression() && p.key !== 'test') || (parent.isLogicalExpression() && p.key === 'right')
+      || parent.isParenthesizedExpression() || parent.isTSAsExpression() || parent.isTSNonNullExpression()) {
+      p = parent;
+      continue;
+    }
+    const fn = parent.isArrowFunctionExpression() && p.key === 'body' ? parent : parent.isReturnStatement() ? parent.getFunctionParent() : null;
+    if (fn === null) return;
+    const holder = fn.parentPath;
+    const callee = holder.node.callee;
+    const mapped = (holder.isCallExpression() || holder.isOptionalCallExpression()) && fn.listKey === 'arguments'
+      && (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) && !callee.computed
+      && t.isIdentifier(callee.property) && (callee.property.name === 'map' || callee.property.name === 'flatMap');
+    if (mapped || (holder.isJSXExpressionContainer() && controlFlowTag(holder.parent, state) === 'For')) key._whatRowKey = true;
+    return;
+  }
+}
+
+// The value of the key of a component or an element outside a list row when
+// it can change: it reads a signal, a prop or a row's item. Both back ends
+// build the JSX in a reactive child that runs again when the value changes (the DOM
+// target's render.js _$keyed, the server's function child, which the
+// hydratable renderers bracket and hydration adopts), so the two decide it
+// alike. Null for no key, a row's, or one that cannot change, which costs
+// nothing. A name holding a signal is read (`key={id}` is `id()`), as an
+// attribute reads one (dom.js).
+export function liveKey(node, state) {
+  for (const attr of node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attr) || attr._whatRowKey === true || getAttrName(attr) !== 'key') continue;
+    const value = getAttributeValue(attr.value);
+    if (value == null || !(readsRowItem(value) || isPotentiallyReactive(value, state.signalNames, state.importedIdentifiers))) return null;
+    const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
+    return t.isIdentifier(value) && !(fromProps && fromProps.has(value.name)) && isSignalIdentifier(value.name, state.signalNames)
+      ? t.callExpression(value, [])
+      : value;
+  }
+  return null;
+}
+
+// Whether `node` reads a keyed row's item: the server target's marked name
+// (markRowItemReads), outside any function in it.
+export function readsRowItem(node) {
+  if (!node || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some(readsRowItem);
+  if (node._whatRowItem === true) return true;
+  if (t.isFunction(node)) return false;
+  for (const field of t.VISITOR_KEYS[node.type] || []) {
+    if (readsRowItem(node[field])) return true;
+  }
+  return false;
+}
+
+// Whether `found` (findMappedJsx) is a row the DOM target lowers to a keyed
+// list: it has a key, and the key reads only the item.
+export function isKeyedRow(found) {
+  return !!found.keyValue && !referencesAny(found.keyValue, keyInvisibleNames(found.mapFn));
+}
+
+// The names a key function `(item, index) => key` cannot see: those the
+// callback declares, but its index when that is a plain name.
+function keyInvisibleNames(mapFn) {
+  const names = namesInvisibleToKeyFn(mapFn);
+  if (t.isIdentifier(mapFn.params[1])) names.delete(mapFn.params[1].name);
+  return names;
+}
+
+/** The index name a keyed row's key reads (`key={`${t.term}-${i}`}`), else null. */
+export function keyIndex(found) {
+  const index = found.mapFn.params[1];
+  return t.isIdentifier(index) && referencesAny(found.keyValue, new Set([index.name])) ? index.name : null;
+}
+
+// The reads of a keyed row's item other than its key expression, as
+// [holder, slot, field] triples (none when the row reads only its key), or
+// null when the row cannot read its item through a cell (see
+// readItemThroughAccessor). `field` is the
+// item's property a member read reads (`row.name`, `row['name']`), undefined
+// for a read of the whole item or of a method it calls (`row.total()` may
+// read any field through `this`).
+function rowItemReads(mapFn, keyValue) {
+  const param = mapFn.params[0];
+  if (!t.isIdentifier(param)) return null;
+  const name = param.name;
+  const reads = [];
+  let unsafe = false;
+
+  const binds = (pattern) => collectPatternNames(pattern, new Set()).has(name);
+  const visit = (node, holder, slot) => {
+    if (unsafe || !node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) visit(node[i], node, i);
+      return;
+    }
+    if (typeof node.type !== 'string') return;
+    if (node.type === keyValue.type && t.isNodesEquivalent(node, keyValue)) return;
+    switch (node.type) {
+      case 'Identifier':
+        if (node.name === name) reads.push([holder, slot]);
+        return;
+      case 'JSXIdentifier':
+        if (node.name === name) unsafe = true;
+        return;
+      case 'JSXAttribute':
+        // An attribute's name is not a read of the item: `<Row item={item} />`
+        // reads the item in its value only.
+        visit(node.value, node, 'value');
+        return;
+      case 'MemberExpression':
+      case 'OptionalMemberExpression':
+        if (t.isIdentifier(node.object, { name })) {
+          const called = (slot === 'callee' && (t.isCallExpression(holder) || t.isOptionalCallExpression(holder) || t.isNewExpression(holder)))
+            || (slot === 'tag' && t.isTaggedTemplateExpression(holder));
+          const key = !node.computed && t.isIdentifier(node.property) ? node.property.name
+            : node.computed && (t.isStringLiteral(node.property) || t.isNumericLiteral(node.property)) ? String(node.property.value)
+              : undefined;
+          reads.push([node, 'object', called ? undefined : key]);
+        } else {
+          visit(node.object, node, 'object');
+        }
+        if (node.computed) visit(node.property, node, 'property');
+        return;
+      case 'ObjectProperty':
+        if (node.computed) visit(node.key, node, 'key');
+        if (node.shorthand && t.isIdentifier(node.value, { name })) {
+          node.shorthand = false;
+          node.value = t.cloneNode(node.value);
+        }
+        visit(node.value, node, 'value');
+        return;
+      case 'ObjectMethod':
+      case 'ClassMethod':
+      case 'ClassPrivateMethod':
+        if (node.params.some(binds)) { unsafe = true; return; }
+        if (node.computed) visit(node.key, node, 'key');
+        visit(node.body, node, 'body');
+        return;
+      case 'ClassProperty':
+      case 'ClassPrivateProperty':
+        if (node.computed) visit(node.key, node, 'key');
+        visit(node.value, node, 'value');
+        return;
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+      case 'FunctionDeclaration':
+        if ((node.id && node.id.name === name) || node.params.some(binds)) { unsafe = true; return; }
+        visit(node.params, node, 'params');
+        visit(node.body, node, 'body');
+        return;
+      case 'ClassDeclaration':
+      case 'ClassExpression':
+        if (node.id && node.id.name === name) { unsafe = true; return; }
+        visit(node.superClass, node, 'superClass');
+        visit(node.body, node, 'body');
+        return;
+      case 'VariableDeclarator':
+        if (binds(node.id)) { unsafe = true; return; }
+        visit(node.init, node, 'init');
+        return;
+      case 'CatchClause':
+        if (node.param && binds(node.param)) { unsafe = true; return; }
+        visit(node.body, node, 'body');
+        return;
+      case 'AssignmentExpression':
+        if (binds(node.left)) { unsafe = true; return; }
+        break;
+      case 'UpdateExpression':
+        if (t.isIdentifier(node.argument, { name })) { unsafe = true; return; }
+        break;
+      case 'LabeledStatement':
+        visit(node.body, node, 'body');
+        return;
+      case 'BreakStatement':
+      case 'ContinueStatement':
+      case 'MetaProperty':
+        return;
+      case 'TSAsExpression':
+      case 'TSSatisfiesExpression':
+      case 'TSNonNullExpression':
+      case 'TSTypeAssertion':
+        visit(node.expression, node, 'expression');
+        return;
+      default:
+        if (node.type.startsWith('TS')) return;
+        break;
+    }
+    for (const field of Object.keys(node)) {
+      if (field === 'loc' || field === 'start' || field === 'end' || field === 'type' || field === 'extra'
+          || field === 'typeAnnotation' || field === 'returnType' || field === 'typeParameters'
+          || field === 'leadingComments' || field === 'trailingComments' || field === 'innerComments') continue;
+      const value = node[field];
+      if (value && typeof value === 'object') visit(value, node, field);
+    }
+  };
+
+  for (let i = 1; i < mapFn.params.length; i++) {
+    if (binds(mapFn.params[i])) return null;
+  }
+  visit(mapFn.body, mapFn, 'body');
+  return unsafe ? null : reads;
+}

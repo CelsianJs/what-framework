@@ -20,13 +20,34 @@ const importMap = {
   imports: {
     'what-framework': '/node_modules/what-framework/src/index.js',
     'what-core': '/node_modules/what-core/src/index.js',
+    // The domain kits, for both packages: what-framework/<kit> re-exports
+    // what-core/<kit>.
+    ...Object.fromEntries(['a11y', 'ui', 'motion', 'dom', 'form', 'data'].flatMap((kit) => [
+      [`what-framework/${kit}`, `/node_modules/what-framework/src/${kit}.js`],
+      [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
+    ])),
+    // The compiled-JSX runtime: src/page.js takes _$Island from it.
+    'what-framework/render': '/node_modules/what-framework/src/render.js',
+    'what-core/render': '/node_modules/what-core/src/render.js',
+  },
+  // what-core reads its development flag through its own `#env` import
+  // (package.json `imports`), which a browser resolves in the package's scope.
+  scopes: {
+    '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' },
   },
 };
+
+// A buildless page has no bundler to pick the framework's development build,
+// so outside production the page sets its development flag before the
+// framework loads, as create-what's full-stack template does: the
+// development diagnostics (hydration mismatches among them) reach the
+// browser console. NODE_ENV=production serves the production tier.
+const devFlagScript = process.env.NODE_ENV === 'production' ? '' : '<script>globalThis.__WHAT_DEV__=true</script>';
 
 export const documentOptions = {
   clientEntry: '/src/entry-client.js',
   head:
-    `<script type="importmap">${JSON.stringify(importMap)}</script>`
+    `<script type="importmap">${JSON.stringify(importMap)}</script>${devFlagScript}`
     + '<link rel="stylesheet" href="/src/styles.css">'
     + '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
 };

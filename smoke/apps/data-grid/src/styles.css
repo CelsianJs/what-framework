@@ -1,0 +1,44 @@
+:root {
+  --bg: #f6f4ef;
+  --panel: #fffdf8;
+  --ink: #1d1b16;
+  --muted: #6d675a;
+  --line: #e3ddd0;
+  --accent: #2f5d50;
+  --select: #e6efe9;
+  --warn: #a4532b;
+  --cols: 40px 110px minmax(180px, 1fr) 120px 120px 90px 120px;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 ui-sans-serif, system-ui, sans-serif; }
+.page { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+.masthead h1 { font: 600 28px/1 Georgia, serif; margin: 0 0 6px; letter-spacing: -0.01em; }
+.masthead p { margin: 0 0 18px; color: var(--muted); }
+.toolbar { display: flex; gap: 10px; margin-bottom: 10px; }
+.toolbar input, .toolbar select { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.toolbar input { flex: 1; }
+.bulk { display: flex; gap: 12px; align-items: center; min-height: 36px; padding: 4px 10px; border-radius: 6px; color: var(--muted); }
+.bulk.on { background: var(--select); color: var(--ink); }
+.bulk button { font: inherit; padding: 4px 10px; border: 1px solid var(--accent); background: var(--accent); color: white; border-radius: 5px; cursor: pointer; }
+.bulk button[disabled] { opacity: 0.4; cursor: default; }
+.bulk button[data-clear] { background: transparent; color: var(--accent); }
+.muted { color: var(--muted); }
+.grid { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.row { display: grid; grid-template-columns: var(--cols); height: 32px; align-items: center; border-bottom: 1px solid var(--line); }
+.row.selected { background: var(--select); }
+.row.head { background: #efeadf; font-weight: 600; }
+.row.head button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+.row.foot { border-bottom: 0; border-top: 2px solid var(--line); font-weight: 600; background: #efeadf; }
+.arrow { font-size: 10px; color: var(--accent); }
+.cell { padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cell.check { text-align: center; }
+.cell.editable { cursor: text; }
+.cell-input { width: 100%; font: inherit; padding: 2px 4px; border: 1px solid var(--accent); border-radius: 3px; }
+.status-low { color: var(--warn); }
+.status-backorder { color: #7a5c00; }
+.status-discontinued { color: var(--muted); text-decoration: line-through; }
+.viewport { overflow-y: auto; position: relative; }
+.sizer { position: relative; }
+.window { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }

@@ -41,9 +41,12 @@
 //      renderToString(h('div', { style: () => 'width:50%' }))
 //      // -> <div style="() =&gt; &#39;width:50%&#39;">
 //
-//    Every reactive attribute on this page is therefore driven from a ref plus
-//    an effect (see `bindEl` in src/motion.js). The supporting check below
-//    ("no function source leaked") pins the workaround.
+//    The server now resolves a function prop. The chapter links and the spec
+//    chips render their marks through reactive props, so the server shows the
+//    same marks as the client before hydration; the other reactive
+//    attributes are client-only and are still driven from a ref plus an
+//    effect (see `bindEl` in src/motion.js). The supporting check below ("no
+//    function source leaked") pins that no function source reaches the HTML.
 //
 // 3. The scheduler drops a read queued from inside a write, which hangs
 //    `cssTransition()`. `flushScheduler` clears its `scheduled` flag only after
@@ -77,6 +80,10 @@ function islandSlice(html, name) {
 
 export default {
   description: 'Scrollytelling essay: five island hydration modes, scroll progress, intersect reveals, spring/tween and an enter/leave transition.',
+
+  // Buildless: `npm run dev` is `node --watch server.js`, the server and the
+  // development tier the suite runs in either mode (smoke/README.md).
+  dev: 'buildless: `npm run dev` runs the same server and development tier as the build mode',
 
   covers: [
     'island:load',

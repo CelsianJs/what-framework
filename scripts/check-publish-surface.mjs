@@ -12,9 +12,9 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
-import { packages as buildPackages } from './build.js';
+import { packages as buildPackages, tierEntries } from './build.js';
 
 const repoRoot = resolve(import.meta.dirname, '..');
 
@@ -46,11 +46,19 @@ const trackedPackageJson = execFileSync('git', ['ls-files', '*package.json'], {
 const unexpectedPublic = [];
 const missingAllowed = [];
 
+// Every published package declares the Node range the repository supports,
+// so npm warns a user on an older Node at install time (check:node-floor
+// holds the code to it).
+const nodeRange = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).engines?.node;
+
 for (const path of trackedPackageJson) {
   const pkg = JSON.parse(readFileSync(resolve(repoRoot, path), 'utf8'));
   if (allowedPublicPackageJson.has(path)) {
     if (pkg.private === true) {
       missingAllowed.push(`${path} is listed as public but has private=true`);
+    }
+    if (pkg.engines?.node !== nodeRange) {
+      missingAllowed.push(`${path} declares engines.node ${JSON.stringify(pkg.engines?.node ?? null)}, not the repository's ${JSON.stringify(nodeRange)}`);
     }
     continue;
   }
@@ -139,52 +147,114 @@ console.log(
 );
 
 // ---------------------------------------------------------------------------
+// what-framework mirrors what-core
+//
+// Apps depend on what-framework alone, so every what-core subpath an app may
+// import (the root, the compiled-JSX runtime, the domain kits) must exist under
+// the same name in what-framework. what-core/internal is what-core's interface
+// to its sibling packages and is deliberately not mirrored, with its subpaths.
+// ---------------------------------------------------------------------------
+
+{
+  const coreExports = JSON.parse(readFileSync(join(repoRoot, 'packages/core/package.json'), 'utf8')).exports;
+  const whatExports = JSON.parse(readFileSync(join(repoRoot, 'packages/what/package.json'), 'utf8')).exports;
+  const isInternal = (subpath) => subpath === './internal' || subpath.startsWith('./internal/');
+  const unmirrored = Object.keys(coreExports).filter((subpath) => !isInternal(subpath) && !(subpath in whatExports));
+  if (unmirrored.length) {
+    console.error('\n[publish-surface] what-core subpaths missing from what-framework:');
+    for (const subpath of unmirrored) console.error(`  - what-core/${subpath.slice(2)}`);
+    process.exit(1);
+  }
+  console.log(`[publish-surface] OK: what-framework mirrors all ${Object.keys(coreExports).filter((subpath) => !isInternal(subpath)).length} app-facing what-core subpaths.`);
+}
+
+// ---------------------------------------------------------------------------
+// One release of compiler and runtime per install
+//
+// what-compiler's output imports what-framework/render, and npm satisfies a
+// dependency, or a peer it cannot share with the root, with a second copy
+// nested beside the package. Only a peer on both sides conflicts at the root,
+// so npm refuses `npm i what-compiler@latest` or `npm i what-framework@latest`
+// alone on an app of the previous release. (packages/core/test/
+// compiler-runtime-lockstep.test.js explains the layout.)
+// ---------------------------------------------------------------------------
+
+{
+  const manifest = (dir) => JSON.parse(readFileSync(join(repoRoot, 'packages', dir, 'package.json'), 'utf8'));
+  const compiler = manifest('compiler');
+  const framework = manifest('what');
+  const release = `^${compiler.version}`;
+  const peerProblems = [];
+  const peer = (pkg, name, optional) => {
+    const range = pkg.peerDependencies?.[name];
+    if (range !== release) peerProblems.push(`${pkg.name} peerDependencies["${name}"] is ${JSON.stringify(range ?? null)}, not "${release}"`);
+    if ((pkg.peerDependenciesMeta?.[name]?.optional === true) !== optional) peerProblems.push(`${pkg.name}'s peer ${name} must ${optional ? '' : 'not '}be optional`);
+    if (pkg.dependencies?.[name]) peerProblems.push(`${pkg.name} lists ${name} in dependencies, which npm nests instead of refusing a mix`);
+  };
+  peer(compiler, 'what-core', false);
+  peer(compiler, 'what-framework', true);
+  peer(framework, 'what-compiler', false);
+  if (peerProblems.length) {
+    console.error('\n[publish-surface] what-compiler and the runtime do not pin each other to one release:');
+    for (const item of peerProblems) console.error(`  - ${item}`);
+    process.exit(1);
+  }
+  console.log(`[publish-surface] OK: what-compiler and what-framework declare each other as peers at ${release}.`);
+}
+
+// ---------------------------------------------------------------------------
 // Dist-content allowlist
 //
 // scripts/build.js cleans dist/ on every run, so after a build the ONLY files
 // allowed in packages/<name>/dist are:
-//   - <entry>.js / <entry>.min.js (+ .map) for each build entry
-//   - chunk-<hash>(.min).js (+ .map) actually referenced by THIS build's
-//     entry files (followed transitively)
+//   - the tier output (+ .map) of each source module an export names
+//     (tierEntries: <path>.min.js for `production`, <path>.js for `module`)
+//   - the sibling modules those files import, followed transitively
 //   - *.d.ts type declarations
 // Anything else is a stale artifact from a previous build (an "orphan") and
 // would ship to npm via the `files: ["dist…"]` globs — fail loudly.
 // ---------------------------------------------------------------------------
 
-const CHUNK_REF_RE = /chunk-[A-Za-z0-9]+(?:\.min)?\.js/g;
+const RELATIVE_IMPORT_RE = /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"']+\.js)["']/g;
+
+const filesUnder = (dir, base = dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const path = join(dir, entry.name);
+  return entry.isDirectory() ? filesUnder(path, base) : [relative(base, path)];
+});
 
 const distOrphans = [];
 const distMissing = [];
 let distCheckedPackages = 0;
 
-for (const pkg of buildPackages) {
-  const pkgDir = resolve(repoRoot, 'packages', pkg.name);
+for (const name of buildPackages) {
+  const pkgDir = resolve(repoRoot, 'packages', name);
   const distDir = join(pkgDir, 'dist');
   if (!existsSync(distDir)) {
     // Not built yet (fresh clone) — nothing stale can ship. The release path
     // re-runs this script after `npm run build`, which validates for real.
-    console.log(`[publish-surface] note: packages/${pkg.name}/dist not built; skipping dist check.`);
+    console.log(`[publish-surface] note: packages/${name}/dist not built; skipping dist check.`);
     continue;
   }
   distCheckedPackages += 1;
 
   const allowed = new Set();
   const entryFiles = [];
-  for (const entry of pkg.entries) {
-    if (!existsSync(join(pkgDir, entry.input))) continue;
-    for (const name of [`${entry.outputBase}.js`, `${entry.outputBase}.min.js`]) {
-      allowed.add(name);
-      allowed.add(`${name}.map`);
-      if (existsSync(join(distDir, name))) {
-        entryFiles.push(name);
+  const tiers = tierEntries(pkgDir);
+  for (const [tier, extension] of [['production', '.min.js'], ['bundler', '.js']]) {
+    for (const input of tiers[tier]) {
+      const output = input.replace(/^src\//, '').replace(/\.js$/, extension);
+      allowed.add(output);
+      allowed.add(`${output}.map`);
+      if (existsSync(join(distDir, output))) {
+        entryFiles.push(output);
       } else {
-        distMissing.push(`packages/${pkg.name}/dist/${name} (expected build output is missing)`);
+        distMissing.push(`packages/${name}/dist/${output} (expected build output is missing)`);
       }
     }
   }
 
-  // Follow chunk references transitively from this build's entry files so the
-  // allowlist only contains chunks that belong to the CURRENT build.
+  // Follow relative imports transitively from this build's entry files so the
+  // allowlist only contains modules and chunks that belong to the CURRENT build.
   const queue = [...entryFiles];
   const scanned = new Set();
   while (queue.length) {
@@ -192,19 +262,20 @@ for (const pkg of buildPackages) {
     if (scanned.has(file)) continue;
     scanned.add(file);
     const content = readFileSync(join(distDir, file), 'utf8');
-    for (const chunk of content.match(CHUNK_REF_RE) ?? []) {
-      if (!allowed.has(chunk)) {
-        allowed.add(chunk);
-        allowed.add(`${chunk}.map`);
-        if (existsSync(join(distDir, chunk))) queue.push(chunk);
+    for (const [, specifier] of content.matchAll(RELATIVE_IMPORT_RE)) {
+      const target = relative(distDir, resolve(distDir, dirname(file), specifier));
+      if (!allowed.has(target)) {
+        allowed.add(target);
+        allowed.add(`${target}.map`);
+        if (existsSync(join(distDir, target))) queue.push(target);
       }
     }
   }
 
-  for (const file of readdirSync(distDir).sort()) {
+  for (const file of filesUnder(distDir).sort()) {
     if (file.endsWith('.d.ts')) continue;
     if (!allowed.has(file)) {
-      distOrphans.push(`packages/${pkg.name}/dist/${file}`);
+      distOrphans.push(`packages/${name}/dist/${file}`);
     }
   }
 }
@@ -343,6 +414,22 @@ try {
     // top-level \`types\` listed before \`node\` silently shadows them.
     import { createServer, toNodeListener, exportStatic } from 'what-server';
     import type { VNode } from 'what-core';
+
+    // The domain kits and the internal entry resolve, with their declarations,
+    // through what-core's exports map.
+    import { useTween, transitionClass } from 'what-core/motion';
+    import { useForm } from 'what-core/form';
+    import { useSWR } from 'what-core/data';
+    import { FocusTrap, useIds } from 'what-core/a11y';
+    import { Skeleton } from 'what-core/ui';
+    import { scheduleRead, cls } from 'what-core/dom';
+    import { getServerContext, IMPORT_CHANGES } from 'what-core/internal';
+
+    const progress: number = useTween({ duration: 1 }).progress();
+    const enter: string = transitionClass('fade', true).class;
+    const ids: string[] = useIds(2);
+    const moved: string | null = IMPORT_CHANGES[0].to;
+    void [progress, enter, ids, moved, useForm, useSWR, FocusTrap, Skeleton, scheduleRead, cls, getServerContext];
 
     const routes: RouteConfig[] = [];
     const vnode: VNode = Router({ routes });

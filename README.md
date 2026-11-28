@@ -4,7 +4,8 @@
 [![license](https://img.shields.io/npm/l/what-framework)](https://github.com/CelsianJs/what-framework/blob/main/LICENSE)
 [![CI](https://img.shields.io/github/checks-status/CelsianJs/what-framework/main?label=CI)](https://github.com/CelsianJs/what-framework/commits/main)
 
-**The web framework built for AI agents.**
+**The web framework built for AI agents.** The familiar parts of React on an
+entirely new engine, with everything bundled and MCP tools for agents.
 
 [whatfw.com](https://whatfw.com) · [Docs](https://whatfw.com/docs) · [Playground](https://playground.whatfw.com) · [React Compat](https://react.whatfw.com) · [Benchmarks](https://benchmarks.whatfw.com) · [GitHub](https://github.com/CelsianJs/what-framework)
 
@@ -14,11 +15,14 @@
 
 ## Why What?
 
-- **MCP DevTools** — AI agents inspect every signal, effect, and component in a running app via the Model Context Protocol
-- **Structured Errors** — Core runtime errors carry a code, message, suggested fix, and code example, and serialize to JSON. Agents parse and fix in one pass
-- **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and warns on signal misuse. Lint rules catch the rest before they ship
-- **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations. No VDOM diff
-- **Small & Fast**: fine-grained, no VDOM. Measured by `npm run check:size` (production build, min+gzip): a counter app is 6.38KB, and the same app from the scaffold is 6.48KB. Minimal dependencies, fully tree-shakeable
+- **Familiar API** — `useState`, `useEffect`, `useMemo`, `useContext`, `<Suspense>`, `<ErrorBoundary>`, `startTransition`, `useOptimistic` and `useActionState` keep React's names and call shapes. A component runs once, so a hook hands you an accessor: call it to read it (`count()`)
+- **A new engine** — Push-pull signals with an owner tree update only the DOM a write reaches. Async values live in the graph: a `computed()` that fetches is read like any other value, under `<Suspense>` and transitions
+- **Everything bundled** — Router, server rendering with out-of-order streaming, hydration that adopts the server's DOM, ISR, server actions, a query cache, forms, motion and a11y helpers, all in `what-framework`
+- **MCP DevTools** — 25 Model Context Protocol tools let AI agents inspect the signals, effects, components, cache and DOM of a running app, and ask why something ran
+- **Coded diagnostics** — Every problem the runtime notices in development is an `ERR_…` code with a fix and an example ([docs/ERRORS.md](docs/ERRORS.md)), on one channel that the console, the MCP tools and `getDiagnostics()` read. Agents parse and fix in one pass
+- **Agent Guardrails** — In dev mode the runtime catches infinite effect loops, refuses unsafe `innerHTML`, and reports a signal used without its call. Lint rules catch the rest before they ship
+- **Compiler Intelligence** — Write normal JSX. The compiler outputs fine-grained reactive DOM operations, with no vnode reconciler and no VDOM diff
+- **Small & Fast**: fine-grained, no VDOM. `npm run check:size` bundles counter apps for production (the `production` export condition), minified and gzipped with Node's zlib at level 9 (1 KB = 1024 B): written with `h()` and bundled by esbuild, a counter app is 9.05KB (9266 B); the create-what counter compiled from JSX by what-compiler/vite in a production `vite build`, the way the scaffold builds it, is 5.38KB (5509 B) of JavaScript, not counting the modulepreload polyfill Vite adds to a build from the scaffold's `index.html`. Minimal dependencies, fully tree-shakeable
 
 ## Quick Start
 
@@ -38,10 +42,12 @@ bridge the MCP server talks to, and wire it up for you. Add it by hand only when
 you are setting a project up manually:
 
 ```bash
-npm install -D what-devtools
+npm install -D what-devtools what-devtools-mcp
 ```
 
-Then connect your AI agent to a running What app:
+Add `whatDevToolsMCP()` from `what-devtools-mcp/vite-plugin` to the Vite
+plugins ([setup](packages/devtools-mcp/README.md#setup)), then connect your AI
+agent to a running What app:
 
 ```json
 {
@@ -54,7 +60,7 @@ Then connect your AI agent to a running What app:
 }
 ```
 
-Add to `.claude/mcp_servers.json` (Claude Code) or `.cursor/mcp.json` (Cursor).
+Add to `.mcp.json` in the project root (Claude Code) or `.cursor/mcp.json` (Cursor).
 
 ## Example Component
 
@@ -87,23 +93,25 @@ The 13 maintained packages publish together at the same version. The table also 
 
 | Package | Description |
 |---|---|
-| `what-framework` | Umbrella package — re-exports core, router, server, etc. |
-| `what-core` | Signals, components, reactivity, forms, data fetching |
+| `what-framework` | Umbrella package: the core API on its root entry; router, server and the kits (forms, data, motion, a11y, …) on subpaths |
+| `what-core` | Signals, components, reactivity, hooks, stores; forms, data fetching and the other kits on subpaths |
 | `what-compiler` | JSX transform and optimizing compiler (`what-compiler/vite`, `/babel`) |
-| `what-router` | File-based & programmatic routing with View Transitions |
-| `what-server` | SSR, islands architecture, static generation, server actions |
+| `what-router` | File-based & programmatic routing; navigations are transitions, with View Transitions |
+| `what-server` | SSR with out-of-order streaming, islands, static generation, server actions |
 | `what-isr` | Origin-first ISR cache engine (stale-while-revalidate, tags, webhooks) |
 | `what-text` | Optional text engine (powered by `@chenglou/pretext`) |
 | `create-what` | Project scaffolder (`npm create what@latest`) |
 | `what-framework-cli` | CLI — dev server, build, deploy tools (`what dev/build/start`) |
 | `what-devtools` | Browser dev panel (signal inspector, component tree) |
-| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 29 live debugging tools |
+| `what-devtools-mcp` | MCP server bridging AI agents to live app state — 25 tools |
 | `what-mcp` | **Deprecated** — docs/assistance MCP server, superseded by `what-devtools-mcp` |
 | `what-react` | React compatibility layer (use React-ecosystem packages) |
 | `eslint-plugin-what` | ESLint rules — catch signal bugs, enforce patterns |
 
 The umbrella `what-framework` exposes subpaths: `what-framework/router`, `/server`,
-`/jsx-runtime`, etc.
+`/form`, `/data`, `/motion`, `/a11y`, `/ui`, `/dom`, `/render`, `/testing`,
+`/jsx-runtime`. [docs/UPGRADING.md](docs/UPGRADING.md) lists which names moved
+off the root entry in 0.15.
 
 ## Manual Setup
 
@@ -137,17 +145,31 @@ Bun works too: `bun create what@latest` and `bun run dev`.
 
 ## MCP DevTools (AI Agent Debugging)
 
-What Framework ships an MCP server for AI-assisted development. 29 live debugging tools: inspect signals, effects, components, DOM, cache, dependency graphs, and more. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
+What Framework ships an MCP server for AI-assisted development. 25 tools: inspect signals, effects, components, DOM, cache, dependency graphs and diagnostics in a live app, plus offline lint, scaffolding and error fixes. See [docs/MCP-DEVTOOLS.md](docs/MCP-DEVTOOLS.md).
 
 ## React Compatibility
 
-Run many React ecosystem libraries with `what-react`. This is a secondary feature — native What Framework APIs are preferred for new code.
+Use React packages inside native What components with `what-react`. Your own code stays native What; a React component used as a tag renders as a React island, with React's rules inside it and its props kept up to date from your signals.
 
 ```bash
 npm install what-react
 ```
 
-See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. The verified list of libraries is the source of truth.
+```js
+// vite.config.js
+plugins: [what(), reactCompat()]
+```
+
+```jsx
+import { BarChart, Bar } from 'recharts';
+
+function Sales() {
+  const rows = signal([{ day: 'Mon', total: 3 }]);
+  return <section><h2>{rows().length} days</h2><BarChart width={300} height={150} data={rows()}><Bar dataKey="total" /></BarChart></section>;
+}
+```
+
+[`packages/react-compat/MIXED.md`](packages/react-compat/MIXED.md) has the rules (which files are React files, context, server rendering, limits). See [`REACT-COMPAT.md`](REACT-COMPAT.md) for the tested compatibility matrix. The verified list of libraries is the source of truth.
 
 ## Where everything lives & deploys
 

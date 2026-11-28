@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="./" class="active">Reference</a>
@@ -151,12 +151,12 @@ console.log(count());  <span class="comment">// 2</span></code></pre>
 
 <span class="function">mount</span>(&lt;PriceDisplay price={price} taxRate={taxRate} /&gt;, <span class="string">'#app'</span>);</code></pre>
 
-          <p>For plain-value props, drop the calls. The component then renders once with the
-          values it was given:</p>
+          <p>For plain-value props, drop the calls and compute the total where it is shown.
+          A <code>const total</code> computed in the body would keep its first value, because the
+          component runs once (development reports <code>ERR_PROP_READ_ONCE</code>); in the JSX
+          it follows a parent that passes a changing value:</p>
 <pre><code><span class="keyword">function</span> <span class="function">PriceDisplay</span>({ price, taxRate }) {
-  <span class="keyword">const</span> total = price * (<span class="number">1</span> + taxRate);
-
-  <span class="keyword">return</span> &lt;span&gt;Total: ${total.toFixed(<span class="number">2</span>)}&lt;/span&gt;;
+  <span class="keyword">return</span> &lt;span&gt;Total: ${(price * (<span class="number">1</span> + taxRate)).toFixed(<span class="number">2</span>)}&lt;/span&gt;;
 }
 
 <span class="function">mount</span>(&lt;PriceDisplay price={<span class="number">10</span>} taxRate={<span class="number">0.2</span>} /&gt;, <span class="string">'#app'</span>);</code></pre>

@@ -111,7 +111,7 @@ A few things are worth building from scratch because they can leverage What's fi
 
 **Strategy: Wrap**
 - [Chart.js](https://www.chartjs.org/) and [D3](https://d3js.org/) are vanilla JS. Write thin What wrappers:
-  - `<Chart type="line" data={data()} />` component that syncs signal data to Chart.js
+  - `<Chart type="line" data={data} />` component that takes the accessor and syncs its data to Chart.js
   - Or just recommend D3 directly (it operates on DOM, works perfectly with What)
 - [Apache ECharts](https://echarts.apache.org/) is another option — massive feature set, vanilla JS.
 

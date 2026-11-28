@@ -44,29 +44,8 @@ function whatJsx() {
   };
 }
 
-// what-core computes its dev flag at runtime from `typeof process`; the
-// published minified dist folds it to `!(typeof process<"u")`, which is TRUE
-// in every browser — so even production bundles run dev-mode and log the
-// "[what] template() is a compiler internal… XSS" guard on load. Force the
-// flag to false in production builds so dev-only warnings are compiled out,
-// exactly as the flag's own comment ("build tools can dead-code-eliminate
-// when false") intends. Handles both the src form and the minified dist form.
-function whatProdDevFlag() {
-  return {
-    name: 'what-prod-dev-flag',
-    apply: 'build',
-    transform(code, id) {
-      if (!/node_modules\/what-(core|framework)\//.test(id)) return null;
-      const out = code
-        .replace(/export const __DEV__ =[^;]+;/, 'export const __DEV__ = false;')
-        .replaceAll('!(typeof process<"u")', '!1');
-      return out === code ? null : { code: out, map: null };
-    },
-  };
-}
-
 export default defineConfig({
-  plugins: [whatJsx(), whatProdDevFlag()],
+  plugins: [whatJsx()],
   define: {
     __WHAT_REACT_VERSION__: JSON.stringify(whatReactVersion()),
   },

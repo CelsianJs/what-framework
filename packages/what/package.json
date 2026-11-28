@@ -1,6 +1,6 @@
 {
   "name": "what-framework",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "The web framework built for AI agents — signals, components, islands, SSR",
   "type": "module",
   "main": "src/index.js",
@@ -43,6 +43,48 @@
       "import": "./src/render.js",
       "default": "./src/render.js"
     },
+    "./a11y": {
+      "types": "./a11y.d.ts",
+      "production": "./dist/a11y.min.js",
+      "import": "./src/a11y.js",
+      "default": "./src/a11y.js"
+    },
+    "./ui": {
+      "types": "./ui.d.ts",
+      "production": "./dist/ui.min.js",
+      "import": "./src/ui.js",
+      "default": "./src/ui.js"
+    },
+    "./motion": {
+      "types": "./motion.d.ts",
+      "production": "./dist/motion.min.js",
+      "import": "./src/motion.js",
+      "default": "./src/motion.js"
+    },
+    "./dom": {
+      "types": "./dom.d.ts",
+      "production": "./dist/dom.min.js",
+      "import": "./src/dom.js",
+      "default": "./src/dom.js"
+    },
+    "./form": {
+      "types": "./form.d.ts",
+      "production": "./dist/form.min.js",
+      "import": "./src/form.js",
+      "default": "./src/form.js"
+    },
+    "./data": {
+      "types": "./data.d.ts",
+      "production": "./dist/data.min.js",
+      "import": "./src/data.js",
+      "default": "./src/data.js"
+    },
+    "./ssr-runtime": {
+      "types": "./ssr-runtime.d.ts",
+      "production": "./dist/ssr-runtime.min.js",
+      "import": "./src/ssr-runtime.js",
+      "default": "./src/ssr-runtime.js"
+    },
     "./testing": {
       "types": "./testing.d.ts",
       "production": "./dist/testing.min.js",
@@ -57,11 +99,24 @@
     "jsx-runtime.d.ts",
     "jsx-dev-runtime.d.ts",
     "render.d.ts",
+    "a11y.d.ts",
+    "ui.d.ts",
+    "motion.d.ts",
+    "dom.d.ts",
+    "form.d.ts",
+    "data.d.ts",
     "router.d.ts",
     "server.d.ts",
-    "testing.d.ts"
+    "ssr-runtime.d.ts",
+    "testing.d.ts",
+    "diagnostics.json",
+    "skills",
+    "UPGRADING.md"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/server.js",
+    "./dist/server.min.js"
+  ],
   "keywords": [
     "framework",
     "signals",
@@ -71,10 +126,14 @@
     "vanilla-js",
     "lightweight",
     "router",
-    "components"
+    "components",
+    "tanstack-intent"
   ],
   "author": "ZVN DEV (https://zvndev.com)",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/CelsianJs/what-framework"
@@ -84,9 +143,11 @@
   },
   "homepage": "https://whatfw.com",
   "dependencies": {
-    "what-core": "^0.14.0",
-    "what-router": "^0.14.0",
-    "what-server": "^0.14.0",
-    "what-compiler": "^0.14.0"
+    "what-core": "^0.15.0",
+    "what-router": "^0.15.0",
+    "what-server": "^0.15.0"
+  },
+  "peerDependencies": {
+    "what-compiler": "^0.15.0"
   }
 }

@@ -2,7 +2,7 @@
 
 React compatibility layer for [What Framework](https://whatfw.com). Run React ecosystem libraries on What — `what-react` ships a dedicated React-semantics runtime (value-returning hooks, re-renders with keyed reconciliation, working context) that coexists with What's run-once signal engine.
 
-**Verified end-to-end (2026-06-09, real browser + jsdom CI):** zustand, @tanstack/react-query, react-hook-form, react-hot-toast, @headlessui/react, framer-motion. Other libraries are untested on the current runtime — see [REACT-COMPAT.md](https://github.com/CelsianJs/what-framework/blob/main/REACT-COMPAT.md) for the full verified matrix, method, and known limitations.
+**Tested packages (2026-11-24):** 47 React packages across 38 browser fixtures pass on what-react alone and inside a native What app, among them Radix, MUI, Ant Design, react-aria-components, Headless UI, react-router, Redux Toolkit, zustand, jotai, TanStack Query, Table and Virtual, SWR, react-hook-form, formik, Floating UI, cmdk, sonner, vaul, dnd-kit, react-select, react-day-picker, framer-motion, recharts and styled-components. Anything else is untested. See [REACT-COMPAT.md](https://github.com/CelsianJs/what-framework/blob/main/REACT-COMPAT.md) for the table, the method, what it does not cover and the known limitations.
 
 ## Install
 
@@ -12,7 +12,25 @@ npm install what-react what-core
 
 ## Setup
 
-Add the Vite plugin -- one line is all you need:
+### A native What app that uses React packages (recommended)
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
+import { reactCompat } from 'what-react/vite';
+
+export default defineConfig({
+  plugins: [what(), reactCompat()],
+});
+```
+
+Your files stay native What. A React component used as a tag in a native file
+(`<BarChart data={rows()} />` from recharts) renders as a React island; a file
+that imports `react` or calls a React package's hook is a React file. See
+[MIXED.md](./MIXED.md).
+
+### Every file React (migrating a React app as it is)
 
 ```js
 // vite.config.js
@@ -24,10 +42,15 @@ export default defineConfig({
 });
 ```
 
+Add `what()` later and files that do not import React become native What.
+
 The plugin handles everything automatically:
 - Aliases `react` and `react-dom` imports to `what-react`
 - Configures JSX to use the What runtime
-- Auto-detects installed React packages and excludes them from pre-bundling
+- Keeps one what-react in the dev server, a production build and a server
+  build, whatever React libraries are installed (no list of library names:
+  they are pre-bundled by Vite like any dependency, and `react` inside them
+  is the page's what-react)
 - Resolves `use-sync-external-store` shims
 
 ## Usage
@@ -105,8 +128,8 @@ React libraries import `react` and call its hooks. By aliasing `react` to `what-
 
 ```js
 reactCompat({
-  exclude: ['my-custom-react-lib'],  // Additional packages to exclude from pre-bundling
-  autoDetect: true,                   // Auto-detect installed React packages (default: true)
+  exclude: ['my-linked-lib'],  // Additional packages to keep out of Vite's pre-bundling
+  autoDetect: true,            // Find the React packages a server render must bundle (ssr.noExternal) from package.json (default: true)
 })
 ```
 
@@ -116,6 +139,7 @@ reactCompat({
 |---|---|
 | `what-react` | React API (hooks, createElement, Component, etc.) |
 | `what-react/dom` | ReactDOM API (createRoot, createPortal, etc.) |
+| `what-react/mixed` | Native and React components in one tree (what the mixed plugin compiles to; types for mixed apps) |
 | `what-react/jsx-runtime` | JSX automatic runtime |
 | `what-react/jsx-dev-runtime` | JSX dev runtime |
 | `what-react/vite` | Vite plugin |

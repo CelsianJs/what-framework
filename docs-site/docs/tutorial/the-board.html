@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -82,7 +82,13 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
           <h2 id="understanding-square">Understanding the Square</h2>
           <p>Let's break down what we wrote:</p>
 
-<pre><code><span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {</code></pre>
+<pre><code><span class="keyword">function</span> <span class="function">Square</span>({ value, onClick }) {
+  <span class="keyword">return</span> (
+    &lt;button className=<span class="string">"square"</span> onClick={onClick}&gt;
+      {value}
+    &lt;/button&gt;
+  );
+}</code></pre>
 
           <p>This is a component that receives two props:</p>
           <ul>
@@ -160,7 +166,7 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
 
           <div class="callout callout-info">
             <p class="callout-title">Why <code>key={i}</code>?</p>
-            <p>When you render a list with <code>.map()</code>, give each item a <code>key</code> so What can match items up across updates. An index like <code>i</code> is the item's <em>position</em>, not its identity, so the compiler cannot use it for keyed reconciliation: it falls back to positional reconciliation and prints a note in your terminal saying so. That is the right answer for a fixed board of 9 squares that never reorders. For a list that can reorder, key on something stable that belongs to the item itself, like <code>key={item.id}</code>.</p>
+            <p>When you render a list with <code>.map()</code>, give each item a <code>key</code> so What can match items up across updates. An index like <code>i</code> keys each row by its <em>position</em>, as React keys it: the square at each place keeps its DOM while the value in it changes. That is the right answer for a fixed board of 9 squares that never reorders. For a list that can reorder, key on something stable that belongs to the item itself, like <code>key={item.id}</code>, so a row moves with its item.</p>
           </div>
 
           <h2 id="checkpoint">Checkpoint</h2>

@@ -1,1324 +1,432 @@
+import { HYDRATION_FIXES } from './hydration-fixes.js';
 /**
- * Agent-first MCP tools for what-devtools-mcp.
- * 5 new tools: lint, scaffold, validate, perf, fix.
- * Plus enhancements to existing tools (errors, snapshot).
- *
- * These tools make WhatFW THE framework designed for AI coding agents.
+ * Offline tools for what-devtools-mcp: lint, scaffold, fix. None of them needs
+ * a browser, and their answers describe no page state, so they carry no seq.
  */
 
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
+import { createResponder } from './respond.js';
+import { lookup } from './catalogue.js';
 
-// --- Error code database (mirrors packages/core/src/errors.js) ---
-const ERROR_DATABASE = {
-  ERR_INFINITE_EFFECT: {
-    code: 'ERR_INFINITE_EFFECT',
-    severity: 'error',
-    diagnosis: 'An effect reads and writes the same signal, creating an infinite update cycle. The effect triggers itself on every run.',
-    suggestedFix: 'Use untrack() to read the signal without subscribing, or restructure so the read and write are in separate effects.',
-    codeExample: `// Bad — reads and writes count, creating a cycle:
-effect(() => { count(count() + 1); });
-
-// Fix — use untrack() so the read doesn't subscribe:
-effect(() => { count(untrack(count) + 1); });
-
-// Better — split into separate logic:
-const doubled = computed(() => count() * 2);`,
-  },
-  ERR_MISSING_SIGNAL_READ: {
-    code: 'ERR_MISSING_SIGNAL_READ',
-    severity: 'warning',
-    diagnosis: 'A signal function reference is used where its value was intended. Signals are functions — they must be called with () to read their value.',
-    suggestedFix: 'Add () after the signal name. In JSX: {count()} not {count}. In template literals: `${count()}` not `${count}`.',
-    codeExample: `// Bad:
-<span>{count}</span>        // renders "[Function]"
-
-// Good:
-<span>{count()}</span>      // renders the actual value`,
-  },
-  ERR_HYDRATION_MISMATCH: {
-    code: 'ERR_HYDRATION_MISMATCH',
-    severity: 'error',
-    diagnosis: 'Server-rendered HTML does not match what the client expects. This causes the DOM to be rebuilt, losing any server-rendered content benefits.',
-    suggestedFix: 'Avoid reading browser-only APIs (window, localStorage, navigator) during the initial render. Use onMount() for client-only logic.',
-    codeExample: `// Bad — different on server vs client:
-function App() {
-  return <p>{window.innerWidth}</p>;
+// --- Lint ---
+function projectTemplate(root) {
+  if (existsSync(resolve(root, 'client-files.js')) && existsSync(resolve(root, 'src/routes.js'))) return 'fullstack';
+  if (existsSync(resolve(root, 'src/entry-server.js')) && existsSync(resolve(root, 'src/islands'))) return 'islands';
+  return 'spa';
 }
 
-// Good — use onMount for client-only values:
-function App() {
-  const width = signal(0);
-  onMount(() => width(window.innerWidth));
-  return <p>{width()}</p>;
-}`,
-  },
-  ERR_ORPHAN_EFFECT: {
-    code: 'ERR_ORPHAN_EFFECT',
-    severity: 'warning',
-    diagnosis: 'An effect was created outside any reactive root or component. It will never be automatically cleaned up, causing a memory leak.',
-    suggestedFix: 'Create effects inside component functions (where they are auto-tracked) or wrap in createRoot().',
-    codeExample: `// Bad — orphaned, leaks memory:
-effect(() => console.log(count()));
-
-// Good — inside a root with cleanup:
-createRoot(dispose => {
-  effect(() => console.log(count()));
-  // later: dispose() cleans up
-});`,
-  },
-  ERR_SIGNAL_WRITE_IN_RENDER: {
-    code: 'ERR_SIGNAL_WRITE_IN_RENDER',
-    severity: 'error',
-    diagnosis: 'A signal is being written during the component render phase (the component function body). This triggers immediate re-execution and can cause infinite loops.',
-    suggestedFix: 'Move signal writes into event handlers, effects, or onMount(). The component body should only read signals.',
-    codeExample: `// Bad — write during render:
-function Counter() {
-  count(count() + 1);  // infinite loop!
-  return <span>{count()}</span>;
+function lintResult(messages, plugin) {
+  const fatal = messages.find((m) => m.fatal);
+  if (fatal) return { lint: 'not parsed', issues: [], note: fatal.message };
+  return {
+    lint: true,
+    issues: messages.filter((m) => m.ruleId || m.severity).map((m) => {
+      const rule = m.ruleId?.replace(/^what\//, '');
+      const catalogued = m.ruleId?.startsWith('what/') ? plugin?.rules[rule]?.meta?.docs?.code : null;
+      return { severity: m.severity === 2 ? 'error' : 'warning', ...(catalogued ? { code: catalogued } : {}), rule, line: m.line, message: m.message };
+    }),
+  };
 }
 
-// Good — write in event handler:
-function Counter() {
-  return <button onclick={() => count(c => c + 1)}>{count()}</button>;
-}`,
-  },
-  ERR_MISSING_CLEANUP: {
-    code: 'ERR_MISSING_CLEANUP',
-    severity: 'warning',
-    diagnosis: 'An effect sets up a resource (event listener, timer, connection) but does not return a cleanup function. This causes memory leaks when the component unmounts.',
-    suggestedFix: 'Return a cleanup function from the effect that removes the resource.',
-    codeExample: `// Bad — no cleanup:
-effect(() => {
-  window.addEventListener('resize', handler);
-});
+async function lintRules(code, ruleFilter, root, filename) {
+  const load = createRequire(resolve(root, 'package.json'));
+  let eslintModule;
+  let plugin;
+  try {
+    try { eslintModule = load('eslint'); } catch (e) {
+      if (e.code !== 'MODULE_NOT_FOUND') throw e;
+      eslintModule = await import('eslint');
+    }
+  } catch {
+    return { lint: 'skipped', issues: [], note: 'ESLint is not installed where the MCP server runs.' };
+  }
+  try {
+    const ownPlugin = load('eslint-plugin-what');
+    plugin = ownPlugin.default || ownPlugin;
+  } catch {
+    try { plugin = (await import('eslint-plugin-what')).default; } catch { /* other project rules can still run */ }
+  }
 
-// Good — return cleanup:
-effect(() => {
-  window.addEventListener('resize', handler);
-  return () => window.removeEventListener('resize', handler);
-});`,
-  },
-  ERR_UNSAFE_INNERHTML: {
-    code: 'ERR_UNSAFE_INNERHTML',
-    severity: 'warning',
-    diagnosis: 'innerHTML is set directly on an element without the __html safety marker. This is an XSS risk if the content comes from user input.',
-    suggestedFix: 'Use { __html: content } to explicitly mark innerHTML as intentional, or use the html tagged template literal.',
-    codeExample: `// Bad — raw innerHTML (XSS risk):
-<div innerHTML={userInput} />
-
-// Good — explicit opt-in:
-<div innerHTML={{ __html: sanitizedContent }} />`,
-  },
-  ERR_MISSING_KEY: {
-    code: 'ERR_MISSING_KEY',
-    severity: 'warning',
-    diagnosis: 'A list is rendered without key props. Without keys, the framework cannot efficiently track item identity during reordering, leading to incorrect UI updates.',
-    suggestedFix: 'Add a unique key prop to each list item using a stable identifier (like a database ID), not the array index.',
-    codeExample: `// Bad — no key:
-<For each={items()}>{item => <li>{item.name}</li>}</For>
-
-// Good — stable key:
-<For each={items()}>{item => <li key={item.id}>{item.name}</li>}</For>`,
-  },
-  ERR_UNSAFE_REDIRECT: {
-    code: 'ERR_UNSAFE_REDIRECT',
-    severity: 'error',
-    diagnosis: 'redirect() was given a target that can leave your origin: a protocol-relative ("//host"), backslash-smuggled ("/\\host") or javascript:/data: URL. Reaching it from user input is an open redirect.',
-    suggestedFix: 'redirect() accepts same-origin paths and http:, https:, mailto: or tel: URLs only. Check a user-supplied target against an allowlist before passing it.',
-    codeExample: `// Bad - a user-controlled target can leave your origin:
-redirect(query.next);
-
-// Fix - allowlist the target first:
-redirect(ALLOWED.has(query.next) ? query.next : '/');`,
-  },
-  ERR_REDIRECT_NOT_CAUGHT: {
-    code: 'ERR_REDIRECT_NOT_CAUGHT',
-    severity: 'error',
-    diagnosis: 'A redirect() navigation signal surfaced as an uncaught error, so nothing performed the navigation. redirect() is caught in two places only: route middleware, and a component body. An event handler, a promise callback or a timer runs long after both, and a try/catch around the call swallows the signal.',
-    suggestedFix: 'From an event handler, a promise callback or a timer, call navigate(to) instead. If the call is inside a try/catch, rethrow anything whose name is RouterRedirect.',
-    codeExample: `// Bad - an event handler runs after the render the Router caught:
-<button onclick={() => redirect('/login')}>Sign in</button>
-
-// Fix - navigate() from a handler:
-<button onclick={() => navigate('/login')}>Sign in</button>
-
-// Fix - redirect() from a component body, which the Router catches:
-function Private() {
-  if (!user()) redirect('/login');
-  return <Secret />;
-}`,
-  },
-  HINT_PREFER_COMPUTED: {
-    code: 'HINT_PREFER_COMPUTED',
-    severity: 'info',
-    diagnosis: 'An effect is only used to derive a value from other signals. This is better expressed as a computed() signal, which is lazy and more efficient.',
-    suggestedFix: 'Replace the effect + signal pair with a single computed() signal.',
-    codeExample: `// Before — effect + signal (runs eagerly, more memory):
-const doubled = signal(0);
-effect(() => { doubled(count() * 2); });
-
-// After — computed (lazy, efficient):
-const doubled = computed(() => count() * 2);`,
-  },
-};
-
-// --- Lint Patterns ---
-// Static analysis rules applied to code snippets.
-
-const LINT_RULES = [
-  {
-    id: 'missing-signal-read',
-    code: 'ERR_MISSING_SIGNAL_READ',
-    severity: 'error',
-    test(code) {
-      const issues = [];
-      // Find signal declarations
-      const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
-      const signalNames = signalDecls.map(m => m[1]);
-
-      for (const name of signalNames) {
-        // Look for JSX usage without () — e.g., {count} but not {count()}
-        const jsxPattern = new RegExp(`\\{\\s*${name}\\s*\\}`, 'g');
-        let match;
-        while ((match = jsxPattern.exec(code)) !== null) {
-          // Make sure it's not {count()} — check the char before }
-          const snippet = code.slice(match.index, match.index + match[0].length);
-          if (!snippet.includes(`${name}(`)) {
-            const line = code.slice(0, match.index).split('\n').length;
-            issues.push({
-              severity: 'error',
-              code: 'ERR_MISSING_SIGNAL_READ',
-              message: `Signal "${name}" used in JSX without calling () — will render as "[Function]". Use {${name}()} instead.`,
-              line,
-              suggestedFix: `Change {${name}} to {${name}()}`,
-            });
-          }
-        }
-
-        // Template literal without ()
-        const templatePattern = new RegExp(`\\\$\\{\\s*${name}\\s*\\}`, 'g');
-        while ((match = templatePattern.exec(code)) !== null) {
-          if (!match[0].includes(`${name}(`)) {
-            const line = code.slice(0, match.index).split('\n').length;
-            issues.push({
-              severity: 'error',
-              code: 'ERR_MISSING_SIGNAL_READ',
-              message: `Signal "${name}" in template literal without () — will stringify as "[Function]". Use \${${name}()} instead.`,
-              line,
-              suggestedFix: `Change \${${name}} to \${${name}()}`,
-            });
-          }
-        }
+  // A project config that fails to load (it throws, or names a plugin that
+  // is not installed) is an answer like any other failure, not a bare string.
+  if (!ruleFilter?.length) {
+    try {
+      const eslint = new eslintModule.ESLint({ cwd: root });
+      if (await eslint.findConfigFile(filename)) {
+        const [result] = await eslint.lintText(code, { filePath: filename });
+        return lintResult(result.messages, plugin);
       }
-      return issues;
-    },
-  },
-  {
-    id: 'innerhtml-without-html',
-    code: 'ERR_UNSAFE_INNERHTML',
-    severity: 'warning',
-    test(code) {
-      const issues = [];
-      const pattern = /innerHTML\s*=\s*\{(?!.*__html)/g;
-      let match;
-      while ((match = pattern.exec(code)) !== null) {
-        const line = code.slice(0, match.index).split('\n').length;
-        issues.push({
-          severity: 'warning',
-          code: 'ERR_UNSAFE_INNERHTML',
-          message: 'innerHTML set without __html safety marker — potential XSS risk.',
-          line,
-          suggestedFix: 'Use innerHTML={{ __html: content }} to explicitly mark as intentional.',
-        });
-      }
-      return issues;
-    },
-  },
-  {
-    id: 'effect-writes-read-signal',
-    code: 'ERR_INFINITE_EFFECT',
-    severity: 'error',
-    test(code) {
-      const issues = [];
-      // Find effect blocks and check for read+write of same signal
-      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
-      let match;
-      while ((match = effectPattern.exec(code)) !== null) {
-        const body = match[1];
-        // Find signal reads: name()
-        const reads = [...body.matchAll(/(\w+)\(\)/g)].map(m => m[1]);
-        // Find signal writes: name(value) where value is not empty
-        const writes = [...body.matchAll(/(\w+)\([^)]+\)/g)].map(m => m[1]);
+    } catch (e) {
+      return {
+        error: `The project ESLint config failed to load: ${e && e.message ? e.message : String(e)}`,
+        hint: 'Fix the config, or pass rules (eslint-plugin-what rule names) to lint with those rules alone, without the project config.',
+      };
+    }
+  }
+  if (!plugin) return { lint: 'skipped', issues: [], note: 'eslint-plugin-what is not installed where the MCP server runs.' };
 
-        for (const name of reads) {
-          if (writes.includes(name) && name !== 'console' && name !== 'Math' && name !== 'JSON' && name !== 'Date') {
-            const line = code.slice(0, match.index).split('\n').length;
-            issues.push({
-              severity: 'error',
-              code: 'ERR_INFINITE_EFFECT',
-              message: `Effect reads and writes signal "${name}" — will cause infinite loop. Use untrack(${name}) for the read.`,
-              line,
-              suggestedFix: `Replace ${name}() reads with untrack(${name}) inside this effect.`,
-            });
-          }
-        }
-      }
-      return issues;
-    },
-  },
-  {
-    id: 'missing-cleanup',
-    code: 'ERR_MISSING_CLEANUP',
-    severity: 'warning',
-    test(code) {
-      const issues = [];
-      // Check effects that add listeners but don't return cleanup
-      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
-      let match;
-      while ((match = effectPattern.exec(code)) !== null) {
-        const body = match[1];
-        const hasListener = body.includes('addEventListener') || body.includes('setInterval') || body.includes('setTimeout');
-        const hasReturn = body.includes('return');
-
-        if (hasListener && !hasReturn) {
-          const line = code.slice(0, match.index).split('\n').length;
-          const resource = body.includes('addEventListener') ? 'event listener'
-            : body.includes('setInterval') ? 'interval'
-            : 'timeout';
-          issues.push({
-            severity: 'warning',
-            code: 'ERR_MISSING_CLEANUP',
-            message: `Effect sets up ${resource} but does not return a cleanup function — memory leak risk.`,
-            line,
-            suggestedFix: `Return a cleanup function: return () => ${resource === 'event listener' ? 'removeEventListener(...)' : resource === 'interval' ? 'clearInterval(id)' : 'clearTimeout(id)'}`,
-          });
-        }
-      }
-      return issues;
-    },
-  },
-  {
-    id: 'signal-write-in-render',
-    code: 'ERR_SIGNAL_WRITE_IN_RENDER',
-    severity: 'error',
-    test(code) {
-      const issues = [];
-      // Find signal declarations
-      const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
-      const signalNames = signalDecls.map(m => m[1]);
-
-      // Find component functions (PascalCase function declarations)
-      const componentPattern = /function\s+([A-Z]\w*)\s*\([^)]*\)\s*\{/g;
-      let compMatch;
-      while ((compMatch = componentPattern.exec(code)) !== null) {
-        // Get the component body (rough extraction)
-        const startIdx = compMatch.index + compMatch[0].length;
-        let braceDepth = 1;
-        let bodyEnd = startIdx;
-        for (let i = startIdx; i < code.length && braceDepth > 0; i++) {
-          if (code[i] === '{') braceDepth++;
-          if (code[i] === '}') braceDepth--;
-          bodyEnd = i;
-        }
-        const body = code.slice(startIdx, bodyEnd);
-
-        // For each signal, check if it's written at the TOP LEVEL of the component body
-        // (not inside effect(), onMount(), setTimeout, event handlers, arrow functions)
-        for (const name of signalNames) {
-          // Look for signal writes: name(someValue) where someValue is not empty
-          const writePattern = new RegExp(`(?<!\\w)${name}\\s*\\((?!\\s*\\))(?!.*=>)`, 'g');
-          let writeMatch;
-          while ((writeMatch = writePattern.exec(body)) !== null) {
-            // Check if this write is inside a nested function/callback
-            const beforeWrite = body.slice(0, writeMatch.index);
-            const nestedDepth = (beforeWrite.match(/(?:effect|onMount|setTimeout|setInterval|addEventListener|=>)\s*(?:\([^)]*\)\s*)?\{/g) || []).length;
-            const closingBraces = (beforeWrite.match(/\}/g) || []).length;
-
-            // If we're at top level of the component (not inside a nested callback)
-            if (nestedDepth <= closingBraces) {
-              // Check it's not a signal READ (no args or the call is just `name()`)
-              const fullCall = body.slice(writeMatch.index, writeMatch.index + writeMatch[0].length + 50);
-              if (!fullCall.match(new RegExp(`^${name}\\s*\\(\\s*\\)`))) {
-                const line = code.slice(0, compMatch.index + compMatch[0].length + writeMatch.index).split('\n').length;
-                issues.push({
-                  severity: 'error',
-                  code: 'ERR_SIGNAL_WRITE_IN_RENDER',
-                  message: `Signal "${name}" written during render in ${compMatch[1]}. Move signal writes into event handlers, effects, or onMount().`,
-                  line,
-                  suggestedFix: `Move ${name}(...) into an effect() or event handler.`,
-                });
-              }
-            }
-          }
-        }
-      }
-      return issues;
-    },
-  },
-  {
-    id: 'missing-key-in-for',
-    code: 'ERR_MISSING_KEY',
-    severity: 'warning',
-    test(code) {
-      const issues = [];
-      // Match <For each={...}> without a key prop
-      const forPattern = /<For\s+each=\{[^}]+\}\s*>/g;
-      let match;
-      while ((match = forPattern.exec(code)) !== null) {
-        // Check if there's NO key= anywhere in the For tag
-        // Get the full tag (up to the closing >)
-        const tagStr = match[0];
-        if (!tagStr.includes('key=') && !tagStr.includes('key ')) {
-          const line = code.slice(0, match.index).split('\n').length;
-          issues.push({
-            severity: 'warning',
-            code: 'ERR_MISSING_KEY',
-            message: '<For> list rendered without a key prop. Add key={item => item.id} for efficient reordering.',
-            line,
-            suggestedFix: 'Add a key prop: <For each={items()} key={item => item.id}>',
-          });
-        }
-      }
-
-      // Also check mapArray without a key function (3rd arg)
-      const mapPattern = /mapArray\s*\(\s*[^,]+,\s*[^,)]+\s*\)/g;
-      while ((match = mapPattern.exec(code)) !== null) {
-        // mapArray(source, mapFn) — missing the 3rd arg (keyFn)
-        const line = code.slice(0, match.index).split('\n').length;
-        issues.push({
-          severity: 'warning',
-          code: 'ERR_MISSING_KEY',
-          message: 'mapArray() called without a key function (3rd argument). Add a key function for efficient list updates.',
-          line,
-          suggestedFix: 'Add a key function: mapArray(items, mapFn, item => item.id)',
-        });
-      }
-      return issues;
-    },
-  },
-  {
-    id: 'prefer-computed-over-effect',
-    code: 'HINT_PREFER_COMPUTED',
-    severity: 'info',
-    test(code) {
-      const issues = [];
-      // Find signal declarations
-      const signalDecls = [...code.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:signal|useSignal)\s*\(/g)];
-      const signalNames = new Set(signalDecls.map(m => m[1]));
-
-      // Extract effect bodies using the same nested-brace approach as effect-writes-read-signal
-      const effectPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
-      let match;
-      while ((match = effectPattern.exec(code)) !== null) {
-        const body = match[1].trim();
-        // Check if body is a single signal write statement: signalName(expression);
-        const singleWrite = body.match(/^(\w+)\s*\([\s\S]+\)\s*;?\s*$/);
-        if (singleWrite) {
-          const writtenSignal = singleWrite[1];
-          if (writtenSignal && signalNames.has(writtenSignal)) {
-            const line = code.slice(0, match.index).split('\n').length;
-            issues.push({
-              severity: 'info',
-              code: 'HINT_PREFER_COMPUTED',
-              message: `Effect only writes to signal "${writtenSignal}". Consider using computed() instead for lazy evaluation.`,
-              line,
-              suggestedFix: `Replace with: const ${writtenSignal} = computed(() => /* your expression */);`,
-            });
-          }
-        }
-      }
-
-      // Also match arrow-expression form: effect(() => signalName(expression))
-      // Use a manual scan to handle nested parens
-      const arrowPattern = /effect\s*\(\s*\(\s*\)\s*=>\s*(\w+)\s*\(/g;
-      let arrowMatch;
-      while ((arrowMatch = arrowPattern.exec(code)) !== null) {
-        const writtenSignal = arrowMatch[1];
-        if (!signalNames.has(writtenSignal)) continue;
-        // Find the matching closing paren for the signal call, then for the effect call
-        const signalCallStart = arrowMatch.index + arrowMatch[0].length - 1; // position of '('
-        let depth = 1;
-        let i = signalCallStart + 1;
-        for (; i < code.length && depth > 0; i++) {
-          if (code[i] === '(') depth++;
-          if (code[i] === ')') depth--;
-        }
-        // After signal call closing paren, next char should be ')' (closing effect)
-        const afterSignalCall = code.slice(i).match(/^\s*\)/);
-        if (afterSignalCall) {
-          const line = code.slice(0, arrowMatch.index).split('\n').length;
-          issues.push({
-            severity: 'info',
-            code: 'HINT_PREFER_COMPUTED',
-            message: `Effect only writes to signal "${writtenSignal}". Consider using computed() instead for lazy evaluation.`,
-            line,
-            suggestedFix: `Replace with: const ${writtenSignal} = computed(() => /* your expression */);`,
-          });
-        }
-      }
-      return issues;
-    },
-  },
-  {
-    // -----------------------------------------------------------------------
-    // destructured-props-lose-reactivity
-    //
-    // What Framework components run ONCE — the function body is not re-run on
-    // prop change. The reactive props proxy auto-tracks reads via `props.foo`,
-    // but `const { foo } = props` snapshots the current value and detaches it
-    // from the proxy. Subsequent updates from the parent are invisible.
-    // -----------------------------------------------------------------------
-    id: 'destructured-props-lose-reactivity',
-    code: 'ERR_DESTRUCTURED_PROPS',
-    severity: 'warning',
-    test(code) {
-      const issues = [];
-      // Find component functions whose first param is `props` (any binding).
-      // We support both `function Foo(props) {` and `const Foo = (props) =>`.
-      const componentPatterns = [
-        /function\s+([A-Z]\w*)\s*\(\s*(\w+)\s*\)\s*\{/g,
-        /(?:const|let)\s+([A-Z]\w*)\s*=\s*\(\s*(\w+)\s*\)\s*=>/g,
-      ];
-      for (const pattern of componentPatterns) {
-        let compMatch;
-        while ((compMatch = pattern.exec(code)) !== null) {
-          const propsBinding = compMatch[2];
-          // Skip if the param is already destructured at the signature
-          // (that's a separate, more legible smell; we focus on body-level
-          // destructuring inside the component).
-          if (propsBinding === 'props' || /^[a-z]/.test(propsBinding)) {
-            // Walk forward and find the component body extent (braces).
-            const startIdx = compMatch.index + compMatch[0].length;
-            let braceDepth = 1;
-            let bodyEnd = startIdx;
-            for (let i = startIdx; i < code.length && braceDepth > 0; i++) {
-              if (code[i] === '{') braceDepth++;
-              if (code[i] === '}') braceDepth--;
-              bodyEnd = i;
-            }
-            const body = code.slice(startIdx, bodyEnd);
-            // Find: const|let { ... } = props (the actual binding name).
-            const destructPattern = new RegExp(
-              `(?:const|let)\\s*\\{([^}]+)\\}\\s*=\\s*${propsBinding}\\b`,
-              'g'
-            );
-            let dm;
-            while ((dm = destructPattern.exec(body)) !== null) {
-              const fields = dm[1].split(',').map(s => s.trim().split(/[:=]/)[0].trim()).filter(Boolean);
-              const line = code.slice(0, startIdx + dm.index).split('\n').length;
-              issues.push({
-                severity: 'warning',
-                code: 'ERR_DESTRUCTURED_PROPS',
-                message: `Destructuring '${propsBinding}' in the component body snapshots props and loses reactivity. Components run ONCE — '${propsBinding}.${fields[0] || 'foo'}' tracks via the props proxy, but '{ ${fields.join(', ')} } = ${propsBinding}' does not.`,
-                line,
-                suggestedFix: `Read props directly inside JSX or effects: \`${propsBinding}.${fields[0] || 'foo'}\` — or wrap each in an accessor: const ${fields[0] || 'foo'} = () => ${propsBinding}.${fields[0] || 'foo'}.`,
-              });
-            }
-          }
-        }
-      }
-      return issues;
-    },
-  },
-  {
-    // -----------------------------------------------------------------------
-    // module-scope-signal-missing-name
-    //
-    // Module-scope signals are global state. Without a debug name (second arg
-    // to signal()), they appear as `signal_42` in devtools and what_signals,
-    // making cross-tool debugging much harder. This is a hint, not an error.
-    // -----------------------------------------------------------------------
-    id: 'module-scope-signal-missing-name',
-    code: 'HINT_SIGNAL_MISSING_NAME',
-    severity: 'info',
-    test(code) {
-      const issues = [];
-      // Look for signal/computed declarations at the top level — i.e., not
-      // indented (or only minimally) and not inside a function. A simple but
-      // reliable heuristic: lines that match `^(?:export\s+)?(?:const|let)
-      // \s+\w+\s*=\s*(signal|computed)\s*\(` AND the opening call has only
-      // one argument (no comma at the same paren depth before the close).
-      const lines = code.split('\n');
-      const declRe = /^(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(signal|computed)\s*\(/;
-      // Track simple brace depth so we skip signals declared inside a function.
-      let depth = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Pre-line depth determines whether we're at module scope.
-        const wasModuleScope = depth === 0;
-        // Update depth after — we want to evaluate the line at its starting scope.
-        for (let j = 0; j < line.length; j++) {
-          if (line[j] === '{') depth++;
-          else if (line[j] === '}') depth = Math.max(0, depth - 1);
-        }
-        if (!wasModuleScope) continue;
-        const m = line.match(declRe);
-        if (!m) continue;
-        const sigName = m[1];
-        const kind = m[2];
-        // Reconstruct the full call args by walking parens forward.
-        const callStart = m.index + m[0].length; // position right after the opening '('
-        // The match is on `line` only; rebuild full call across lines.
-        let scan = code.indexOf(line, 0);
-        // Find absolute position of the opening paren of signal/computed(...)
-        const lineStart = code.split('\n').slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
-        const openIdx = lineStart + callStart - 1; // points at the '('
-        // Walk to matching close.
-        let d = 1, j = openIdx + 1, commasAtDepth1 = 0;
-        for (; j < code.length && d > 0; j++) {
-          const ch = code[j];
-          if (ch === '(') d++;
-          else if (ch === ')') d--;
-          else if (ch === ',' && d === 1) commasAtDepth1++;
-          // Treat string literals naively — bail out of this check if we see a
-          // backtick, since template literals make this regex unreliable.
-        }
-        // For signal(), only one arg means no debug name.
-        // For computed(), arity is always 1 — skip; debug name is via .debugName?
-        if (kind === 'signal' && commasAtDepth1 === 0) {
-          issues.push({
-            severity: 'info',
-            code: 'HINT_SIGNAL_MISSING_NAME',
-            message: `Module-scope signal '${sigName}' has no debug name. It will appear as 'signal_N' in devtools and what_signals — agents and humans both find it harder to trace.`,
-            line: i + 1,
-            suggestedFix: `Add a debug name as the second argument: signal(<initial>, '${sigName}').`,
-          });
-        }
-        void scan;
-      }
-      return issues;
-    },
-  },
-];
+  const preset = plugin.configs.compiler;
+  let rules = preset.rules;
+  if (ruleFilter?.length) {
+    const names = ruleFilter.map((r) => r.replace(/^what\//, ''));
+    const unknown = names.filter((n) => !plugin.rules[n]);
+    if (unknown.length) return { error: `Unknown rule: ${unknown.join(', ')}`, available: Object.keys(plugin.rules) };
+    rules = Object.fromEntries(names.map((n) => {
+      const setting = preset.rules[`what/${n}`];
+      const level = Array.isArray(setting) ? setting[0] : setting;
+      return [`what/${n}`, level && level !== 'off' ? setting : 'warn'];
+    }));
+  }
+  return lintResult(new eslintModule.Linter().verify(code, [{
+    files: ['**/*.jsx'],
+    languageOptions: preset.languageOptions,
+    plugins: { what: plugin },
+    rules,
+  }], { filename: 'snippet.jsx' }), plugin);
+}
 
 // --- Scaffold Templates ---
+// Every template is compiled and run by test/scaffold-smoke.test.js and linted
+// clean by the rules above. A component runs once and its props are the plain
+// values the parent passed, so a prop that changes arrives as an accessor
+// (<Row text={text} />, not text={text()}) and the component calls it where it
+// renders.
+
+const initialFor = (name) => (/^(is|has|show|can|should)[A-Z]/.test(name) ? 'false' : "''");
+const camel = (name) => name.charAt(0).toLowerCase() + name.slice(1);
+const titled = (name) => name.charAt(0).toUpperCase() + name.slice(1);
 
 const SCAFFOLD_TEMPLATES = {
-  component: ({ name, props = [], signals = [] }) => {
-    const propsParam = props.length > 0
-      ? `{ ${props.join(', ')} }`
-      : '';
-    const signalDecls = signals.map(s => `  const ${s} = signal(${typeof s === 'string' && s.includes('is') ? 'false' : '""'}, '${s}');`).join('\n');
-
-    return `import { signal, effect } from 'what-framework';
-
-function ${name}(${propsParam}) {
-${signalDecls || '  // Add signals here'}
-
-  return (
-    <div>
+  component: ({ name, props, signals, reactive }) => {
+    const declarations = signals.map((s) => `  const ${s} = signal(${initialFor(s)}, '${s}');`);
+    const lines = [
+      ...props.map((p) => `      <p>${p}: {${reactive}props.${p}()}</p>`),
+      ...signals.map((s) => `      <p>${s}: {${reactive}${s}()}</p>`),
+    ];
+    return `${signals.length ? "import { signal } from 'what-framework';\n\n" : ''}// Runs once. Props are the values the parent passed, so a value that changes
+// comes in as an accessor (<${name} label={label} />, not label={label()}) and
+// is called where it renders: props.label() inside JSX.
+export default function ${name}(props) {
+${declarations.length ? `${declarations.join('\n')}\n\n` : ''}  return (
+    <section class="${camel(name)}">
       <h2>${name}</h2>
-      {/* Add your JSX here */}
-    </div>
+${lines.join('\n') || '      <p>Add content here.</p>'}
+    </section>
   );
 }
-
-export default ${name};
 `;
   },
 
-  page: ({ name, signals = [] }) => {
-    const signalDecls = signals.map(s => `  const ${s} = signal(null, '${s}');`).join('\n');
+  page: ({ name, signals }) => {
+    const fields = signals.filter((s) => s !== 'status');
+    const declarations = fields.map((s) => `  const ${s} = signal(${initialFor(s)}, '${s}');`);
+    return `import { computed, Head, Suspense${declarations.length ? ', signal' : ''} } from 'what-framework';
 
-    return `import { signal, effect, onMount } from 'what-framework';
-import { Head } from 'what-framework';
-
-function ${name}() {
-${signalDecls || '  const loading = signal(true, \'loading\');'}
-
-  onMount(() => {
-    // Fetch data or initialize page
-    loading(false);
-  });
-
+export default function ${name}() {
+  // Replace this async callback with your data source.
+  const status = computed(async () => 'Ready', 'status');
+${declarations.join('\n')}${declarations.length ? '\n' : ''}
   return (
-    <>
-      <Head><title>${name}</title></Head>
-      <main>
-        <h1>${name}</h1>
-        {/* Page content */}
-      </main>
-    </>
+    <main>
+      <Head title="${name}" />
+      <h1>${name}</h1>
+      <Suspense fallback={<p>Loading…</p>}>
+        <p>{() => status()}</p>
+      </Suspense>
+${fields.map((s) => `      <p>${s}: {() => ${s}()}</p>\n`).join('')}    </main>
   );
 }
-
-export default ${name};
 `;
   },
 
-  form: ({ name, signals = [] }) => {
-    const fields = signals.length > 0 ? signals : ['email', 'password'];
-    const fieldDecls = fields.map(f => `    ${f}: { initial: '', rules: [rules.required('${f} is required')] },`).join('\n');
+  form: ({ name, signals, reactive }) => {
+    const fields = signals.length ? signals : ['email', 'password'];
+    const inputType = (f) => (/^pass(word)?$/i.test(f) ? 'password' : /^e-?mail$/i.test(f) ? 'email' : 'text');
+    const rulesFor = (f) => `[rules.required('${titled(f)} is required')${inputType(f) === 'email' ? ', rules.email()' : ''}]`;
+    return `import { useForm, rules, simpleResolver } from 'what-framework/form';
 
-    function inferInputType(fieldName) {
-      const lower = fieldName.toLowerCase();
-      if (lower === 'password' || lower === 'pass') return 'password';
-      if (lower === 'email') return 'email';
-      return 'text';
-    }
+export default function ${name}(props) {
+  const form = useForm({
+    defaultValues: { ${fields.map((f) => `${f}: ''`).join(', ')} },
+    resolver: simpleResolver({
+${fields.map((f) => `      ${f}: ${rulesFor(f)},`).join('\n')}
+    }),
+  });
 
-    return `import { signal } from 'what-framework';
-import { useForm, Input, ErrorMessage, rules } from 'what-framework';
-
-function ${name}() {
-  const { fields, handleSubmit, isSubmitting, errors } = useForm({
-    fields: {
-${fieldDecls}
-    },
-    onSubmit: async (values) => {
-      console.log('Form submitted:', values);
-    },
+  // handleSubmit validates first and calls this only with valid values.
+  const submit = form.handleSubmit(async (values) => {
+    await props.onSubmit?.(values);
   });
 
   return (
-    <form onsubmit={handleSubmit}>
-${fields.map(f => `      <div>
-        <label for="${f}">${f.charAt(0).toUpperCase() + f.slice(1)}</label>
-        <Input field={fields.${f}} id="${f}" type="${inferInputType(f)}" />
-        <ErrorMessage field={fields.${f}} />
-      </div>`).join('\n')}
-      <button type="submit" disabled={isSubmitting()}>
-        {isSubmitting() ? 'Submitting...' : 'Submit'}
+    <form ${reactive ? 'onsubmit' : 'onSubmit'}={submit}>
+${fields.map((f) => `      <label>
+        ${titled(f)}
+        <input type="${inputType(f)}" {...form.register('${f}')} />
+      </label>
+      <p class="error" role="alert">{() => form.formState.error('${f}')?.message}</p>`).join('\n')}
+      <button type="submit" disabled={${reactive}form.formState.isSubmitting()}>
+        {${reactive}form.formState.isSubmitting() ? 'Submitting…' : 'Submit'}
       </button>
     </form>
   );
 }
-
-export default ${name};
 `;
   },
 
-  store: ({ name, signals = [] }) => {
-    const stateFields = signals.length > 0
-      ? signals.map(s => `    ${s}: null,`).join('\n')
-      : '    items: [],\n    loading: false,\n    error: null,';
+  store: ({ name, signals }) => {
+    const hook = `use${titled(name)}`;
+    const fields = signals.length ? signals : ['items'];
+    const state = fields.map((s) => `  ${s}: ${s === 'items' ? '[]' : initialFor(s) === 'false' ? 'false' : 'null'},`);
+    const actions = fields.map((s) => s === 'items'
+      ? `  addItem(item) {\n    this.items = [...this.items, item];\n  },`
+      : `  set${titled(s)}(value) {\n    this.${s} = value;\n  },`);
+    return `import { createStore${fields.includes('items') ? ', derived' : ''} } from 'what-framework';
 
-    return `import { createStore, derived } from 'what-framework';
-
-const ${name.charAt(0).toLowerCase() + name.slice(1)} = createStore({
-${stateFields}
+// createStore returns a hook. Call it anywhere for the state (reactive getters)
+// and the actions; an action reads and assigns state through \`this\`, and its
+// writes are batched:
+//   const store = ${hook}();
+//   store.${fields.includes('items') ? "addItem('milk'); store.items" : `set${titled(fields[0])}(1); store.${fields[0]}`}
+const ${hook} = createStore({
+${state.join('\n')}
+${fields.includes('items') ? '  itemCount: derived((state) => state.items.length),\n' : ''}${actions.join('\n')}
 });
 
-// Derived values
-// const itemCount = derived(state => state.items.length);
-
-// Actions
-export function addItem(item) {
-  ${name.charAt(0).toLowerCase() + name.slice(1)}.set(state => ({
-    ...state,
-    items: [...state.items, item],
-  }));
-}
-
-export function setLoading(value) {
-  ${name.charAt(0).toLowerCase() + name.slice(1)}.set(state => ({ ...state, loading: value }));
-}
-
-export default ${name.charAt(0).toLowerCase() + name.slice(1)};
+export default ${hook};
 `;
   },
 
-  island: ({ name, props = [], signals = [] }) => {
-    const signalDecls = signals.map(s => `  const ${s} = signal(null, '${s}');`).join('\n');
+  island: ({ name, props, signals, reactive }) => {
+    const declarations = (signals.length ? signals : ['active']).map((s) => `  const ${s} = signal(${s === 'active' ? 'false' : initialFor(s)}, '${s}');`);
+    const toggle = signals.length ? signals[0] : 'active';
+    return `import { signal } from 'what-framework';
 
-    return `import { signal, effect, onMount } from 'what-framework';
-
-// Island component — hydrates independently on the client.
-// Server renders the static shell; this code runs only in the browser.
-function ${name}(${props.length > 0 ? `{ ${props.join(', ')} }` : ''}) {
-${signalDecls || '  const active = signal(false, \'active\');'}
-
-  onMount(() => {
-    // Client-only initialization
-    console.log('${name} island hydrated');
-  });
+// An island: the server renders its HTML and the client hydrates it on its own,
+// with the props the server serialized (plain values). Register its loader
+// in the client entry: island('${camel(name)}', () => import('./${reactive ? 'islands/' : 'components/'}${name}.jsx')).
+export default function ${name}(props) {
+${declarations.join('\n')}
 
   return (
-    <div data-island="${name.toLowerCase()}">
-      {/* Interactive island content */}
+    <div data-island="${camel(name)}">
+${props.map((p) => `      <p>${p}: {props.${p}}</p>`).join('\n')}${props.length ? '\n' : ''}      <button ${reactive ? 'onclick' : 'onClick'}={() => ${toggle}((v) => !v)}>{${reactive}${toggle}() ? 'On' : 'Off'}</button>
     </div>
   );
 }
-
-// Mark as island for the compiler
-${name}.island = true;
-
-export default ${name};
 `;
   },
 };
 
+function buildlessScaffold(type, { name, props, signals }) {
+  const imports = (names) => `import { ${names} } from 'what-framework';
+
+`;
+  const declarations = (list) => list.map((s) => `  const ${s} = signal(${s === 'active' ? 'false' : initialFor(s)}, '${s}');
+`).join('');
+  if (type === 'page') {
+    const fields = signals.filter((s) => s !== 'data');
+    return `${imports(`h, Head, useLoaderData${fields.length ? ', signal' : ''}`)}export const page = { mode: 'server' };
+
+export async function loader() {
+  return { status: 'Ready' };
+}
+
+export default function ${name}() {
+  const data = useLoaderData();
+${declarations(fields)}  return h('main', {},
+    h(Head, { title: '${name}' }),
+    h('h1', {}, '${name}'),
+    h('p', {}, data.status)${fields.map((s) => `,
+    h('p', {}, '${s}: ', () => ${s}())`).join('')},
+  );
+}
+`;
+  }
+  if (type === 'form') {
+    const fields = signals.length ? signals : ['email', 'password'];
+    return `${imports('h').trimEnd()}
+import { useForm, rules, simpleResolver } from 'what-framework/form';
+
+export default function ${name}(props) {
+  const form = useForm({
+    defaultValues: { ${fields.map((f) => `${f}: ''`).join(', ')} },
+    resolver: simpleResolver({
+${fields.map((f) => `      ${f}: [rules.required('${titled(f)} is required')],`).join('\n')}
+    }),
+  });
+  return h('form', { onSubmit: form.handleSubmit(async (values) => props.onSubmit?.(values)) },
+${fields.map((f) => `    h('label', {}, '${titled(f)}', h('input', form.register('${f}'))),
+    h('p', { class: 'error', role: 'alert' }, () => form.formState.error('${f}')?.message),`).join('\n')}
+    h('button', { type: 'submit', disabled: form.formState.isSubmitting }, () => form.formState.isSubmitting() ? 'Submitting…' : 'Submit'),
+  );
+}
+`;
+  }
+  const island = type === 'island';
+  const fields = island && !signals.length ? ['active'] : signals;
+  return `${imports(fields.length ? 'h, signal' : 'h')}export default function ${name}(${props.length ? 'props' : ''}) {
+${declarations(fields)}  return h('section', {},
+    h('h2', {}, '${name}')${props.map((p) => `,
+    h('p', {}, '${p}: ', ${island ? `props.${p}` : `() => props.${p}()`})`).join('')}${fields.map((s) => `,
+    h('p', {}, '${s}: ', () => ${s}())`).join('')}${island ? `,
+    h('button', { onClick: () => ${fields[0]}((value) => !value) }, () => ${fields[0]}() ? 'On' : 'Off')` : ''},
+  );
+}
+`;
+}
+
+/**
+ * Scaffold source for one type, as what_scaffold returns it. Also renders the
+ * what://docs/patterns resource, so the documented patterns are the tested ones.
+ * @param {'component'|'page'|'form'|'store'|'island'} type
+ * @param {{ name: string, props?: string[], signals?: string[], template?: string }} options
+ */
+export function scaffold(type, { name, props = [], signals = [], template = 'spa' }) {
+  if (template === 'fullstack' && type !== 'store') return buildlessScaffold(type, { name, props, signals });
+  return SCAFFOLD_TEMPLATES[type]({ name, props, signals, reactive: template === 'islands' ? '() => ' : '' });
+}
+
+// --- Compile check ---
+// Runs the snippet through the real What compiler, offline, when the project
+// has it installed (every scaffolded app does). Parse errors and the
+// compiler's own build-time diagnostics (ERR_MISSING_KEY) come back as issues.
+
+async function compileCheck(code, filename, root) {
+  let babel;
+  let plugin;
+  try {
+    babel = await import('@babel/core');
+    plugin = (await import('what-compiler/babel')).default;
+  } catch {
+    return { compiled: 'skipped', issues: [], note: 'what-compiler or @babel/core is not installed where the MCP server runs, so only the lint rules ran.' };
+  }
+  const issues = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    const text = args.join(' ');
+    const reported = text.match(/\b(ERR_[A-Z0-9_]+)\b/)?.[1];
+    const line = Number(text.match(/:(\d+):\d+\b/)?.[1]) || undefined;
+    issues.push({ severity: 'warning', code: reported || 'COMPILER_WARNING', message: text.replace(/^\[what-compiler\]\s*/, '').replace(/ at [^\n]+?:\d+:\d+/, ''), line, rule: 'compiler' });
+  };
+  try {
+    babel.transformSync(code, {
+      filename,
+      configFile: false,
+      babelrc: false,
+      plugins: [[plugin, { projectRoot: root }]],
+      parserOpts: { plugins: ['jsx', 'typescript'] },
+    });
+    return { compiled: true, issues };
+  } catch (e) {
+    const message = String(e.message || e).replace(`${filename}: `, '').split('\n')[0];
+    const code = e.code?.startsWith('ERR_') ? e.code : message.match(/\bERR_[A-Z0-9_]+\b/)?.[0]
+      || (e.code === 'BABEL_PARSE_ERROR' ? 'PARSE_ERROR' : 'COMPILER_ERROR');
+    issues.push({ severity: 'error', code, message, line: e.loc?.line, rule: 'compiler' });
+    return { compiled: false, issues };
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
 // --- Register Agent Tools ---
 
-export function registerAgentTools(server, bridge) {
-
-  // Helper responses
-  function errorResponse(message, nextSteps) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: message,
-          summary: message,
-          nextSteps: nextSteps || ['Check the arguments and try again.'],
-        }, null, 2),
-      }],
-      isError: true,
-    };
-  }
-
-  function ok(data) {
-    return {
-      content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
-    };
-  }
-
-  function noConnection(tool) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: 'No browser connected',
-          summary: `Cannot reach browser for ${tool}.`,
-          nextSteps: [
-            'Ensure your What Framework app is running with the devtools-mcp Vite plugin enabled.',
-            'Check that the bridge server is started (default port 9229).',
-          ],
-        }, null, 2),
-      }],
-      isError: true,
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // Tool 1 — what_lint
-  // -----------------------------------------------------------------------
+export function registerAgentTools(server, bridge, { root = process.cwd() } = {}) {
+  const { ok, fail } = createResponder(bridge);
 
   server.tool(
     'what_lint',
-    'Static analysis for What Framework code. Pass a code snippet, get back structured issues with fix suggestions. Works offline — no browser connection needed.',
+    'Check code offline with the project ESLint config (compiler preset if absent) and the What compiler. Pass the intended file path for path-specific rules.',
     {
-      code: z.string().describe('The What Framework code snippet to analyze'),
-      rules: z.array(z.string()).optional().describe('Specific rule IDs to run (default: all). Options: missing-signal-read, innerhtml-without-html, effect-writes-read-signal, missing-cleanup, signal-write-in-render, missing-key-in-for, prefer-computed-over-effect, destructured-props-lose-reactivity, module-scope-signal-missing-name'),
+      code: z.string().describe('The What Framework code to check'),
+      filePath: z.string().optional().describe('Intended path relative to the MCP project root'),
+      rules: z.array(z.string()).optional().describe('eslint-plugin-what rule names to run instead of the preset, e.g. ["no-moved-imports"]'),
+      compile: z.boolean().optional().default(true).describe('Also compile the snippet with what-compiler (default true)'),
     },
-    async ({ code, rules: ruleFilter }) => {
-      let rulesToRun = LINT_RULES;
-      if (ruleFilter && ruleFilter.length > 0) {
-        rulesToRun = LINT_RULES.filter(r => ruleFilter.includes(r.id));
-        if (rulesToRun.length === 0) {
-          return errorResponse(
-            `No matching rules found. Available: ${LINT_RULES.map(r => r.id).join(', ')}`,
-            ['Use one of the available rule IDs.']
-          );
-        }
+    async ({ code, filePath, rules: ruleFilter, compile }) => {
+      const name = filePath || (projectTemplate(root) === 'fullstack' ? 'src/snippet.js' : 'src/snippet.jsx');
+      const filename = resolve(root, name);
+      const fromRoot = relative(root, filename);
+      if (isAbsolute(name) || !fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) return fail('filePath must be a file inside the project.');
+      const linted = await lintRules(code, ruleFilter, root, filename);
+      if (linted.error) return fail(linted.error, linted.hint ?? `Available: ${linted.available.join(', ')}`);
+      const issues = [...linted.issues];
+      const out = { lint: linted.lint };
+      const notes = linted.note ? [linted.note] : [];
+      if (compile) {
+        const result = await compileCheck(code, filename, root);
+        issues.push(...result.issues);
+        out.compiled = result.compiled;
+        if (result.note) notes.push(result.note);
       }
-
-      const issues = [];
-      for (const rule of rulesToRun) {
-        try {
-          const ruleIssues = rule.test(code);
-          issues.push(...ruleIssues);
-        } catch {
-          // Rule crashed — skip silently
-        }
-      }
-
-      // Sort by line number
       issues.sort((a, b) => (a.line || 0) - (b.line || 0));
 
-      const errorCount = issues.filter(i => i.severity === 'error').length;
-      const warningCount = issues.filter(i => i.severity === 'warning').length;
-      const summary = issues.length === 0
-        ? 'No issues found. Code looks good.'
-        : `${issues.length} issue${issues.length !== 1 ? 's' : ''}: ${errorCount} error${errorCount !== 1 ? 's' : ''}, ${warningCount} warning${warningCount !== 1 ? 's' : ''}.`;
-
-      return ok({
-        summary,
-        issueCount: issues.length,
-        errorCount,
-        warningCount,
-        issues,
-        rulesChecked: rulesToRun.map(r => r.id),
-      });
+      out.errors = issues.filter((i) => i.severity === 'error').length;
+      out.warnings = issues.filter((i) => i.severity === 'warning').length;
+      out.issues = issues;
+      if (notes.length) out.note = notes.join(' ');
+      return ok(out);
     }
   );
-
-  // -----------------------------------------------------------------------
-  // Tool 2 — what_scaffold
-  // -----------------------------------------------------------------------
 
   server.tool(
     'what_scaffold',
-    'Generate idiomatic What Framework boilerplate. Works offline — no browser connection needed.',
+    'Idiomatic What Framework code for a component, page, form, store or island, written against the current APIs (each template is compiled, run and linted in the test suite). No browser needed.',
     {
-      type: z.enum(['component', 'page', 'form', 'store', 'island']).describe('Type of code to generate'),
-      name: z.string().describe('Name for the generated component/store (PascalCase recommended)'),
-      props: z.array(z.string()).optional().describe('Prop names the component accepts'),
-      signals: z.array(z.string()).optional().describe('Signal names to declare in the component'),
+      type: z.enum(['component', 'page', 'form', 'store', 'island']).describe('What to generate'),
+      name: z.string().describe('Name (PascalCase for components)'),
+      props: z.array(z.string()).optional().describe('Prop names the component reads (component, island)'),
+      signals: z.array(z.string()).optional().describe('Signal names (component, page, island), field names (form) or state keys (store)'),
     },
     async ({ type, name, props, signals }) => {
-      // Validate name is PascalCase
-      if (!/^[A-Z]/.test(name) && type !== 'store') {
-        return errorResponse(
-          `Component name "${name}" should be PascalCase (e.g., "${name.charAt(0).toUpperCase() + name.slice(1)}").`,
-          ['Use PascalCase for component names — this is required by the What Framework compiler.']
-        );
+      if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+        return fail(`Name "${name}" should be PascalCase`, `Use "${name.charAt(0).toUpperCase() + name.slice(1).replace(/[^A-Za-z0-9]/g, '')}": a lowercase JSX tag is treated as an HTML element.`);
       }
-
-      const template = SCAFFOLD_TEMPLATES[type];
-      if (!template) {
-        return errorResponse(
-          `Unknown scaffold type: ${type}`,
-          [`Available types: ${Object.keys(SCAFFOLD_TEMPLATES).join(', ')}`]
-        );
-      }
-
-      const code = template({ name, props: props || [], signals: signals || [] });
-
-      return ok({
-        summary: `Generated ${type} "${name}" with ${(signals || []).length} signals and ${(props || []).length} props.`,
-        type,
-        name,
-        code,
-        instructions: [
-          `Save this as src/${type === 'page' ? 'pages/' : type === 'store' ? 'stores/' : 'components/'}${name}.jsx`,
-          type === 'island' ? 'The island will hydrate independently on the client.' : null,
-          type === 'store' ? 'Import the store in components that need shared state.' : null,
-          type === 'form' ? 'Install zod if using zodResolver for validation.' : null,
-        ].filter(Boolean),
-      });
+      const identifiers = [...(props || []), ...(signals || [])];
+      const bad = identifiers.find((n) => !/^[A-Za-z_$][\w$]*$/.test(n));
+      if (bad) return fail(`"${bad}" is not a JavaScript identifier`);
+      const template = projectTemplate(root);
+      const code = scaffold(type, { name, props, signals, template });
+      const path = type === 'store' ? `src/stores/${name.charAt(0).toLowerCase()}${name.slice(1)}.js`
+        : `src/${type === 'page' ? 'pages' : type === 'island' && template === 'islands' ? 'islands' : 'components'}/${template === 'fullstack' && type === 'page' ? camel(name) : name}.${template === 'fullstack' ? 'js' : 'jsx'}`;
+      return ok({ type, name, path, code });
     }
   );
-
-  // -----------------------------------------------------------------------
-  // Tool 3 — what_validate
-  // -----------------------------------------------------------------------
-
-  server.tool(
-    'what_validate',
-    'Validate What Framework component code by running it through the compiler pipeline in the browser. Returns parse errors and compiled output.',
-    {
-      code: z.string().describe('Component code to validate'),
-      format: z.enum(['esm', 'cjs']).optional().default('esm').describe('Output format (default: esm)'),
-    },
-    async ({ code, format }) => {
-      if (!bridge.isConnected()) return noConnection('what_validate');
-
-      try {
-        const result = await bridge.sendCommand('validate-code', { code, format }, 10000);
-
-        if (result.error) {
-          return ok({
-            valid: false,
-            summary: `Validation failed: ${result.error}`,
-            errors: result.errors || [{ message: result.error, line: result.line }],
-            suggestions: result.suggestions || [
-              'Check for syntax errors in the JSX.',
-              'Ensure all imports are valid what-framework exports.',
-            ],
-          });
-        }
-
-        return ok({
-          valid: true,
-          summary: `Code is valid. Compiled to ${(result.output || '').length} chars of ${format}.`,
-          output: result.output,
-          warnings: result.warnings || [],
-          stats: {
-            signalCount: (result.output || '').match(/signal\s*\(/g)?.length || 0,
-            effectCount: (result.output || '').match(/effect\s*\(/g)?.length || 0,
-            componentCount: (result.output || '').match(/function\s+[A-Z]\w*\s*\(/g)?.length || 0,
-          },
-        });
-      } catch {
-        // Fallback: do basic validation without browser
-        const issues = [];
-
-        // Check for basic syntax issues
-        const openParens = (code.match(/\(/g) || []).length;
-        const closeParens = (code.match(/\)/g) || []).length;
-        if (openParens !== closeParens) {
-          issues.push({ message: `Mismatched parentheses: ${openParens} open, ${closeParens} close`, severity: 'error' });
-        }
-
-        const openBraces = (code.match(/\{/g) || []).length;
-        const closeBraces = (code.match(/\}/g) || []).length;
-        if (openBraces !== closeBraces) {
-          issues.push({ message: `Mismatched braces: ${openBraces} open, ${closeBraces} close`, severity: 'error' });
-        }
-
-        // Run lint rules as fallback
-        for (const rule of LINT_RULES) {
-          try {
-            issues.push(...rule.test(code));
-          } catch { /* skip */ }
-        }
-
-        return ok({
-          valid: issues.filter(i => i.severity === 'error').length === 0,
-          summary: issues.length > 0
-            ? `Found ${issues.length} issues (browser validation unavailable, used static analysis).`
-            : 'No issues found via static analysis (browser validation unavailable).',
-          errors: issues,
-          note: 'Browser-based compiler validation was unavailable. Results are from static analysis only.',
-        });
-      }
-    }
-  );
-
-  // -----------------------------------------------------------------------
-  // Tool 4 — what_perf
-  // -----------------------------------------------------------------------
-
-  server.tool(
-    'what_perf',
-    'Performance snapshot of the running What Framework app. Signal count, effect count, hot effects, largest subscriber counts, memory estimate.',
-    {
-      threshold: z.number().optional().default(10).describe('Flag effects that ran more than this many times per second (default: 10)'),
-    },
-    async ({ threshold }) => {
-      if (!bridge.isConnected()) return noConnection('what_perf');
-
-      let snapshot;
-      try {
-        snapshot = bridge.getOrRefreshSnapshot
-          ? await bridge.getOrRefreshSnapshot()
-          : await bridge.refreshSnapshot();
-      } catch {
-        snapshot = bridge.getSnapshot();
-      }
-
-      if (!snapshot) {
-        return errorResponse('No snapshot available.', [
-          'Refresh the browser page to trigger a snapshot.',
-        ]);
-      }
-
-      const signals = snapshot.signals || [];
-      const effects = snapshot.effects || [];
-      const components = snapshot.components || [];
-      const recentEvents = bridge.getEvents(Date.now() - 1000); // last 1s
-
-      // Hot effects: ran more than threshold times
-      const hotEffects = effects
-        .filter(e => (e.runCount || 0) > threshold)
-        .sort((a, b) => (b.runCount || 0) - (a.runCount || 0))
-        .slice(0, 20)
-        .map(e => ({
-          id: e.id,
-          name: e.name || `effect_${e.id}`,
-          runCount: e.runCount,
-          depCount: (e.depSignalIds || e.deps || []).length,
-          componentId: e.componentId,
-        }));
-
-      // Largest subscriber counts (signals with most effects depending on them)
-      const subCounts = {};
-      for (const eff of effects) {
-        for (const sid of (eff.depSignalIds || eff.deps || [])) {
-          subCounts[sid] = (subCounts[sid] || 0) + 1;
-        }
-      }
-      const largestSubscribers = Object.entries(subCounts)
-        .map(([id, count]) => {
-          const sig = signals.find(s => s.id === Number(id));
-          return { id: Number(id), name: sig?.name || `signal_${id}`, subscriberCount: count };
-        })
-        .sort((a, b) => b.subscriberCount - a.subscriberCount)
-        .slice(0, 10);
-
-      // Event rate
-      const eventRate = recentEvents.length; // events per second
-
-      // Memory estimate (rough heuristic)
-      const signalMemory = signals.length * 200; // ~200 bytes per signal (value + subs set)
-      const effectMemory = effects.length * 300; // ~300 bytes per effect (fn + deps array)
-      const componentMemory = components.length * 500; // ~500 bytes per component
-      const totalEstimate = signalMemory + effectMemory + componentMemory;
-      const memoryStr = totalEstimate > 1048576
-        ? `${(totalEstimate / 1048576).toFixed(1)} MB`
-        : `${(totalEstimate / 1024).toFixed(1)} KB`;
-
-      const issues = [];
-      if (hotEffects.length > 0) {
-        issues.push(`${hotEffects.length} effects exceeded ${threshold} runs (potential performance issue)`);
-      }
-      if (eventRate > 100) {
-        issues.push(`High event rate: ${eventRate} events/sec`);
-      }
-      if (signals.length > 1000) {
-        issues.push(`High signal count (${signals.length}) — consider consolidating with stores`);
-      }
-
-      const summary = issues.length > 0
-        ? `Performance concerns: ${issues.join('; ')}.`
-        : `Healthy. ${signals.length} signals, ${effects.length} effects, ${components.length} components. ${memoryStr} estimated.`;
-
-      // Suppress noisy "every signal has 1 subscriber" output — agents would
-      // chase it as a signal. Only emit largestSubscribers when at least one
-      // signal has 2+ subscribers worth investigating.
-      const maxSubs = largestSubscribers.length > 0
-        ? largestSubscribers[0].subscriberCount
-        : 0;
-      const result = {
-        summary,
-        counts: {
-          signals: signals.length,
-          effects: effects.length,
-          components: components.length,
-        },
-        hotEffects,
-        eventRate,
-        memoryEstimate: memoryStr,
-        memoryBytes: totalEstimate,
-        issues,
-        nextSteps: issues.length > 0 ? [
-          'Use what_dependency_graph to trace hot effect dependencies.',
-          'Consider using batch() to group signal writes.',
-          'Use computed() for derived values instead of effects.',
-        ] : [],
-      };
-      if (maxSubs >= 2) result.largestSubscribers = largestSubscribers;
-      return ok(result);
-    }
-  );
-
-  // -----------------------------------------------------------------------
-  // Tool 5 — what_fix
-  // -----------------------------------------------------------------------
 
   server.tool(
     'what_fix',
-    'Given a What Framework error code, get diagnosis, suggested fix, and code example. Works offline — no browser needed.',
+    'The fix for a What Framework diagnostic: severity, what it means, how to fix it and a worked bad/good example. Accepts a code (ERR_INFINITE_EFFECT) or an error message containing one. No browser needed.',
     {
-      error: z.string().optional().describe('Error code (e.g., "ERR_INFINITE_EFFECT") or error message text'),
-      // `errorCode` is an accepted alias, not a second parameter. Every CLAUDE.md
-      // this project has ever scaffolded documents `what_fix {errorCode}` while
-      // the schema only accepted `error`, so the tool the guide calls a "hidden
-      // gem" and tells agents to reach for FIRST returned a hard validation
-      // error. The docs are fixed, but those CLAUDE.md files are already sitting
-      // in users' repos, so the alias stays permanently.
-      errorCode: z.string().optional().describe('Alias for `error`, accepted for compatibility with older scaffolded CLAUDE.md files'),
+      error: z.string().describe('Error code, e.g. "ERR_INFINITE_EFFECT", or the error message'),
+      kind: z.enum(['tag', 'text', 'missing', 'extra-nodes', 'marker', 'key', 'not-hydratable', 'shadow-root', 'prebuilt', 'attribute']).optional()
+        .describe('Hydration mismatch kind for a targeted fix'),
     },
-    async ({ error, errorCode }) => {
-      const errorInput = error ?? errorCode;
-      if (!errorInput) {
-        return {
-          content: [{
-            type: 'text',
-            text: 'what_fix needs an error code or message. Example: what_fix({ error: "ERR_INFINITE_EFFECT" }).',
-          }],
-        };
-      }
-      // Try exact code match first
-      let entry = ERROR_DATABASE[errorInput];
-
-      // Try with ERR_ prefix
-      if (!entry) {
-        entry = ERROR_DATABASE[`ERR_${errorInput}`];
-      }
-
-      // Try fuzzy match on message text
-      if (!entry) {
-        const lower = errorInput.toLowerCase();
-        for (const [code, def] of Object.entries(ERROR_DATABASE)) {
-          if (lower.includes(code.toLowerCase().replace('err_', '').replace(/_/g, ' '))) {
-            entry = def;
-            break;
-          }
-        }
-      }
-
-      // Try keyword match
-      if (!entry) {
-        const lower = errorInput.toLowerCase();
-        const keywordMap = {
-          'infinite': 'ERR_INFINITE_EFFECT',
-          'loop': 'ERR_INFINITE_EFFECT',
-          'cycle': 'ERR_INFINITE_EFFECT',
-          'signal read': 'ERR_MISSING_SIGNAL_READ',
-          'missing ()': 'ERR_MISSING_SIGNAL_READ',
-          'function]': 'ERR_MISSING_SIGNAL_READ',
-          'hydration': 'ERR_HYDRATION_MISMATCH',
-          'mismatch': 'ERR_HYDRATION_MISMATCH',
-          'orphan': 'ERR_ORPHAN_EFFECT',
-          'cleanup': 'ERR_MISSING_CLEANUP',
-          'leak': 'ERR_MISSING_CLEANUP',
-          'render': 'ERR_SIGNAL_WRITE_IN_RENDER',
-          'innerhtml': 'ERR_UNSAFE_INNERHTML',
-          'xss': 'ERR_UNSAFE_INNERHTML',
-          'key': 'ERR_MISSING_KEY',
-        };
-        for (const [keyword, code] of Object.entries(keywordMap)) {
-          if (lower.includes(keyword)) {
-            entry = ERROR_DATABASE[code];
-            break;
-          }
-        }
-      }
-
-      if (!entry) {
+    async ({ error, kind }) => {
+      const found = lookup(error);
+      if (!found.def) {
         return ok({
           found: false,
-          summary: `No matching error code found for "${errorInput}".`,
-          availableCodes: Object.keys(ERROR_DATABASE),
-          suggestion: 'Try one of the available error codes, or paste the exact error message.',
+          closest: found.closest,
+          hint: found.closest.length
+            ? `No catalogue code matches "${error}". Closest codes: ${found.closest.join(', ')}. Pass one of them, or the exact message.`
+            : `No catalogue code matches "${error}". Pass a code from docs/ERRORS.md or the exact message.`,
         });
       }
-
+      const def = found.def;
+      if (kind && def.code === 'ERR_HYDRATION_MISMATCH') {
+        return ok({ found: true, code: def.code, severity: def.severity, kind, fix: HYDRATION_FIXES[kind] });
+      }
       return ok({
         found: true,
-        summary: `${entry.code}: ${entry.diagnosis.split('.')[0]}.`,
-        error: entry.code,
-        severity: entry.severity,
-        diagnosis: entry.diagnosis,
-        suggestedFix: entry.suggestedFix,
-        codeExample: entry.codeExample,
-      });
-    }
-  );
-
-  // -----------------------------------------------------------------------
-  // Tool 6 — what_record_window
-  //
-  // Opens a sampling window (default 1s, max 30s), captures which effects
-  // re-ran during that window, and returns a ranked list — most-fired first.
-  //
-  // Differs from `what_perf` (cumulative runCount since boot) and from
-  // `what_watch` (raw event log). This one is the one-call "which effects
-  // re-ran during this action?" answer, which is what you want when
-  // profiling a single user interaction (drag-drop, button click, route
-  // change). Pair with `what_set_signal` or a user-driven action to scope
-  // the recording.
-  // -----------------------------------------------------------------------
-
-  server.tool(
-    'what_record_window',
-    'Sample which effects re-ran during a time window. Captures runCount before and after a configurable duration, then returns a ranked delta. Use this to identify which effects fire during a specific action (e.g., a drag, a click, or a route change). Default 1000ms.',
-    {
-      duration: z.number().optional().default(1000).describe('Sampling window in ms (default: 1000, max: 30000, min: 50)'),
-      topN: z.number().optional().default(20).describe('Maximum number of effects to return (default: 20)'),
-      includeZero: z.boolean().optional().default(false).describe('Include effects that did not re-run (default: false — only changed effects)'),
-    },
-    async ({ duration, topN, includeZero }) => {
-      if (!bridge.isConnected()) return noConnection('what_record_window');
-
-      const ms = Math.min(Math.max(duration ?? 1000, 50), 30000);
-      const limit = Math.min(Math.max(topN ?? 20, 1), 200);
-
-      // ---- Take baseline ----
-      let baseline;
-      try {
-        baseline = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
-      } catch {
-        baseline = bridge.getSnapshot();
-      }
-      if (!baseline) {
-        return errorResponse('No snapshot available for baseline.', [
-          'Refresh the browser page so the devtools client registers its state.',
-        ]);
-      }
-
-      const baselineRunCounts = new Map();
-      const baselineEffectMeta = new Map();
-      for (const e of baseline.effects || []) {
-        baselineRunCounts.set(e.id, e.runCount || 0);
-        baselineEffectMeta.set(e.id, {
-          id: e.id,
-          name: e.name || `effect_${e.id}`,
-          componentId: e.componentId,
-          depCount: (e.depSignalIds || e.deps || []).length,
-        });
-      }
-      const startTs = Date.now();
-
-      // ---- Wait for the window ----
-      await new Promise((resolve) => setTimeout(resolve, ms));
-
-      // ---- Take post-window snapshot ----
-      let after;
-      try {
-        after = await (bridge.refreshSnapshot ? bridge.refreshSnapshot() : bridge.getSnapshot());
-      } catch {
-        after = bridge.getSnapshot();
-      }
-      if (!after) {
-        return errorResponse('No snapshot available after the recording window.', [
-          'The browser may have lost connection mid-recording.',
-        ]);
-      }
-
-      // ---- Compute delta ----
-      const ranked = [];
-      const newEffects = [];
-      const seen = new Set();
-      for (const e of after.effects || []) {
-        seen.add(e.id);
-        const before = baselineRunCounts.get(e.id);
-        const nowCount = e.runCount || 0;
-        if (before === undefined) {
-          // Effect was created during the window
-          newEffects.push({
-            id: e.id,
-            name: e.name || `effect_${e.id}`,
-            componentId: e.componentId,
-            runCount: nowCount,
-            depCount: (e.depSignalIds || e.deps || []).length,
-          });
-          continue;
-        }
-        const delta = nowCount - before;
-        if (delta > 0 || includeZero) {
-          ranked.push({
-            id: e.id,
-            name: e.name || baselineEffectMeta.get(e.id)?.name || `effect_${e.id}`,
-            componentId: e.componentId ?? baselineEffectMeta.get(e.id)?.componentId,
-            runs: delta,
-            totalRuns: nowCount,
-            depCount: (e.depSignalIds || e.deps || []).length,
-          });
-        }
-      }
-      const disposedDuring = [];
-      for (const [id, meta] of baselineEffectMeta) {
-        if (!seen.has(id)) disposedDuring.push(meta);
-      }
-
-      ranked.sort((a, b) => b.runs - a.runs);
-      const top = ranked.slice(0, limit);
-
-      const totalRuns = ranked.reduce((sum, e) => sum + e.runs, 0);
-      const distinctEffects = ranked.length;
-      const eventsDuring = bridge.getEvents
-        ? bridge.getEvents(startTs).length
-        : null;
-
-      const summary = totalRuns === 0
-        ? `No effects re-ran during the ${ms}ms window. App is idle (or no reactive state changed).`
-        : `${totalRuns} effect run${totalRuns !== 1 ? 's' : ''} across ${distinctEffects} distinct effect${distinctEffects !== 1 ? 's' : ''} in ${ms}ms.`;
-
-      const nextSteps = [];
-      if (top.length > 0 && top[0].runs >= 10) {
-        nextSteps.push(`Hot effect "${top[0].name}" ran ${top[0].runs} times — inspect with what_dependency_graph({effectId: ${top[0].id}, direction: "upstream"}).`);
-      }
-      if (newEffects.length > 5) {
-        nextSteps.push(`${newEffects.length} effects were created during the window — likely a re-mount cycle. Check what_diff_snapshot for component churn.`);
-      }
-      if (disposedDuring.length > 0 && newEffects.length > 0) {
-        nextSteps.push(`${disposedDuring.length} effects were disposed and ${newEffects.length} were created — component tree is being torn down and rebuilt.`);
-      }
-
-      return ok({
-        summary,
-        windowMs: ms,
-        totalRuns,
-        distinctEffects,
-        topEffects: top,
-        newEffectsCount: newEffects.length,
-        newEffects: newEffects.slice(0, limit),
-        disposedCount: disposedDuring.length,
-        eventsDuring,
-        nextSteps,
+        code: def.code,
+        severity: def.severity,
+        ...(found.via === 'message' ? { matchedBy: 'message' } : {}),
+        message: def.template,
+        fix: def.suggestion,
+        example: def.codeExample,
       });
     }
   );

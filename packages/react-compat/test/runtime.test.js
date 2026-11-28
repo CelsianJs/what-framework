@@ -628,6 +628,17 @@ test('createPortal renders children into the target container', () => {
   assert.equal(target.querySelector('#ported'), null, 'portal content removed on unmount');
 });
 
+test('a createPortal element in a native What tree renders through what-core', async () => {
+  const { h: whatH, mount: whatMount } = await import('what-core');
+  const target = makeContainer();
+  const host = makeContainer();
+  const unmount = whatMount(whatH('div', {}, 'main', createPortal(whatH('p', { id: 'native-ported' }, 'native'), target)), host);
+  assert.equal(host.textContent, 'main');
+  assert.equal(target.querySelector('#native-ported').textContent, 'native');
+  unmount();
+  assert.equal(target.querySelector('#native-ported'), null, 'portal content removed on unmount');
+});
+
 // ---------------------------------------------------------------
 // Events & controlled inputs
 // ---------------------------------------------------------------
@@ -768,6 +779,32 @@ test('compat component works inside a native What tree (bridge)', async () => {
   assert.equal(container.querySelector('#bridged'), null);
 });
 
+test('a bridged compat component is unmounted with the What component that renders it', async () => {
+  const { h: whatH, mount: whatMount, signal, flushSync: whatFlush, getDiagnostics, clearDiagnostics } = await import('what-core');
+  clearDiagnostics();
+  const log = [];
+  function Leaf({ name }) {
+    useEffect(() => () => log.push(`${name} cleanup`), [name]);
+    return h('i', null, name);
+  }
+  const shown = signal(true, 'shownLeaf');
+  const container = makeContainer();
+  const unmount = whatMount(whatH('div', {}, h(Leaf, { name: 'root' }), () => (shown() ? h(Leaf, { name: 'region' }) : null)), container);
+  await tick();
+  assert.equal(container.textContent, 'rootregion');
+
+  shown(false);
+  whatFlush();
+  await tick();
+  assert.deepEqual(log, ['region cleanup'], 'the reactive region disposed its bridged child');
+
+  unmount();
+  await tick();
+  assert.deepEqual(log, ['region cleanup', 'root cleanup'], 'unmounting the tree disposed the rest');
+  const orphaned = getDiagnostics().events.filter((d) => d.code === 'ERR_CLEANUP_WITHOUT_OWNER');
+  assert.deepEqual(orphaned, [], 'every bridge registered its cleanup on its own component');
+});
+
 // ---------------------------------------------------------------
 // Misc API
 // ---------------------------------------------------------------
@@ -786,11 +823,46 @@ test('cloneElement merges props and preserves type', () => {
   assert.equal(container.firstChild.textContent, 'child');
 });
 
-test('Children.map / count / toArray skip holes', () => {
-  const kids = [h('i'), null, false, [h('b'), 'text']];
-  assert.equal(React.Children.count(kids), 3);
-  assert.equal(React.Children.toArray(kids).length, 3);
-  assert.equal(React.Children.map(kids, (c, i) => i).length, 3);
+// React's own answers for these children (checked against react 19.3): an
+// empty child (null, false) counts and reaches the callback as null, a
+// nested array is walked in place, and toArray drops the empties and keys
+// what is left by where it came from.
+test('Children.count / map / toArray follow React\'s rules for empty children', () => {
+  const kids = [h('i', { key: 'x' }), null, false, [h('b'), 'text']];
+  assert.equal(React.Children.count(kids), 5);
+  const seen = [];
+  assert.deepEqual(React.Children.map(kids, (c, i) => { seen.push(c === null ? null : typeof c === 'string' ? c : c.type); return i; }), [0, 1, 2, 3, 4]);
+  assert.deepEqual(seen, ['i', null, null, 'b', 'text']);
+  const array = React.Children.toArray(kids);
+  assert.equal(array.length, 3);
+  assert.equal(array[0].key, '.$x');
+  // React 19.3.0: a child of a nested array is keyed by its path ('.3:0').
+  assert.equal(array[1].key, '.3:0');
+  assert.equal(array[2], 'text');
+  assert.equal(React.Children.map(null, (c) => c), null);
+  assert.equal(React.Children.count(undefined), 0);
+});
+
+test('Children.toArray keys keep a child\'s identity when an earlier sibling goes', () => {
+  function Field() {
+    const [n] = useState(() => ++made);
+    return h('i', null, n);
+  }
+  let made = 0;
+  let setShow;
+  function List({ children }) {
+    return h('div', null, React.Children.toArray(children));
+  }
+  function App() {
+    const [show, s] = useState(true);
+    setShow = s;
+    return h(List, null, show ? h('b', null, 'first') : null, h(Field));
+  }
+  const { container } = mount(h(App));
+  assert.equal(container.querySelector('i').textContent, '1');
+  act(() => setShow(false));
+  assert.equal(container.querySelector('b'), null);
+  assert.equal(container.querySelector('i').textContent, '1', 'the Field was kept, not mounted again');
 });
 
 test('element.type exposes the original component for library type checks', () => {

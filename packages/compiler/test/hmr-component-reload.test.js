@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { chromium } from 'playwright';
+import { chromiumLaunches } from '../../../test-utils/chromium.js';
 import { createServer } from 'vite';
 import what from '../src/vite-plugin.js';
 
@@ -47,14 +47,11 @@ test('an installed component replacement hook is preserved', () => {
   assert.equal(updates[0][1], module);
 });
 
-const browserAvailable = existsSync(chromium.executablePath());
-if (!browserAvailable && process.env.WHAT_REQUIRE_BROWSER_TESTS === '1') {
-  throw new Error('WHAT_REQUIRE_BROWSER_TESTS=1 but Chromium is missing; run npx playwright install --with-deps chromium.');
-}
+const browserAvailable = await chromiumLaunches(chromium);
 
 test('editing an imported component updates the visible app without a manual refresh', {
   skip: !browserAvailable,
-  timeout: 30_000,
+  timeout: 60_000,
 }, async () => {
   // Vite keys its module graph by canonical paths. On macOS tmpdir() goes
   // through /var -> /private/var; use the same path for writes and watching.
@@ -82,18 +79,43 @@ test('editing an imported component updates the visible app without a manual ref
     const page = await browser.newPage();
     const errors = [];
     const updates = [];
+    // The server's answer to the edit, as the page receives it.
+    let answered;
+    const answer = new Promise((resolve) => { answered = resolve; });
     server.watcher.on('change', file => updates.push(`change: ${file}`));
-    page.on('websocket', socket => socket.on('framereceived', frame => updates.push(String(frame.payload))));
+    page.on('websocket', socket => socket.on('framereceived', (frame) => {
+      const payload = String(frame.payload);
+      updates.push(payload);
+      if (/"type":"(update|full-reload)"/.test(payload)) answered(payload);
+    }));
     page.on('console', message => updates.push(message.text()));
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) updates.push(`navigate: ${frame.url()}`); });
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
     await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR baseline');
+    // The edit, and the watcher's report of it. On a loaded machine FSEvents
+    // reports a write late or not at all (rounds 6 and 11 saw the page
+    // connect and no change arrive in ten seconds of writes). The watcher is
+    // Vite's, not what this tests: when it has not reported the write within
+    // a second, the test delivers the change it would have, so what is tested
+    // is the plugin's update and the page's replacement of the component.
+    const reported = new Promise((resolve) => server.watcher.on('change', (file) => { if (file === component) resolve('the watcher'); }));
     await writeFile(component, 'export default function Counter() { return <h1>HMR updated</h1>; }');
+    const timers = [];
+    const by = await Promise.race([reported, new Promise((resolve) => timers.push(setTimeout(resolve, 1000, 'the test')))]);
+    if (by === 'the test') server.watcher.emit('change', component);
+    // Each wait is on an event; the deadline is only there to report what
+    // happened before the test's own timeout would.
+    const deadline = Date.now() + 45_000;
+    const late = (what) => new Promise((resolve, reject) => timers.push(setTimeout(() => reject(new Error(`no ${what}`)), Math.max(0, deadline - Date.now()))));
     try {
-      await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR updated', null, { timeout: 15_000 });
+      await Promise.race([answer, late('update message from the server')]);
+      await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'HMR updated', null, { timeout: Math.max(1, deadline - Date.now()) });
     } catch (error) {
-      assert.fail(`${error.message}\nHMR events: ${JSON.stringify(updates)}\nPage errors: ${JSON.stringify(errors)}`);
+      assert.fail(`${error.message}\nThe change was delivered by ${by}.\nHMR events: ${JSON.stringify(updates)}\nPage errors: ${JSON.stringify(errors)}`);
+    } finally {
+      // A pending deadline would hold the process open for its full 45 s.
+      for (const timer of timers) clearTimeout(timer);
     }
     assert.deepEqual(errors, []);
   } finally {

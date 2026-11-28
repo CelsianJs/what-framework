@@ -1,0 +1,38 @@
+:root {
+  --bg: #14171f;
+  --panel: #1b1f2a;
+  --card: #232838;
+  --ink: #e6e8ef;
+  --muted: #8b92a6;
+  --line: #2c3243;
+  --accent: #8fb3ff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.35 ui-sans-serif, system-ui, sans-serif; }
+.page { padding: 14px; }
+.masthead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; }
+.masthead h1 { margin: 0; font: 600 22px/1 ui-serif, Georgia, serif; }
+.tools { margin-left: auto; display: flex; gap: 6px; }
+button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 3px 10px; cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: default; }
+.muted { color: var(--muted); }
+.board { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 10px; }
+.column { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; }
+.column header { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.column h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.count { color: var(--accent); font-weight: 600; }
+.cards { list-style: none; margin: 0; padding: 6px; height: calc(100vh - 110px); overflow-y: auto; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; cursor: grab; user-select: none; touch-action: none; }
+.card.dragging { position: relative; z-index: 10; cursor: grabbing; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); opacity: 0.92; }
+.card-head { display: flex; align-items: center; gap: 6px; }
+.card-head b { font: 600 11px ui-monospace, monospace; color: var(--muted); }
+.pts { margin-left: auto; color: var(--muted); font-size: 11px; }
+.more { padding: 0 6px; line-height: 16px; }
+.title { margin: 4px 0 0; }
+.detail { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; background: #2f3650; }
+.tag.bug { background: #5a2d33; }
+.tag.feature { background: #2d4a5a; }
+.tag.perf { background: #4a3d22; }
+.drop-line { position: fixed; left: 0; top: 0; height: 3px; margin-top: -3px; background: var(--accent); border-radius: 2px; pointer-events: none; z-index: 20; }

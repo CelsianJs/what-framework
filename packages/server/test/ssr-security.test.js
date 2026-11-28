@@ -282,6 +282,24 @@ describe('SSR srcdoc rejection', () => {
   });
 });
 
+// The client refuses every prop its browser would parse as markup, in any
+// letter case; the server must refuse the same set, or an outerHTML prop the
+// client drops is still sent to the page as an attribute.
+describe('SSR/client refused prop parity', () => {
+  for (const key of ['srcdoc', 'SRCDOC', 'srcDoc', 'outerHTML', 'outerhtml', 'OUTERHTML']) {
+    it(`refuses ${key} in SSR and on the client`, () => {
+      const html = silenceWarnings(() => renderToString(h('iframe', { [key]: '<img src=x onerror=alert(1)>' }, '')));
+      assert.equal(html, '<iframe></iframe>');
+      assert.equal(_isUnsafeAttr(key, '<b>x</b>'), true, `client applied ${key}`);
+    });
+  }
+
+  it('still renders a prop that only resembles one', () => {
+    assert.equal(renderToString(h('div', { 'data-outerhtml': 'x', title: 'outerHTML' }, '')), '<div data-outerhtml="x" title="outerHTML"></div>');
+    assert.equal(_isUnsafeAttr('data-outerhtml', 'x'), false);
+  });
+});
+
 describe('SSR tag name validation', () => {
   it('throws on a tag name carrying injected attributes', () => {
     assert.throws(
@@ -332,5 +350,88 @@ describe('SSR/client URL attribute parity', () => {
       assert.ok(html.includes(`${attr}="/safe"`), `SSR dropped a safe ${attr}: ${html}`);
       assert.equal(_isUnsafeAttr(attr, '/safe'), false);
     }
+  });
+});
+
+// A style object's declaration is written only when it is one declaration of
+// a property, as the client's CSSOM applies it: a value with a `;` outside a
+// string or parentheses, or a brace, or a name that is not a property, used
+// to inject its own declarations (a tracking beacon, a page overlay) into the
+// server's HTML while the client dropped them.
+describe('SSR style object declarations', () => {
+  it('drops a declaration the client would not apply, and keeps every ordinary one', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const style = {
+      color: 'red;background-image:url(http://tracker.test/beacon);position:fixed;inset:0',
+      'x:y;background:url(http://tracker.test/key)': '1',
+      margin: '0)',
+      padding: '1px}',
+      width: 'calc(100% - 2px)',
+      backgroundImage: 'url(data:image/png;base64,AAA)',
+      content: '"a;b"',
+      '--gap': '4px',
+      fontSize: '12px',
+    };
+    const expected = '<div style="width:calc(100% - 2px);background-image:url(data:image/png;base64,AAA);content:&quot;a;b&quot;;--gap:4px;font-size:12px"></div>';
+    assert.equal(renderToString(h('div', { style })), expected);
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    assert.equal(renderToString(h(mod.View, { style })), expected, 'compiled server output writes the same');
+  });
+
+  // A filter that knew only strings and parentheses read these as one
+  // declaration; CSS reads the `\"`, `\(` and comments as part of an
+  // identifier or as nothing, so each `;` ends a declaration and the next one
+  // is the attacker's.
+  it('drops a value that hides its `;` behind an escape or a comment, in both SSR paths', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    const beacon = 'background-image:url(http://tracker.test/b)';
+    for (const color of [
+      `red\\";${beacon};x:"`,
+      `red\\(;${beacon};x:\\)`,
+      `red/*"*/;${beacon};x:/*"*/`,
+      `red/*(*/;${beacon};x:/*)*/`,
+      `red;x:url(a"b);${beacon}`,
+      `red"\n;${beacon};x:"`,
+      `red[;${beacon};x:)`,
+      `red\u0000;${beacon}`,
+      // A bad url token ends at its first `)`: the `;` after it is the
+      // declaration's end.
+      `url(a(b);${beacon};x:y)`,
+      `uRl(a(b);${beacon};x:y)`,
+      `url(a"b);${beacon};x:y)`,
+      `url(a b);${beacon};x:y)`,
+      `url(a\tb);${beacon};x:y)`,
+      `url(;${beacon}`,
+    ]) {
+      for (const html of [renderToString(h('div', { style: { color } })), renderToString(h(mod.View, { style: { color } }))]) {
+        assert.match(html, /^<div(?: style="")?><\/div>$/, JSON.stringify(color));
+      }
+    }
+    const kept = { content: '"\\201C"', gridTemplateColumns: '[full-start] 1fr [full-end]', fontFamily: "'A;B', serif", backgroundImage: 'url( /a;b.png ), url("c(d).png")' };
+    const expected = '<div style="content:&quot;\\201C&quot;;grid-template-columns:[full-start] 1fr [full-end];font-family:&#39;A;B&#39;, serif;background-image:url( /a;b.png ), url(&quot;c(d).png&quot;)"></div>';
+    assert.equal(renderToString(h('div', { style: kept })), expected);
+    assert.equal(renderToString(h(mod.View, { style: kept })), expected);
+  });
+});
+
+// The client sets no declaration for a null, undefined, boolean or empty value
+// (setStyle writes `value ?? ''`, and the CSSOM refuses a boolean), so the
+// server writes none: not `color:null;margin:undefined;padding:`.
+describe('SSR style object values that set nothing', () => {
+  it('leaves out a property whose value is null, undefined, a boolean or empty, in both SSR paths', async () => {
+    const { compileJSX } = await import('../../../test-utils/compile.js');
+    const code = compileJSX('export const View = ({ style }) => <div style={style} />;', { pluginOptions: { generate: 'ssr' } })
+      .replace(/(['"])(what-framework(?:\/[\w-]+)?)\1/g, (_m, _q, entry) => JSON.stringify(import.meta.resolve(entry)));
+    const mod = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+    const style = { color: null, margin: undefined, padding: '', top: false, left: true, width: 0, '--gap': '4px' };
+    const expected = '<div style="width:0;--gap:4px"></div>';
+    assert.equal(renderToString(h('div', { style })), expected);
+    assert.equal(renderToString(h(mod.View, { style })), expected, 'compiled server output writes the same');
+    assert.match(renderToString(h('div', { style: { color: null } })), /^<div(?: style="")?><\/div>$/);
   });
 });

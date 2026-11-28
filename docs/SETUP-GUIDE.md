@@ -6,7 +6,7 @@ Get up and running with What Framework in under 5 minutes.
 
 ## Prerequisites
 
-- **Node.js 18+** (check: `node -v`)
+- **Node.js 20+** (check: `node -v`)
 - **npm 9+** (check: `npm -v`)
 - A code editor (VS Code recommended)
 
@@ -97,9 +97,10 @@ function App() {
   const count = useSignal(0);
   const doubled = useComputed(() => count() * 2);
 
+  // Re-runs whenever count changes (it reads count())
   useEffect(() => {
     document.title = `Count: ${count()}`;
-  }, []);
+  });
 
   return (
     <main>
@@ -155,59 +156,42 @@ This gives you a working zustand demo out of the box.
 npm install what-react
 ```
 
-Update `vite.config.js`:
+Update `vite.config.js`: keep the What compiler and add what-react's plugin.
 
 ```js
 import { defineConfig } from 'vite';
+import what from 'what-compiler/vite';
 import { reactCompat } from 'what-react/vite';
 
 export default defineConfig({
-  plugins: [reactCompat()],
+  plugins: [what(), reactCompat()],
 });
 ```
 
-Now install any React library and use it in your What components:
+Now install any React library and use it from your native What components:
 
 ```bash
-npm install zustand
+npm install zustand recharts
 ```
 
-```jsx
-import { mount, useSignal } from 'what-framework';
-import { create } from 'zustand';
+A React component works as a tag in a native file:
 
-// Zustand store — works exactly like normal, no changes needed
-const useStore = create((set) => ({
-  count: 0,
-  increment: () => set((s) => ({ count: s.count + 1 })),
-  reset: () => set({ count: 0 }),
-}));
+```jsx
+// src/main.jsx: native What
+import { mount, signal } from 'what-framework';
+import { BarChart, Bar, XAxis } from 'recharts';
+import { BearCounter } from './BearCounter.jsx';
 
 function App() {
-  // Zustand hook works inside a What component
-  const count = useStore((s) => s.count);
-  const increment = useStore((s) => s.increment);
-  const reset = useStore((s) => s.reset);
-
-  // You can mix What signals with React libraries
-  const localCount = useSignal(0);
-
+  const days = signal([{ day: 'Mon', total: 3 }], 'days');
   return (
     <main>
-      <h1>What + Zustand</h1>
-
-      <section>
-        <h2>Zustand Store</h2>
-        <p>Count: {count}</p>
-        <button onClick={increment}>+1</button>
-        <button onClick={reset}>Reset</button>
-      </section>
-
-      <section>
-        <h2>What Signal</h2>
-        <p>Local: {localCount()}</p>
-        <button onClick={() => localCount.set(c => c + 1)}>+1</button>
-      </section>
+      <h1>{days().length} days</h1>
+      <BarChart width={300} height={150} data={days()}>
+        <XAxis dataKey="day" />
+        <Bar dataKey="total" />
+      </BarChart>
+      <BearCounter />
     </main>
   );
 }
@@ -215,7 +199,31 @@ function App() {
 mount(<App />, '#app');
 ```
 
-Under the hood, zustand internally imports `react` and calls `useState`/`useEffect`. The compat plugin redirects those to What's signals engine. Zustand never knows the difference — but your app is still a What app with `mount()`, signals, and the compiler.
+React hooks go in a React file. A file is a React file when it imports `react`
+or calls a hook it imports from a React package:
+
+```jsx
+// src/BearCounter.jsx: a React file (it calls zustand's hook)
+import { create } from 'zustand';
+
+const useStore = create((set) => ({
+  bears: 0,
+  increase: () => set((s) => ({ bears: s.bears + 1 })),
+}));
+
+export function BearCounter() {
+  const bears = useStore((s) => s.bears);
+  const increase = useStore((s) => s.increase);
+  return <button onClick={increase}>{bears} bears</button>;
+}
+```
+
+`App` is native: it runs once and `{days().length}` updates only that text.
+`<BarChart>` and `<BearCounter>` render as React islands: React's rules inside
+them, their props rebuilt when a signal they read changes, their React state
+kept. Zustand and Recharts import `react`; the plugin points that at what-react,
+which runs them on What's engine. [what-react's MIXED.md](../packages/react-compat/MIXED.md)
+has the full rules, context across the boundary, server rendering and limits.
 
 ---
 
@@ -289,7 +297,7 @@ function App() {
 
   return (
     <div>
-      <h1>Todos ({store.items.length})</h1>
+      <h1>Todos ({() => store.items.length})</h1>
       <button onClick={() => store.add('New task')}>Add</button>
       {store.filtered.map(t => (
         <div key={t.id} onClick={() => store.toggle(t.id)}>
@@ -303,12 +311,19 @@ function App() {
 mount(<App />, '#app');
 ```
 
+`store.items` and `store.filtered` read as values, and a read tracks only inside
+a reactive child or an effect: `{() => store.items.length}` updates, while a
+bare `{store.items.length}` would render the first count forever. The keyed
+`.map()` is a reactive list already. Actions assign through `this` and run as
+one batch.
+
 ---
 
 ## 8. Forms
 
 ```jsx
-import { mount, useForm, rules, simpleResolver, ErrorMessage } from 'what-framework';
+import { mount } from 'what-framework';
+import { useForm, rules, simpleResolver, ErrorMessage } from 'what-framework/form';
 
 function Signup() {
   const { register, handleSubmit, formState } = useForm({
@@ -345,15 +360,12 @@ mount(<Signup />, '#app');
 ## 9. Animation
 
 ```jsx
-import { mount, useSignal, useRef } from 'what-framework';
-import { spring } from 'what-framework';
+import { mount } from 'what-framework';
+import { spring } from 'what-framework/motion';
 
 function App() {
-  const ref = useRef(null);
-  if (!ref.current) {
-    ref.current = spring(0, { stiffness: 200, damping: 15 });
-  }
-  const x = ref.current;
+  // The component runs once, so the spring is created once
+  const x = spring(0, { stiffness: 200, damping: 15 });
 
   return (
     <div>
@@ -372,7 +384,7 @@ mount(<App />, '#app');
 
 | Package | What it does |
 |---------|-------------|
-| `what-framework` | Main package — signals, hooks, components, forms, animation, a11y |
+| `what-framework` | Main package — signals, hooks, components, stores, `Head`; the kits on subpaths (`/form`, `/data`, `/motion`, `/a11y`, `/dom`, `/ui`) |
 | `what-core` | Internal engine (most users use `what-framework` instead) |
 | `what-router` | Client-side routing, Link, navigate, guards |
 | `what-server` | SSR, streaming, islands, static generation |
@@ -402,7 +414,7 @@ mount(<App />, '#app');
 → Make sure `@babel/core` is in your devDependencies: `npm install -D @babel/core`
 
 **React library not working with what-react**
-→ Make sure your vite.config.js uses `reactCompat()` (not `what()`) and that `what-core` is excluded from optimizeDeps (the plugin does this automatically).
+→ Make sure your vite.config.js has `reactCompat()` next to `what()`. A React hook (`useStore`, `useQuery`) must be called in a React file (one that imports `react` or calls that hook); in a native file it throws `ERR_HOOK_OUTSIDE_RENDER`. See [MIXED.md](../packages/react-compat/MIXED.md).
 
 ---
 

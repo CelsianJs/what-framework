@@ -1,0 +1,5838 @@
+{
+  "metadata": {
+    "mode": "full",
+    "at": "2026-11-27T05:21:42.233Z",
+    "upstream": "56eb45e84b3f6fcfa867840725e66b59a9b7467a",
+    "node": "v22.13.1",
+    "v8": "12.4.254.21-node.22",
+    "machine": "Apple M3 Max (14 logical CPUs, 96 GiB), darwin 25.5.0 arm64",
+    "elapsedSeconds": 228.427754291,
+    "timeoutMs": 180000,
+    "heapMiB": 768,
+    "versions": {
+      "solid1": "1.9.20",
+      "solid2": "2.0.3",
+      "alien": "3.2.1",
+      "preact": "1.14.5",
+      "what": "cb7dfcce995d19e8154268a7ee56db7fd9e433fb9b76d13d6cf59952d30b3286"
+    }
+  },
+  "tests": [
+    "avoidablePropagation",
+    "broadPropagation",
+    "deepPropagation",
+    "diamond",
+    "mux",
+    "repeatedObservers",
+    "triangle",
+    "unstable",
+    "molBench",
+    "createSignals",
+    "createComputations",
+    "updateSignals",
+    "cellx1000",
+    "cellx2500",
+    "2-10x5 - lazy80%",
+    "6-10x10 - dyn25% - lazy80%",
+    "4-1000x12 - dyn5%",
+    "25-1000x5",
+    "3-5x500",
+    "6-100x15 - dyn50%"
+  ],
+  "commonPassingTests": [
+    "avoidablePropagation",
+    "broadPropagation",
+    "deepPropagation",
+    "diamond",
+    "mux",
+    "repeatedObservers",
+    "triangle",
+    "unstable",
+    "molBench",
+    "createSignals",
+    "createComputations",
+    "updateSignals",
+    "cellx1000",
+    "cellx2500",
+    "2-10x5 - lazy80%",
+    "6-10x10 - dyn25% - lazy80%",
+    "4-1000x12 - dyn5%",
+    "25-1000x5",
+    "3-5x500",
+    "6-100x15 - dyn50%"
+  ],
+  "geometricMean": {
+    "what": 1.2770772855180552,
+    "solid1": 3.579256910637706,
+    "solid2": 5.172050973099516,
+    "alien": 1.0089333765379205,
+    "preact": 1.379334912896906
+  },
+  "results": [
+    {
+      "id": "what",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "adapter",
+      "names": [],
+      "status": "passed",
+      "phase": "adapter",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            166.170208,
+            163.203666,
+            169.98279199999996,
+            167.46054200000003,
+            167.082084,
+            166.26716699999997,
+            167.36979199999996,
+            166.55812500000002,
+            166.1243340000001,
+            164.1628330000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            249.289375,
+            238.70141699999994,
+            242.35250000000008,
+            238.38687500000003,
+            241.28745800000002,
+            244.31508399999984,
+            241.09237500000017,
+            241.74475000000007,
+            244.6645000000001,
+            247.183583
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            45.273916,
+            41.858333,
+            41.24116700000002,
+            41.39587499999999,
+            41.63987499999999,
+            39.67983300000003,
+            39.827458000000036,
+            39.73166600000002,
+            41.25483400000002,
+            39.488292
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            55.569083,
+            51.74291699999999,
+            51.72500000000002,
+            52.84229099999996,
+            50.177374999999984,
+            50.76887499999998,
+            52.93275,
+            51.94145800000001,
+            51.77108400000003,
+            52.759750000000054
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "avoidablePropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "avoidablePropagation",
+          "samples": [
+            57.283750000000005,
+            52.80787500000001,
+            52.450124999999986,
+            51.29308299999997,
+            53.305875000000015,
+            49.91137500000002,
+            49.89712500000002,
+            51.45224999999999,
+            49.56170800000001,
+            50.31291699999997
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2002,
+            "effects": 0
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            632.7807499999999,
+            626.5775420000001,
+            624.212,
+            619.0186250000002,
+            625.6526669999998,
+            611.9327080000003,
+            616.9967910000005,
+            621.0247920000002,
+            622.7565000000004,
+            601.8525840000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            82.834833,
+            78.26287500000001,
+            76.85708300000002,
+            76.330333,
+            78.14641699999999,
+            75.32120799999996,
+            76.5385839999999,
+            75.16345799999999,
+            74.90750000000003,
+            75.55991700000004
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            98.01325,
+            87.227916,
+            89.395667,
+            88.12170800000001,
+            87.44720800000005,
+            87.14208300000001,
+            86.67995800000006,
+            88.89058299999999,
+            86.70991700000002,
+            88.49770799999999
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            97.48337500000001,
+            93.604625,
+            98.10008300000001,
+            95.46925000000005,
+            94.94250000000005,
+            95.42962499999999,
+            92.676917,
+            93.782333,
+            92.03145800000004,
+            94.412375
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "broadPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "broadPropagation",
+          "samples": [
+            381.650375,
+            370.091625,
+            367.26658299999997,
+            375.9479160000001,
+            366.71745899999996,
+            368.1360000000002,
+            370.5185419999998,
+            371.4803750000001,
+            379.9401249999996,
+            373.39791700000023
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 5100,
+            "effects": 2550
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            26.558999999999997,
+            24.31029199999999,
+            24.266334,
+            24.253957999999997,
+            24.39416700000001,
+            25.886791999999986,
+            24.204958000000005,
+            24.229792000000003,
+            24.213915999999983,
+            24.500875000000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            42.717915999999995,
+            41.237166,
+            43.41225,
+            40.689042,
+            42.25637500000002,
+            42.70362499999999,
+            43.540707999999995,
+            43.059167,
+            42.437292000000014,
+            43.02266700000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            39.130041999999996,
+            36.27037499999999,
+            35.45870900000003,
+            36.02379099999999,
+            35.661958999999996,
+            36.06483400000002,
+            36.10708400000004,
+            36.397334,
+            36.18879099999998,
+            35.842416000000014
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            173.053667,
+            167.64004200000002,
+            169.39554099999998,
+            167.758916,
+            169.34362499999997,
+            169.1360830000001,
+            170.91266700000006,
+            169.50333299999988,
+            169.695917,
+            168.95137499999987
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "deepPropagation"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "deepPropagation",
+          "samples": [
+            236.81108400000002,
+            224.51512499999995,
+            225.952541,
+            226.8154159999999,
+            225.8487500000001,
+            224.86979100000008,
+            229.0998340000001,
+            227.3695419999999,
+            226.68895799999996,
+            226.8974159999998
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 2550,
+            "effects": 51
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            70.452125,
+            65.872625,
+            65.33641700000001,
+            64.41325,
+            63.82137499999999,
+            66.01445799999999,
+            66.48329200000006,
+            66.01633399999992,
+            87.54770799999994,
+            65.072542
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            69.58362500000001,
+            64.432792,
+            63.711416000000014,
+            64.26750000000004,
+            61.52441600000003,
+            62.950624999999945,
+            62.52433300000001,
+            62.26083399999999,
+            62.76770799999997,
+            62.42262500000004
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            247.502541,
+            246.29766699999993,
+            243.37699999999995,
+            241.09258399999987,
+            245.20629099999996,
+            239.73962500000016,
+            243.31791700000008,
+            242.16733299999987,
+            242.54166699999996,
+            242.2897079999998
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            417.826625,
+            407.88808300000005,
+            413.429125,
+            411.03170899999986,
+            409.89079200000015,
+            408.3882920000001,
+            413.9781250000001,
+            413.78529100000014,
+            406.874875,
+            403.31066699999974
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "diamond"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "diamond",
+          "samples": [
+            57.870000000000005,
+            54.877750000000006,
+            54.351916999999986,
+            54.664541000000014,
+            54.387208999999984,
+            53.55687499999999,
+            55.08575000000002,
+            54.64350000000002,
+            53.18791700000003,
+            53.82241699999997
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 3006,
+            "effects": 501
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            111.53329200000002,
+            105.782792,
+            105.016166,
+            104.39216699999997,
+            104.44429200000008,
+            104.70575000000008,
+            104.22745799999996,
+            126.50329199999999,
+            103.21608400000002,
+            101.79491699999994
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            235.60954199999998,
+            228.706708,
+            230.14425000000006,
+            232.8388329999999,
+            231.41837499999986,
+            238.73529199999984,
+            233.109958,
+            236.27366600000005,
+            231.1957920000002,
+            228.213792
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            254.707208,
+            238.33008299999995,
+            237.232708,
+            237.354375,
+            238.68087500000001,
+            235.39879100000007,
+            236.4525000000001,
+            239.6584170000001,
+            238.24541700000032,
+            240.95066700000007
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            108.504334,
+            100.493,
+            100.177709,
+            100.646208,
+            100.02204199999994,
+            100.35529199999996,
+            100.44541700000002,
+            102.16825000000006,
+            102.07529099999999,
+            101.02595800000006
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "mux"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "mux",
+          "samples": [
+            115.67625000000001,
+            107.571,
+            107.25462499999998,
+            107.49808300000001,
+            107.81145800000002,
+            107.34158300000001,
+            108.55475000000001,
+            108.59616599999993,
+            105.07891699999993,
+            106.92566600000009
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1836,
+            "effects": 18
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            39.23220800000001,
+            33.51083400000002,
+            33.523042000000004,
+            33.259833000000015,
+            33.83525,
+            33.827125000000024,
+            32.799792000000025,
+            33.45320800000002,
+            33.299417000000005,
+            33.291583
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            87.059625,
+            72.57300000000001,
+            73.88374999999999,
+            74.05291599999998,
+            73.604917,
+            73.96329100000003,
+            80.897291,
+            76.31537500000002,
+            74.89141699999993,
+            73.40062499999999
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            11.010832999999998,
+            6.22695800000001,
+            6.361166999999995,
+            6.228834000000006,
+            6.436500000000009,
+            6.4559169999999995,
+            6.395958999999991,
+            6.367499999999993,
+            6.455708000000001,
+            6.631458999999992
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            14.279457999999998,
+            7.757125000000002,
+            7.7578749999999985,
+            8.226875000000007,
+            8.159583999999995,
+            8.213833000000008,
+            7.891417000000004,
+            7.895417000000009,
+            7.77062500000001,
+            7.77000000000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "repeatedObservers"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "repeatedObservers",
+          "samples": [
+            12.390167000000005,
+            6.938499999999991,
+            6.750667000000007,
+            7.011874999999989,
+            6.633916999999997,
+            6.631458000000009,
+            6.812291999999999,
+            6.724542,
+            6.914042000000009,
+            6.586292
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 101,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            156.02175,
+            140.795458,
+            140.57129100000003,
+            139.39641700000004,
+            139.6898339999999,
+            139.49020900000005,
+            136.24175000000002,
+            132.8147080000001,
+            139.79166699999996,
+            139.23187500000017
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            27.726915999999996,
+            20.614958,
+            20.407083,
+            20.602125000000015,
+            20.370790999999997,
+            20.605625000000003,
+            20.739834000000002,
+            20.39179200000001,
+            20.10575,
+            20.912166000000013
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            30.58070800000001,
+            24.452084,
+            24.563791999999992,
+            24.12625,
+            24.302084000000008,
+            24.20445799999999,
+            24.795625,
+            23.443290999999988,
+            25.099917000000005,
+            24.51762500000001
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            28.558334000000002,
+            22.191457999999997,
+            22.684084,
+            22.49520799999999,
+            22.941291000000007,
+            23.09383299999999,
+            22.887207999999987,
+            22.23916700000001,
+            22.678708999999998,
+            22.840000000000032
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1010,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "triangle"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "triangle",
+          "samples": [
+            84.042584,
+            80.018417,
+            79.19900000000001,
+            81.26408300000003,
+            81.98554100000001,
+            81.90249999999997,
+            81.67491700000005,
+            81.97562499999992,
+            81.44470899999999,
+            80.84858299999996
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 1111,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            19.223374999999997,
+            13.701791,
+            14.489625000000004,
+            14.627291999999997,
+            15.085875000000001,
+            14.182583999999991,
+            13.861917000000005,
+            14.39462499999999,
+            14.485208,
+            14.728916999999996
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 202,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            24.051250000000003,
+            18.15891599999999,
+            19.317209000000005,
+            19.290166999999983,
+            19.48083299999999,
+            19.38304199999999,
+            19.120584000000008,
+            19.881541,
+            19.223332999999997,
+            19.395083
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 202,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            21.018582999999992,
+            15.338166999999999,
+            14.931415999999999,
+            14.775000000000006,
+            15.042333000000013,
+            14.979375000000005,
+            15.368875000000003,
+            15.103250000000003,
+            14.835374999999999,
+            15.033999999999992
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 202,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            57.18975,
+            50.184749999999994,
+            50.19945899999999,
+            50.675792,
+            50.135917000000006,
+            49.9905,
+            50.030167000000006,
+            48.09445800000003,
+            49.24633299999999,
+            51.86058300000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 303,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "unstable"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "unstable",
+          "samples": [
+            147.86420800000002,
+            126.65258399999999,
+            128.71445899999998,
+            129.37258400000007,
+            128.38512500000002,
+            128.185791,
+            128.633417,
+            127.99754199999995,
+            127.26324999999997,
+            128.28500000000008
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 302,
+            "effects": 101
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            21.763249999999992,
+            19.488500000000002,
+            19.66870800000001,
+            19.52291600000001,
+            18.979208,
+            18.827500000000015,
+            19.247333999999995,
+            19.704959000000002,
+            19.044667000000004,
+            18.86687500000002
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 9,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            22.087542,
+            20.874667000000002,
+            20.12762500000001,
+            19.667124999999984,
+            19.177875,
+            19.577541999999994,
+            18.874250000000018,
+            19.067082999999997,
+            19.041999999999973,
+            19.552959000000016
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 9,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            26.521833,
+            24.788667000000004,
+            24.079167000000012,
+            23.486167000000023,
+            23.394459000000012,
+            23.58291700000001,
+            23.696416999999997,
+            23.470166000000006,
+            23.750124999999997,
+            23.587415999999962
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 10,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            36.162833,
+            27.730791999999994,
+            26.832291999999995,
+            25.378541000000013,
+            25.21716599999999,
+            24.688084000000003,
+            26.08862499999998,
+            24.475875000000002,
+            25.472541999999976,
+            25.478584000000012
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 10,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "kairo",
+      "names": [
+        "molBench"
+      ],
+      "status": "passed",
+      "phase": "kairo",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "molBench",
+          "samples": [
+            21.766958000000002,
+            19.982041999999993,
+            19.784041000000002,
+            18.56708300000001,
+            18.650542,
+            19.963415999999995,
+            19.837707999999992,
+            19.450917000000004,
+            19.43349999999998,
+            18.987916000000013
+          ],
+          "iterations": 500,
+          "computations": {
+            "computed": 9,
+            "effects": 4
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 8.110416999999984,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                22.501292000000007,
+                15.757708999999977,
+                8.110416999999984,
+                15.79095799999999,
+                16.147625000000005,
+                14.565625000000011,
+                15.136874999999975,
+                14.498417000000018,
+                12.758874999999989,
+                14.10575
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 83.65483300000045,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                3.7352089999999976,
+                1.9745829999999955,
+                2.088583999999969,
+                2.1702080000000024,
+                2.091000000000008,
+                2.046375000000012,
+                2.059915999999987,
+                2.059665999999993,
+                2.1593750000000114,
+                2.088333999999975
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                30.913792000000058,
+                31.31087500000001,
+                21.076415999999995,
+                13.481167000000028,
+                25.47395800000004,
+                25.891209000000003,
+                16.864417000000003,
+                16.989291999999978,
+                22.907916999999998,
+                18.513374999999996
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                8.466916999999967,
+                12.108417000000031,
+                9.624957999999992,
+                9.99837500000001,
+                11.113708999999972,
+                9.853249999999889,
+                10.624458000000004,
+                9.59375,
+                9.583875000000035,
+                10.273874999999862
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                8.529457999999977,
+                11.855166999999938,
+                18.996791999999914,
+                8.358499999999822,
+                4.874082999999928,
+                10.160875000000033,
+                15.173915999999963,
+                6.239916999999878,
+                4.7127080000000205,
+                13.848792000000003
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                3.2489160000000084,
+                5.461917000000085,
+                2.14650000000006,
+                3.097917000000052,
+                6.6425839999999425,
+                2.0985829999999623,
+                3.33075000000008,
+                6.299209000000019,
+                2.16341599999987,
+                3.250500000000102
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                20.16729199999986,
+                23.42966700000011,
+                17.383332999999993,
+                16.053957999999966,
+                21.339874999999893,
+                18.319500000000062,
+                15.563458999999966,
+                13.233249999999998,
+                19.202124999999796,
+                17.028999999999996
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                27.975625000000036,
+                31.121958000000177,
+                15.398167000000058,
+                21.69395799999984,
+                14.866084000000228,
+                19.05637499999966,
+                19.474290999999994,
+                14.677958000000217,
+                18.775375000000167,
+                17.09287499999982
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                23.688458000000082,
+                15.659874999999829,
+                17.747292000000016,
+                17.08687500000042,
+                16.74499999999989,
+                24.358374999999796,
+                12.978042000000187,
+                17.410333000000264,
+                17.939957999999933,
+                24.01145899999983
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                12.83837500000027,
+                17.633749999999964,
+                18.881875000000036,
+                15.723165999999765,
+                13.84979199999998,
+                17.63000000000011,
+                16.147042000000056,
+                23.958875000000262,
+                12.031625000000076,
+                16.665541999999732
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 287.39525000000003,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                22.349957999999788,
+                18.816667000000052,
+                19.03099999999995,
+                19.02729199999976,
+                18.39945899999975,
+                18.956125000000156,
+                17.850083000000268,
+                18.988834000000224,
+                19.777207999999973,
+                18.488875000000007
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                11.37058399999978,
+                10.581666999999925,
+                10.773290999999972,
+                10.605082999999922,
+                10.70504099999971,
+                10.560917000000245,
+                9.96958399999994,
+                10.051292000000103,
+                10.870417000000089,
+                10.804041999999754
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                10.027583999999933,
+                7.1151669999999285,
+                7.177166000000398,
+                7.183250000000044,
+                6.816083000000162,
+                6.735458999999992,
+                6.861666000000241,
+                6.6652500000000146,
+                6.987583000000086,
+                6.39083299999993
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                2.5286250000003747,
+                2.3372919999997066,
+                2.439542000000074,
+                2.5290829999999005,
+                2.612416999999823,
+                2.752375000000029,
+                2.7900830000003225,
+                2.777082999999948,
+                2.6550829999996495,
+                2.7434579999999187
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                11.58704200000011,
+                7.041791999999987,
+                7.037000000000262,
+                7.375416999999743,
+                7.320791000000099,
+                7.335708999999952,
+                7.349417000000358,
+                7.4067079999999805,
+                7.14712499999996,
+                6.923208000000159
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                13.987749999999778,
+                12.84170800000038,
+                12.0324999999998,
+                11.084875000000011,
+                11.818667000000005,
+                11.905999999999949,
+                11.852374999999938,
+                12.233916000000136,
+                12.740708000000268,
+                11.703833000000031
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                235.4282079999998,
+                233.78154200000017,
+                232.83937500000002,
+                238.43454099999963,
+                235.594333,
+                234.98854200000005,
+                234.05100000000039,
+                242.54941700000018,
+                233.39866600000005,
+                237.74591600000076
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 7.318959000000007,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                18.96837500000001,
+                21.88708299999999,
+                12.617625000000004,
+                11.249167,
+                7.318959000000007,
+                19.41058300000003,
+                13.152333000000056,
+                15.835291999999981,
+                20.116291999999987,
+                14.278374999999983
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 240.1890829999992,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                22.14466699999997,
+                25.422667000000047,
+                26.608000000000004,
+                27.94754199999994,
+                26.474917000000005,
+                25.96524999999997,
+                21.304666999999995,
+                25.748249999999985,
+                25.698750000000018,
+                21.392499999999927
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                43.107417000000055,
+                46.753874999999994,
+                42.971416999999974,
+                42.20687500000008,
+                45.15304200000003,
+                43.423124999999914,
+                40.408541000000014,
+                44.11087499999985,
+                41.042667000000165,
+                40.82112499999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                26.718166999999994,
+                23.636832999999797,
+                27.894291000000067,
+                27.74458299999992,
+                27.194458000000168,
+                28.6792089999999,
+                28.948082999999997,
+                26.910084000000097,
+                26.98483299999998,
+                26.91166700000008
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                20.323666999999887,
+                12.491166999999905,
+                24.83745799999997,
+                13.848874999999907,
+                29.856667000000016,
+                20.753375000000005,
+                17.65283400000021,
+                33.87795799999981,
+                17.305583000000297,
+                21.399374999999964
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                9.406332999999904,
+                10.852624999999989,
+                9.020166000000245,
+                9.319625000000087,
+                13.478125000000091,
+                9.140333000000282,
+                6.165124999999989,
+                19.731500000000324,
+                6.007708000000093,
+                9.715874999999869
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                53.02574999999979,
+                42.915624999999636,
+                41.175792,
+                37.207458999999744,
+                39.88316699999996,
+                39.10945899999979,
+                41.84050000000025,
+                42.08629200000041,
+                46.374207999999726,
+                41.292415999999776
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                35.51591700000017,
+                30.756790999999794,
+                33.77891700000009,
+                37.52983400000039,
+                37.31391699999995,
+                43.08337500000016,
+                42.869750000000295,
+                43.932832999999846,
+                39.25420900000017,
+                46.54966700000023
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                37.26008300000012,
+                43.59670899999992,
+                37.86704099999997,
+                35.71612499999992,
+                38.478165999999874,
+                38.945250000000215,
+                35.45074999999997,
+                35.52837499999987,
+                37.84524999999985,
+                39.37229099999968
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                36.66154200000028,
+                40.85508299999992,
+                41.62641600000006,
+                43.34908399999995,
+                33.132416999999805,
+                42.61875000000009,
+                32.925166999999874,
+                44.73729200000025,
+                33.812291999999616,
+                44.114708000000064
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 831.8622910000022,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                60.241541999999754,
+                58.87783399999989,
+                59.995750000000044,
+                58.746125000000575,
+                58.78850000000057,
+                59.37408400000004,
+                59.77866699999959,
+                59.14704100000017,
+                58.98645800000031,
+                59.473791999999776
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                39.02929200000017,
+                39.659333999999944,
+                39.25945800000045,
+                39.5916670000006,
+                39.386209000000235,
+                38.689000000000306,
+                38.38379200000054,
+                38.77137500000026,
+                40.191375000000335,
+                40.02216599999974
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                31.105207999999948,
+                30.56920799999989,
+                30.70179200000075,
+                30.36095899999964,
+                29.98425000000043,
+                30.326000000000022,
+                30.173541000000114,
+                30.32433300000048,
+                30.534208000000035,
+                30.493665999999394
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                23.227750000000015,
+                22.357625000000553,
+                22.57787499999995,
+                22.609542000000147,
+                23.470499999999447,
+                24.12208399999963,
+                23.6240829999997,
+                23.517166999999972,
+                24.52466699999968,
+                23.058250000000044
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                19.071458999999777,
+                18.093124999999418,
+                18.346541999999317,
+                18.10320899999988,
+                17.92908299999999,
+                18.07074999999986,
+                18.069416000000274,
+                18.433415999999852,
+                18.109458000000814,
+                18.14904100000058
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                33.8736659999995,
+                33.811375000000226,
+                33.41558299999997,
+                33.657749999999396,
+                32.75370800000019,
+                34.12245900000016,
+                34.3002919999999,
+                32.75575000000026,
+                33.24662499999977,
+                33.65245799999957
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                650.2588750000004,
+                638.335916,
+                644.2069169999995,
+                654.1544579999991,
+                648.9170840000006,
+                645.6861659999995,
+                647.5946250000015,
+                653.5923750000002,
+                652.813791999999,
+                631.7077079999999
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 10.830459000000019,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                20.046166,
+                15.904415999999998,
+                19.37258299999999,
+                31.70762499999998,
+                18.70750000000004,
+                23.094416999999964,
+                10.830459000000019,
+                20.57408300000003,
+                18.41941700000001,
+                18.179125
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 267.52420800000004,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                48.141624999999976,
+                29.724583999999936,
+                44.97741700000006,
+                32.52129200000002,
+                41.84108399999991,
+                26.75137499999994,
+                46.61725000000001,
+                25.659749999999917,
+                42.513374999999996,
+                30.128499999999917
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                48.97058299999992,
+                61.15608299999985,
+                49.771541999999954,
+                55.023334000000204,
+                49.17962499999999,
+                55.863832999999886,
+                50.67266700000005,
+                57.971542,
+                50.51391699999999,
+                59.37029200000006
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                23.188458000000082,
+                26.49716699999999,
+                31.759709000000157,
+                30.506415999999945,
+                31.718917000000147,
+                28.820290999999997,
+                24.042958999999883,
+                22.817417000000205,
+                23.800166999999874,
+                28.027500000000146
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                22.62099999999964,
+                16.438583000000108,
+                24.105999999999767,
+                14.459374999999909,
+                15.321583000000373,
+                18.69595900000013,
+                17.722041999999874,
+                22.023749999999836,
+                15.185500000000047,
+                19.682332999999744
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                4.921291999999994,
+                4.731209000000035,
+                4.902125000000069,
+                4.954957999999806,
+                5.659124999999676,
+                4.573624999999993,
+                7.585875000000215,
+                4.775292000000263,
+                5.0005419999997684,
+                4.649167000000034
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                47.192291000000296,
+                39.99245800000017,
+                48.983834000000115,
+                43.604499999999916,
+                45.33116699999982,
+                39.648459,
+                42.91412500000024,
+                44.94641700000011,
+                45.22325000000001,
+                45.63362499999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                46.479207999999744,
+                44.40379200000007,
+                37.55383299999994,
+                44.60520799999995,
+                46.945291,
+                45.00837500000034,
+                39.99229199999991,
+                38.32233300000007,
+                45.231874999999945,
+                46.053499999999985
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                44.446208999999726,
+                45.731624999999894,
+                42.77516699999978,
+                45.541167000000314,
+                39.043541000000005,
+                44.15312499999982,
+                38.086999999999534,
+                40.33508299999994,
+                37.586709000000155,
+                37.027375000000575
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                48.43287499999951,
+                48.11387500000001,
+                45.45287500000086,
+                36.81379099999958,
+                45.49029200000041,
+                40.82391699999971,
+                40.3496669999995,
+                44.62675000000036,
+                50.20533299999988,
+                37.807332999999744
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 1793.6180839999997,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                158.6043749999999,
+                150.16150000000016,
+                152.3641660000003,
+                150.4955,
+                152.1554160000005,
+                154.22970800000076,
+                153.98304199999984,
+                153.31954200000018,
+                154.99212499999976,
+                155.0050000000001
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                81.6470419999996,
+                81.02874999999949,
+                82.76004099999955,
+                82.89691700000003,
+                82.48166700000002,
+                84.09375,
+                82.39991699999973,
+                82.80929200000082,
+                81.92762499999935,
+                82.38974999999937
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                68.58125000000018,
+                45.131250000000364,
+                47.02070800000001,
+                45.085000000000036,
+                45.926542000000154,
+                46.33433299999979,
+                45.0282500000003,
+                47.2876669999996,
+                45.38120799999979,
+                45.911582999999155
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                12.03795799999989,
+                12.111291999999594,
+                12.061957999999322,
+                12.343542000000525,
+                11.349959000000126,
+                10.499041000000034,
+                10.963082999999642,
+                10.691458000000239,
+                10.397084000000177,
+                10.492332999999235
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                53.88774999999987,
+                53.98400000000038,
+                52.62129100000038,
+                53.85095899999942,
+                54.020958000000064,
+                51.62295799999902,
+                53.81854199999907,
+                52.97016699999949,
+                53.74341699999968,
+                54.17958399999952
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                82.63291600000048,
+                84.40045899999859,
+                81.45329200000015,
+                83.5372499999994,
+                82.22991600000023,
+                82.21070800000052,
+                83.59833299999991,
+                82.06808300000012,
+                84.40762499999983,
+                84.16141699999935
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                1621.2858749999996,
+                1481.4280000000017,
+                1536.1994999999988,
+                1485.5215829999997,
+                1516.2093330000007,
+                1530.2146659999999,
+                1446.9836249999971,
+                1373.9262500000004,
+                1449.3647920000003,
+                1430.7990409999984
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 1.089665999999994,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                11.52387499999999,
+                1.503959000000009,
+                9.99270899999999,
+                5.627583999999985,
+                1.0908330000000035,
+                1.4708749999999782,
+                1.346084000000019,
+                1.089665999999994,
+                1.107500000000016,
+                1.2646670000000029
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 72.48700199999985,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                20.38945799999999,
+                22.617290999999966,
+                21.970708000000002,
+                25.874000000000024,
+                23.388417000000004,
+                9.93549999999999,
+                27.224583000000052,
+                11.850209000000007,
+                8.986041999999998,
+                15.314166
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                20.10737499999999,
+                18.283833000000016,
+                20.30612500000001,
+                19.388666000000057,
+                10.667999999999893,
+                16.285167,
+                15.968584000000078,
+                21.067541000000006,
+                15.196249999999964,
+                11.375499999999988
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                13.612375000000043,
+                6.43266600000004,
+                10.006583999999975,
+                6.428584000000001,
+                10.307166999999936,
+                7.345332999999982,
+                10.121792000000028,
+                12.627250000000004,
+                12.38370800000007,
+                6.715749999999957
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                14.700916000000007,
+                8.418958999999973,
+                4.0367089999999735,
+                12.97137500000008,
+                4.741667000000007,
+                4.8292920000000095,
+                8.479749999999967,
+                10.092040999999881,
+                4.167291000000205,
+                4.44358299999999
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                2.9402910000001157,
+                3.6510000000000673,
+                5.938333000000057,
+                2.506167000000005,
+                2.784417000000076,
+                6.424915999999939,
+                2.7641669999998157,
+                6.542291999999861,
+                2.527415999999903,
+                6.075832999999875
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                15.823250000000144,
+                14.939041999999972,
+                19.024958000000197,
+                9.709500000000162,
+                14.186500000000024,
+                19.139417000000094,
+                8.744249999999965,
+                17.338375000000042,
+                20.209125000000085,
+                8.693082999999888
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                23.53749999999991,
+                20.783500000000004,
+                18.049624999999878,
+                14.374500000000126,
+                18.715958,
+                14.915250000000015,
+                17.389832999999953,
+                15.94224999999983,
+                12.01237500000002,
+                15.404833000000053
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                14.95245900000009,
+                12.297874999999976,
+                9.538457999999991,
+                14.93795799999998,
+                10.038250000000062,
+                20.65362499999992,
+                11.119209000000183,
+                22.987958000000162,
+                10.67533400000002,
+                22.002792
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                9.617584000000079,
+                13.610750000000053,
+                10.774875000000065,
+                13.049791999999798,
+                9.766833000000133,
+                13.138334000000214,
+                12.866958000000068,
+                10.351249999999936,
+                10.581166000000167,
+                13.961125000000038
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 307.0619569999999,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                20.231708000000026,
+                18.17204199999992,
+                18.99983300000008,
+                19.030291999999918,
+                18.966625000000022,
+                19.42300000000023,
+                18.681542000000263,
+                17.951249999999618,
+                18.067000000000007,
+                18.635333000000173
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                10.897457999999915,
+                10.97937499999989,
+                10.20233300000018,
+                10.952292000000398,
+                11.087791999999808,
+                11.0012499999998,
+                10.454208000000108,
+                10.817083999999795,
+                10.806999999999789,
+                10.990374999999858
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                7.544125000000349,
+                6.862875000000258,
+                6.68258300000025,
+                6.79037500000004,
+                6.807624999999916,
+                6.599167000000307,
+                6.767833000000337,
+                6.445459000000028,
+                6.437457999999879,
+                6.248833000000104
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                3.7432090000002063,
+                3.7474170000000413,
+                4.404791999999816,
+                3.7382920000000013,
+                3.754041000000143,
+                3.5654579999995804,
+                3.5085839999997006,
+                3.397375000000011,
+                3.460125000000062,
+                3.6067079999997986
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                7.844250000000102,
+                7.7219169999998485,
+                7.120792000000165,
+                7.64733299999989,
+                8.185542000000169,
+                7.539291999999932,
+                7.22808299999997,
+                6.672875000000204,
+                7.573041000000103,
+                7.167249999999967
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                12.346166999999696,
+                12.501624999999876,
+                12.00366699999995,
+                12.030125000000226,
+                11.89758299999994,
+                11.490915999999743,
+                12.131458999999722,
+                11.961667000000034,
+                12.048749999999927,
+                11.873708000000079
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                251.09837500000003,
+                258.7572500000001,
+                266.7529999999997,
+                262.6232500000001,
+                262.4314169999998,
+                258.8085839999999,
+                263.07229199999983,
+                261.41016599999966,
+                260.44225000000006,
+                259.65045800000007
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "s",
+      "names": [
+        "createSignals",
+        "createComputations",
+        "updateSignals"
+      ],
+      "status": "passed",
+      "phase": "S.js untimed computation counts",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "createSignals",
+          "time": 5.883375000000001,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "createSignals",
+              "samples": [
+                19.38470799999999,
+                16.640958000000012,
+                11.909625000000005,
+                14.350583999999998,
+                6.2137500000000045,
+                14.05658299999999,
+                18.126166000000012,
+                11.868167000000028,
+                14.23841699999997,
+                5.883375000000001
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 0
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 0
+          }
+        },
+        {
+          "test": "createComputations",
+          "time": 132.61341600000048,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "create0to1",
+              "samples": [
+                22.97562499999998,
+                16.819833999999958,
+                21.668999999999983,
+                14.315499999999986,
+                23.248041999999998,
+                13.362500000000011,
+                22.123749999999973,
+                12.96829200000002,
+                16.363917000000015,
+                15.406417000000033
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1",
+              "samples": [
+                29.554624999999987,
+                22.96774999999991,
+                37.93741699999998,
+                38.244749999999954,
+                24.006375000000048,
+                42.99920899999995,
+                27.837666999999897,
+                43.46845899999994,
+                35.771833000000015,
+                36.10404099999994
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create2to1",
+              "samples": [
+                18.66170800000009,
+                16.051083000000062,
+                18.178333000000066,
+                17.530915999999934,
+                21.43724999999995,
+                25.32383300000015,
+                24.954124999999976,
+                27.14845800000012,
+                28.14412500000003,
+                27.820791999999983
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 50000
+              }
+            },
+            {
+              "name": "create4to1",
+              "samples": [
+                10.134666999999808,
+                15.346500000000106,
+                11.815457999999808,
+                5.984875000000102,
+                11.800707999999986,
+                6.553750000000036,
+                13.132583000000068,
+                6.273208000000068,
+                12.714375000000018,
+                6.276416000000154
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 25000
+              }
+            },
+            {
+              "name": "create1000to1",
+              "samples": [
+                8.193667000000005,
+                6.1027500000000146,
+                3.447167000000036,
+                8.308582999999999,
+                3.365208000000166,
+                5.3314580000001115,
+                5.41924999999992,
+                7.9633329999999205,
+                3.0726250000000164,
+                6.270291000000043
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100
+              }
+            },
+            {
+              "name": "create1to2",
+              "samples": [
+                53.164167000000134,
+                19.63891600000011,
+                37.3589579999998,
+                24.297958000000108,
+                23.53687500000001,
+                33.56062500000007,
+                26.22199999999998,
+                31.477499999999964,
+                25.113959000000023,
+                32.01191699999981
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to4",
+              "samples": [
+                37.39629100000002,
+                21.081125000000156,
+                25.503999999999905,
+                21.612333000000035,
+                25.292167000000063,
+                31.50025000000005,
+                20.131083000000217,
+                23.39408400000002,
+                23.712916999999834,
+                30.312041000000136
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to8",
+              "samples": [
+                25.916749999999865,
+                25.05166700000018,
+                25.374249999999847,
+                16.035417000000052,
+                20.382000000000062,
+                18.192875000000186,
+                22.286207999999988,
+                23.148041999999805,
+                24.460041000000274,
+                21.446457999999893
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "create1to1000",
+              "samples": [
+                23.28720800000019,
+                32.85425000000032,
+                25.349874999999884,
+                15.763374999999996,
+                21.879625000000033,
+                26.787332999999762,
+                20.13799999999992,
+                25.69504199999983,
+                16.04016700000011,
+                22.7521670000001
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 675100
+          }
+        },
+        {
+          "test": "updateSignals",
+          "time": 328.4555439999999,
+          "size": 100000,
+          "subcases": [
+            {
+              "name": "update1to1",
+              "samples": [
+                18.338958000000275,
+                16.776834000000235,
+                17.28899999999976,
+                17.525374999999713,
+                17.470000000000255,
+                18.255291999999827,
+                17.562540999999783,
+                17.800083000000086,
+                17.33779199999981,
+                17.25991699999986
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update2to1",
+              "samples": [
+                11.626832999999806,
+                11.545958000000155,
+                10.870625000000018,
+                10.854541000000154,
+                10.941249999999854,
+                10.681959000000006,
+                11.013958999999886,
+                11.026832999999897,
+                11.423874999999953,
+                10.784415999999965
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update4to1",
+              "samples": [
+                10.425249999999778,
+                7.138332999999875,
+                6.952374999999847,
+                7.234082999999828,
+                7.18808399999989,
+                7.130000000000109,
+                7.158459000000221,
+                7.0364589999999225,
+                6.859291999999641,
+                6.932582999999795
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 100000
+              }
+            },
+            {
+              "name": "update1000to1",
+              "samples": [
+                5.941624999999931,
+                5.970084000000043,
+                5.711750000000393,
+                5.777833000000101,
+                5.601666000000023,
+                5.592167000000245,
+                5.431625000000167,
+                5.391167000000223,
+                5.788750000000164,
+                5.84704099999999
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400
+              }
+            },
+            {
+              "name": "update1to2",
+              "samples": [
+                11.44512500000019,
+                7.028041999999914,
+                7.914916000000176,
+                7.116457999999966,
+                6.86095800000021,
+                7.288457999999991,
+                6.980833000000075,
+                6.775167000000238,
+                6.9814580000002024,
+                7.064124999999876
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 200000
+              }
+            },
+            {
+              "name": "update1to4",
+              "samples": [
+                15.000208999999813,
+                12.498749999999745,
+                12.424541000000318,
+                12.779708999999912,
+                12.79950000000008,
+                12.11929199999986,
+                12.163958000000093,
+                12.572999999999865,
+                12.58837500000027,
+                12.656750000000102
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 400000
+              }
+            },
+            {
+              "name": "update1to1000",
+              "samples": [
+                320.2133749999998,
+                293.51245900000004,
+                300.5382080000004,
+                291.18916699999954,
+                274.479292,
+                289.27129200000036,
+                284.4948750000003,
+                288.40658299999996,
+                290.9204580000005,
+                269.8518329999997
+              ],
+              "computations": {
+                "computed": 0,
+                "effects": 10000000
+              }
+            }
+          ],
+          "computations": {
+            "computed": 0,
+            "effects": 11300400
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            1.500249999999994,
+            1.9276250000000061,
+            1.6222910000000041,
+            1.7422079999999909,
+            1.2423750000000098,
+            1.6165420000000097,
+            1.4116659999999968,
+            1.4008330000000058,
+            1.519041999999999,
+            1.4350000000000023
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            1.8754579999999947,
+            2.3673339999999996,
+            1.6439170000000018,
+            1.853625000000008,
+            1.6689999999999827,
+            1.8766669999999976,
+            1.5782079999999894,
+            1.7618750000000034,
+            1.6442919999999788,
+            1.8161670000000072
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            0.7047500000000042,
+            0.6040830000000028,
+            0.45708299999999724,
+            0.39970800000000395,
+            0.4280830000000009,
+            0.4930829999999986,
+            0.40929199999999355,
+            0.4193750000000023,
+            0.4827499999999958,
+            0.4444170000000014
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            0.5297499999999928,
+            0.47862500000000807,
+            0.5996669999999966,
+            0.48799999999999955,
+            0.43216699999999264,
+            0.4312500000000057,
+            0.4585000000000008,
+            0.4254580000000061,
+            0.4323750000000075,
+            0.5111250000000069
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "cellx",
+      "names": [
+        "cellx1000"
+      ],
+      "status": "passed",
+      "phase": "cellx1000 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx1000",
+          "samples": [
+            1.1207079999999934,
+            0.6095830000000007,
+            0.6993750000000034,
+            0.6962500000000063,
+            0.7167500000000047,
+            0.7590419999999938,
+            0.6667500000000075,
+            0.5091659999999933,
+            0.6460000000000008,
+            0.4936670000000021
+          ],
+          "computations": {
+            "computed": 8000,
+            "effects": 8000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            5.686000000000007,
+            3.888292000000007,
+            4.4668749999999875,
+            11.023125000000022,
+            5.003874999999994,
+            4.360917000000001,
+            5.794333999999992,
+            4.2199170000000095,
+            4.049208999999962,
+            5.655957999999998
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            1.5325420000000065,
+            5.569417000000001,
+            1.2737500000000068,
+            1.6653749999999974,
+            3.8372910000000076,
+            1.438834,
+            1.3505419999999901,
+            3.5383330000000086,
+            1.468041999999997,
+            1.4439580000000092
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            1.2642079999999964,
+            1.7518329999999906,
+            1.627541000000008,
+            1.2398749999999978,
+            2.213957999999991,
+            1.0450830000000053,
+            1.4538750000000107,
+            1.2336249999999893,
+            1.2032910000000072,
+            2.0018340000000023
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            2.3044999999999902,
+            2.700833999999986,
+            1.8844169999999991,
+            2.9065410000000043,
+            2.65954099999999,
+            1.8480410000000234,
+            3.4672079999999994,
+            4.328000000000003,
+            2.3225830000000087,
+            1.9625830000000235
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "cellx",
+      "names": [
+        "cellx2500"
+      ],
+      "status": "passed",
+      "phase": "cellx2500 build and first update",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "cellx2500",
+          "samples": [
+            4.506166999999991,
+            5.453374999999994,
+            3.877749999999992,
+            4.013499999999993,
+            4.597666000000004,
+            3.766832999999991,
+            3.909167000000025,
+            4.684125000000023,
+            4.380541999999991,
+            3.634999999999991
+          ],
+          "computations": {
+            "computed": 20000,
+            "effects": 20000
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            165.92866700000002,
+            167.57100000000003,
+            168.03620799999987,
+            170.61508300000014,
+            173.27708400000006
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            225.21029199999998,
+            222.8091250000001,
+            219.21158300000002,
+            224.20900000000006,
+            222.07141699999988
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            196.29383299999995,
+            192.1802090000001,
+            193.17133400000012,
+            193.51687500000003,
+            191.80666599999995
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            1142.2225410000005,
+            1144.9455829999997,
+            1131.9189590000005,
+            1132.3009170000005,
+            1118.0747499999998
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            },
+            {
+              "sum": 19199968,
+              "count": 8400000
+            }
+          ],
+          "computations": {
+            "computed": 8400000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 8400000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "2-10x5 - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "2-10x5 - lazy80%",
+          "samples": [
+            1020.7973750000006,
+            1048.033625,
+            1129.1122500000001,
+            1125.8957499999997,
+            1104.1262080000006
+          ],
+          "iterations": 600000,
+          "sampleResults": [
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          ],
+          "computations": {
+            "computed": 3480000
+          },
+          "verification": {
+            "expected": {
+              "sum": 19199968,
+              "count": 3480000
+            },
+            "actual": {
+              "sum": 19199968,
+              "count": 3480000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            160.23195799999996,
+            159.72445800000003,
+            160.38520800000003,
+            157.64958300000012,
+            161.22037499999988
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            121.78062499999993,
+            121.96175000000005,
+            122.85699999999997,
+            122.88995799999998,
+            123.63987499999996
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            381.66820800000005,
+            408.58475,
+            437.1944589999998,
+            438.1940410000002,
+            436.1832909999998
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1290000
+            }
+          ],
+          "computations": {
+            "computed": 1290000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1290000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            605.1568749999999,
+            590.3433749999999,
+            597.3412919999996,
+            601.0460000000003,
+            596.1087090000001
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "6-10x10 - dyn25% - lazy80%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-10x10 - dyn25% - lazy80%",
+          "samples": [
+            122.099625,
+            123.26033399999994,
+            121.10354200000006,
+            121.551333,
+            120.05170899999996
+          ],
+          "iterations": 15000,
+          "sampleResults": [
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          ],
+          "computations": {
+            "computed": 1155000
+          },
+          "verification": {
+            "expected": {
+              "sum": 302310782860,
+              "count": 1155000
+            },
+            "actual": {
+              "sum": 302310782860,
+              "count": 1155000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            322.68399999999997,
+            326.1252499999998,
+            321.03545800000006,
+            330.27320799999984,
+            316.5228750000001
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            1028.890375,
+            1032.418791,
+            997.219333,
+            996.4292919999998,
+            1000.8622079999996
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            1162.601458,
+            1128.3740419999995,
+            1143.893,
+            1131.6602920000005,
+            1122.520457999999
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            293.6009160000001,
+            286.98354100000006,
+            308.65033300000005,
+            293.564791,
+            288.37133300000005
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "4-1000x12 - dyn5%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "4-1000x12 - dyn5%",
+          "samples": [
+            468.95279099999993,
+            457.90800000000013,
+            482.228333,
+            480.3415,
+            482.59616700000015
+          ],
+          "iterations": 7000,
+          "sampleResults": [
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          ],
+          "computations": {
+            "computed": 1463000
+          },
+          "verification": {
+            "expected": {
+              "sum": 29355933696000,
+              "count": 1463000
+            },
+            "actual": {
+              "sum": 29355933696000,
+              "count": 1463000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            972.249041,
+            969.1063330000002,
+            948.0773749999998,
+            949.5875409999999,
+            947.3351249999996
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            1409.8309999999992,
+            1410.125,
+            1382.2534999999998,
+            1391.7231250000004,
+            1389.346916999999
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            334.2865419999998,
+            342.327458,
+            333.771708,
+            341.8648750000002,
+            343.7637500000001
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            549.5653750000001,
+            539.2077909999998,
+            547.9022500000001,
+            529.7269580000002,
+            530.0325000000003
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "25-1000x5"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "25-1000x5",
+          "samples": [
+            367.3115419999999,
+            354.816875,
+            353.44220900000005,
+            371.600958,
+            364.25520800000004
+          ],
+          "iterations": 3000,
+          "sampleResults": [
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          ],
+          "computations": {
+            "computed": 732000
+          },
+          "verification": {
+            "expected": {
+              "sum": 1171484375000,
+              "count": 732000
+            },
+            "actual": {
+              "sum": 1171484375000,
+              "count": 732000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            406.5410840000002,
+            402.270542,
+            404.9827500000001,
+            401.8352090000003,
+            392.3321249999999
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            85.407917,
+            81.68283300000002,
+            84.97541700000005,
+            85.78258300000005,
+            83.18154100000004
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            125.94341700000001,
+            120.66925000000003,
+            119.56462499999998,
+            117.0512500000001,
+            116.36412500000006
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            90.04979200000002,
+            85.994666,
+            86.51020800000003,
+            90.7175830000001,
+            91.77800000000002
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "3-5x500"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "3-5x500",
+          "samples": [
+            240.42225000000008,
+            235.67270800000006,
+            244.59483299999988,
+            236.7066249999998,
+            235.27716600000008
+          ],
+          "iterations": 500,
+          "sampleResults": [
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          ],
+          "computations": {
+            "computed": 1246500
+          },
+          "verification": {
+            "expected": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            },
+            "actual": {
+              "sum": 3.0239642676898464e+241,
+              "count": 1246500
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "alien",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            185.00470799999994,
+            180.71375,
+            179.11912499999994,
+            183.38250000000016,
+            195.86262499999998
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "preact",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            234.16975000000002,
+            235.39629200000002,
+            239.13629100000003,
+            241.20008299999995,
+            238.59333300000003
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "what",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            207.78054199999997,
+            211.58624999999995,
+            207.91579100000013,
+            215.0235,
+            211.3941659999998
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid1",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            412.2761250000001,
+            428.30620799999974,
+            423.289667,
+            409.8203749999998,
+            419.03724999999986
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    },
+    {
+      "id": "solid2",
+      "suite": "dynamic",
+      "names": [
+        "6-100x15 - dyn50%"
+      ],
+      "status": "passed",
+      "phase": "dynamic graph correctness at upstream iteration count",
+      "code": 0,
+      "signal": null,
+      "stderr": "",
+      "rows": [
+        {
+          "test": "6-100x15 - dyn50%",
+          "samples": [
+            625.6399999999999,
+            622.152333,
+            613.5312909999998,
+            630.3957500000001,
+            658.2151250000006
+          ],
+          "iterations": 2000,
+          "sampleResults": [
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          ],
+          "computations": {
+            "computed": 1078000
+          },
+          "verification": {
+            "expected": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            },
+            "actual": {
+              "sum": 15664996402790400,
+              "count": 1078000
+            }
+          }
+        }
+      ],
+      "checks": [],
+      "assertionFailures": 0
+    }
+  ]
+}

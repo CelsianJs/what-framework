@@ -29,6 +29,7 @@ const { hydrate } = await import('../src/render.js');
 const { mount } = await import('../src/dom.js');
 const { Show } = await import('../src/components.js');
 const { onCleanup } = await import('../src/hooks.js');
+const { getServerContext } = await import('../src/server-context.js');
 const { renderToString } = await import('what-server');
 
 // <main> with a stable heading, a toggling region, and a stable trailing
@@ -402,7 +403,10 @@ describe('a component whose root is a reactive region survives its first update'
   it('does not dispose its own context when the region updates', () => {
     let cleanups = 0;
     const Panel = ({ flag }) => {
-      onCleanup(() => { cleanups++; });
+      // The server render's copy of Panel is disposed with its render; only
+      // the hydrated copy counts.
+      const onServer = typeof document === 'undefined' || getServerContext() !== null;
+      onCleanup(() => { if (!onServer) cleanups++; });
       return () => (flag() ? h('div', { 'data-on': '' }, 'ON') : h('div', { 'data-off': '' }, 'OFF'));
     };
 

@@ -3,15 +3,16 @@
 // Like Zustand meets signals — define a store, use it anywhere.
 
 import { signal, computed, batch, __DEV__ } from './reactive.js';
+import { report } from './diagnostics.js';
 
-// --- storeComputed ---
+// --- derived ---
 // Marker wrapper to explicitly tag a function as a computed in createStore.
 // Without this, createStore can't distinguish computed(state => ...) from action(item => ...).
 //
 // Usage:
 //   const useCounter = createStore({
 //     count: 0,
-//     doubled: storeComputed(state => state.count * 2),
+//     doubled: derived(state => state.count * 2),
 //     addItem(item) { /* this is an action */ },
 //   });
 
@@ -20,31 +21,28 @@ export function derived(fn) {
   return fn;
 }
 
-// Deprecated alias — use derived() instead
-let _storeComputedWarned = false;
-export function storeComputed(fn) {
-  if (!_storeComputedWarned) {
-    _storeComputedWarned = true;
-    console.warn('[what] storeComputed() is deprecated. Use derived() instead.');
-  }
-  return derived(fn);
-}
-
 // --- createStore ---
 // Creates a reactive store with actions. Each key becomes a signal.
+//
+// In an action, `this` reads the current state and derived values, and
+// assigning a state key writes its signal. The assignment is what notifies: an
+// in-place mutation such as `this.items.push(item)` changes the array but no
+// reader re-runs, so assign a new value instead. An action runs as one batch
+// and returns what the function returns.
 //
 // Usage:
 //   const useCounter = createStore({
 //     count: 0,
-//     doubled: storeComputed(state => state.count * 2),  // computed
+//     items: [],
+//     doubled: derived(state => state.count * 2),        // computed
 //     increment() { this.count++; },                      // action
-//     decrement() { this.count--; },
-//     addItem(item) { this.items.push(item); },           // action (not confused with computed)
+//     addItem(item) { this.items = [...this.items, item]; },
 //   });
 //
 //   function Counter() {
-//     const { count, doubled, increment } = useCounter();
-//     return h('div', null, count, ' / ', doubled, h('button', { onClick: increment }, '+'));
+//     const counter = useCounter();
+//     return h('div', null, () => counter.count, ' / ', () => counter.doubled,
+//       h('button', { onClick: counter.increment }, '+'));
 //   }
 
 export function createStore(definition) {
@@ -57,11 +55,9 @@ export function createStore(definition) {
   for (const [key, value] of Object.entries(definition)) {
     if (typeof value === 'function' && value._storeComputed) {
       if (__DEV__ && value.length === 0) {
-        console.warn(
-          `[what] derived() for "${key}" should accept the state parameter, e.g. derived(state => ...).`
-        );
+        report('ERR_DERIVED_WITHOUT_STATE', { data: { key } });
       }
-      // Computed: explicitly marked with storeComputed()
+      // Computed: explicitly marked with derived()
       computeds[key] = value;
     } else if (typeof value === 'function') {
       // Action: any other function
@@ -123,14 +119,4 @@ export function createStore(definition) {
     }
     return result;
   };
-}
-
-// --- Simple atom --- [DEPRECATED: use signal() directly]
-let _atomWarned = false;
-export function atom(initial) {
-  if (!_atomWarned) {
-    _atomWarned = true;
-    console.warn('[what] atom() is deprecated. Use signal() directly instead.');
-  }
-  return signal(initial);
 }

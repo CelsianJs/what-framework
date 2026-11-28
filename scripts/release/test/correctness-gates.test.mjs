@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '../../..');
-const expected = ['hygiene:publish', 'test', 'build', 'hygiene:publish', 'hygiene:types', 'check:error-codes', 'check:error-docs', 'typecheck', 'typecheck:src', 'lint', 'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps'];
+const expected = ['hygiene:publish', 'build', 'test', 'hygiene:publish', 'hygiene:types', 'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint', 'check:size', 'test:prod', 'smoke:scaffold', 'smoke:apps'];
 
 test('the shared release gate list builds before final pack/type/production checks', async () => {
   const { runReleaseGates } = await import('../correctness-gates.mjs');
@@ -26,7 +26,7 @@ test('local release verification retains a strict benchmark before app smokes', 
 
 test('each formerly omitted correctness gate stops the release on failure', async () => {
   const { runReleaseGates } = await import('../correctness-gates.mjs');
-  for (const failing of ['hygiene:types', 'check:error-codes', 'check:error-docs', 'typecheck', 'typecheck:src', 'lint']) {
+  for (const failing of ['hygiene:types', 'check:error-codes', 'check:error-docs', 'check:import-docs', 'check:node-floor', 'typecheck', 'typecheck:src', 'lint']) {
     const calls = [];
     assert.throws(() => runReleaseGates({ run: gate => { calls.push(gate); return gate === failing ? 1 : 0; } }), new RegExp(failing));
     assert.equal(calls.at(-1), failing);

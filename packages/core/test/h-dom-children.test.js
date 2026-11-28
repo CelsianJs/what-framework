@@ -33,16 +33,24 @@ describe('h() child handling', () => {
     assert.equal(vnode.children[1], 'literal');
   });
 
-  it('still stringifies plain objects that are not DOM nodes', () => {
+  it('keeps a plain object child as it is; renderers write it as text', async () => {
     const plain = { foo: 'bar' };
     const vnode = h('a', null, plain);
     assert.equal(vnode.children.length, 1);
-    assert.equal(typeof vnode.children[0], 'string');
-    assert.equal(vnode.children[0], '[object Object]');
+    assert.strictEqual(vnode.children[0], plain);
+    const { installDOM } = await import('../../../test-utils/dom.js');
+    const env = installDOM();
+    try {
+      const { createDOM } = await import('../src/dom.js');
+      const el = createDOM(vnode);
+      assert.equal(el.outerHTML, '<a>[object Object]</a>');
+    } finally {
+      env.cleanup();
+    }
   });
 
-  it('still passes through vnodes via the vnode branch', () => {
-    const child = { _vnode: true, tag: 'span', props: {}, children: [], key: null };
+  it('passes vnodes through', () => {
+    const child = h('span', null);
     const vnode = h('div', null, child);
     assert.strictEqual(vnode.children[0], child);
   });

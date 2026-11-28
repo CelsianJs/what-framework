@@ -13,7 +13,7 @@ describe('TextFlow', () => {
   let TextFlow;
   beforeEach(async () => {
     _resetTextEngineForTests();
-    ({ TextFlow } = await import('../src/text/index.js'));
+    ({ TextFlow } = await import('../src/index.js'));
   });
 
   it('falls back to plain <div> with column-count when Pretext is missing', () => {
@@ -57,7 +57,7 @@ describe('TextCanvas', () => {
   let TextCanvas;
   beforeEach(async () => {
     _resetTextEngineForTests();
-    ({ TextCanvas } = await import('../src/text/index.js'));
+    ({ TextCanvas } = await import('../src/index.js'));
   });
 
   it('renders a canvas element with the requested dimensions', () => {
@@ -90,7 +90,7 @@ describe('TextSVG', () => {
   let TextSVG;
   beforeEach(async () => {
     _resetTextEngineForTests();
-    ({ TextSVG } = await import('../src/text/index.js'));
+    ({ TextSVG } = await import('../src/index.js'));
   });
 
   it('renders an <svg> element with <text>/<tspan> children', () => {

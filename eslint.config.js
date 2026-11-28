@@ -53,6 +53,15 @@ export default [
       'packages/*/example/dist/**',
       'benchmark/frameworks/**',
       'benchmark/results/**',
+      // Gitignored build output in a working checkout: the reactivity
+      // benchmark's bundle and Vercel's build of a site. A fresh clone has
+      // neither, so linting them made `npm run lint` pass there and fail here.
+      '**/.build/**',
+      '**/.vercel/**',
+      // An untracked checkout of other frameworks' benchmark apps that some
+      // machines keep at the root. Each app has its own ESLint config and
+      // plugins, and ESLint lints a file with its nearest config.
+      'comparison-test/**',
     ],
   },
 
@@ -83,10 +92,35 @@ export default [
   // The framework's own rules, run against the framework. Sourced from the
   // workspace rather than the published package so a rule change is linted by
   // the same commit that makes it.
+  // The read-once rules are for app components; the framework's own
+  // components read their configuration props once by design (<Router
+  // globalLayout>).
   {
     files: ['packages/*/src/**/*.{js,jsx}'],
     plugins: { what },
-    rules: what.configs.recommended.rules,
+    rules: {
+      ...what.configs.recommended.rules,
+      'what/no-prop-read-once': 'off',
+      'what/no-state-read-once': 'off',
+      'what/no-cleanup-reads-live': 'off',
+    },
+  },
+
+  // The example apps and sites are code that people and agents copy, so the
+  // rules for the React habits that do not hold in What are errors there:
+  // state used without the call that reads it, and a prop, state or cleanup
+  // read once in a component that runs once. compat-tests is React code run
+  // on what-react, where useState returns a value.
+  {
+    files: ['examples/**/*.{js,jsx}', 'sites/**/*.{js,jsx}'],
+    ignores: ['examples/compat-tests/**'],
+    plugins: { what },
+    rules: {
+      'what/no-uncalled-signals': 'error',
+      'what/no-prop-read-once': 'error',
+      'what/no-state-read-once': 'error',
+      'what/no-cleanup-reads-live': 'error',
+    },
   },
 
   // Everything under examples/, sites/ and the JSX benchmarks is built by

@@ -16,19 +16,21 @@ export default defineConfig({
     jsxImportSource: 'react', // aliased to what-react below
   },
   resolve: {
-    alias: {
-      // React → what-react aliases (longer paths first)
-      'react/jsx-runtime': path.join(compatPath, 'jsx-runtime.js'),
-      'react/jsx-dev-runtime': path.join(compatPath, 'jsx-dev-runtime.js'),
-      'react-dom/client': path.join(compatPath, 'dom.js'),
-      'react-dom': path.join(compatPath, 'dom.js'),
-      'react': path.join(compatPath, 'index.js'),
+    // Exact matches: Vite reads a string alias as a prefix, which would send
+    // what-core/internal to `…/index.js/internal`. Other subpaths resolve
+    // through each package's exports, to the same source files.
+    alias: [
+      { find: /^react\/jsx-runtime$/, replacement: path.join(compatPath, 'jsx-runtime.js') },
+      { find: /^react\/jsx-dev-runtime$/, replacement: path.join(compatPath, 'jsx-dev-runtime.js') },
+      { find: /^react-dom\/client$/, replacement: path.join(compatPath, 'dom.js') },
+      { find: /^react-dom$/, replacement: path.join(compatPath, 'dom.js') },
+      { find: /^react$/, replacement: path.join(compatPath, 'index.js') },
       // Force single what-core instance
-      'what-framework/render': coreRenderPath,
-      'what-framework': corePath,
-      'what-core/render': coreRenderPath,
-      'what-core': corePath,
-    },
+      { find: /^what-framework\/render$/, replacement: coreRenderPath },
+      { find: /^what-framework$/, replacement: corePath },
+      { find: /^what-core\/render$/, replacement: coreRenderPath },
+      { find: /^what-core$/, replacement: corePath },
+    ],
     dedupe: ['what-core'],
   },
   optimizeDeps: {

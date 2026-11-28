@@ -17,7 +17,8 @@
  */
 
 import { Fragment as WhatFragment } from 'what-core';
-import { getBridge, _getCurrentInstance, flushUpdates, _drainAll } from './runtime.js';
+import { isVNode } from 'what-core/internal';
+import { getBridge, _getCurrentInstance, flushUpdates, _drainAll, _setRangeHidden, _componentStack, _isStuck, _vnodeOf } from './runtime.js';
 import {
   useState,
   useReducer,
@@ -34,6 +35,9 @@ import {
   useTransition,
   useDeferredValue,
   startTransition,
+  useOptimistic,
+  useActionState,
+  useEffectEvent,
   useId,
   useDebugValue,
   use,
@@ -57,14 +61,53 @@ export {
   useTransition,
   useDeferredValue,
   startTransition,
+  useOptimistic,
+  useActionState,
+  useEffectEvent,
   useId,
   useDebugValue,
   use,
 };
 
-export const Fragment = WhatFragment;
+// React's Fragment is a symbol, and `react-is` (inside MUI, Ant Design,
+// react-redux and others) recognises a fragment element by it. An element
+// made with what-core's Fragment (the mixed compiler's `<>`, a file that
+// imports it from what-framework) carries the same symbol as its type.
+const REACT_FRAGMENT_TYPE = Symbol.for('react.fragment');
+export const Fragment = REACT_FRAGMENT_TYPE;
+
+function FragmentComponent(props) {
+  return props.children;
+}
+FragmentComponent.displayName = 'Fragment';
+// Not a frame of its own in a component stack.
+FragmentComponent._hidden = true;
+const fragmentBridge = getBridge(FragmentComponent);
 
 // ---- Class components ----
+
+// A class component is rendered through the wrapper below (getClassWrapper),
+// which a program carries only when something installs it: Component's
+// definition (so a class that extends Component or PureComponent brings it),
+// or `what-react/class` (src/class.js), which what-react's Vite plugin
+// imports into a module that has `isReactComponent` in it (a class marked by
+// hand, as React accepts, or by a library). A program with neither does not
+// carry the class lifecycle, and a class that reaches it anyway is refused
+// with ERR_CLASS_COMPONENT_NOT_INSTALLED instead of being called as a
+// function.
+/** @type {((type: any) => any) | null} */
+let classWrapper = null;
+
+/** @internal Install class components (Component's definition, src/class.js). */
+export function _installClasses() {
+  classWrapper = getClassWrapper;
+}
+
+// The render function of class component `type`.
+function classRender(type) {
+  if (classWrapper !== null) return classWrapper(type);
+  throw Object.assign(new Error(`[what-react] ${type.name} is a class component, which this bundle cannot render: use what-react's Vite plugin, import 'what-react/class', or extend Component.`), { code: 'ERR_CLASS_COMPONENT_NOT_INSTALLED' });
+}
 
 function isClassComponent(type) {
   return (
@@ -84,57 +127,116 @@ function getClassWrapper(ClassComp) {
     typeof ClassComp.getDerivedStateFromError === 'function' ||
     typeof ClassComp.prototype.componentDidCatch === 'function';
 
+  const pure = ClassComp.prototype.isPureReactComponent === true;
+  const derives = typeof ClassComp.getDerivedStateFromProps === 'function';
+  const defaults = ClassComp.defaultProps;
+
   wrapper = function ClassComponentWrapper(props) {
     const instanceRef = useRef(null);
     const [, forceRender] = useReducer((c) => c + 1, 0);
 
+    let instance = instanceRef.current;
+    const mounting = instance === null;
+
+    // A ref on a class component is the instance, never a prop of it.
+    const ref = props.ref ?? null;
     let mergedProps = props;
-    if (ClassComp.defaultProps) {
-      mergedProps = { ...ClassComp.defaultProps, ...props };
+    if (!mounting && instance._rawProps === props) {
+      // Its own re-render (setState): the props object it already has.
+      mergedProps = instance.props;
+    } else if ('ref' in props || defaults) {
+      mergedProps = {};
+      for (const name in props) if (name !== 'ref') mergedProps[name] = props[name];
+      // A default stands in for a prop that is undefined, as in React.
+      if (defaults) for (const name in defaults) if (mergedProps[name] === undefined) mergedProps[name] = defaults[name];
     }
 
-    if (instanceRef.current === null) {
-      const instance = new ClassComp(mergedProps);
+    // static contextType: the constructor's second argument and this.context.
+    const context = ClassComp.contextType ? useContext(ClassComp.contextType) : undefined;
+
+    if (mounting) {
+      instance = instanceRef.current = new ClassComp(mergedProps, context);
       if (instance.state === undefined) instance.state = {};
-      instance._forceUpdate = forceRender;
-      instanceRef.current = instance;
+      instance.props = mergedProps;
+      instance.context = context;
+      instance._enqueue = forceRender;
+      instance._compatInst = _getCurrentInstance();
+      // The legacy mount lifecycle, which React skips for a class with the new ones.
+      if (!derives && typeof instance.getSnapshotBeforeUpdate !== 'function') {
+        if (typeof instance.componentWillMount === 'function') instance.componentWillMount();
+        if (typeof instance.UNSAFE_componentWillMount === 'function') instance.UNSAFE_componentWillMount();
+      }
+    } else if (!derives && typeof instance.getSnapshotBeforeUpdate !== 'function' && (instance.props !== mergedProps || instance.context !== context)) {
+      if (typeof instance.componentWillReceiveProps === 'function') instance.componentWillReceiveProps(mergedProps, context);
+      if (typeof instance.UNSAFE_componentWillReceiveProps === 'function') instance.UNSAFE_componentWillReceiveProps(mergedProps, context);
     }
 
-    const instance = instanceRef.current;
-    instance.props = mergedProps;
-
-    // getDerivedStateFromProps runs before every render (React semantics)
-    if (ClassComp.getDerivedStateFromProps) {
-      const derived = ClassComp.getDerivedStateFromProps(mergedProps, instance.state);
-      if (derived != null) {
-        instance.state = { ...instance.state, ...derived };
+    // The state for this render: what setState queued, applied in order (an
+    // updater sees the result of the one before it and the new props). Until
+    // the render, this.state is still the last one, which is what
+    // shouldComponentUpdate compares its nextState with.
+    let state = instance.state;
+    const queued = instance._pendingState;
+    if (queued !== undefined && queued.length > 0) {
+      instance._pendingState = [];
+      for (const update of queued) {
+        const partial = typeof update === 'function' ? update.call(instance, state, mergedProps) : update;
+        if (partial != null) state = { ...state, ...partial };
       }
     }
-
-    // static contextType — inject this.context from the nearest provider
-    if (ClassComp.contextType) {
-      instance.context = useContext(ClassComp.contextType);
+    // getDerivedStateFromProps runs before every render (React semantics)
+    if (derives) {
+      const derived = ClassComp.getDerivedStateFromProps(mergedProps, state);
+      if (derived != null) state = { ...state, ...derived };
     }
+
+    // What the last render used: componentDidUpdate's arguments, and what
+    // shouldComponentUpdate and PureComponent compare against.
+    const last = instance._last;
+    const forced = instance._forced === true;
+    instance._forced = false;
+    let update = true;
+    if (!mounting && !forced && last !== undefined) {
+      if (typeof instance.shouldComponentUpdate === 'function') update = instance.shouldComponentUpdate(mergedProps, state, context) !== false;
+      else if (pure) update = !shallowEqual(last.props, mergedProps) || !shallowEqual(last.state, state);
+    }
+    if (update && !mounting && !derives && typeof instance.getSnapshotBeforeUpdate !== 'function') {
+      if (typeof instance.componentWillUpdate === 'function') instance.componentWillUpdate(mergedProps, state, context);
+      if (typeof instance.UNSAFE_componentWillUpdate === 'function') instance.UNSAFE_componentWillUpdate(mergedProps, state, context);
+    }
+    // React hands the instance its new props and state also when it skips the render.
+    instance.props = mergedProps;
+    instance.state = state;
+    instance.context = context;
+    instance._rawProps = props;
 
     // Error boundary registration (componentDidCatch / getDerivedStateFromError)
     if (isErrorBoundary) {
       const inst = _getCurrentInstance();
       if (inst && !inst._errorHandler) {
-        inst._errorHandler = (error) => {
+        // `origin`: the instance whose render or effect threw (the runtime
+        // passes it; the instance type in types/internal.d.ts declares one
+        // argument, hence the cast).
+        inst._errorHandler = /** @type {(error: any) => void} */ (/** @type {unknown} */ ((error, origin) => {
           if (ClassComp.getDerivedStateFromError) {
             const derived = ClassComp.getDerivedStateFromError(error);
             if (derived != null) instance.state = { ...instance.state, ...derived };
           }
           if (instance.componentDidCatch) {
-            try { instance.componentDidCatch(error, { componentStack: '' }); } catch { /* boundary error */ }
+            // The components from the one that threw up to the root, one
+            // "at Name" line each (React's production format, without host
+            // elements and source locations).
+            try { instance.componentDidCatch(error, { componentStack: origin ? _componentStack(origin) : '' }); } catch { /* boundary error */ }
           }
+          instance._forced = true;
           forceRender();
-        };
+        }));
       }
     }
 
-    // componentDidMount / componentWillUnmount
-    useEffect(() => {
+    // componentDidMount / componentWillUnmount, in the commit like React's:
+    // after the DOM is in place and before the browser paints.
+    useLayoutEffect(() => {
       instance._mounted = true;
       if (instance.componentDidMount) instance.componentDidMount();
       return () => {
@@ -143,29 +245,46 @@ function getClassWrapper(ClassComp) {
       };
     }, []);
 
-    // componentDidUpdate (+ getSnapshotBeforeUpdate approximation)
-    const prevRef = useRef(null);
-    const snapshot = (prevRef.current && instance.getSnapshotBeforeUpdate)
-      ? instance.getSnapshotBeforeUpdate(prevRef.current.props, prevRef.current.state)
-      : undefined;
+    // The ref is the instance (React attaches it after componentDidMount).
     useLayoutEffect(() => {
-      const prev = prevRef.current;
-      prevRef.current = { props: mergedProps, state: instance.state };
-      if (prev && instance.componentDidUpdate) {
-        instance.componentDidUpdate(prev.props, prev.state, snapshot);
+      if (ref === null) return undefined;
+      if (typeof ref === 'function') {
+        const cleanup = ref(instance);
+        return typeof cleanup === 'function' ? cleanup : () => ref(null);
+      }
+      ref.current = instance;
+      return () => { ref.current = null; };
+    }, [ref]);
+
+    // componentDidUpdate with the snapshot (taken below, after render()),
+    // then the callbacks setState and forceUpdate were given.
+    const updated = update && !mounting && last !== undefined;
+    let snapshot;
+    useLayoutEffect(() => {
+      if (updated && instance.componentDidUpdate) instance.componentDidUpdate(last.props, last.state, snapshot);
+      const callbacks = instance._callbacks;
+      if (callbacks !== undefined && callbacks.length > 0) {
+        instance._callbacks = [];
+        for (const callback of callbacks) callback.call(instance);
       }
     });
 
-    // shouldComponentUpdate is intentionally not consulted — the compat
-    // runtime always re-renders on parent cascade; use React.memo to skip.
-
-    return instance.render();
+    // shouldComponentUpdate said no (or a PureComponent's props and state
+    // are shallowly equal): the last output again, which the reconciler
+    // recognises and leaves alone, children included.
+    if (!update) return last.output;
+    const output = instance.render();
+    // getSnapshotBeforeUpdate: after render() and before this component's
+    // DOM changes (the reconciler patches it once this function returns).
+    if (updated && instance.getSnapshotBeforeUpdate) snapshot = instance.getSnapshotBeforeUpdate(last.props, last.state);
+    instance._last = { props: mergedProps, state, output };
+    return output;
   };
 
   wrapper.displayName = ClassComp.displayName || ClassComp.name || 'ClassComponent';
   // Copy static properties (defaultProps, contextType, custom statics)
   for (const key of Object.getOwnPropertyNames(ClassComp)) {
-    if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments') {
+    if (key !== 'prototype' && key !== 'length' && key !== 'name' && key !== 'caller' && key !== 'arguments' && key !== '_compatBridge') {
       try { wrapper[key] = ClassComp[key]; } catch { /* read-only static */ }
     }
   }
@@ -177,17 +296,6 @@ function getClassWrapper(ClassComp) {
 // ---- createElement ----
 
 const EMPTY_CHILDREN = [];
-
-// Flatten nested arrays but PRESERVE holes (null/false/true) so child slot
-// positions stay stable across conditional renders (React semantics).
-function flattenChildren(children, out) {
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-    if (Array.isArray(child)) flattenChildren(child, out);
-    else out.push(child);
-  }
-  return out;
-}
 
 // ---- React element brands ----
 // Ecosystem libraries do not duck-type elements, they check the brand:
@@ -204,72 +312,114 @@ function flattenChildren(children, out) {
 // library code in the wild overwhelmingly still compares against
 // 'react.element', which is also what preact/compat brands with.
 //
-// Fragment is deliberately NOT branded here: it is what-core's own export, and
-// stamping a React symbol onto it would mutate a shared object for every
-// consumer of the framework, compat or not. Context is already branded where it
-// is created (hooks.js).
+// what-core's Fragment is not branded (it is the framework's own export):
+// what-react's Fragment is React's symbol, and an element made with core's
+// takes the symbol as its type (above). Context is branded where it is
+// created (hooks.js).
 const REACT_ELEMENT_TYPE = Symbol.for('react.element');
 const REACT_MEMO_TYPE = Symbol.for('react.memo');
 const REACT_LAZY_TYPE = Symbol.for('react.lazy');
 const REACT_SUSPENSE_TYPE = Symbol.for('react.suspense');
+const REACT_CONTEXT_TYPE = Symbol.for('react.context');
 
 export function createElement(type, props, ...children) {
   if (props == null) props = {};
+  // React's rule for props.children: the one child, or the array of them.
+  if (children.length > 0) props = { ...props, children: children.length === 1 ? children[0] : children };
+  return _element(type, props, undefined);
+}
 
+/**
+ * The element for `type` with `props` as React holds them: `props.children`
+ * is the child (or the array of children), untouched, so an array a caller
+ * memoized keeps its identity. createElement and the JSX runtime end here.
+ * `key`: the element's key when it is not in `props` (the automatic JSX
+ * runtime hands it over apart, and the props are then used as they are, not
+ * copied to carry it).
+ */
+export function _element(type, props, key) {
   // Resolve the render target and vnode tag:
   // - vnode.type stays the ORIGINAL component (libraries compare element.type)
   // - vnode.tag is the What-native bridge so core's renderer can also render
   //   compat vnodes; the compat runtime unwraps tag._compatType.
   let tag = type;
   if (typeof type === 'function') {
-    const renderType = isClassComponent(type) ? getClassWrapper(type) : type;
-    tag = getBridge(renderType);
-  } else if (typeof type !== 'string') {
+    if (type === WhatFragment) {
+      type = REACT_FRAGMENT_TYPE;
+      tag = fragmentBridge;
+    } else {
+      tag = type._compatBridge;
+      if (tag === undefined || tag._compatFor !== type) tag = bridgeOf(type);
+      // React resolves defaultProps when the element is made, for every
+      // component type: a default stands in for a prop that is undefined.
+      const defaults = type.defaultProps;
+      if (defaults != null) props = withDefaults(props, defaults);
+    }
+  } else if (typeof type === 'string') {
+    if (props.class !== undefined && props.className !== undefined) {
+      // `className` and `htmlFor` stay in the props under React's names (a
+      // library that merges a child's props reads `child.props.className`);
+      // both renderers write either spelling. An element given both spellings
+      // of the class (a merge of `class` with a library's `className`) keeps
+      // React's.
+      props = { ...props };
+      delete props.class;
+    }
+  } else if (type === REACT_FRAGMENT_TYPE) {
+    tag = fragmentBridge;
+  } else if (type !== null && typeof type === 'object' && type.$$typeof === REACT_CONTEXT_TYPE && typeof type.Provider === 'function') {
+    // React 19: a context renders as its own provider (<Theme value="dark">).
+    tag = getBridge(type.Provider);
+  } else {
     console.error('[what-react] createElement: invalid element type:', type);
   }
 
-  const rawKids = children.length > 0
-    ? children
-    : (props.children !== undefined ? [props.children] : EMPTY_CHILDREN);
-  const kids = rawKids.length > 0 ? flattenChildren(rawKids, []) : EMPTY_CHILDREN;
+  // The child list: the children, or the array passed as the only child (a
+  // `.map()` list). An array inside the list stays one: the runtime
+  // reconciles it as a list of its own, so the children after it keep their
+  // slots when it grows (React gives a nested array a fragment).
+  const only = props.children;
+  const kids = only === undefined ? EMPTY_CHILDREN : Array.isArray(only) ? only : [only];
 
-  // Normalize className → class, htmlFor → for on host elements so vnodes
-  // also render correctly through what-core's renderer (interop path).
-  if (typeof type === 'string' && ('className' in props || 'htmlFor' in props)) {
-    props = { ...props };
-    if ('className' in props) {
-      props.class = props.className;
-      delete props.className;
+  // A vnode as h() makes it (runtime.js _vnodeOf takes `key` out of the
+  // props), with this module's child list, which keeps the holes the runtime
+  // reconciles by position and h() would drop.
+  // `ref` is a prop (React 19) and is on the element too, where React 18 and
+  // the libraries written for it read it (`element.ref`).
+  const vnode = /** @type {any} */ (_vnodeOf(tag, props));
+  if (key !== undefined) vnode.key = key;
+  vnode.$$typeof = REACT_ELEMENT_TYPE;
+  vnode.type = type;
+  vnode.ref = props.ref !== undefined ? props.ref : null;
+  vnode.children = kids;
+  vnode._compat = true;
+  return vnode;
+}
+
+// The bridge of a component (runtime.js getBridge), kept on the component so
+// making an element looks nothing up. The bridge names the component it is
+// for: a class that inherits the property from its parent class, or a
+// wrapper a library copied a component's statics onto, gets its own.
+function bridgeOf(type) {
+  const bridge = getBridge(isClassComponent(type) ? classRender(type) : type);
+  bridge._compatFor = type;
+  try {
+    Object.defineProperty(type, '_compatBridge', { value: bridge, configurable: true, writable: true });
+  } catch { /* a frozen component: looked up each time */ }
+  return bridge;
+}
+
+// `props` with `defaults` standing in for the props that are undefined (the
+// same object when none is).
+function withDefaults(props, defaults) {
+  let out = props;
+  for (const name in defaults) {
+    if (props[name] === undefined) {
+      if (out === props) out = { ...props };
+      out[name] = defaults[name];
     }
-    if ('htmlFor' in props) {
-      props.for = props.htmlFor;
-      delete props.htmlFor;
-    }
   }
-
-  const key = props.key !== undefined ? props.key : null;
-  let finalProps = props;
-  if (props.key !== undefined) {
-    finalProps = { ...props };
-    delete finalProps.key;
-  }
-
-  // Mirror children into props.children — React libraries read element.props.children
-  if (kids.length > 0) {
-    if (finalProps === props) finalProps = { ...props };
-    finalProps.children = kids.length === 1 ? kids[0] : kids;
-  }
-
-  return {
-    $$typeof: REACT_ELEMENT_TYPE,
-    tag,
-    type,
-    props: finalProps,
-    children: kids,
-    key,
-    _vnode: true,
-    _compat: true,
-  };
+  return out;
 }
 
 // ---- forwardRef ----
@@ -284,6 +434,9 @@ export function forwardRef(render) {
   ForwardRefComponent.displayName = render.displayName || render.name || 'ForwardRef';
   ForwardRefComponent._forwardRef = true;
   ForwardRefComponent.$$typeof = Symbol.for('react.forward_ref');
+  // React's forwardRef object carries the function it wraps; libraries that
+  // wrap a forwardRef component again read it (mobx-react's observer).
+  ForwardRefComponent.render = render;
   return ForwardRefComponent;
 }
 
@@ -298,9 +451,12 @@ export function createRef() {
 // equal (default: shallow equality) and no self-update is pending.
 
 export function memo(Component, areEqual) {
-  const render = isClassComponent(Component) ? getClassWrapper(Component) : Component;
+  const render = isClassComponent(Component) ? classRender(Component) : Component;
   function Memoized(props) {
-    return render(props);
+    // The wrapped component's own defaultProps (the memo's are resolved
+    // when the element is made).
+    const defaults = Component.defaultProps;
+    return render(defaults != null ? withDefaults(props, defaults) : props);
   }
   Memoized.displayName = `Memo(${Component.displayName || Component.name || 'Anonymous'})`;
   Memoized._memoCompare = areEqual || shallowEqual;
@@ -337,65 +493,155 @@ export function lazy(loader) {
   return LazyComponent;
 }
 
-export function Suspense(props) {
+// A <Suspense> renders two slots: its content and its fallback. Content that
+// suspends on its first mount is not kept (nothing was shown yet): the
+// fallback stands alone, and the content mounts when the promise settles.
+// Content that suspends after it was shown stays mounted, hidden, with the
+// fallback after it, so its state and DOM are the same when it comes back
+// (the runtime decides which, in handleRenderError).
+//
+// The components below carry their statics from where they are made (a
+// marked-pure Object.assign), not from assignments at module scope, which a
+// bundler keeps whether or not the component is used.
+export const Suspense = /* @__PURE__ */ Object.assign(function Suspense(props) {
   const inst = _getCurrentInstance();
   if (inst) inst._isSuspense = true;
-  if (inst && (inst._suspendCount ?? 0) > 0) {
-    return props.fallback !== undefined ? props.fallback : null;
-  }
+  const suspended = inst != null && (inst._suspendCount ?? 0) > 0;
+  const fallback = props.fallback !== undefined ? props.fallback : null;
+  if (suspended && inst._keepPrimary !== true) return [null, fallback];
+  return [createElement(SuspenseContent, { hidden: suspended }, props.children), suspended ? fallback : null];
+}, { displayName: 'Suspense', $$typeof: REACT_SUSPENSE_TYPE });
+
+const SuspenseContent = /* @__PURE__ */ Object.assign(function SuspenseContent(props) {
+  const inst = /** @type {any} */ (_getCurrentInstance());
+  const hidden = props.hidden === true;
+  useLayoutEffect(() => {
+    if (!hidden && inst.parent) inst.parent._primaryShown = true;
+    _setRangeHidden(inst, hidden);
+  });
+  useLayoutEffect(() => () => {
+    if (inst.parent) inst.parent._primaryShown = false;
+  }, []);
   return props.children;
-}
-Suspense.displayName = 'Suspense';
-Suspense.$$typeof = REACT_SUSPENSE_TYPE;
+}, { displayName: 'SuspenseContent', _hidden: true });
 
 // ---- Children utilities ----
 
+// React's rules: a nested array (or any iterable) is walked in place; null,
+// undefined and booleans are one empty child each, handed to the callback as
+// null and counted by count(); what the callback returns is flattened, and
+// each element in the result gets React's key for the child it came from, so
+// a list a library rebuilt with map() or toArray() keeps its children's
+// identity (and their state) when one of them comes or goes.
+//
+// The key is the child's path: '.' + its key or index at the top level, and
+// ':' + its key or index for each nested array ('.1:0', '.1:$x'). A child's
+// own key is written '$key' with '=' and ':' escaped ('=0', '=2'), an index
+// in base 36. A key the callback gave its result goes in front, before '/'.
+
+function escapeKey(key) {
+  return '$' + key.replace(/[=:]/g, (match) => (match === '=' ? '=0' : '=2'));
+}
+
+function escapeUserKey(text) {
+  return text.replace(/\/+/g, '$&/');
+}
+
+function keyOf(child, index) {
+  return typeof child === 'object' && child !== null && child.key != null ? escapeKey('' + child.key) : index.toString(36);
+}
+
+function isList(children) {
+  return children !== null && typeof children === 'object' && !isValidElement(children) && typeof children[Symbol.iterator] === 'function';
+}
+
+function identity(child) {
+  return child;
+}
+
+// React's mapIntoArray. Returns the number of children visited.
+function mapInto(children, out, escapedPrefix, nameSoFar, callback) {
+  if (Array.isArray(children) || isList(children)) {
+    const prefix = nameSoFar === '' ? '.' : nameSoFar + ':';
+    let count = 0;
+    let index = 0;
+    for (const child of children) {
+      count += mapInto(child, out, escapedPrefix, prefix + keyOf(child, index), callback);
+      index++;
+    }
+    return count;
+  }
+  const child = children == null || typeof children === 'boolean' ? null : children;
+  let mapped = callback(child);
+  const childKey = nameSoFar === '' ? '.' + keyOf(child, 0) : nameSoFar;
+  if (Array.isArray(mapped)) {
+    mapInto(mapped, out, escapeUserKey(childKey) + '/', '', identity);
+  } else if (mapped != null) {
+    if (isValidElement(mapped)) {
+      // A key the callback gave its result, kept in front of the child's.
+      const own = mapped.key != null && (child === null || typeof child !== 'object' || child.key !== mapped.key) ? escapeUserKey('' + mapped.key) + '/' : '';
+      mapped = cloneElement(mapped, { key: escapedPrefix + own + childKey });
+    }
+    out.push(mapped);
+  }
+  return 1;
+}
+
+function walkChildren(children, visit) {
+  if (Array.isArray(children) || isList(children)) {
+    for (const child of children) walkChildren(child, visit);
+    return;
+  }
+  visit(children == null || typeof children === 'boolean' ? null : children);
+}
+
 export const Children = {
-  map(children, fn) {
-    if (children == null) return [];
-    const arr = Array.isArray(children) ? children : [children];
+  map(children, fn, thisArg) {
+    if (children == null) return children;
     const result = [];
     let index = 0;
-    for (const child of arr.flat(Infinity)) {
-      if (child == null || child === false || child === true) continue;
-      result.push(fn(child, index++));
-    }
+    mapInto(children, result, '', '', (child) => fn.call(thisArg, child, index++));
     return result;
   },
 
-  forEach(children, fn) {
-    Children.map(children, fn);
+  forEach(children, fn, thisArg) {
+    if (children == null) return;
+    let index = 0;
+    walkChildren(children, (child) => { fn.call(thisArg, child, index++); });
   },
 
   count(children) {
     if (children == null) return 0;
-    const arr = Array.isArray(children) ? children : [children];
-    return arr.flat(Infinity).filter((c) => c != null && c !== false && c !== true).length;
+    let n = 0;
+    walkChildren(children, () => { n++; });
+    return n;
   },
 
   toArray(children) {
-    if (children == null) return [];
-    const arr = Array.isArray(children) ? children : [children];
-    return arr.flat(Infinity).filter((c) => c != null && c !== false && c !== true);
+    return Children.map(children, identity) || [];
   },
 
   only(children) {
-    const arr = Children.toArray(children);
-    if (arr.length !== 1) {
+    if (!isValidElement(children)) {
       // ERROR_CODES.CHILDREN_ONLY
-    throw Object.assign(
-      new Error('React.Children.only expected to receive a single React element child.'),
-      { code: 'ERR_CHILDREN_ONLY' },
-    );
+      throw Object.assign(
+        new Error('React.Children.only expected to receive a single React element child.'),
+        { code: 'ERR_CHILDREN_ONLY' },
+      );
     }
-    return arr[0];
+    return children;
   },
 };
 
 // ---- cloneElement ----
+// Only an element is cloned (isValidElement). Anything else comes back as it
+// is, so `isValidElement(c) ? cloneElement(c, extra) : c` and a bare
+// `cloneElement(c, extra)` treat data the same way: an object from JSON, a
+// store or a server action renders as text, never as the element its fields
+// describe.
 
 export function cloneElement(element, props, ...children) {
-  if (!element) return element;
+  if (!isValidElement(element)) return element;
 
   const type = element.type !== undefined ? element.type : element.tag;
   const oldProps = element.props || {};
@@ -431,21 +677,45 @@ export function createFactory(type) {
 }
 
 // ---- isValidElement ----
+// An element is a vnode (what-core's private brand: every element this module
+// makes is one) or an object carrying React's element symbol, which only code
+// can set: JSON, structuredClone and postMessage cannot carry a symbol, so a
+// payload that spells `"$$typeof": "react.element"` is still data.
 
 export function isValidElement(object) {
-  return (
-    typeof object === 'object' &&
-    object !== null &&
-    (object._vnode === true || object.$$typeof !== undefined)
-  );
+  return isVNode(object) || (typeof object === 'object' && object !== null && object.$$typeof === REACT_ELEMENT_TYPE);
 }
 
-// ---- StrictMode ----
+// ---- StrictMode / Profiler / Activity ----
 
-export function StrictMode(props) {
+export const StrictMode = /* @__PURE__ */ Object.assign(function StrictMode(props) {
   return props.children;
+}, { displayName: 'StrictMode' });
+
+// Renders its children; nothing is measured (onRender is never called).
+export const Profiler = /* @__PURE__ */ Object.assign(function Profiler(props) {
+  return props.children;
+}, { displayName: 'Profiler' });
+
+// React 19.2. `hidden` renders nothing here: React keeps the hidden tree's
+// state and DOM, this unmounts it (see REACT-COMPAT.md, known limitations).
+export const Activity = /* @__PURE__ */ Object.assign(function Activity(props) {
+  return props.mode === 'hidden' ? null : props.children;
+}, { displayName: 'Activity' });
+
+// ---- cache / captureOwnerStack ----
+
+// Outside server components React's cache() memoizes nothing: each call runs `fn`.
+export function cache(fn) {
+  return /** @this {unknown} */ function (...args) {
+    return fn.apply(this, args);
+  };
 }
-StrictMode.displayName = 'StrictMode';
+
+/** Development only in React; there is no owner stack here. */
+export function captureOwnerStack() {
+  return null;
+}
 
 // ---- act (testing helper) ----
 // Runs the callback, then synchronously drains renders + effects.
@@ -461,69 +731,104 @@ export function act(callback) {
 
 // ---- Component / PureComponent ----
 // Function constructors (not native classes) so transpiled code using
-// Component.call(this, props) works alongside native class extends.
+// Component.call(this, props) works alongside native class extends. Each is
+// made by a marked-pure call: a program that defines no class component
+// drops them, and with Component the class wrapper (getClassWrapper above),
+// which Component's definition installs.
 
 /**
- * @this {{ props: any, state: any, _mounted: boolean, _forceUpdate: (() => void) | null, [key: string]: any }}
- * @param {any} props
+ * @typedef {{ props: any, state: any, context: any, _mounted: boolean, _enqueue: (() => void) | null, [key: string]: any }} ClassInstance
  */
-export function Component(props) {
-  this.props = props;
-  this.state = {};
-  this._mounted = false;
-  this._forceUpdate = null;
-}
 
-Component.prototype.isReactComponent = {};
+export const Component = /* @__PURE__ */ (() => {
+  /**
+   * @this {ClassInstance}
+   * @param {any} props
+   * @param {any} [context]
+   */
+  function Component(props, context) {
+    this.props = props;
+    this.context = context;
+    this.state = {};
+    this._mounted = false;
+    this._enqueue = null;
+  }
 
-Component.prototype.setState = function (update, callback) {
-  const nextState = typeof update === 'function'
-    ? { ...this.state, ...update(this.state, this.props) }
-    : { ...this.state, ...update };
+  Component.prototype.isReactComponent = {};
 
-  this.state = nextState;
-  if (this._forceUpdate) this._forceUpdate();
-  if (callback) queueMicrotask(callback);
-};
+  /** @this {ClassInstance} */
+  Component.prototype.setState = function (update, callback) {
+    // Refused while the update-loop guard holds this component (runtime.js).
+    if (this._compatInst != null && _isStuck(this._compatInst)) return;
+    if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
+    if (this._enqueue) {
+      // Queued: this.state changes when the component renders, as in React.
+      (this._pendingState || (this._pendingState = [])).push(update);
+      this._enqueue();
+      return;
+    }
+    // Not rendered by the runtime (yet): the state is set directly.
+    const partial = typeof update === 'function' ? update.call(this, this.state, this.props) : update;
+    if (partial != null) this.state = { ...this.state, ...partial };
+  };
 
-Component.prototype.forceUpdate = function (callback) {
-  if (this._forceUpdate) this._forceUpdate();
-  if (callback) queueMicrotask(callback);
-};
+  /** @this {ClassInstance} */
+  Component.prototype.forceUpdate = function (callback) {
+    // Skips shouldComponentUpdate, as in React.
+    this._forced = true;
+    if (callback) (this._callbacks || (this._callbacks = [])).push(callback);
+    if (this._enqueue) this._enqueue();
+  };
 
-Component.prototype.render = function () {
-  return null;
-};
+  Component.prototype.render = function () {
+    return null;
+  };
 
-/**
- * @this {{ props: any, state: any, _mounted: boolean, _forceUpdate: (() => void) | null, [key: string]: any }}
- * @param {any} props
- */
-export function PureComponent(props) {
-  Component.call(this, props);
-}
+  _installClasses();
+  return Component;
+})();
 
-PureComponent.prototype = Object.create(Component.prototype);
-PureComponent.prototype.constructor = PureComponent;
-PureComponent.prototype.isPureReactComponent = true;
+export const PureComponent = /* @__PURE__ */ (() => {
+  /**
+   * @this {ClassInstance}
+   * @param {any} props
+   * @param {any} [context]
+   */
+  function PureComponent(props, context) {
+    Component.call(this, props, context);
+  }
+
+  PureComponent.prototype = Object.create(Component.prototype);
+  PureComponent.prototype.constructor = PureComponent;
+  PureComponent.prototype.isPureReactComponent = true;
+  return PureComponent;
+})();
 
 // ---- Internal helpers ----
 
 function shallowEqual(a, b) {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (!Object.is(a[key], b[key])) return false;
+  // Own enumerable keys, as Object.keys lists them, without the two arrays
+  // (a memo row is compared on every render of its list).
+  let count = 0;
+  for (const key in a) {
+    if (!hasOwn.call(a, key)) continue;
+    if (!hasOwn.call(b, key) || !Object.is(a[key], b[key])) return false;
+    count++;
   }
-  return true;
+  for (const key in b) {
+    if (hasOwn.call(b, key)) count--;
+  }
+  return count === 0;
 }
+
+const hasOwn = Object.prototype.hasOwnProperty;
 
 // ---- flushSync re-export (some libraries import it from 'react') ----
 
 export { flushUpdates as unstable_flushUpdates };
+export { Activity as unstable_Activity };
 
 // ---- React internals that some libraries check ----
 
@@ -554,6 +859,9 @@ const React = {
   useTransition,
   useDeferredValue,
   startTransition,
+  useOptimistic,
+  useActionState,
+  useEffectEvent,
   useId,
   useDebugValue,
   use,
@@ -568,6 +876,11 @@ const React = {
   Fragment,
   Suspense,
   StrictMode,
+  Profiler,
+  Activity,
+  unstable_Activity: Activity,
+  cache,
+  captureOwnerStack,
   memo,
   lazy,
   act,

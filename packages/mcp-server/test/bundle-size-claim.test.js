@@ -39,3 +39,13 @@ for (const [file, pattern] of Object.entries(claims)) {
     );
   });
 }
+
+// The benchmarks site states the compiled counter too: what the scaffold
+// ships, held to its own scenario.
+test('sites/benchmarks/index.html states the compiled counter\'s size that matches its budget', () => {
+  const limit = budgets.scenarios['compiled-counter'].limitGzipBytes;
+  const match = readFileSync(resolve(repoRoot, 'sites/benchmarks/index.html'), 'utf8').match(/counter compiled from JSX by what-compiler\/vite is ([\d.]+) KB/);
+  assert.ok(match, 'no compiled counter claim found in sites/benchmarks/index.html');
+  const bytes = Number(match[1]) * 1024;
+  assert.ok(bytes >= limit * 0.95 && bytes <= limit, `the site claims ${match[1]} KB (${bytes} B), outside the measured range ${Math.round(limit * 0.95)}-${limit} B`);
+});

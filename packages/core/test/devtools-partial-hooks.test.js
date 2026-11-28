@@ -2,8 +2,8 @@
 //
 // Bug history: the reactive core called its hooks unguarded —
 // `if (__DEV__ && __devtools) __devtools.onSignalCreate(sig)`. In practice that
-// never crashed, because in dev `__devtools` is seeded with a pre-install
-// placeholder that happens to define every hook, and the real devtools define
+// never crashed, because in dev `__devtools` was then seeded with a pre-install
+// placeholder that happened to define every hook, and the real devtools define
 // every hook too. But __setDevToolsHooks is an exported API, and installing a
 // single hook — the obvious way to observe just one kind of event, and exactly
 // what trackSignals() builds when no devtools are present — replaced that full
@@ -16,7 +16,8 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { signal, effect, flushSync, __setDevToolsHooks } from '../src/index.js';
+import { signal, effect, flushSync } from '../src/index.js';
+import { __setDevToolsHooks } from '../src/entries/internal.js';
 // __devtools is a live binding on reactive.js and is not re-exported by the
 // public entry; read it from the module that owns it so the original hooks can
 // be put back.

@@ -2,298 +2,437 @@
 // SSR, static site generation, server components.
 // Zero-JS pages by default. Islands opt-in to client JS.
 
+import { h } from 'what-core';
 import {
-  h,
-  _isAriaAttr,
   _beginComponentSSR,
   _endComponentSSR,
   _mapArrayToArray,
+  _enterRow,
+  _leaveRow,
+  _tracksRows,
   getServerContext,
   runWithServerContext,
-  beginHeadCollection,
   endHeadCollection,
-} from 'what-core';
+  _assignOwnerPath,
+  _runComponentSync,
+  _loadedQueries,
+  isVNode,
+} from 'what-core/internal';
+import { childNamespace } from 'what-core/internal/markup-rules';
 import { serializeState } from './serialize.js';
 import { getIslandStoresSnapshot } from './islands.js';
 import { csrfMetaTag } from './actions.js';
+import { createRenderContext, ensureServerRuntime, renderContextFrom, resourcePayload, throwIfAborted } from './context.js';
+import { startStream, renderBuffered, checkStreamOptions, takesSlot } from './stream.js';
+import { createResponse } from './response.js';
+import {
+  TAG_BOUNDARY,
+  TAG_SKIPPED,
+  TAG_VOID,
+  tagInfo,
+  VOID_ELEMENTS,
+  _componentProps,
+  _boundaryFallback,
+  _rawText,
+  _isTextContent,
+  _afterOpen,
+  _resolveInnerHTML,
+  _claimThrow,
+  _plainText,
+  renderAttrs,
+  startTag,
+  _field,
+  _enterSelect,
+  _leaveSelect,
+  _renderOption,
+  _saveSelect,
+  _restoreSelect,
+  sink,
+  escapeHtml,
+  arrayKeys,
+} from './html.js';
+import {
+  ARRAY_CLOSE,
+  ARRAY_OPEN,
+  BOUNDARY_CLOSE,
+  BOUNDARY_FALLBACK,
+  BOUNDARY_OPEN,
+  REGION_CLOSE,
+  REGION_OPEN,
+  claim,
+  createHydrationKeys,
+  isHtml,
+} from './compiled.js';
 
-// Build a fresh render-scoped server context (head sink, loader data, resources).
-function createRenderContext(loaderData) {
-  return {
-    head: beginHeadCollection(),
-    loaderData,
-    resources: new Map(),
-    islandStores: new Map(),
-    resourceCounter: 0,
-    boundaryCounter: 0,
-    suspended: [],
-  };
+// The namespace the node being rendered sits in: null for HTML, else 'svg',
+// 'math' or 'foreign' (what-core's childNamespace). It decides whether a
+// <script> or <style> holds raw text, and nothing else.
+/** @type {'svg' | 'math' | 'foreign' | null} */
+let _ns = null;
+
+function renderIn(render, child, ns, notHtml) {
+  if (ns === _ns) return render(child, notHtml);
+  const outer = _ns;
+  _ns = ns;
+  try {
+    return render(child, notHtml);
+  } finally {
+    _ns = outer;
+  }
 }
 
-// --- Hydration ID Generator ---
-let _hydrationIdCounter = 0;
+// What compiled markup (ssr-runtime.js) renders its children with; `notHtml`
+// is its word that the child is no Html (compiled.js).
+const renderStringIn = (child, ns, notHtml) => renderIn(_renderString, child, ns, notHtml);
+// The pending hydration key of the component renderToHydratableString is
+// rendering (compiled.js). Compiled markup settles it through the same object.
+let HK = createHydrationKeys();
+const renderHydratableIn = (child, ns, notHtml) => renderIn(_renderHydratable, child, ns, notHtml);
 
-function resetHydrationId() {
-  _hydrationIdCounter = 0;
+// An element's children, in the namespace its tag gives them.
+// A select carries its scope down to its options (html.js Options): `field`
+// is _field's for it.
+function renderElementChildren(tag, props, children, render, field) {
+  if (tag === 'select' && _ns === null) {
+    const outer = _enterSelect(field);
+    try {
+      return renderChildren(children, render);
+    } finally {
+      _leaveSelect(outer);
+    }
+  }
+  const ns = childNamespace(_ns, tag, props && props.encoding);
+  if (ns === _ns) return renderChildren(children, render);
+  const outer = _ns;
+  _ns = ns;
+  try {
+    return renderChildren(children, render);
+  } finally {
+    _ns = outer;
+  }
 }
 
-function nextHydrationId() {
-  return 'h' + (_hydrationIdCounter++);
+// What a component that threw renders: nothing, when the throw was a
+// navigation signal (a redirect() in its body), which redirects the render's
+// response as it does in the browser and in the streamed render; anything
+// else goes on to the catcher above it.
+function navigatedFrom(e) {
+  if (_claimThrow(e)) return '';
+  throw e;
 }
 
 // --- Render to Hydratable String ---
-// Renders with hydration markers (data-hk attributes, comment boundaries)
-// so the client can reuse the server-rendered DOM.
+// Renders with the hydration protocol (compiled.js): data-hk owner-path keys
+// and the region, array and boundary markers, so hydrate() adopts the
+// server-rendered DOM. The stream writes the same protocol.
 
 export function renderToHydratableString(vnode) {
-  // Establish a render scope whenever one isn't already active. This used to be
+  ensureServerRuntime();
+  // Establish a render scope whenever one isn't already active. It is not
   // gated on `typeof document === 'undefined'` as a proxy for "are we on the
-  // server", but renderToString IS the server render, and the proxy is wrong
-  // under any DOM shim (jsdom, happy-dom, a Workers polyfill) where SSR ran with
-  // no scope at all and render-scoped state fell back to module globals. Every
+  // server": renderToString IS the server render, and the proxy is wrong under
+  // any DOM shim (jsdom, happy-dom, a Workers polyfill), where SSR would run
+  // with no scope at all and render-scoped state would fall back to module
+  // globals. Every
   // other consumer of the context checks `typeof document` itself before reading
   // it, so a scope existing on the client changes nothing for them.
-  if (!getServerContext()) {
-    const ctx = createRenderContext(undefined);
-    return runWithServerContext(ctx, () => renderToHydratableString(vnode));
-  }
-  resetHydrationId();
+  if (!getServerContext()) return renderInOwnContext(() => renderToHydratableString(vnode));
+  HK = createHydrationKeys();
   return _renderHydratable(vnode);
 }
 
-// <ErrorBoundary> and <Suspense> are not elements. They return vnodes carrying
-// the internal marker tags '__errorBoundary' / '__suspense', which every client
-// path routes to a boundary handler (dom.js:349-353). The server had no such
-// routing outside renderToString's suspense case, so the marker tags fell
-// through to the generic element renderer and three things went wrong at once:
-//
-//   <ErrorBoundary>            ->  <__errorBoundary><p>ok</p></__errorBoundary>
-//   <Suspense> (hydratable)    ->  <__suspense boundary="[object Object]"
-//                                             fallback="[object Object]">...
-//
-// An invalid element name in the response, the boundary's internal props
-// stringified into attributes, and, worst of the three, a component that threw
-// during SSR took down the WHOLE page render instead of being contained:
-// renderToString and renderToHydratableString both propagated the error, so the
-// one construct whose entire purpose is to stop a subtree failure from becoming
-// a page failure did nothing on the server. The stream path did not throw but
-// emitted an HTML comment where the fallback belonged.
-//
-// A thenable is deliberately re-thrown rather than caught: that is a suspended
-// resource, not an error, and it belongs to the nearest <Suspense>.
-const BOUNDARY_TAGS = new Set(['__errorBoundary', '__suspense']);
-
-// <Portal> is client-only by the framework's own decision: Portal() returns null
-// when there is no `document` (helpers.js:153). That guard is environmental, not
-// a server check, so SSR under a DOM shim (jsdom, happy-dom, a test harness, any
-// runtime that polyfills document) sailed past it, built the vnode, and handed
-// the server a '__portal' tag it had no branch for. The result was
-//
-//   <__portal container="[object HTMLDivElement]"><p>inside</p></__portal>
-//
-// which is three wrongs at once: an invalid element, a DOM node stringified into
-// an attribute, and the portal's content emitted INLINE at the portal's own
-// position rather than at its target. Hydration would then move it, so the
-// server markup contradicted the client's on purpose.
-//
-// Rendering nothing is the answer that agrees with the no-document path, so the
-// same app produces the same HTML whether or not a shim happens to be loaded.
-const SERVER_SKIPPED_TAGS = new Set(['__portal']);
-
-// The props a component is called with. The server has to hand a component
-// exactly what the client hands it, and it did not.
-//
-// dom.js:593 collapses the children list before it becomes a prop, and when
-// there are NO children it sets no `children` key at all, so an ordinary JS
-// default parameter
-//
-//     function SkipLink({ children = 'Skip to content' }) { ... }
-//
-// applies. The server passed `children: vnode.children` verbatim, which is `[]`
-// for a childless component, and `[]` is defined, so the default NEVER applied
-// server-side. A server-rendered <SkipLink /> shipped `<a href="#main"></a>`: a
-// link with no accessible name (a WCAG 2.4.4 failure) until the client hydrated
-// and replaced it, which is exactly the case where the markup has to stand on
-// its own. The divergence is general, not specific to SkipLink: every component
-// with a defaulted children prop rendered one thing on the client and another on
-// the server. The same blanket override also discarded children passed as a
-// plain PROP (`h(Card, { children: body })`), which the client keeps precisely
-// because there are no vnode children to replace it with.
-//
-// "Childless" has to mean what it means on the client: an EMPTY list. h() drops
-// null/false/true children (h.js:48,66) but keeps '' as the string child it is,
-// so `<Comp>{''}</Comp>` has one child and the default must NOT apply there.
-// Only length 0 counts, plus a hand-built vnode carrying no children array.
-//
-// Not yet matched: the client also UNWRAPS a single child (`[child]` -> `child`).
-// Aligning that here alone would break <Island>, which puts the prop straight
-// back onto a vnode's children (islands.js:243) where the element renderer
-// requires an array. That one needs both sides changed together.
-function _componentProps(vnode) {
-  const children = vnode.children;
-  if (!children || children.length === 0) return { ...vnode.props };
-  return { ...vnode.props, children };
-}
-
-function _boundaryFallback(vnode, error) {
-  const fallback = vnode.props && vnode.props.fallback;
-  if (typeof fallback !== 'function') return fallback;
-  const reset = (vnode.props && vnode.props.reset) || (() => {});
+// A synchronous render that brings its own context releases it when it
+// returns, which disposes every effect and computed its components created.
+function renderInOwnContext(render, response) {
+  const ctx = createRenderContext(undefined, response ? { response } : undefined);
   try {
-    return fallback({ error, reset });
-  } catch (e) {
-    _rethrowIfUnrenderable(e);
-    if (_isDevMode) {
-      console.warn(`[what-server] <ErrorBoundary> fallback threw during SSR: ${e.message}`);
-    }
-    return null;
+    return runWithServerContext(ctx, render);
+  } finally {
+    ctx.release();
   }
 }
 
-function _renderHydratable(vnode) {
+// Text and markup the hydratable renderer writes go through this, in the order
+// they appear in the output, so a pending hydration key sees them (compiled.js).
+function out(chunk) {
+  return HK.key !== null ? claim(HK, chunk) : chunk;
+}
+
+// What a renderer writes and then throws away (a reactive child that threw,
+// a boundary's subtree before its fallback) must not have settled a key, so
+// the key is put back as it stood.
+function saveKeys() {
+  return HK.key;
+}
+
+function restoreKeys(saved) {
+  HK.key = saved;
+}
+
+function renderArray(rows, keys) {
+  const html = out(ARRAY_OPEN) + out(keys);
+  return html + renderChildren(rows, _renderHydratable) + out(ARRAY_CLOSE);
+}
+
+// What a reactive child returned: an array is the region's rows, written with
+// their keys when they are keyed (arrayKeys).
+function renderRegionValue(value) {
+  return Array.isArray(value) ? renderArray(value, arrayKeys(value)) : _renderHydratable(value);
+}
+
+// `notHtml` true: the caller found `vnode` is no Html (renderIn).
+function _renderHydratable(vnode, notHtml) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
-  // Text
-  if (typeof vnode === 'string' || typeof vnode === 'number') {
-    return escapeHtml(String(vnode));
+  // Text. A number's string form has nothing to escape. An option collecting
+  // its text (html.js Options) sees it.
+  if (typeof vnode === 'string') {
+    if (sink.text !== null) sink.text += vnode;
+    return out(escapeHtml(vnode));
+  }
+  if (typeof vnode === 'number') {
+    if (sink.text !== null) sink.text += vnode;
+    return out(String(vnode));
   }
 
   // Signal — unwrap
   if (typeof vnode === 'function' && vnode._signal) {
-    return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+    const open = out(REGION_OPEN);
+    return open + renderRegionValue(vnode()) + out(REGION_CLOSE);
   }
 
   // Compiled keyed list: an inserter taking (parent, marker), not a thunk.
   // Calling it with no arguments threw and SSR swallowed it, so every compiled
   // keyed list server-rendered as an empty container. See _mapArrayToArray.
   if (typeof vnode === 'function' && vnode._mapArray) {
+    const saved = saveKeys();
     try {
-      return `<!--$-->${_renderHydratable(_mapArrayToArray(vnode))}<!--/$-->`;
+      const open = out(REGION_OPEN);
+      return open + renderRegionValue(_mapArrayToArray(vnode)) + out(REGION_CLOSE);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!_claimThrow(e) && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
-      return '<!--$--><!--/$-->';
+      restoreKeys(saved);
+      return out(REGION_OPEN + REGION_CLOSE);
     }
   }
 
   // Reactive function child — wrap in dynamic content markers
   if (typeof vnode === 'function') {
+    const saved = saveKeys();
     try {
-      return `<!--$-->${_renderHydratable(vnode())}<!--/$-->`;
+      const value = vnode();
+      const open = out(REGION_OPEN);
+      return open + renderRegionValue(value) + out(REGION_CLOSE);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      const navigated = _claimThrow(e);
+      if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
+      if (!navigated && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
-      return '<!--$--><!--/$-->';
+      restoreKeys(saved);
+      return out(REGION_OPEN + REGION_CLOSE);
     }
   }
 
   // Array — wrap in list markers
-  if (Array.isArray(vnode)) {
-    return `<!--[]-->${vnode.map(_renderHydratable).join('')}<!--/[]-->`;
+  if (Array.isArray(vnode)) return renderArray(vnode, '');
+
+  // A vnode is asked first: no object is both a vnode and compiled markup.
+  if (!isVNode(vnode)) {
+    if (notHtml !== true && isHtml(vnode)) return vnode.render(renderHydratableIn, HK, _ns);
+    const text = _plainText(vnode);
+    if (sink.text !== null) sink.text += String(vnode);
+    return out(text);
   }
 
-  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
-
-  // Boundary markers render their subtree, never themselves.
-  if (BOUNDARY_TAGS.has(vnode.tag)) {
+  // Component — its owner path is its hydration key, placed on the first
+  // element of its output (compiled.js has the rule) as the output is written.
+  // A built-in the compiler lowers away has none (hydration-data.js).
+  const tag = vnode.tag;
+  if (typeof tag === 'function') {
+    const ctx = _beginComponentSSR(tag);
+    const site = /** @type {any} */ (vnode)._site;
+    if (!_assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site)) {
+      try {
+        return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
+      } catch (e) {
+        return navigatedFrom(e);
+      } finally {
+        _endComponentSSR(ctx);
+      }
+    }
+    const outer = HK.key;
+    const key = /** @type {string} */ (ctx._ownerPath);
+    HK.key = key;
     try {
-      return (vnode.children || []).map(_renderHydratable).join('');
+      return renderHydratableOutput(_runComponentSync(ctx, callComponent, vnode), site);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      return navigatedFrom(e);
+    } finally {
+      _endComponentSSR(ctx);
+      if (HK.key === key) HK.key = outer;
+    }
+  }
+
+  // Throws for a name no element may have.
+  const info = tagInfo(tag, vnode);
+  if (info.kind === TAG_SKIPPED) return '';
+
+  // Boundary markers render their subtree between <!--b--> and <!--/b-->,
+  // never themselves; <!--b!--> opens one that shows its fallback.
+  if (info.kind === TAG_BOUNDARY) {
+    const saved = saveKeys();
+    const found = _saveSelect();
+    try {
+      return out(BOUNDARY_OPEN) + renderChildren(vnode.children, _renderHydratable) + out(BOUNDARY_CLOSE);
+    } catch (e) {
+      _claimThrow(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
-      return _renderHydratable(_boundaryFallback(vnode, suspended ? null : e));
+      restoreKeys(saved);
+      _restoreSelect(found);
+      const open = out(BOUNDARY_FALLBACK);
+      return open + _renderHydratable(_boundaryFallback(vnode, suspended ? null : e)) + out(BOUNDARY_CLOSE);
     }
-  }
-
-  // Component — add hydration key to root element
-  if (typeof vnode.tag === 'function') {
-    const hkId = nextHydrationId();
-    const ctx = _beginComponentSSR(vnode.tag);
-    let html;
-    try {
-      html = _renderHydratable(vnode.tag(_componentProps(vnode)));
-    } finally {
-      _endComponentSSR(ctx);
-    }
-    // Inject data-hk into the first element tag if present
-    return injectHydrationKey(html, hkId);
   }
 
   // Element
-  const { tag, props, children } = vnode;
-  assertSafeTag(tag, vnode);
-  const attrs = renderAttrs(props || {});
-  const open = `<${tag}${attrs}>`;
+  const { props, children } = vnode;
+  if (_ns === null && info.kind <= TAG_VOID) {
+    const open = out(props ? startTag(info, props) : info.start);
+    if (info.kind === TAG_VOID) return open;
+    const rawInner = _resolveInnerHTML(props);
+    if (rawInner != null) return open + out(String(rawInner)) + out(info.close);
+    return open + renderChildren(children, _renderHydratable) + out(info.close);
+  }
+  if (tag === 'option') {
+    const option = _renderOption(props, out, () => optionContent(props, children, _renderHydratable));
+    if (option !== null) return option;
+  }
+  const field = _field(tag, props);
+  const open = out(`<${tag}${renderAttrs(field ? field.props : props || {})}>`);
 
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
 
   const rawInner = _resolveInnerHTML(props);
-  const inner = rawInner != null ? String(rawInner) : children.map(_renderHydratable).join('');
-  return `${open}${inner}</${tag}>`;
+  if (rawInner != null) return open + out(String(rawInner)) + out(`</${tag}>`);
+  const lead = _afterOpen(tag, _ns);
+  if (_isTextContent(tag, _ns)) return open + lead + out(_rawText(tag, children, _ns, field)) + out(`</${tag}>`);
+  return open + lead + renderElementChildren(tag, props, children, _renderHydratable, field) + out(`</${tag}>`);
 }
 
-// Inject data-hk="id" into the first HTML opening tag
-function injectHydrationKey(html, hkId) {
-  // Skip comment markers to find the first real element
-  const match = html.match(/^((?:<!--.*?-->)*)<([a-zA-Z][a-zA-Z0-9-]*)/);
-  if (match) {
-    const prefix = match[1];
-    const tagName = match[2];
-    const insertAt = prefix.length + 1 + tagName.length; // after '<tagName'
+// An option's content in a select scope: its raw inner HTML, else its children.
+function optionContent(props, children, render) {
+  const rawInner = _resolveInnerHTML(props);
+  return rawInner != null ? String(rawInner) : renderElementChildren('option', props, children, render, null);
+}
 
-    // One element, one key. Every component in a chain injects into the first
-    // element of its rendered output, and a component that returns another
-    // component (the most ordinary composition there is) resolves to the SAME
-    // element at every level, so `Outer -> Middle -> Inner -> <p>` emitted
-    // `<p data-hk="h0" data-hk="h1" data-hk="h2">`: a duplicate attribute, which
-    // is invalid HTML, and browsers silently keep only the first. The innermost
-    // component is the one that actually owns the element, and it wins because
-    // it renders first, so an existing key means there is nothing to do here.
-    const openTagEnd = html.indexOf('>', insertAt);
-    const openTag = html.slice(insertAt, openTagEnd === -1 ? undefined : openTagEnd);
-    if (/[\s"']data-hk\s*=/.test(openTag) || /^\s*data-hk\s*=/.test(openTag)) return html;
-
-    return html.slice(0, insertAt) + ` data-hk="${hkId}"` + html.slice(insertAt);
+// The members of an array or of an element's children, each with a key
+// (a keyed list's, or a vnode's) as a keyed row (what-core hydration-data.js
+// _enterRow), and any other that can hold a component or a list (stream.js
+// takesSlot) in its slot (a null list), in the frame rendering them. A keyed
+// list with no rows still takes its place. Rows and slots are entered once
+// keyed rows are tracked (_tracksRows: an app's first server action); until
+// then nothing reads them.
+function renderChildren(children, render) {
+  if (!children) return '';
+  const keys = children._keys;
+  const slots = _tracksRows();
+  let out = '';
+  /** @type {object | null} */
+  let list = null;
+  if (slots && keys !== undefined && keys.length === 0) _enterRow(undefined, /** @type {object} */ (getServerContext()), { slot: children._slot }, undefined);
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (!slots) {
+      out += render(child);
+      continue;
+    }
+    const key = keys !== undefined ? keys[i] : isVNode(child) ? child.key : null;
+    const keyed = key != null || keys !== undefined;
+    if (!keyed && !takesSlot(child)) {
+      out += render(child);
+      continue;
+    }
+    if (keyed && list === null) list = { slot: children._slot };
+    // A render always runs in a context: the root that counts its components.
+    const root = /** @type {object} */ (getServerContext());
+    const saved = keyed ? _enterRow(undefined, root, list, key) : _enterRow(undefined, root, null, i);
+    try {
+      out += render(child);
+    } finally {
+      _leaveRow(undefined, root, saved);
+    }
   }
-  return html;
+  return out;
+}
+
+// A component vnode's call, which the renderers make in its frame
+// (_runComponentSync).
+function callComponent(vnode) {
+  return vnode.tag(_componentProps(vnode));
+}
+
+// What a component returned. The renderers ask whether a child is a vnode
+// before asking whether it is compiled markup; a component compiled JSX
+// placed (ssr-runtime.js gives its vnode a `site`, undefined for one h() or
+// the JSX runtime made) mostly returns its compiled markup, so for its output
+// the markup is asked first. Either order renders the same.
+function renderStringOutput(output, site) {
+  if (site === undefined) return _renderString(output);
+  return isHtml(output) ? output.render(renderStringIn, null, _ns) : _renderString(output, true);
+}
+
+function renderHydratableOutput(output, site) {
+  if (site === undefined) return _renderHydratable(output);
+  return isHtml(output) ? output.render(renderHydratableIn, HK, _ns) : _renderHydratable(output, true);
 }
 
 // --- Render to String ---
 // Renders a VNode tree to an HTML string. Used for SSR and static gen.
 
-export function renderToString(vnode) {
+// `options.response` (a createResponse()) is what getResponse() returns to
+// the components it renders: read its status, headers and redirect after.
+export function renderToString(vnode, options) {
+  ensureServerRuntime();
   // See renderToHydratableString: the scope is established by "no scope yet",
   // not by "no document".
-  if (!getServerContext()) {
-    const ctx = createRenderContext(undefined);
-    return runWithServerContext(ctx, () => renderToString(vnode));
-  }
+  if (!getServerContext()) return renderInOwnContext(() => _renderString(vnode), options && options.response);
+  return _renderString(vnode);
+}
+
+// The recursion behind renderToString. Separate from the public entry so the
+// render-context lookup above runs once per render, not once per node.
+// `notHtml` true: the caller found `vnode` is no Html (renderIn).
+function _renderString(vnode, notHtml) {
   if (vnode == null || vnode === false || vnode === true) return '';
 
-  // Text
-  if (typeof vnode === 'string' || typeof vnode === 'number') {
-    return escapeHtml(String(vnode));
+  // Text. A number's string form has nothing to escape. An option collecting
+  // its text (html.js Options) sees it.
+  if (typeof vnode === 'string') {
+    if (sink.text !== null) sink.text += vnode;
+    return escapeHtml(vnode);
+  }
+  if (typeof vnode === 'number') {
+    if (sink.text !== null) sink.text += vnode;
+    return String(vnode);
   }
 
   // Signal — unwrap by calling it
   if (typeof vnode === 'function' && vnode._signal) {
-    return renderToString(vnode());
+    return _renderString(vnode());
   }
 
   // Compiled keyed list: see _renderHydratable above.
   if (typeof vnode === 'function' && vnode._mapArray) {
     try {
-      return renderToString(_mapArrayToArray(vnode));
+      return _renderString(_mapArrayToArray(vnode));
     } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      if (!_claimThrow(e) && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering keyed list in SSR:', e.message);
       }
       return '';
@@ -303,10 +442,11 @@ export function renderToString(vnode) {
   // Reactive function child — call to get value
   if (typeof vnode === 'function') {
     try {
-      return renderToString(vnode());
+      return _renderString(vnode());
     } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      const navigated = _claimThrow(e);
+      if (e && typeof e.then === 'function') throw e; // not ready: its <Suspense> shows the fallback
+      if (!navigated && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
         console.warn('[what-server] Error rendering reactive function in SSR:', e.message);
       }
       return '';
@@ -314,11 +454,39 @@ export function renderToString(vnode) {
   }
 
   // Array
-  if (Array.isArray(vnode)) {
-    return vnode.map(renderToString).join('');
+  if (Array.isArray(vnode)) return renderChildren(vnode, _renderString);
+
+  // A vnode is asked first: no object is both a vnode and compiled markup.
+  if (!isVNode(vnode)) {
+    if (notHtml !== true && isHtml(vnode)) return vnode.render(renderStringIn, null, _ns);
+    const text = _plainText(vnode);
+    if (sink.text !== null) sink.text += String(vnode);
+    return text;
   }
 
-  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return '';
+  // Component
+  //
+  // Run it under a component frame (an owner). Calling it bare left no
+  // component current, so every context-dependent hook threw and the render
+  // failed outright rather than degrading. The frame has to stay current while
+  // the result is rendered, because useContext resolves by walking owners.
+  const tag = vnode.tag;
+  if (typeof tag === 'function') {
+    const ctx = _beginComponentSSR(tag);
+    const site = /** @type {any} */ (vnode)._site;
+    _assignOwnerPath(ctx, ctx._parentCtx, getServerContext(), site);
+    try {
+      return renderStringOutput(_runComponentSync(ctx, callComponent, vnode), site);
+    } catch (e) {
+      return navigatedFrom(e);
+    } finally {
+      _endComponentSSR(ctx);
+    }
+  }
+
+  // Throws for a name no element may have.
+  const info = tagInfo(tag, vnode);
+  if (info.kind === TAG_SKIPPED) return '';
 
   // Boundary markers render their subtree, never themselves.
   //
@@ -330,46 +498,49 @@ export function renderToString(vnode) {
   // this branch existed the error propagated out of renderToString and killed the
   // whole page response, which is precisely the failure an ErrorBoundary exists
   // to prevent.
-  if (BOUNDARY_TAGS.has(vnode.tag)) {
+  if (info.kind === TAG_BOUNDARY) {
+    const found = _saveSelect();
     try {
-      return (vnode.children || []).map(renderToString).join('');
+      return renderChildren(vnode.children, _renderString);
     } catch (e) {
-      _rethrowIfUnrenderable(e);
+      _claimThrow(e);
       const suspended = e && typeof e.then === 'function';
       if (suspended && vnode.tag === '__errorBoundary') throw e; // belongs to <Suspense>
       if (!suspended && vnode.tag === '__suspense') throw e;     // belongs to <ErrorBoundary>
-      return renderToString(_boundaryFallback(vnode, suspended ? null : e));
+      _restoreSelect(found);
+      return _renderString(_boundaryFallback(vnode, suspended ? null : e));
     }
   }
 
-  // Component
-  //
-  // Run it under a component context. Calling it bare left the component stack
-  // empty, so every context-dependent hook threw and the render failed outright
-  // rather than degrading. The context has to stay on the stack while the
-  // result is rendered, because useContext resolves by walking parent contexts.
-  if (typeof vnode.tag === 'function') {
-    const ctx = _beginComponentSSR(vnode.tag);
-    try {
-      return renderToString(vnode.tag(_componentProps(vnode)));
-    } finally {
-      _endComponentSSR(ctx);
-    }
+  // Element. One whose name asks for no further rule (html.js TAG_PLAIN) is
+  // written straight from its tag's record.
+  const { props, children } = vnode;
+  if (_ns === null && info.kind <= TAG_VOID) {
+    const open = props ? startTag(info, props) : info.start;
+    if (info.kind === TAG_VOID) return open;
+    const rawInner = _resolveInnerHTML(props);
+    if (rawInner != null) return open + String(rawInner) + info.close;
+    return open + renderChildren(children, _renderString) + info.close;
   }
-
-  // Element
-  const { tag, props, children } = vnode;
-  assertSafeTag(tag, vnode);
-  const attrs = renderAttrs(props || {});
+  if (tag === 'option') {
+    const option = _renderOption(props, asIs, () => optionContent(props, children, _renderString));
+    if (option !== null) return option;
+  }
+  const field = _field(tag, props);
+  const attrs = renderAttrs(field ? field.props : props || {});
   const open = `<${tag}${attrs}>`;
 
   // Void elements
   if (VOID_ELEMENTS.has(tag)) return open;
 
   const rawInner = _resolveInnerHTML(props);
-  const inner = rawInner != null ? String(rawInner) : children.map(renderToString).join('');
-  return `${open}${inner}</${tag}>`;
+  if (rawInner != null) return `${open}${String(rawInner)}</${tag}>`;
+  const lead = _afterOpen(tag, _ns);
+  if (_isTextContent(tag, _ns)) return `${open}${lead}${_rawText(tag, children, _ns, field)}</${tag}>`;
+  return `${open}${lead}${renderElementChildren(tag, props, children, _renderString, field)}</${tag}>`;
 }
+
+const asIs = (html) => html;
 
 // --- Render to String + collected <head> ---
 // Like renderToString, but captures any <Head> tags declared anywhere in the
@@ -379,59 +550,98 @@ export function renderToString(vnode) {
 // runWithServerContext lives within one uninterrupted tick — safe under
 // concurrent requests (no two renders interleave in the sync path).
 export function renderToStringWithHead(vnode) {
+  ensureServerRuntime();
   const ctx = createRenderContext(undefined);
-  const body = runWithServerContext(ctx, () => renderToString(vnode));
-  return { body, head: endHeadCollection(ctx.head) };
+  try {
+    const body = runWithServerContext(ctx, () => renderToString(vnode));
+    return { body, head: endHeadCollection(ctx.head) };
+  } finally {
+    ctx.release();
+  }
 }
 
 // --- Render a page module (loader + component) ---
 // Runs the page's `export const loader` (if any) BEFORE the synchronous render,
 // so the resolved value is plain data by the time the render reads it. The
-// loader receives { params, query, request }. Its result is passed to the page
-// component as a `loaderData` prop and is readable anywhere via useLoaderData().
+// loader receives { params, query, request, signal, response }. Its result is
+// passed to the page component as a `loaderData` prop and is readable anywhere
+// via useLoaderData(). `signal` aborts when the client goes away; once it has,
+// no render starts. `response` (response.js) sets the status, headers or a
+// redirect; pass your own as `reqCtx.response` to read them afterwards. A
+// loader that redirects skips the render: the page body is left empty.
 //
 // `pageModule` is `{ default: Component, loader? }` (the shape file-router emits).
 export async function renderPage(pageModule, reqCtx = {}) {
+  ensureServerRuntime();
+  const page = await loadPage(pageModule, reqCtx);
+  try {
+    const body = runWithServerContext(page.ctx, () => renderToString(page.vnode));
+    return { body, head: endHeadCollection(page.ctx.head), loaderData: page.loaderData };
+  } finally {
+    page.ctx.release();
+  }
+}
+
+// Run the loader and set up the render: its context, and the vnode to render
+// (null when the loader redirected, so nothing renders for nobody). The loader
+// receives the render's own signal (context.js), which follows the request's.
+// A loader that throws releases the context it would have rendered in.
+async function loadPage(pageModule, reqCtx) {
   const Component = pageModule.default || pageModule;
-  const loaderData = typeof pageModule.loader === 'function'
-    ? await pageModule.loader(reqCtx)
-    : undefined;
-  const ctx = createRenderContext(loaderData);
-  const params = reqCtx.params || {};
-  const body = runWithServerContext(ctx, () =>
-    renderToString(h(Component, { ...params, loaderData }))
-  );
-  return { body, head: endHeadCollection(ctx.head), loaderData };
+  const { actionState, ...loaderCtx } = reqCtx;
+  const response = reqCtx.response || createResponse();
+  const ctx = createRenderContext(undefined, {
+    signal: reqCtx.signal || (reqCtx.request && reqCtx.request.signal),
+    request: reqCtx.request,
+    response,
+  });
+  // What the action of a form posted to this page without JavaScript
+  // returned, for that form's useActionState (actions.js formState).
+  if (actionState) ctx.actionState = actionState;
+  try {
+    throwIfAborted(ctx.signal);
+    if (typeof pageModule.loader === 'function') {
+      // In the request's render context: the queries it prefetches are this
+      // request's, and reach its page and its data channel.
+      ctx.loaderData = await runWithServerContext(ctx, () => pageModule.loader({ ...loaderCtx, signal: ctx.signal, response }));
+    }
+    throwIfAborted(ctx.signal);
+  } catch (error) {
+    ctx.release();
+    throw error;
+  }
+  const loaderData = ctx.loaderData;
+  const vnode = response.location ? null : h(Component, { ...(reqCtx.params || {}), loaderData });
+  return { ctx, vnode, loaderData };
+}
+
+// The query entries the loader filled, landed before the render begins: the
+// render's hooks show them, and the document names them (`loaded`) so the
+// hydration walk shows the same. Only a document carries them, so only a
+// document's render asks.
+function loadedPayload(ctx) {
+  const keys = _loadedQueries(ctx);
+  return keys.length ? { loaded: Object.fromEntries(keys.map((key) => [key, 1])) } : {};
 }
 
 // --- Async render (resolves Suspense / createResource data) ---
-// Renders, then awaits any resources that suspended, then re-renders with the
-// resolved data — repeating until the tree is stable. Returns the body, the
-// collected head, and the resolved resources for the hydration payload.
-const MAX_RESOLVE_PASSES = 12;
+// Renders with the streaming engine and waits for everything it waits for: a
+// resource read inside or outside a <Suspense>, an async component, a lazy()
+// component. The body is the settled page, each boundary's content in place
+// (or its fallback, for a boundary that could not finish), byte for byte what
+// the streamed render shows once every swap has run. Returns the body, the
+// collected head (including tags set inside boundaries), and the resolved
+// resources for the hydration payload. Rejects with the Error that failed the
+// render. `options.onError` is the stream's (default console.error).
+export async function renderToStringAsync(vnode, init, options = {}) {
+  ensureServerRuntime();
+  return renderSettled(vnode, renderContextFrom(init, 'renderToStringAsync(vnode, init)'), options);
+}
 
-export async function renderToStringAsync(vnode, ctx) {
-  if (!ctx) ctx = createRenderContext(undefined);
-  let body = '';
-  // Every pass re-renders the same tree, so every pass must hand out the same
-  // resource keys. createResource names a keyless resource `__r${counter++}`
-  // off the render context; without restoring the counter, pass 1 asks for
-  // `__r1` where pass 0 stored `__r0`, finds nothing cached, and starts the
-  // fetch again. The loop then burns all twelve passes, pays for twelve
-  // sequential fetches, and returns the Suspense fallback as final HTML.
-  const counterAtStart = ctx.resourceCounter;
-  for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass++) {
-    ctx.resourceCounter = counterAtStart;
-    body = runWithServerContext(ctx, () => renderToString(vnode));
-    const pending = [...ctx.resources.values()]
-      .filter((r) => r.status === 'pending')
-      .map((r) => r.promise);
-    if (pending.length === 0) break;
-    await Promise.all(pending);
-  }
-  const resources = {};
-  for (const [k, v] of ctx.resources) if (v.status === 'ready') resources[k] = v.value;
-  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, ctx };
+async function renderSettled(vnode, ctx, options) {
+  const body = await renderBuffered(vnode, ctx, options);
+  const { resources = {}, owned = {} } = resourcePayload(ctx);
+  return { body, head: endHeadCollection(ctx.head), loaderData: ctx.loaderData, resources, owned, ctx, response: ctx.response };
 }
 
 // --- Render a complete HTML document (loader + data + head + hydration payload) ---
@@ -439,22 +649,44 @@ export async function renderToStringAsync(vnode, ctx) {
 // and emits one consolidated <script id="__what_data"> with { loaderData,
 // resources, islandStores } for the client to hydrate from without refetching.
 export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
-  const Component = pageModule.default || pageModule;
-  const loaderData = typeof pageModule.loader === 'function'
-    ? await pageModule.loader(reqCtx)
-    : undefined;
-  const ctx = createRenderContext(loaderData);
-  const params = reqCtx.params || {};
-  const { body, head, resources } = await renderToStringAsync(
-    h(Component, { ...params, loaderData }),
-    ctx
-  );
+  ensureServerRuntime();
+  const { ctx, vnode, loaderData } = await loadPage(pageModule, reqCtx);
+  const loaded = loadedPayload(ctx);
+  const { body, head } = await renderSettled(vnode, ctx, options);
+  ctx.response._commit();
   const payload = {
     loaderData: loaderData ?? null,
-    resources,
+    resources: {},
+    ...resourcePayload(ctx),
+    ...loaded,
     islandStores: getIslandStoresSnapshot(ctx),
   };
   return wrapHtmlDocument({ body, head, payload, options });
+}
+
+// --- Streamed document ---
+// The same document as renderDocument, streamed: the shell (head, everything
+// outside a waiting <Suspense>, the hydration payload and the client entry)
+// goes out first and each boundary follows when it is ready (see stream.js).
+// Resolves once the loader has run. Await `shellReady` on the result before
+// sending a status line; the loader and the shell are what decide it.
+export async function renderDocumentStream(pageModule, reqCtx = {}, options = {}) {
+  ensureServerRuntime();
+  checkStreamOptions(options);
+  const { ctx, vnode, loaderData } = await loadPage(pageModule, reqCtx);
+  const loaded = loadedPayload(ctx);
+  return startStream(vnode, ctx, options, {
+    head: true,
+    open: (renderCtx) => documentOpen(endHeadCollection(renderCtx.head), options),
+    shellData: (renderCtx, sent) => documentData({
+      loaderData: loaderData ?? null,
+      resources: {},
+      ...resourcePayload(renderCtx, sent),
+      ...loaded,
+      islandStores: getIslandStoresSnapshot(renderCtx),
+    }, options),
+    close: DOCUMENT_CLOSE,
+  });
 }
 
 /**
@@ -462,14 +694,19 @@ export async function renderDocument(pageModule, reqCtx = {}, options = {}) {
  * @param {string} args.body
  * @param {string} args.head
  * @param {any} args.payload
- * @param {{ lang?: string, clientEntry?: string, csrfToken?: string, head?: string, bodyClass?: string }} [args.options]
+ * @param {DocumentOptions} [args.options]
  */
 function wrapHtmlDocument({ body, head, payload, options = {} }) {
+  return documentOpen(head, options) + body + documentData(payload, options) + DOCUMENT_CLOSE;
+}
+
+/**
+ * @typedef {{ lang?: string, clientEntry?: string, csrfToken?: string, head?: string, bodyClass?: string, nonce?: string }} DocumentOptions
+ */
+
+/** @param {string} head @param {DocumentOptions} options */
+function documentOpen(head, options) {
   const lang = options.lang || 'en';
-  const dataScript = `<script id="__what_data" type="application/json">${serializeState(payload)}</script>`;
-  const clientScript = options.clientEntry
-    ? `<script type="module" src="${escapeHtml(options.clientEntry)}"></script>`
-    : '';
   // CSRF auto-provisioning: when the caller (e.g. the deploy adapter with
   // default-on CSRF) passes the per-request token, embed it as the meta tag
   // the client action() wrapper and plain <form> posts read it from.
@@ -479,162 +716,27 @@ function wrapHtmlDocument({ body, head, payload, options = {} }) {
   return (
     `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head>` +
     `<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
-    `${head || ''}${extraHead}</head><body${bodyClass}>` +
-    `${body}${dataScript}${clientScript}</body></html>`
+    `${head || ''}${extraHead}</head><body${bodyClass}>`
   );
 }
 
-// --- Stream Render ---
-// Returns an async iterator for streaming SSR. `ctx` is threaded explicitly so
-// concurrent streams never share state across `await` points.
-
-export async function* renderToStream(vnode, ctx) {
-  if (ctx === undefined) ctx = createRenderContext(undefined);
-  if (vnode == null || vnode === false || vnode === true) return;
-
-  if (typeof vnode === 'string' || typeof vnode === 'number') {
-    yield escapeHtml(String(vnode));
-    return;
-  }
-
-  // Signal — unwrap by calling it
-  if (typeof vnode === 'function' && vnode._signal) {
-    const value = runWithServerContext(ctx, () => vnode());
-    yield* renderToStream(value, ctx);
-    return;
-  }
-
-  // Compiled keyed list: see _renderHydratable above.
-  if (typeof vnode === 'function' && vnode._mapArray) {
-    /** @type {any} */
-    let rows = null;
-    try {
-      rows = runWithServerContext(ctx, () => _mapArrayToArray(vnode));
-    } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
-        console.warn('[what-server] Error rendering keyed list in stream SSR:', e.message);
-      }
-    }
-    if (rows) yield* renderToStream(rows, ctx);
-    return;
-  }
-
-  // Reactive function child — call to get value
-  if (typeof vnode === 'function') {
-    try {
-      const value = runWithServerContext(ctx, () => vnode());
-      yield* renderToStream(value, ctx);
-    } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
-        console.warn('[what-server] Error rendering reactive function in stream SSR:', e.message);
-      }
-    }
-    return;
-  }
-
-  if (Array.isArray(vnode)) {
-    for (const child of vnode) {
-      yield* renderToStream(child, ctx);
-    }
-    return;
-  }
-
-  if (SERVER_SKIPPED_TAGS.has(vnode.tag)) return;
-
-  // Error boundary: render the subtree, and on a real error emit the fallback
-  // rather than the generic component-error comment the catch below would
-  // produce. Rendered eagerly into a string instead of streamed, because a
-  // boundary that has already yielded half its subtree cannot take it back.
-  if (vnode.tag === '__errorBoundary') {
-    let html;
-    try {
-      html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));
-    } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (e && typeof e.then === 'function') throw e; // suspended; belongs to <Suspense>
-      html = runWithServerContext(ctx, () => renderToString(_boundaryFallback(vnode, e)));
-    }
-    yield html;
-    return;
-  }
-
-  // Suspense boundary — render the subtree, awaiting any suspended resources,
-  // then emit the resolved content. (In-order; out-of-order swap is a future
-  // enhancement.) The synchronous render runs inside the threaded ctx.
-  if (vnode.tag === '__suspense') {
-    let html = null;
-    // Restored, not zeroed: the counter is context-wide and earlier siblings
-    // have already taken keys from it. Resetting to zero would re-issue those
-    // keys inside this boundary and render a sibling's data here. See the note
-    // in renderToStringAsync for what the missing restore cost.
-    const counterAtStart = ctx.resourceCounter;
-    for (let attempt = 0; attempt < MAX_RESOLVE_PASSES && html === null; attempt++) {
-      ctx.resourceCounter = counterAtStart;
-      let suspended = null;
-      try {
-        html = runWithServerContext(ctx, () => (vnode.children || []).map(renderToString).join(''));
-      } catch (e) {
-        if (e && typeof e.then === 'function') suspended = e;
-        else throw e;
-      }
-      if (html === null) {
-        const pending = [...ctx.resources.values()].filter((r) => r.status === 'pending').map((r) => r.promise);
-        await Promise.all([suspended, ...pending].filter(Boolean));
-      }
-    }
-    if (html === null) {
-      html = runWithServerContext(ctx, () => renderToString(vnode.props && vnode.props.fallback));
-    }
-    yield html;
-    return;
-  }
-
-  if (typeof vnode.tag === 'function') {
-    // The frame stays open across the yields below: useContext resolves by
-    // walking parent contexts, so a Provider's context has to outlive the
-    // streaming of its own subtree.
-    const componentCtx = _beginComponentSSR(vnode.tag);
-    try {
-      const result = runWithServerContext(
-        ctx,
-        () => vnode.tag(_componentProps(vnode))
-      );
-      // Support async components
-      const resolved = result instanceof Promise ? await result : result;
-      yield* renderToStream(resolved, ctx);
-    } catch (e) {
-      _rethrowIfUnrenderable(e);
-      if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
-        console.warn('[what-server] Error rendering component in stream SSR:', e.message);
-      }
-      yield _isDevMode
-        ? `<!-- SSR Error: ${escapeHtml(e.message || 'Component error')} -->`
-        : `<!-- SSR Error -->`;
-    } finally {
-      _endComponentSSR(componentCtx);
-    }
-    return;
-  }
-
-  const { tag, props, children } = vnode;
-  assertSafeTag(tag, vnode);
-  const attrs = renderAttrs(props || {});
-  yield `<${tag}${attrs}>`;
-
-  if (!VOID_ELEMENTS.has(tag)) {
-    const rawInner = _resolveInnerHTML(props);
-    if (rawInner != null) {
-      yield String(rawInner);
-    } else {
-      for (const child of children) {
-        yield* renderToStream(child, ctx);
-      }
-    }
-    yield `</${tag}>`;
-  }
+/** The hydration payload and the client entry. @param {any} payload @param {DocumentOptions} options */
+function documentData(payload, options) {
+  const nonce = options.nonce ? ` nonce="${escapeHtml(String(options.nonce))}"` : '';
+  const dataScript = `<script id="__what_data" type="application/json"${nonce}>${serializeState(payload)}</script>`;
+  const clientScript = options.clientEntry
+    ? `<script type="module" src="${escapeHtml(options.clientEntry)}"${nonce}></script>`
+    : '';
+  return dataScript + clientScript;
 }
+
+const DOCUMENT_CLOSE = '</body></html>';
+
+// --- Stream Render ---
+export { renderToStream } from './stream.js';
+
+export { ensureServerRuntime, getRequest } from './context.js';
+export { createResponse } from './response.js';
 
 // --- Static Site Generation ---
 
@@ -651,10 +753,11 @@ export function definePage(config) {
 
 // Generate static HTML for a page
 export function generateStaticPage(page, data = {}) {
+  ensureServerRuntime();
   const ctx = createRenderContext(data);
   // Render the page as a vnode instead of calling the component and handing the
   // result over. `page.component(data)` ran BARE, outside the component frame
-  // renderToString establishes, so nothing was on the component stack and every
+  // renderToString establishes, so no component was current and every
   // context-dependent hook threw: useState, useSignal, useEffect, useMemo,
   // useRef, onMount and <Ctx.Provider> all resolve through
   // getCurrentComponent(). One hook anywhere in the page component's own body
@@ -664,7 +767,12 @@ export function generateStaticPage(page, data = {}) {
   // `data` still reaches the component as its props (the same convention
   // renderPage uses), and the body HTML this produces is byte-identical for a
   // page that does not use hooks, so what wrapDocument receives is unchanged.
-  const html = runWithServerContext(ctx, () => renderToString(h(page.component, data)));
+  let html;
+  try {
+    html = runWithServerContext(ctx, () => renderToString(h(page.component, data)));
+  } finally {
+    ctx.release();
+  }
   const islands = page.islands || [];
 
   return wrapDocument({
@@ -726,277 +834,10 @@ export function server(Component) {
   return Component;
 }
 
-// --- Helpers ---
-
-// Dev-mode flag for server
-const _isDevMode = typeof process !== 'undefined'
-  ? process.env?.NODE_ENV !== 'production'
-  : true;
-
-/**
- * Resolve innerHTML / dangerouslySetInnerHTML from props.
- * Requires { __html: ... } wrapper. Plain string innerHTML is rejected (XSS prevention).
- */
-function _resolveInnerHTML(props) {
-  if (!props) return null;
-
-  // dangerouslySetInnerHTML always requires { __html }
-  if (props.dangerouslySetInnerHTML) {
-    return props.dangerouslySetInnerHTML.__html ?? null;
-  }
-
-  // innerHTML with { __html } wrapper — allowed
-  if (props.innerHTML && typeof props.innerHTML === 'object' && '__html' in props.innerHTML) {
-    return props.innerHTML.__html ?? null;
-  }
-
-  // innerHTML as plain string — reject with warning
-  if (props.innerHTML != null && typeof props.innerHTML === 'string') {
-    if (_isDevMode) {
-      console.warn(
-        '[what-server] innerHTML received a raw string. This is a security risk (XSS). ' +
-        'Use innerHTML={{ __html: trustedString }} or dangerouslySetInnerHTML={{ __html: trustedString }} instead.'
-      );
-    }
-    return null;
-  }
-
-  return null;
-}
-
-// Attribute NAMES are emitted verbatim into the HTML, so they must be
-// validated (values are escaped, names cannot be). Anything outside this
-// pattern (spaces, quotes, equals, ...) could otherwise inject attributes:
-//   h('div', { 'x" onload="alert(1)': '' })  ->  <div x" onload="alert(1)>
-// Allows letters, digits, '_', ':', '.', '-' — covers data-*, aria-*,
-// xlink:href, SVG names like stroke-width, and namespaced attributes.
-const SAFE_ATTR_NAME = /^[a-zA-Z_:][a-zA-Z0-9:._-]*$/;
-
-// Tag names are emitted verbatim too, so they get the same treatment:
-//   h('div onload=alert(1) x', {})  ->  <div onload=alert(1) x>
-// Allows custom elements (my-el), SVG camelCase (clipPath) and the internal
-// '__suspense' marker tag.
-const SAFE_TAG_NAME = /^[a-zA-Z_][a-zA-Z0-9._:-]*$/;
-
-// A real DOM node reaching a renderer is not a bad tag name, it is a compiled
-// component body.
-//
-// what-compiler lowers a component's own JSX to a module-scope `_$template()`
-// and a `cloneNode(true)` at call time, so the component RETURNS finished DOM
-// rather than a vnode. Every renderer here destructures `vnode.tag`, gets
-// `undefined` off an Element, and used to report ERR_INVALID_SSR_TAG: "Invalid
-// tag name in SSR: undefined". That message names the wrong thing entirely.
-// It sent people looking for a typo'd tag or a component returning a plain
-// object, when the actual cause is that what-compiler's fine-grained output is
-// client-only and there is no supported way to server-render it.
-//
-// This only fires when a DOM implementation exists in the process (jsdom in a
-// test, a shim someone installed). On a bare Node server the compiled module
-// cannot even be IMPORTED — `_$template()` runs at module scope and throws
-// `ReferenceError: document is not defined` first — which is why the build-time
-// guard in what-compiler's Vite plugin is the earlier and better seam. This is
-// the backstop for the paths that get past it.
-// ERR_COMPILED_JSX_IN_SSR must never be swallowed.
-//
-// Every render path here degrades rather than 500s: a reactive child that throws
-// becomes an empty region, a keyed list becomes an empty container, a streamed
-// component becomes `<!-- SSR Error -->`, and an <ErrorBoundary> renders its
-// fallback. That is right for a RUNTIME error — bad data in one row should not
-// take down the page.
-//
-// It is wrong for this one, because this is not a runtime error. It says the
-// module was built with a toolchain that has no server-rendered form, so every
-// render of it will fail identically, forever, and no retry or fallback can
-// change that. Degrading turns a build misconfiguration into silent data loss:
-//
-//   renderToString(h('main', null, () => CompiledComponent()))
-//     -> "<main></main>"          measured on origin/main
-//
-// The component simply vanished from the page. In development a console.warn
-// fires; in production `_isDevMode` is false and nothing is logged at all, so
-// the page ships with a hole in it and the server reports success.
-//
-// This mirrors the ownership rethrows already in the boundary branches: some
-// throws are not the catcher's to absorb.
-function _rethrowIfUnrenderable(e) {
-  if (e && e.code === 'ERR_COMPILED_JSX_IN_SSR') throw e;
-}
-
-function _isDomNode(value) {
-  return !!value && typeof value === 'object' && typeof (/** @type {any} */ (value).nodeType) === 'number';
-}
-
-function assertSafeTag(tag, vnode) {
-  if (typeof tag === 'string' && SAFE_TAG_NAME.test(tag)) return;
-  if (_isDomNode(vnode)) {
-    // ERROR_CODES.COMPILED_JSX_IN_SSR
-    throw Object.assign(
-      new Error(
-        '[what-server] Cannot server-render a DOM node. A component compiled by ' +
-        'what-compiler returns a cloned template (finished DOM), not a vnode, so it ' +
-        'has no server-rendered form. Author server-rendered views with h(), or ' +
-        'compile them with the automatic JSX runtime (jsxImportSource: ' +
-        '"what-framework") instead of what-compiler.'
-      ),
-      { code: 'ERR_COMPILED_JSX_IN_SSR' },
-    );
-  }
-  // ERROR_CODES.INVALID_SSR_TAG
-  throw Object.assign(
-    new Error(`[what-server] Invalid tag name in SSR: ${JSON.stringify(tag)}`),
-    { code: 'ERR_INVALID_SSR_TAG' },
-  );
-}
-
-// Prop names whose HTML attribute is not just the prop name in another case.
-// The client reaches the right attribute through the element's reflected DOM
-// property (`label.htmlFor = x` writes `for`), and the compiler and head.js
-// rename the same props. Markup has no properties, so the server must rename
-// them itself: an unrenamed `htmlFor="x"` parses as a meaningless `htmlfor`
-// attribute, and hydration never corrects a static attribute.
-//
-// Names that differ from their attribute only by case (tabIndex, readOnly,
-// maxLength, contentEditable) need no entry. HTML attribute names are
-// case-insensitive and the parser lowercases them.
-const ATTRIBUTE_ALIASES = new Map([
-  ['className', 'class'],
-  ['htmlFor', 'for'],
-  ['httpEquiv', 'http-equiv'],
-  ['acceptCharset', 'accept-charset'],
-]);
-
-function renderAttrs(props) {
-  let out = '';
-  for (const [propKey, rawVal] of Object.entries(props)) {
-    if (propKey === 'key' || propKey === 'ref' || propKey === 'children' || propKey === 'dangerouslySetInnerHTML' || propKey === 'innerHTML') continue;
-    const key = ATTRIBUTE_ALIASES.get(propKey) || propKey;
-    const lowerKey = key.toLowerCase();
-    if (lowerKey.startsWith('on') && key.length > 2) continue; // Skip event handlers in SSR
-
-    // A remaining function value is a reactive accessor, so CALL it. Every
-    // client path already does (setProp and setAttr both resolve a function
-    // value); only the server did not, and fell through to String(val), which
-    // stringifies a function as its SOURCE TEXT. So the documented way to make
-    // an attribute reactive,
-    //
-    //     <span className={() => theme()}>
-    //
-    // server-rendered as class="() =&gt; theme()": the page shipped JavaScript
-    // source in its class attribute, lost the real class until hydration
-    // replaced it, and any CSS keyed on that class did not apply to the HTML a
-    // crawler or a no-JS visitor saw. what-router's <Link> hit it on every
-    // link, because Link always passes a thunk as `class`.
-    //
-    // Fail soft on a throw, matching the rest of this function: one attribute
-    // that cannot resolve must not take down the whole response.
-    let val = rawVal;
-    if (typeof val === 'function') {
-      try {
-        val = val();
-      } catch (e) {
-        if (_isDevMode) {
-          console.warn(`[what-server] Skipping attribute ${JSON.stringify(key)}: its value threw during SSR: ${e.message}`);
-        }
-        continue;
-      }
-      // A resolved value that is itself a function is not an attribute value.
-      if (typeof val === 'function') continue;
-    }
-    // Validate names before every emission path, including enumerated false.
-    if (!SAFE_ATTR_NAME.test(key)) {
-      if (_isDevMode) {
-        console.warn(`[what-server] Skipping invalid attribute name in SSR: ${JSON.stringify(key)}`);
-      }
-      continue;
-    }
-    // aria-*/role and data-* are enumerated, so `false` is a real value and must
-    // survive: an absent `aria-expanded` means "unsupported",
-    // `aria-expanded="false"` means "collapsed", and `[data-open="false"]` is an
-    // ordinary selector. Every other attribute keeps HTML boolean semantics,
-    // where false means omit. Checked before the falsy skip for that reason.
-    if (val === false && (_isAriaAttr(key) || key.startsWith('data-'))) {
-      out += ` ${key}="false"`;
-      continue;
-    }
-    if (val === false || val == null) continue;
-    if (REFUSED_ATTRS.has(lowerKey)) {
-      if (_isDevMode) {
-        console.warn(`[what-server] Skipping unsafe attribute in SSR: ${JSON.stringify(key)}`);
-      }
-      continue;
-    }
-
-    if (key === 'class') {
-      out += ` class="${escapeHtml(String(val))}"`;
-    } else if (key === 'style' && typeof val === 'object') {
-      const css = Object.entries(val)
-        .map(([p, v]) => `${camelToKebab(p)}:${v}`)
-        .join(';');
-      out += ` style="${escapeHtml(css)}"`;
-    } else if (val === true) {
-      // ARIA and data-* are enumerated and need an explicit ="true" so the
-      // markup matches what both client paths produce; genuine HTML boolean
-      // attributes can be bare.
-      if (key.startsWith('aria-') || key === 'role' || key.startsWith('data-')) {
-        out += ` ${key}="true"`;
-      } else {
-        out += ` ${key}`;
-      }
-    } else {
-      if (isUnsafeUrlAttribute(key, val)) continue;
-      out += ` ${key}="${escapeHtml(String(val))}"`;
-    }
-  }
-
-  return out;
-}
-
-
-function isUnsafeUrlAttribute(key, val) {
-  const normalizedKey = key.toLowerCase();
-  if (!URL_ATTRS.has(normalizedKey)) return false;
-  const normalizedValue = String(val).trim().replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase();
-  return normalizedValue.startsWith('javascript:') || normalizedValue.startsWith('vbscript:') || normalizedValue.startsWith('data:');
-}
-
-// Must stay in step with URL_ATTRS in what-core's dom.js. Both sets are gated by
-// the parity test in test/ssr-security.test.js.
-const URL_ATTRS = new Set([
-  'href', 'src', 'action', 'formaction', 'data', 'ping', 'xlink:href',
-]);
-
-// Attributes whose value the browser parses as markup or code, so escaping is
-// not a defense: srcdoc is entity-decoded and parsed as a full document, which
-// revives "&lt;script&gt;". These are refused outright.
-const REFUSED_ATTRS = new Set(['srcdoc']);
-
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function camelToKebab(str) {
-  if (str.startsWith('--')) return str; // CSS custom properties (variables) — leave unchanged
-  return str.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
-
-const VOID_ELEMENTS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-  'link', 'meta', 'param', 'source', 'track', 'wbr',
-]);
-
 // Re-export server actions
 export {
   action,
-  formAction,
-  useAction,
-  useFormAction,
   useOptimistic,
-  useMutation,
   onRevalidate,
   invalidatePath,
   handleActionRequest,
@@ -1009,9 +850,11 @@ export {
 // <Form>: the progressive-enhancement form that posts to the action endpoint.
 export { Form, ACTION_ENDPOINT } from './form.js';
 
-// Served server actions: wire the /__what_action route (Node + fetch adapters)
+// Served server actions: wire the /__what_action route (Node + fetch adapters),
+// and run a form posted to a page.
 export {
   createActionHandler,
+  createFormPostHandler,
   nodeActionMiddleware,
   fetchActionHandler,
 } from './action-handler.js';
@@ -1028,8 +871,8 @@ export {
 // Runtime-neutral deploy adapters. Node-only adapters are re-exported by the
 // package's conditional Node entry so browser/edge bundles never resolve Node
 // builtins merely because they import a client-safe server action.
-export { createRequestHandler } from './adapter/core.js';
+export { createRequestHandler, createRouteRenderer } from './adapter/core.js';
 export { createCloudflareHandler } from './adapter/cloudflare.js';
 
-// Safe state serialization for inlining into <script> tags (AUDIT-2026-06-06 M13)
+// Safe state serialization for inlining into <script> tags
 export { serializeState } from './serialize.js';

@@ -1,7 +1,7 @@
 // Regression tests: top-level JSX fragments whose element children carry
 // event handlers (or any dynamic parts).
 //
-// BUG (sprint/v0.11-quality): the JSXFragment visitor called
+// The bug pinned here: the JSXFragment visitor called
 // transformFragmentFineGrained — which routes element children through
 // transformElementFineGrained — but never drained state._pendingSetup.
 // The element transform pushes its setup statements
@@ -91,7 +91,7 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
     `);
     assertAllElRefsDeclared(code);
     assert.match(code, /_el\$\d+\.\$\$click = /, 'click is delegated');
-    assert.match(code, /_el\$\d+\.addEventListener\("mouseenter"/, 'mouseenter is direct');
+    assert.match(code, /_\$on\(_el\$\d+, "mouseenter"/, 'mouseenter is direct');
     assert.match(code, /return \[_el\$\d+, _el\$\d+\]/, 'fragment returns an array of both elements');
   });
 
@@ -139,10 +139,10 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
       }
     `);
     assertAllElRefsDeclared(code);
-    assert.match(code, /_\$setClass\(_el\$\d+/, 'specialized class setter targets a declared element');
+    assert.match(code, /_\$className\(_el\$\d+/, 'specialized class setter targets a declared element');
   });
 
-  it('fragment in an arrow expression body falls back to a self-contained IIFE', () => {
+  it('fragment in an arrow expression body becomes the arrow\'s block body', () => {
     const code = compileJSX(`
       const make = () => (<>
         <button onclick={() => z()}>z</button>
@@ -150,8 +150,9 @@ describe('fragment events: structural (no undeclared _el$ refs)', () => {
     `);
     assertAllElRefsDeclared(code);
     // Crossing the arrow boundary must not hoist — the decl and the return
-    // value live in one IIFE block.
-    assert.match(code, /\(\(\) => \{[\s\S]*const _el\$\d+[\s\S]*return _el\$\d+;[\s\S]*\}\)\(\)/);
+    // value live in the arrow's own block, with no IIFE around them.
+    assert.match(code, /const make = \(\) => \{[\s\S]*const _el\$\d+[\s\S]*return _el\$\d+;\s*\};/);
+    assert.doesNotMatch(code, /\}\)\(\)/);
   });
 
   it('fragment in single-statement position (if without block) stays self-contained', () => {

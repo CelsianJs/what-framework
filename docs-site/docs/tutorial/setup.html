@@ -14,7 +14,7 @@
 <body>
   <nav>
     <div class="nav-left">
-      <a href="../" class="logo">What <span class="logo-badge">v0.14.0</span></a>
+      <a href="../" class="logo">What <span class="logo-badge">v0.15.0</span></a>
       <div class="nav-links">
         <a href="../learn/">Learn</a>
         <a href="../reference/">Reference</a>
@@ -163,7 +163,7 @@ mount(&lt;<span class="function">Game</span> /&gt;, <span class="string">'#app'<
 }</code></pre>
 
           <h2 id="import-styles">Import the Styles</h2>
-          <p>Add one line at the top of <code>main.jsx</code> so the stylesheet travels with the module. Keep the <code>mount()</code> call: <code>src/main.jsx</code> is the app entry (<code>index.html</code> loads it directly), so without it nothing renders.</p>
+          <p>Add one line at the top of <code>main.jsx</code> so the stylesheet travels with the module, as every file in the rest of this tutorial does, and delete the <code>&lt;link rel="stylesheet" href="/src/styles.css" /&gt;</code> line from <code>index.html</code>: with both, the page loads the stylesheet twice. Keep the <code>mount()</code> call: <code>src/main.jsx</code> is the app entry (<code>index.html</code> loads it directly), so without it nothing renders.</p>
 
           <div class="code-header">src/main.jsx</div>
 <pre><code><span class="keyword">import</span> <span class="string">'./styles.css'</span>;

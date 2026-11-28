@@ -12,7 +12,7 @@ import { installDOM } from '../../../test-utils/dom.js';
 //                                        in place
 //   tween declared as spring's shape  -> a completely different object, and a
 //                                        (from, to) signature declared as (v?)
-//   useTransition / useAnimatedValue  -> four and two members that have never
+//   useTween / useAnimatedValue       -> four and two members that have never
 //   spring().reset / register().onInput  existed at all
 //
 // Every phantom above type-checked, so an editor autocompleted it and the call
@@ -48,7 +48,13 @@ global.fetch = async () => ({
   json: async () => ({}),
 });
 
-const W = await import('../src/index.js');
+const W = {
+  ...await import('../src/index.js'),
+  ...await import('../src/entries/a11y.js'),
+  ...await import('../src/entries/motion.js'),
+  ...await import('../src/entries/form.js'),
+  ...await import('../src/entries/data.js'),
+};
 const { h, mount, flushSync } = W;
 
 // --- Runtime harness -------------------------------------------------------
@@ -109,12 +115,13 @@ function typecheck(files) {
 // Correct usage of every signature this file pins. One error here means a
 // declaration drifted back below the runtime.
 const POSITIVE = `
+import { useMemo, useReducer, createStore, derived, h } from 'what-framework';
+import { useRovingTabIndex } from 'what-framework/a11y';
 import {
-  useMemo, useReducer, useRovingTabIndex, spring, tween, useTransition,
-  useAnimatedValue, useGesture, createTransitionClasses, cssTransition,
-  useForm, useQuery, useInfiniteQuery, useFetch, invalidateQueries,
-  getQueryData, createStore, derived, h,
-} from 'what-framework';
+  spring, tween, useTween, useAnimatedValue, useGesture, createTransitionClasses, cssTransition,
+} from 'what-framework/motion';
+import { useForm } from 'what-framework/form';
+import { useQuery, useInfiniteQuery, useFetch, invalidateQueries, getQueryData } from 'what-framework/data';
 
 // useMemo hands back an accessor, so it is called to read.
 const total = useMemo(() => 1 + 1);
@@ -140,8 +147,8 @@ const t = tween(0, 100, { duration: 300 });
 export const tweenReads: number[] = [t.progress(), t.value()];
 t.cancel();
 
-// useTransition drives progress; useAnimatedValue returns per-animation handles.
-const transition = useTransition({ duration: 200 });
+// useTween drives progress; useAnimatedValue returns per-animation handles.
+const transition = useTween({ duration: 200 });
 export const transitionStart: Promise<void> = transition.start(() => {});
 export const transitioning: boolean = transition.isTransitioning();
 const animated = useAnimatedValue(0);
@@ -163,7 +170,7 @@ export const applied: Promise<void> = cssTransition(document.createElement('div'
 // Forms: lowercase handler keys, and isValidating.
 const form = useForm({ defaultValues: { email: '' } });
 const registration = form.register('email');
-registration.oninput?.({});
+registration.onchange?.({});
 export const validating: boolean = form.formState.isValidating();
 export const input = h('input', registration);
 
@@ -175,7 +182,8 @@ const infinite = useInfiniteQuery<{ id: string }[]>({ queryKey: ['feed'], queryF
 export const firstPage = infinite.data().pages[0];
 export const morePages: boolean = infinite.hasPreviousPage();
 export const fetched = useFetch<{ id: string }>('/api').data();
-invalidateQueries(['todos'], { hard: true });
+// It returns a promise of the refetches it started (void once they landed).
+export const refetched: Promise<void> = invalidateQueries(['todos'], { hard: true });
 export const cached = getQueryData<{ id: string }>(['todos', 1]);
 
 // A derived store field reads as its VALUE.
@@ -198,40 +206,42 @@ const NEGATIVE = {
   // focusItem/options/overrides not existing is pinned by POSITIVE compiling.
   // This pins the other half: that they were not declared as `any`.
   'neg-roving-focusitem.ts': `
-    import { useRovingTabIndex } from 'what-framework';
+    import { useRovingTabIndex } from 'what-framework/a11y';
     export const bad: string = useRovingTabIndex(3).focusItem(0);
   `,
   'neg-spring-reset.ts': `
-    import { spring } from 'what-framework';
+    import { spring } from 'what-framework/motion';
     export const bad = spring(0).reset();
   `,
   'neg-tween-current.ts': `
-    import { tween } from 'what-framework';
+    import { tween } from 'what-framework/motion';
     export const bad = tween(0).current();
   `,
-  'neg-usetransition.ts': `
-    import { useTransition } from 'what-framework';
-    export const bad = useTransition().mounted;
+  'neg-usetween.ts': `
+    import { useTween } from 'what-framework/motion';
+    export const bad = useTween().mounted;
   `,
   'neg-useanimatedvalue.ts': `
-    import { useAnimatedValue } from 'what-framework';
+    import { useAnimatedValue } from 'what-framework/motion';
     export const bad = useAnimatedValue(0).animateTo(1);
   `,
   'neg-transition-classes.ts': `
-    import { createTransitionClasses } from 'what-framework';
+    import { createTransitionClasses } from 'what-framework/motion';
     export const bad: string = createTransitionClasses('fade');
   `,
   'neg-register-oninput.ts': `
-    import { useForm } from 'what-framework';
+    import { useForm } from 'what-framework/form';
     export const bad = useForm().register('email').onInput;
   `,
   'neg-infinite-data.ts': `
-    import { useInfiniteQuery } from 'what-framework';
-    export const bad = useInfiniteQuery<{ id: string }>({}).data().map((p) => p);
+    import { useInfiniteQuery } from 'what-framework/data';
+    export const bad = useInfiniteQuery<{ id: string }>({ queryKey: ['x'], queryFn: async () => ({ id: '' }) }).data().map((p) => p);
   `,
+  // invalidateQueries resolves once the refetches have landed, with nothing:
+  // the data is in the cache, not in its result.
   'neg-invalidate-await.ts': `
-    import { invalidateQueries } from 'what-framework';
-    export const bad: Promise<void> = invalidateQueries('todos');
+    import { invalidateQueries } from 'what-framework/data';
+    export const bad: Promise<string[]> = invalidateQueries('todos');
   `,
   // Called WITH the state argument the old DerivedFn signature wanted, so this
   // fails on "not callable" rather than on arity, i.e. it really is testing
@@ -339,11 +349,11 @@ describe('runtime shape: animation', () => {
     t.cancel();
   });
 
-  it('useTransition drives progress; mounted/styles/show/hide never existed', () => {
-    const transition = inComponent(() => W.useTransition());
+  it('useTween drives progress; mounted/styles/show/hide never existed', () => {
+    const transition = inComponent(() => W.useTween());
     assert.deepEqual(keys(transition), ['isTransitioning', 'progress', 'start']);
     for (const phantom of ['mounted', 'styles', 'show', 'hide']) {
-      assert.equal(transition[phantom], undefined, `useTransition has no ${phantom}`);
+      assert.equal(transition[phantom], undefined, `useTween has no ${phantom}`);
     }
   });
 
@@ -392,8 +402,12 @@ describe('runtime shape: forms', () => {
     const form = inComponent(() => W.useForm({ defaultValues: { email: '', agree: true } }));
     const text = form.register('email');
     assert.equal(text.onInput, undefined, 'register() has never defined onInput');
-    assert.equal(typeof text.oninput, 'function');
-    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'oninput', 'ref', 'value']);
+    // One handler, onchange: React's change event, which a text field fires
+    // as the user types and a select when its pick changes (form.js register).
+    // `oninput` keeps it for 0.14 code, not enumerable, so keys() leaves it out.
+    assert.equal(text.oninput, text.onchange);
+    assert.equal(typeof text.onchange, 'function');
+    assert.deepEqual(keys(text), ['name', 'onBlur', 'onFocus', 'onchange', 'ref', 'value']);
 
     const checkbox = form.register('agree', { type: 'checkbox' });
     assert.deepEqual(keys(checkbox), ['checked', 'name', 'onBlur', 'onFocus', 'onchange', 'ref']);
@@ -432,8 +446,12 @@ describe('runtime shape: data fetching', () => {
     }
   });
 
-  it('invalidateQueries is synchronous', () => {
-    assert.equal(W.invalidateQueries('parity-nothing'), undefined);
+  // It starts the refetches at once and resolves when they have landed, so
+  // `await invalidateQueries(...)` means the cache holds the fresh data.
+  it('invalidateQueries returns a promise of the refetches', async () => {
+    const result = W.invalidateQueries('parity-nothing');
+    assert.equal(typeof result.then, 'function');
+    assert.equal(await result, undefined);
   });
 
   it('getQueryData is undefined for a key the cache never held, and takes array keys', () => {

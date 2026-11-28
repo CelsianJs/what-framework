@@ -13,9 +13,9 @@ export interface DevToolsMCPConnection {
 export interface ConnectDevToolsMCPOptions {
   /** Bridge port. Default 9229. */
   port?: number;
-  /** Shared secret the bridge requires. */
+  /** Pre-shared pairing key (WHAT_MCP_TOKEN) for a page that connects without a dev-server discovery endpoint. */
   token?: string;
-  /** Override the discovery endpoint instead of deriving it from `port`. */
+  /** Same-origin endpoint that returns a bridge credential for this page (set by the Vite plugin). */
   discoveryUrl?: string;
 }
 

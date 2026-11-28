@@ -1,4 +1,4 @@
-// Edge adapters (Phase 7): Cloudflare worker + Vercel function are thin Web-Fetch
+// Edge adapters: Cloudflare worker + Vercel function are thin Web-Fetch
 // handlers over the same core.
 
 import { describe, it } from 'node:test';
@@ -14,7 +14,7 @@ describe('Cloudflare adapter', () => {
     const worker = createCloudflareHandler({ routes });
     const res = await worker.fetch(new Request('http://x/'), {}, { waitUntil() {} });
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /<main>edge<\/main>/);
+    assert.match(await res.text(), /<main data-hk="0">edge<\/main>/);
   });
 });
 

@@ -39,12 +39,33 @@ const importMap = {
   imports: {
     'what-framework': '/node_modules/what-framework/src/index.js',
     'what-core': '/node_modules/what-core/src/index.js',
+    // The domain kits, for both packages: what-framework/<kit> re-exports
+    // what-core/<kit>.
+    ...Object.fromEntries(['a11y', 'ui', 'motion', 'dom', 'form', 'data'].flatMap((kit) => [
+      [`what-framework/${kit}`, `/node_modules/what-framework/src/${kit}.js`],
+      [`what-core/${kit}`, `/node_modules/what-core/src/entries/${kit}.js`],
+    ])),
     'what-router': '/node_modules/what-router/src/index.js',
+    // what-router reads the development flag and the query tags from
+    // what-core/internal.
+    'what-core/internal': '/node_modules/what-core/src/entries/internal.js',
     // The client-safe half of the server package: useOptimistic lives in
     // actions.js, which imports nothing from node:*.
     'what-server/actions': '/node_modules/what-server/src/actions.js',
   },
+  // what-core reads its development flag through its own `#env` import
+  // (package.json `imports`), which a browser resolves in the package's scope.
+  scopes: {
+    '/node_modules/what-core/': { '#env': '/node_modules/what-core/src/env.js' },
+  },
 };
+
+// A buildless page has no bundler to pick the framework's development build,
+// so outside production the page sets its development flag before the
+// framework loads, as create-what's full-stack template does: the
+// development diagnostics (hydration mismatches among them) reach the
+// browser console. NODE_ENV=production serves the production tier.
+const devFlagScript = process.env.NODE_ENV === 'production' ? '' : '<script>globalThis.__WHAT_DEV__=true</script>';
 
 const sharedHead =
   '<link rel="stylesheet" href="/src/styles.css">' +
@@ -52,7 +73,7 @@ const sharedHead =
 
 const hydratedDocument = {
   clientEntry: '/src/entry-client.js',
-  head: `<script type="importmap">${JSON.stringify(importMap)}</script>${sharedHead}`,
+  head: `<script type="importmap">${JSON.stringify(importMap)}</script>${devFlagScript}${sharedHead}`,
 };
 
 // No client entry and no import map: a page that ships zero JavaScript should

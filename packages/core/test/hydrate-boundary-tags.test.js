@@ -73,6 +73,34 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 // =========================================================================
 
 describe('hydrating <ErrorBoundary>', () => {
+  // A component before the boundary that returns an array, a fragment, or its
+  // one child (a context provider, as <Form> renders): the boundary still
+  // finds its own marker, adopts the server's nodes, and nothing is reported.
+  it('after a sibling component that returns an array, a fragment or its children', async () => {
+    const { Fragment } = await import('../src/h.js');
+    const { createContext } = await import('../src/hooks.js');
+    const Ctx = createContext(0);
+    const before = {
+      array: () => [h('i', {}, 'a'), h('i', {}, 'b')],
+      fragment: () => h(Fragment, null, h('i', {}, 'a'), h('i', {}, 'b')),
+      'one child': () => h(Ctx, { value: 1 }, h('form', {}, h('button', {}, 'go'))),
+      'two children': () => h(Ctx, { value: 1 }, h('i', {}, 'a'), h('i', {}, 'b')),
+    };
+    for (const [name, Before] of Object.entries(before)) {
+      const tree = () => h('main', {}, h(Before, {}), h(ErrorBoundary, { fallback: () => h('p', {}, 'err') }, h(() => h('p', { id: 'c' }, () => 'fine'), {})));
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      container.innerHTML = renderToHydratableString(tree());
+      const server = container.querySelector('#c');
+      const reports = [];
+      hydrate(tree(), container, { onHydrationError: (r) => reports.push(r) });
+      flushSync();
+      assert.deepEqual(reports, [], name);
+      assert.equal(container.querySelector('#c'), server, `${name}: the server's node is adopted`);
+      container.remove();
+    }
+  });
+
   it('keeps the subtree the server rendered', () => {
     const tree = () => h('div', { id: 'x' },
       h(ErrorBoundary, { fallback: () => h('p', {}, 'FALLBACK') },
@@ -138,7 +166,7 @@ describe('hydrating <ErrorBoundary>', () => {
       'the boundary moved its siblings',
     );
     // c must sit OUTSIDE the region, or the boundary would take it down with it.
-    const end = [...container.firstChild.childNodes].find((n) => n.nodeType === 8 && n.textContent === 'eb:end');
+    const end = [...container.firstChild.childNodes].find((n) => n.nodeType === 8 && n.textContent === '/b');
     assert.ok(end, 'the region was never closed');
     assert.equal(end.nextSibling, c, 'the trailing sibling was swallowed by the region');
   });
@@ -380,16 +408,12 @@ describe('hydrating <ErrorBoundary>', () => {
       'the reset reached past the region and took the sibling with it');
   });
 
-  it('refuses the claim when the server rendered NOTHING for the region', () => {
-    // Nothing in the server's bytes says where a boundary's region begins or
-    // ends, so "the markup at the cursor is mine" is never provable — only
-    // refutable. Here the server rendered the boundary as empty (its only child
-    // is client-only) and the node at the cursor belongs to the SIBLING. A
-    // boundary that claimed it anyway would be the <Portal> failure again:
-    // rewriting the footer into a fallback and rebuilding the footer behind it.
-    //
-    // The refutation is the fallback's own root: a <p> cannot have produced a
-    // <footer>, so the boundary keeps its hands off and rebuilds instead.
+  it('keeps its hands off the sibling when the server rendered NOTHING for the region', () => {
+    // Here the server rendered the boundary as empty (its only child is
+    // client-only) and the node after it belongs to the SIBLING. A boundary
+    // that claimed it anyway would be the <Portal> failure again: rewriting the
+    // footer into a fallback and rebuilding the footer behind it. The server's
+    // boundary markers say where the region ends.
     function ClientOnlyBoom() {
       if (isServerRender()) return null;
       throw new Error('client only');
@@ -405,8 +429,8 @@ describe('hydrating <ErrorBoundary>', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     container.innerHTML = renderToHydratableString(tree());
-    assert.equal(container.innerHTML, '<div id="ssr-none"><footer class="ft">FOOTER</footer></div>',
-      'precondition: the server emits nothing for the boundary');
+    assert.equal(container.innerHTML, '<div id="ssr-none"><!--b--><!--/b--><footer class="ft">FOOTER</footer></div>',
+      'precondition: the server emits nothing but the markers for the boundary');
     const serverFooter = container.querySelector('footer.ft');
 
     hydrate(tree(), container);
@@ -416,23 +440,16 @@ describe('hydrating <ErrorBoundary>', () => {
       `the boundary claimed its sibling's node for the fallback: ${container.innerHTML}`);
     assert.equal(container.querySelectorAll('footer.ft').length, 1);
     assert.equal(container.querySelector('p.fb')?.textContent, 'client only');
-    const end = [...container.firstChild.childNodes].find((n) => n.nodeType === 8 && n.textContent === 'eb:end');
+    const end = [...container.firstChild.childNodes].find((n) => n.nodeType === 8 && n.textContent === '/b');
     assert.equal(end.nextSibling, serverFooter, 'the footer ended up inside the region');
   });
 
-  it('rebuilds when a child AHEAD of the thrower already claimed markup', () => {
-    // The remaining gap, pinned deliberately.
-    //
+  it('reuses the fallback the server rendered when a child AHEAD of the thrower would have claimed markup', () => {
     // The server renders ONLY the fallback here: the children are mapped as a
     // unit, so the <h1> that came before the throwing child never reaches the
-    // wire either. On the client the <h1> hydrates FIRST, claims the fallback's
-    // <p>, calls it a mismatch and replaces it — the server's markup is gone
-    // before the boundary is told an error happened, so there is nothing left to
-    // claim and the region is rebuilt.
-    //
-    // Closing this needs the server to say which arm it rendered (the client
-    // cannot ask after the fact). If this assertion ever starts failing because
-    // the markup IS reused, the SSR paragraph in the docs has to change with it.
+    // wire either. The server's <!--b!--> says the region holds the fallback,
+    // so the client builds the children itself first; they throw again, and the
+    // fallback hydrates against the server's instead of the <h1> claiming it.
     function Bad() { throw new Error('boom'); }
 
     const tree = () => h('div', { id: 'ssr-late' },
@@ -449,21 +466,13 @@ describe('hydrating <ErrorBoundary>', () => {
       'precondition: the server emits the fallback alone, not the children');
     const serverFallback = container.querySelector('p.fb');
 
-    const realWarn = console.warn;
-    console.warn = () => {};
-    try {
-      hydrate(tree(), container);
-    } finally {
-      console.warn = realWarn;
-    }
+    hydrate(tree(), container);
     flushSync();
 
-    // Correct on screen either way — this is a lost reuse, not a lost node.
     assert.equal(container.querySelectorAll('p.fb').length, 1);
     assert.equal(container.querySelector('p.fb').textContent, 'boom');
     assert.equal(container.querySelector('h1.title'), null, 'the failed arm was left on screen');
-    assert.notEqual(container.querySelector('p.fb'), serverFallback,
-      'the fallback is reused now — update the SSR docs paragraph and this test');
+    assert.equal(container.querySelector('p.fb'), serverFallback, 'the server fallback is adopted');
   });
 
   it('leaves the cursor where the end marker is when it swaps DURING the walk', () => {
@@ -569,7 +578,7 @@ describe('hydrating <ErrorBoundary>', () => {
     flushSync();
 
     const page = container.firstChild;
-    const end = [...page.childNodes].find((n) => n.nodeType === 8 && n.textContent === 'eb:end');
+    const end = [...page.childNodes].find((n) => n.nodeType === 8 && n.textContent === '/b');
     assert.ok(end, `the sibling behind the boundary claimed the end marker: ${page.innerHTML}`);
     assert.equal(page.querySelectorAll('footer.ft2').length, 1);
     assert.equal(page.querySelector('footer.ft2'), serverFooter,
@@ -598,7 +607,10 @@ describe('hydrating <ErrorBoundary>', () => {
     function Bad() { throw new Error('boom'); }
 
     function Owner() {
-      onCleanup(() => { cleaned = true; });
+      // The server render's copy of Owner is disposed, and its cleanup run,
+      // when that render is released; only the hydrated copy counts here.
+      const onServer = isServerRender();
+      onCleanup(() => { if (!onServer) cleaned = true; });
       return h(ErrorBoundary, { fallback: ({ error }) => h('p', { class: 'fb' }, error.message) },
         h('section', {}, () => (boom() ? h(Bad, {}) : h('p', { class: 'ok' }, 'OK'))),
       );
