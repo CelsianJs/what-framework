@@ -402,6 +402,27 @@ describe('generateRoutesModule', () => {
     const serverLines = generateServerRoutesModule(TMP, path.dirname(TMP)).split('\n');
     assert.ok(serverLines.find((l) => l.includes("'/blog/:slug'")).includes('layout: [_layout0, _layout1]'));
   });
+
+  it('gives a route group\'s _layout to the group\'s pages only, inside the root layout', () => {
+    cleanup();
+    createFixture({
+      '_layout.jsx': 'export default function Root({ children }) { return children; }',
+      'index.jsx': 'export default function Home() {}',
+      '(auth)/_layout.jsx': 'export default function AuthLayout({ children }) { return children; }',
+      '(auth)/login.jsx': 'export default function Login() {}',
+      'about.jsx': 'export default function About() {}',
+    });
+    for (const mod of [generateRoutesModule(TMP, path.dirname(TMP)), generateServerRoutesModule(TMP, path.dirname(TMP))]) {
+      const lines = mod.split('\n');
+      const varOf = (file) => lines.find((l) => l.startsWith('import _layout') && l.includes(file)).match(/_layout\d+/)[0];
+      const root = varOf("pages/_layout.jsx'");
+      const auth = varOf('(auth)/_layout.jsx');
+      const route = (p) => lines.find((l) => l.includes(`path: '${p}'`));
+      assert.ok(route('/login').includes(`layout: [${root}, ${auth}]`), route('/login'));
+      assert.ok(route('/about').includes(`layout: ${root} `), route('/about'));
+      assert.ok(route('/').includes(`layout: ${root} `), route('/'));
+    }
+  });
 });
 
 // --- Integration: Real example app structure ---

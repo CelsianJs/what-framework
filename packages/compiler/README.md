@@ -170,11 +170,15 @@ src/pages/
     _layout.jsx    -> the layout around every page under /blog, inside the root's
     index.jsx      -> /blog
     [slug].jsx     -> /blog/:slug
+  (auth)/
+    _layout.jsx    -> the layout around the group's pages only, inside the root's
+    login.jsx      -> /login
   [...all].jsx     -> /*
 ```
 
-A `_layout` nests in the layouts of the directories above it, as Next.js's
-nested layouts do: `/blog/:slug` renders inside the root layout, then the blog
+A `_layout` goes around the pages of its directory and the directories below
+it, nested in the layouts of the directories above, as Next.js's nested
+layouts do: `/blog/:slug` renders inside the root layout, then the blog
 layout. Moving between two pages keeps the layouts they share (`/blog` to
 `/blog/hello` keeps both; `/about` to `/blog` keeps the root's) with their state.
 

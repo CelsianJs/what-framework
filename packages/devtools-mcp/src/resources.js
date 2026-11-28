@@ -581,7 +581,7 @@ mount(<FileRouter routes={routes} />, '#app');
 | \`src/pages/about.jsx\` | \`/about\` |
 | \`src/pages/users/[id].jsx\` | \`/users/:id\` |
 | \`src/pages/blog/[...slug].jsx\` | \`/blog/*slug\` (catch-all) |
-| \`src/pages/_layout.jsx\` | layout for its directory, nested inside the layouts of the directories above |
+| \`src/pages/_layout.jsx\` | layout for its directory and those below, nested inside the layouts of the directories above (a group's \`(auth)/_layout.jsx\` for the group's pages) |
 | \`src/pages/(auth)/login.jsx\` | \`/login\` (a group does not change the URL) |
 
 ## Route Middleware and Guards

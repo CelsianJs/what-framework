@@ -697,8 +697,11 @@ and navigations that are transitions. Each change below has its migration.
   list, outermost first. The file router nests each `_layout` in those of the
   directories above it, as Next.js nests layouts: `src/pages/_layout.jsx`
   goes around every page, `blog/_layout.jsx` inside it around the pages
-  under `/blog`. 0.14 used the child's layout in place of the parent's, and
-  the file router only the closest `_layout`. This affects a child route
+  under `/blog`, and a route group's `(auth)/_layout.jsx` around the group's
+  pages. 0.14 used the child's layout in place of the parent's, and the file
+  router only the closest `_layout`, matched by URL, so a group's `_layout`
+  went to no page or, depending on the order the file system listed the
+  files, to every page in place of the root's. This affects a child route
   that set a `layout` to replace its parent's (a full-screen page under
   `/dashboard`): move it out of the `nestedRoutes` call.
 - **A `<Router>` inside another has route state of its own**, on the server

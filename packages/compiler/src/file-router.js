@@ -473,12 +473,11 @@ export function generateRoutesModule(pagesDir, rootDir) {
   const routeEntries = [];
 
   // Generate layout imports
-  const layoutMap = new Map();
-  layouts.forEach((layout, i) => {
+  const layoutVars = layouts.map((layout, i) => {
     const varName = `_layout${i}`;
     const relPath = toImportPath(layout.filePath, rootDir);
     imports.push(`import ${varName} from '${relPath}';`);
-    layoutMap.set(layout.urlPrefix, varName);
+    return { dir: path.dirname(layout.filePath), name: varName };
   });
 
   // Generate page imports and route entries
@@ -500,7 +499,7 @@ export function generateRoutesModule(pagesDir, rootDir) {
       path: page.routePath,
       component: varName,
       mode: pageConfig.mode || 'client',
-      layout: findLayouts(page.routePath, layoutMap),
+      layout: findLayouts(page.filePath, layoutVars),
       hasLoader: detected.hasLoader,
     };
 
@@ -561,11 +560,10 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
   const imports = [];
   const routeEntries = [];
 
-  const layoutMap = new Map();
-  layouts.forEach((layout, i) => {
+  const layoutVars = layouts.map((layout, i) => {
     const varName = `_layout${i}`;
     imports.push(`import ${varName} from '${toImportPath(layout.filePath, rootDir)}';`);
-    layoutMap.set(layout.urlPrefix, varName);
+    return { dir: path.dirname(layout.filePath), name: varName };
   });
 
   pages.forEach((page, i) => {
@@ -593,7 +591,7 @@ export function generateServerRoutesModule(pagesDir, rootDir) {
       component: def,
       ns,
       mode: pageConfig.mode || 'client',
-      layout: findLayouts(page.routePath, layoutMap),
+      layout: findLayouts(page.filePath, layoutVars),
       ...detected,
     });
   });
@@ -644,17 +642,17 @@ function toImportPath(filePath, rootDir) {
 }
 
 /**
- * The layouts of a route path, as the route's `layout`: every `_layout` of a
- * directory that holds the page, from the root's down to the closest, as one
- * name, a list of names (outermost first), or null without one. The router
- * nests them in that order and keeps those two routes share.
+ * The layouts of the page in `pageFile`, as its route's `layout`: the
+ * `_layout` of every directory that holds the page, from the pages
+ * directory's down to the closest (a route group's `(auth)/_layout` too,
+ * around the group's pages only), as one name, a list of names (outermost
+ * first), or null without one. The router nests them in that order and keeps
+ * those two routes share.
  */
-function findLayouts(routePath, layoutMap) {
-  const found = layoutMap.has('/') ? [layoutMap.get('/')] : [];
-  let prefix = '';
-  for (const segment of routePath.split('/').filter(Boolean)) {
-    prefix += '/' + segment;
-    if (layoutMap.has(prefix)) found.push(layoutMap.get(prefix));
-  }
+function findLayouts(pageFile, layoutVars) {
+  const found = layoutVars
+    .filter((layout) => pageFile.startsWith(layout.dir + path.sep))
+    .sort((a, b) => a.dir.length - b.dir.length)
+    .map((layout) => layout.name);
   return found.length === 0 ? null : found.length === 1 ? found[0] : `[${found.join(', ')}]`;
 }
