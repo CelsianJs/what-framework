@@ -50,7 +50,7 @@ import {
   checkIslandProp, directiveValue, islandOptions, renderFunctionChild,
 } from './common.js';
 import { buildWhenCondition, isPotentiallyReactive } from './reactivity.js';
-import { findMappedJsx, isKeyedRow, keyIndex, listSlot, markRowItemReads, rowField } from './lists.js';
+import { findMappedJsx, isKeyedRow, keyIndex, listSlot, liveKey, markRowItemReads, readsRowItem, rowField } from './lists.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { componentMetadata } from './dev-metadata.js';
 
@@ -82,17 +82,6 @@ function isReference(expr) {
 // the DOM back end binds (lists.js markRowItemReads).
 function isReactive(expr, state) {
   return readsRowItem(expr) || (!isReference(expr) && isPotentiallyReactive(expr, state.signalNames, state.importedIdentifiers));
-}
-
-function readsRowItem(node) {
-  if (!node || typeof node !== 'object') return false;
-  if (Array.isArray(node)) return node.some(readsRowItem);
-  if (node._whatRowItem === true) return true;
-  if (t.isFunction(node)) return false;
-  for (const field of t.VISITOR_KEYS[node.type] || []) {
-    if (readsRowItem(node[field])) return true;
-  }
-  return false;
 }
 
 // The value h() would be handed: the expression, or its thunk when reactive.
@@ -724,7 +713,10 @@ function componentValue(node, state) {
   const site = listSlot(node);
   if (site !== null || meta) args.push(site ?? t.unaryExpression('void', t.numericLiteral(0)));
   if (meta) args.push(meta);
-  return call(state, leaf ? '_$ssrLeaf' : '_$ssrComponent', args);
+  const component = call(state, leaf ? '_$ssrLeaf' : '_$ssrComponent', args);
+  // A key outside a list that can change: the function child the DOM target
+  // builds it in (lists.js liveKey), which a hydratable render brackets.
+  return liveKey(node, state) !== null ? thunk(component) : component;
 }
 
 // A ternary with a reactive test handed to a component as JSX

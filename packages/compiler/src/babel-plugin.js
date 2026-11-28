@@ -54,6 +54,7 @@ import { initSsrState, finishSsrProgram, transformSsrRoot } from './babel/ssr.js
 import { SERVER_ACTION_SOURCES, normalizeActionFilename, transformServerAction } from './babel/server-actions.js';
 import { annotatePrimitive } from './babel/dev-metadata.js';
 import { resolveCallees } from './babel/reactivity.js';
+import { markRowKey } from './babel/lists.js';
 import { fileRuntimeMismatch } from './release.js';
 import { isFrameworkModule } from './framework-files.js';
 
@@ -180,6 +181,7 @@ export default function whatBabelPlugin({ types }) {
           // which what-core renders as the element at run time.
           path.traverse({
             JSXElement(elPath) {
+              markRowKey(elPath, state);
               const tag = constantTag(elPath);
               // Whether a component call can build a tag held in a binding,
               // which SVG and MathML places are told of (dom.js _$inNs).

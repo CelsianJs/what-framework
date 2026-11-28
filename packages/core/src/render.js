@@ -7,7 +7,7 @@
 // renderer in vnode-renderer.js, which only a vnode producer installs, so a
 // compiled-only bundle never contains dom.js's createDOM.
 
-import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _tracking, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
+import { _symbolChild, signal, effect, untrack, batch, createRoot, _provide, _contextOf, _itemScope, _runScope, _rowItem, _readRowItem, _propField, _setRowItem, _livesWithRow, _readAlone, _effectWhenNeeded, _tracking, _ownerRecord, _componentOwner, _holdUser, _releaseUser, _runOwned, _disposeOwner, _handleError, _handlePending, _isNotReady, _adoptOwner, _currentComponent, _isDisposed, HANDLED, _devAnchor, _devError, _devMounted, _devNewContent, __ownerPath, memo, onCleanup, getOwner, runWithOwner, __DEV__, __devtools } from './reactive.js';
 import { isServerRender } from './server-context.js';
 import { __resetIdCounter } from './a11y.js';
 import { _trackRoot, _liveRegionNodes, _setFieldProp, _showControlled, _selectionKeeper, _changedFields, _restoreFields, _writableProp, _isUnsafeAttr, _isEventProp, _installLazyChildren, _place, _placeFlat, _takeFlat, _copyProps, _copyProp, _setOwnProp, _isLiveProp, _isOwnProps, _markProps, _ownProps, PROPS, _setOutsideRead, _mountTarget, _handleNavigationSignal, _controlFields, _selectsFor, _installVNodeLazyProps } from './dom.js';
@@ -180,6 +180,28 @@ function componentVNode(Component, props, children) {
     _setOwnProp(props, 'children', mergedChildren);
   }
   return new VNode(Component, props || {}, children || [], null);
+}
+
+/**
+ * Compiled JSX: a component with a key outside a list row whose value can
+ * change (`<Form key={user().id} />`), React's way to start one again. A
+ * reactive child whose run reads the key and builds the component with
+ * `build`: the region owns what a run builds, so a key whose value changes
+ * disposes the instance it shows and builds a new one in its place, fresh,
+ * and a write that leaves the value as it was builds nothing (the key is a
+ * memo). Nothing else the build reads runs it again.
+ * @param {() => any} key
+ * @param {() => any} build
+ */
+export function _$keyed(key, build) {
+  const k = memo(key);
+  return () => {
+    k();
+    // Development: a run is a new key, so what it builds is a new instance,
+    // not one whose state was lost (ERR_REBUILT_COMPONENT).
+    if (__DEV__) _devNewContent();
+    return untrack(build);
+  };
 }
 
 /**

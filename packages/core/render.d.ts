@@ -135,6 +135,10 @@ export function _$memo<T>(fn: () => T): (() => T) & { peek(): T };
 // chains, <Show> fallbacks and ternaries handed to a component as JSX.
 export function _$lazyMemo<T>(fn: () => T): () => T;
 
+// A component with a key outside a list row whose value can change: a
+// reactive child that builds it again, fresh, whenever the key's value changes.
+export function _$keyed(key: () => unknown, build: () => unknown): () => unknown;
+
 export interface IslandProps {
   component: Component<any>;
   mode: 'load' | 'idle' | 'visible' | 'interaction' | 'media' | 'action' | 'static';

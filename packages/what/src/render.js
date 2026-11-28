@@ -58,6 +58,8 @@ export {
   // conditional JSX — and the lazy one, for a branch that may never be reached.
   _$memo,
   _$lazyMemo,
+  // A component with a key outside a list, built again when the key changes.
+  _$keyed,
   // What `<C client:idle />` compiles to: an island that hydrates itself.
   _$Island,
   // What what-compiler found while compiling a module (development builds).

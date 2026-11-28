@@ -18,7 +18,7 @@ import {
 } from './reactivity.js';
 import { enterJsxRoot } from './jsx-root.js';
 import { bindingMetadata, componentMetadata } from './dev-metadata.js';
-import { findMappedJsx, keyIndex, listSlot, readItemThroughAccessor, rowField, rowItemUnread, withItem } from './lists.js';
+import { findMappedJsx, keyIndex, listSlot, liveKey, readItemThroughAccessor, rowField, rowItemUnread, withItem } from './lists.js';
 import { hasNoSelectorPragma, lowerRowSelectors } from './auto-selector.js';
 
 
@@ -1957,14 +1957,19 @@ function transformComponentFineGrained(path, state) {
   // The root handed to hydrate() arrives unbuilt; one whose tag may be a
   // string claims the server's element when hydrate() runs it.
   const vnodeCall = holdsTag ? '_$hcomponentVNode' : '_$componentVNode';
-  const call = t.callExpression(helper(state, isHydrateRoot ? vnodeCall : '_$createComponent'), componentArgs);
+  let call = t.callExpression(helper(state, isHydrateRoot ? vnodeCall : '_$createComponent'), componentArgs);
   // A component placed in SVG or MathML is told so, for a tag held in a
   // binding that it builds (render.js _$inNs). Not one this module defines
   // whose JSX, and that of the components it calls, names no such tag: the
   // compiler places its elements itself.
   if (node._whatPlacedNs !== undefined && !isHydrateRoot && node._whatMayBuildTag !== false) {
-    return t.callExpression(helper(state, '_$inNs'), [t.numericLiteral(node._whatPlacedNs), t.arrowFunctionExpression([], call)]);
+    call = t.callExpression(helper(state, '_$inNs'), [t.numericLiteral(node._whatPlacedNs), t.arrowFunctionExpression([], call)]);
   }
+  // A key outside a list that can change (lists.js liveKey): a reactive
+  // child that builds the component again whenever the key's value changes
+  // (render.js _$keyed).
+  const key = isHydrateRoot ? null : liveKey(node, state);
+  if (key !== null) call = t.callExpression(helper(state, '_$keyed'), [t.arrowFunctionExpression([], key), t.arrowFunctionExpression([], call)]);
   return call;
 }
 
@@ -2696,7 +2701,7 @@ function orderedRows(expr, state, bracketed) {
 // or a reactive child.
 function lowersToRegion(node, state) {
   const flow = controlFlowTag(node, state);
-  return flow === 'For' || flow === 'Show' || flow === 'Switch';
+  return flow === 'For' || flow === 'Show' || flow === 'Switch' || (flow === null && isComponentElement(node) && liveKey(node, state) !== null);
 }
 
 function transformFragmentFineGrained(path, state) {
@@ -3116,6 +3121,7 @@ const RENDER_IMPORTS = [
   ['_$retype', '_$retype'],
   ['_$memo', '_$memo'],
   ['_$lazyMemo', '_$lazyMemo'],
+  ['_$keyed', '_$keyed'],
   ['_$Island', '_$Island'],
   ['_$buildDiagnostics', '_$buildDiagnostics'],
   ['_$setClass', 'setClass'],
@@ -3197,7 +3203,7 @@ function isPlainFunctionComponent(scope, name) {
   if (t.isExportNamedDeclaration(statement.parent) || t.isExportDefaultDeclaration(statement.parent)) return false;
   // A component call this compiler wrote is a tag too: Babel counts its
   // reference once the call stands in a function a later lowering made (the
-  // element of a branch's arm).
+  // element of a branch's arm, a key's build: render.js _$keyed).
   return binding.referencePaths.every((ref) => ref.node._whatTag === true || t.isJSXOpeningElement(ref.parent) || t.isJSXClosingElement(ref.parent));
 }
 

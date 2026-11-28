@@ -33,6 +33,7 @@ export {
   applyRef,
   _$memo,
   _$lazyMemo,
+  _$keyed,
   _$Island,
   _$buildDiagnostics,
   delegateEvents,

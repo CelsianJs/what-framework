@@ -3,7 +3,8 @@
 // the auto-selector both need.
 
 import { t } from './types.js';
-import { getAttrName, getAttributeValue, helper, uniqueName } from './common.js';
+import { controlFlowTag, getAttrName, getAttributeValue, helper, uniqueName } from './common.js';
+import { isPotentiallyReactive, isSignalIdentifier } from './reactivity.js';
 
 // Names bound by a parameter pattern. Destructuring counts, so
 // `({ id }, i) => <li key={id}>` binds `id` and a key of `id` resolves fine.
@@ -476,6 +477,73 @@ function namedReads(mapFn, names) {
 // holds.
 export function listSlot(node) {
   return typeof node.start === 'number' ? t.numericLiteral(node.start) : null;
+}
+
+// --- A key outside a list ---
+// A `key` on a component that is no list's row (`<Form key={user().id} />`)
+// is React's way to start it again: a new instance whenever the key's value
+// changes, the same key keeping the one it has.
+
+// Before any JSX is lowered, on both targets: marks the key of a list's row
+// (the JSX a `.map()` or `.flatMap()` callback returns, an arm of it, or what
+// a <For>'s function returns), which the list reads, so that neither back
+// end takes it for one outside a list (liveKey).
+export function markRowKey(elPath, state) {
+  const key = elPath.node.openingElement.attributes.find((attr) => t.isJSXAttribute(attr) && getAttrName(attr) === 'key');
+  if (key === undefined) return;
+  let p = elPath;
+  for (;;) {
+    const parent = p.parentPath;
+    if (parent === null) return;
+    if ((parent.isConditionalExpression() && p.key !== 'test') || (parent.isLogicalExpression() && p.key === 'right')
+      || parent.isParenthesizedExpression() || parent.isTSAsExpression() || parent.isTSNonNullExpression()) {
+      p = parent;
+      continue;
+    }
+    const fn = parent.isArrowFunctionExpression() && p.key === 'body' ? parent : parent.isReturnStatement() ? parent.getFunctionParent() : null;
+    if (fn === null) return;
+    const holder = fn.parentPath;
+    const callee = holder.node.callee;
+    const mapped = (holder.isCallExpression() || holder.isOptionalCallExpression()) && fn.listKey === 'arguments'
+      && (t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)) && !callee.computed
+      && t.isIdentifier(callee.property) && (callee.property.name === 'map' || callee.property.name === 'flatMap');
+    if (mapped || (holder.isJSXExpressionContainer() && controlFlowTag(holder.parent, state) === 'For')) key._whatRowKey = true;
+    return;
+  }
+}
+
+// The value of a component's key outside a list row when it can change: it
+// reads a signal, a prop or a row's item. Both back ends build the component
+// in a reactive child that runs again when the value changes (the DOM
+// target's render.js _$keyed, the server's function child, which the
+// hydratable renderers bracket and hydration adopts), so the two decide it
+// alike. Null for no key, a row's, or one that cannot change, which costs
+// nothing. A name holding a signal is read (`key={id}` is `id()`), as an
+// attribute reads one (dom.js).
+export function liveKey(node, state) {
+  for (const attr of node.openingElement.attributes) {
+    if (!t.isJSXAttribute(attr) || attr._whatRowKey === true || getAttrName(attr) !== 'key') continue;
+    const value = getAttributeValue(attr.value);
+    if (value == null || !(readsRowItem(value) || isPotentiallyReactive(value, state.signalNames, state.importedIdentifiers))) return null;
+    const fromProps = state.signalNames && state.signalNames.fromDestructuredProps;
+    return t.isIdentifier(value) && !(fromProps && fromProps.has(value.name)) && isSignalIdentifier(value.name, state.signalNames)
+      ? t.callExpression(value, [])
+      : value;
+  }
+  return null;
+}
+
+// Whether `node` reads a keyed row's item: the server target's marked name
+// (markRowItemReads), outside any function in it.
+export function readsRowItem(node) {
+  if (!node || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some(readsRowItem);
+  if (node._whatRowItem === true) return true;
+  if (t.isFunction(node)) return false;
+  for (const field of t.VISITOR_KEYS[node.type] || []) {
+    if (readsRowItem(node[field])) return true;
+  }
+  return false;
 }
 
 // Whether `found` (findMappedJsx) is a row the DOM target lowers to a keyed
