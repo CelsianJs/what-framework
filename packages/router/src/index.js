@@ -1474,6 +1474,18 @@ function sameRecord(a, b) {
 // hydrating, children built while the component runs would claim the
 // server's nodes before its <a> does.
 export const Link = /* @__PURE__ */ Object.assign(function Link(props) {
+  // A live prop (`href={`/org/${params.orgId}`}` compiles to a getter) is
+  // read where it is used, never while the link is built, so the link
+  // follows it as an <a> follows a live attribute: its href, its class, its
+  // active class, where a click goes and each attribute it passes on. Each
+  // one is an accessor here, and `read` reads one the link uses itself.
+  /** @type {Record<string, any>} */
+  const view = {};
+  for (const key of Object.keys(props)) {
+    const get = Object.getOwnPropertyDescriptor(props, key)?.get;
+    view[key] = typeof get === 'function' && /** @type {any} */ (get)._lazy !== true && !/^on/i.test(key) ? () => props[key] : props[key];
+  }
+  const read = (/** @type {any} */ value) => (typeof value === 'function' ? value() : value);
   const {
     href: written,
     class: cls,
@@ -1485,24 +1497,16 @@ export const Link = /* @__PURE__ */ Object.assign(function Link(props) {
     exactActiveClass = 'exact-active',
     transition = true,
     ...rest
-  } = props;
-  // A live prop (`href={`/org/${params.orgId}`}` compiles to a getter) is
-  // read where it is used, so the link follows it as an <a> follows a live
-  // attribute: its href, its active class and where a click goes.
-  const live = (/** @type {string} */ key) => {
-    const get = Object.getOwnPropertyDescriptor(props, key)?.get;
-    return typeof get === 'function' && /** @type {any} */ (get)._lazy !== true;
-  };
-  for (const key of Object.keys(rest)) if (live(key) && !/^on/i.test(key)) rest[key] = () => props[key];
+  } = view;
   // Sanitize href — reject dangerous protocols. A blocked href is null.
   const checked = (/** @type {any} */ href) => {
     if (isSafeUrl(href)) return href;
     if (typeof console !== 'undefined') console.warn('[what-router] Link blocked unsafe href:', href);
     return null;
   };
-  const first = checked(written);
-  const liveHref = live('href');
-  const target = liveHref ? computed(() => checked(props.href)) : () => first;
+  const liveHref = typeof written === 'function';
+  const first = liveHref ? null : checked(written);
+  const target = liveHref ? computed(() => checked(written())) : () => first;
   const safeHref = () => target() ?? 'about:blank';
   // The caller's own handlers (onClick or onclick, onMouseEnter): each runs
   // before the link's, and a click it prevents is not navigated, as in React
@@ -1537,8 +1541,8 @@ export const Link = /* @__PURE__ */ Object.assign(function Link(props) {
 
     return [
       typeof baseClass === 'function' ? baseClass() : baseClass,
-      isActive && activeClass,
-      isExactActive && exactActiveClass,
+      isActive && read(activeClass),
+      isExactActive && read(exactActiveClass),
     ].filter(Boolean).join(' ') || undefined;
   };
 
@@ -1562,14 +1566,14 @@ export const Link = /* @__PURE__ */ Object.assign(function Link(props) {
       const a = e.currentTarget;
       if ((a.target && a.target !== '_self') || a.hasAttribute('download') || resolveHref(href) === null) return;
       e.preventDefault();
-      navigate(href, { replace: rep, transition });
+      navigate(href, { replace: read(rep), transition: read(transition) });
     },
     // A page of this origin is prefetched; another site is not asked for
     // anything before the visitor goes there.
     onmouseenter: shouldPrefetch || ownEnter ? (e) => {
       if (ownEnter) ownEnter(e);
       const href = target();
-      if (shouldPrefetch && href !== null && resolveHref(href) !== null) prefetch(href);
+      if (read(shouldPrefetch) && href !== null && resolveHref(href) !== null) prefetch(href);
     } : undefined,
   }, ...(Array.isArray(children) ? children : [children]));
 }, { _deferChildren: true });

@@ -15,7 +15,7 @@ installDOM('<!doctype html><html><body><div id="app"></div></body></html>', { ur
 
 const { h, mount, useEffect } = await import('what-core');
 const { subscribeDiagnostics } = await import('what-core/internal');
-const { Router, navigate, useSearch, route } = await import('../src/index.js');
+const { Router, Link, navigate, useSearch, route } = await import('../src/index.js');
 
 const flush = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
@@ -104,5 +104,26 @@ describe('a read of the query in the body of a kept page', () => {
     await flush();
     assert.equal(document.getElementById('item').textContent, '2 desc');
     assert.deepEqual(reports, []);
+  });
+
+  it("is not reported for a <Link> given live props read from the query, which follow it", async () => {
+    // As compiled JSX passes them: `href={hrefFor(query.page)}` and the rest
+    // are getters on the link's props.
+    const Pages = (props) => h('nav', null, h(Link, {
+      __proto__: null,
+      id: 'next',
+      get href() { return `/pages?page=${Number(props.query.page) + 1}`; },
+      get class() { return `pager-${props.query.page}`; },
+      get 'data-at'() { return props.query.page; },
+    }, 'Next'));
+    await start('/pages?page=1', [{ path: '/pages', component: Pages }]);
+    const link = () => document.getElementById('next');
+    assert.equal(link().getAttribute('href'), '/pages?page=2');
+    await navigate('/pages?page=2');
+    await flush();
+    assert.equal(link().getAttribute('href'), '/pages?page=3', 'the href follows the query');
+    assert.match(link().className, /\bpager-2\b/, 'the class follows the query');
+    assert.equal(link().getAttribute('data-at'), '2', 'an attribute it passes on follows the query');
+    assert.deepEqual(reports.map((r) => r.data.component), [], 'the link reads none of them while it is built');
   });
 });
